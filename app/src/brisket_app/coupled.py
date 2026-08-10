@@ -63,24 +63,31 @@ def coupled_cook(
     tpit_prev = None
     pit = meat = None
     for _ in range(K):
+        # optimization_barrier: each Tesseract call gets its own uncollapsed
+        # copy of shared inputs. Without it, XLA reuses one buffer across the
+        # K unrolled callback invocations, and the second consumption has been
+        # observed to read recycled memory (all-NaN damper schedule at iter 1
+        # under jit; flaky shape corruption in eager mode).
+        phi_i, u_i, q_i = jax.lax.optimization_barrier((phi, u_knots, q))
         pit = apply_tesseract(
             pit_tx,
             {
-                "phi": phi,
-                "u_knots": u_knots,
+                "phi": phi_i,
+                "u_knots": u_i,
                 "u_tknots": utk,
-                "qmeat_knots": q,
+                "qmeat_knots": q_i,
                 "q_tknots": tk,
                 "tsave": tk,
                 "abstol": min(abstol, 1e-8),
                 "reltol": min(reltol, 1e-8),
             },
         )
+        theta_i, tpit_i = jax.lax.optimization_barrier((theta, pit["tpit"]))
         meat = apply_tesseract(
             meat_tx,
             {
-                "theta": theta,
-                "tpit_knots": pit["tpit"],
+                "theta": theta_i,
+                "tpit_knots": tpit_i,
                 "tknots": tk,
                 "tsave": tk,
                 "abstol": abstol,

@@ -37,7 +37,17 @@ _JL_THREAD: ThreadPoolExecutor = getattr(sys, _EXEC_ATTR)
 
 
 def _on_julia_thread(fn, *args):
-    return _JL_THREAD.submit(fn, *args).result()
+    def _guarded():
+        try:
+            return fn(*args)
+        except Exception as e:
+            # Stringify HERE, on the Julia thread: a JuliaError crossing to
+            # another thread deadlocks the moment traceback formatting calls
+            # str() on it (juliacall off its init thread hangs). `from None`
+            # keeps the original object out of the propagated chain.
+            raise RuntimeError(f"Julia call failed: {type(e).__name__}: {e}") from None
+
+    return _JL_THREAD.submit(_guarded).result()
 
 
 def _init():
@@ -99,19 +109,31 @@ class OutputSchema(BaseModel):
     )
 
 
+def _own(x) -> np.ndarray:
+    """Eager owned copy made ON THE CALLBACK THREAD — XLA only guarantees
+    callback input buffers during the invocation; see meat tesseract_api.py."""
+    return np.array(x, dtype=np.float64, copy=True)
+
+
 def apply(inputs: InputSchema) -> OutputSchema:
+    phi, u, utk, q, qtk, tsave = (_own(inputs.phi), _own(inputs.u_knots),
+                                  _own(inputs.u_tknots), _own(inputs.qmeat_knots),
+                                  _own(inputs.q_tknots), _own(inputs.tsave))
     def _run():
         T, m = jl._pit_apply(
-            _jvec(inputs.phi),
-            _jvec(inputs.u_knots),
-            _jvec(inputs.u_tknots),
-            _jvec(inputs.qmeat_knots),
-            _jvec(inputs.q_tknots),
-            _jvec(inputs.tsave),
+            _jvec(phi),
+            _jvec(u),
+            _jvec(utk),
+            _jvec(q),
+            _jvec(qtk),
+            _jvec(tsave),
             float(inputs.abstol),
             float(inputs.reltol),
         )
-        return np.asarray(T), np.asarray(m)
+        # .copy() is load-bearing: np.asarray over a Julia vector is a
+        # zero-copy VIEW of Julia memory; releasing it from another thread
+        # can deadlock the whole process (see meat tesseract_api.py).
+        return np.asarray(T).copy(), np.asarray(m).copy()
 
     T, m = _on_julia_thread(_run)
     return OutputSchema(tpit=T, m_fuel=m)
@@ -131,27 +153,34 @@ def vector_jacobian_product(
     vjp_outputs: set[str],
     cotangent_vector: dict,
 ):
-    nt = len(np.asarray(inputs.tsave))
+    phi, u, utk, q, qtk, tsave = (_own(inputs.phi), _own(inputs.u_knots),
+                                  _own(inputs.u_tknots), _own(inputs.qmeat_knots),
+                                  _own(inputs.q_tknots), _own(inputs.tsave))
+    nt = len(tsave)
+    cots = {name: (_own(cotangent_vector[name])
+                   if name in cotangent_vector and name in vjp_outputs else None)
+            for name in ("tpit", "m_fuel")}
 
     def _run():
         def cot(name):
-            if name in cotangent_vector and name in vjp_outputs:
-                return _jvec(cotangent_vector[name])
-            return _jvec(np.zeros(nt))
+            v = cots[name]
+            return _jvec(v if v is not None else np.zeros(nt))
 
         dphi, du, dq = jl._pit_vjp(
-            _jvec(inputs.phi),
-            _jvec(inputs.u_knots),
-            _jvec(inputs.u_tknots),
-            _jvec(inputs.qmeat_knots),
-            _jvec(inputs.q_tknots),
-            _jvec(inputs.tsave),
+            _jvec(phi),
+            _jvec(u),
+            _jvec(utk),
+            _jvec(q),
+            _jvec(qtk),
+            _jvec(tsave),
             float(inputs.abstol),
             float(inputs.reltol),
             cot("tpit"),
             cot("m_fuel"),
         )
-        return np.asarray(dphi), np.asarray(du), np.asarray(dq)
+        # .copy(): no zero-copy views of Julia memory may cross threads
+        return (np.asarray(dphi).copy(), np.asarray(du).copy(),
+                np.asarray(dq).copy())
 
     dphi, du, dq = _on_julia_thread(_run)
     out = {}

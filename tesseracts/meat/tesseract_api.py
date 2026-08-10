@@ -42,7 +42,17 @@ _JL_THREAD: ThreadPoolExecutor = getattr(sys, _EXEC_ATTR)
 
 
 def _on_julia_thread(fn, *args):
-    return _JL_THREAD.submit(fn, *args).result()
+    def _guarded():
+        try:
+            return fn(*args)
+        except Exception as e:
+            # Stringify HERE, on the Julia thread: a JuliaError crossing to
+            # another thread deadlocks the moment traceback formatting calls
+            # str() on it (juliacall off its init thread hangs). `from None`
+            # keeps the original object out of the propagated chain.
+            raise RuntimeError(f"Julia call failed: {type(e).__name__}: {e}") from None
+
+    return _JL_THREAD.submit(_guarded).result()
 
 
 def _init():
@@ -111,18 +121,42 @@ class OutputSchema(BaseModel):
     )
 
 
+def _own(x) -> np.ndarray:
+    """Eager owned copy of an input array, made ON THE CALLBACK THREAD.
+
+    XLA guarantees callback input buffers only for the duration of the
+    callback invocation. Our endpoints hop threads and hold arrays through
+    packing, so without an immediate copy an input can be read after XLA
+    recycled its buffer (observed: a valid damper schedule arriving as
+    all-NaN, and a 73-knot trajectory arriving as 1-element).
+    """
+    return np.array(x, dtype=np.float64, copy=True)
+
+
 def apply(inputs: InputSchema) -> OutputSchema:
+    theta, tpit, tknots, tsave = (_own(inputs.theta), _own(inputs.tpit_knots),
+                                  _own(inputs.tknots), _own(inputs.tsave))
+    if tpit.shape != tknots.shape:
+        raise ValueError(
+            f"DEGENERATE MEAT INPUT: tpit_knots {tpit.shape} vs tknots {tknots.shape}")
+
     def _run():
         ts, tc, j, q, c = jl._meat_apply(
-            _jvec(inputs.theta),
-            _jvec(inputs.tpit_knots),
-            _jvec(inputs.tknots),
-            _jvec(inputs.tsave),
+            _jvec(theta),
+            _jvec(tpit),
+            _jvec(tknots),
+            _jvec(tsave),
             float(inputs.abstol),
             float(inputs.reltol),
         )
-        return (np.asarray(ts), np.asarray(tc), np.asarray(j),
-                np.asarray(q), np.asarray(c))
+        # .copy() is load-bearing: np.asarray over a Julia vector is a
+        # zero-copy VIEW of Julia memory. If that view escapes this thread,
+        # its eventual PyBuffer_Release calls back into Julia from the wrong
+        # thread and can trigger a GC that waits forever for this (parked)
+        # thread — a timing-dependent process-wide deadlock.
+        return (np.asarray(ts).copy(), np.asarray(tc).copy(),
+                np.asarray(j).copy(), np.asarray(q).copy(),
+                np.asarray(c).copy())
 
     ts, tc, j, q, c = _on_julia_thread(_run)
     return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c)
@@ -146,19 +180,23 @@ def vector_jacobian_product(
     vjp_outputs: set[str],
     cotangent_vector: dict,
 ):
-    nt = len(np.asarray(inputs.tsave))
+    theta, tpit, tknots, tsave = (_own(inputs.theta), _own(inputs.tpit_knots),
+                                  _own(inputs.tknots), _own(inputs.tsave))
+    nt = len(tsave)
+    cots = {name: (_own(cotangent_vector[name])
+                   if name in cotangent_vector and name in vjp_outputs else None)
+            for name in ("tsurf", "tcore", "j_evap", "q_meat", "c_field_final")}
 
     def _run():
         def cot(name, n):
-            if name in cotangent_vector and name in vjp_outputs:
-                return _jvec(cotangent_vector[name])
-            return _jvec(np.zeros(n))
+            v = cots[name]
+            return _jvec(v if v is not None else np.zeros(n))
 
         dtheta, dknots = jl._meat_vjp(
-            _jvec(inputs.theta),
-            _jvec(inputs.tpit_knots),
-            _jvec(inputs.tknots),
-            _jvec(inputs.tsave),
+            _jvec(theta),
+            _jvec(tpit),
+            _jvec(tknots),
+            _jvec(tsave),
             float(inputs.abstol),
             float(inputs.reltol),
             cot("tsurf", nt),
@@ -167,9 +205,20 @@ def vector_jacobian_product(
             cot("q_meat", nt),
             cot("c_field_final", NX),
         )
-        return np.asarray(dtheta), np.asarray(dknots)
+        # .copy(): no zero-copy views of Julia memory may cross threads
+        return np.asarray(dtheta).copy(), np.asarray(dknots).copy()
 
     dtheta, dknots = _on_julia_thread(_run)
+    if np.isnan(dtheta).any() or np.isnan(dknots).any():
+        # NaN gradients propagate silently through the whole pipeline (they
+        # reached the optimizer state once and cost us an evening) — capture
+        # the exact call for offline replay in Julia, then fail loudly.
+        cap = Path(tempfile.gettempdir()) / "meat_vjp_nan_capture.npz"
+        np.savez(cap, theta=theta, tpit=tpit, tknots=tknots, tsave=tsave,
+                 abstol=inputs.abstol, reltol=inputs.reltol,
+                 **{f"cot_{k}": v for k, v in cots.items() if v is not None})
+        raise FloatingPointError(
+            f"meat VJP produced NaN gradients; failing call captured to {cap}")
     out = {}
     if "theta" in vjp_inputs:
         out["theta"] = dtheta

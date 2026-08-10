@@ -49,9 +49,18 @@ function _pit_solve_arr(p, cfg::PitConfig, u_tknots, q_tknots, tsave;
     q_t0, q_dt = float(q_tknots[1]), float(q_tknots[2] - q_tknots[1])
     rhs! = make_pit_rhs(cfg, u_t0, u_dt, length(u_tknots), q_t0, q_dt, length(q_tknots))
     x0 = convert.(eltype(p), [cfg.Tpit0, cfg.m0])
+    any(isnan, p) && throw(ArgumentError(
+        "pit solve got NaN inputs at indices $(findall(isnan, p)) of p (φ|u|q)"))
     prob = ODEProblem(rhs!, x0, (float(tsave[1]), float(tsave[end])), p)
     sol = solve(prob, Tsit5(); saveat = tsave, abstol = abstol, reltol = reltol)
-    Array(sol)                                # 2 × nt
+    A = Array(sol)                            # 2 × nt
+    # A failed solve must fail LOUDLY: a truncated solution array silently
+    # propagates wrong-shaped outputs through the composed pipeline.
+    (SciMLBase.successful_retcode(sol) && size(A, 2) == length(tsave)) ||
+        throw(ErrorException(
+            "pit solve failed: retcode=$(sol.retcode), " *
+            "saved $(size(A, 2))/$(length(tsave)) points"))
+    A
 end
 
 """

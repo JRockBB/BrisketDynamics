@@ -110,16 +110,22 @@ end
 _meat_u0(cfg::MeatConfig) =
     vcat(fill(cfg.T0, cfg.nx), fill(cfg.W0, cfg.nx), zeros(cfg.nx))
 
-# GaussAdjoint + EnzymeVJP: 27x faster than the ReverseDiff-retape variants
-# (0.4 s vs 10.7 s per VJP at calibration settings) with gradients agreeing to
-# ~2e-5 across all sensealg combinations (profiled 2026-08-10). Enzyme
-# differentiates the RHS afresh at every (u, p, t), so it is immune to the
-# compiled-ReverseDiff-tape trap that bit us earlier: ReverseDiffVJP(true)
-# freezes the time-dependent hat-basis interpolation weights into the tape as
-# constants, silently zeroing the adjoint w.r.t. the forcing knots. If Enzyme
-# ever breaks on an environment, the safe fallback is
-# InterpolatingAdjoint(autojacvec = ReverseDiffVJP(false)) — never (true).
-const MEAT_SENSEALG = GaussAdjoint(autojacvec = EnzymeVJP())
+# InterpolatingAdjoint + EnzymeVJP. Both choices are load-bearing:
+#
+# EnzymeVJP: ~10-25x faster than ReverseDiff retaping, and immune to the
+# compiled-tape trap (ReverseDiffVJP(true) freezes the time-dependent
+# hat-basis interpolation weights as constants, silently zeroing the
+# forcing-knot adjoint). Fallback: InterpolatingAdjoint(ReverseDiffVJP(false)),
+# never (true).
+#
+# InterpolatingAdjoint, NOT GaussAdjoint: GaussAdjoint's quadrature goes NaN
+# on this problem when the backward pass crosses a hot fuel-collapse pit
+# trajectory with a q_meat (coupling-feedback) cotangent — deterministic
+# reproduction in scripts/ history, captured 2026-08-10; Interpolating agrees
+# with ReverseDiff to 6 digits on the same data and is 4x faster than Gauss
+# there anyway. Symptoms of Gauss NaN: dt_NaN warnings mid-optimization, NaN
+# damper schedules, truncated pit solves.
+const MEAT_SENSEALG = InterpolatingAdjoint(autojacvec = EnzymeVJP())
 
 """
     _meat_core(p, cfg, prob, tsave, Mts; abstol, reltol, sensealg)
@@ -138,6 +144,12 @@ function _meat_core(p, cfg::MeatConfig, prob, tsave, Mts;
     sol = solve(prob, FBDF(); p = p, saveat = tsave, abstol = abstol,
                 reltol = reltol, sensealg = sensealg)
     A = Array(sol)                       # 3nx × nt
+    # Fail loudly on a truncated/failed solve — a short solution array
+    # silently propagates wrong-shaped outputs through the composed pipeline.
+    (SciMLBase.successful_retcode(sol) && size(A, 2) == length(tsave)) ||
+        throw(ErrorException(
+            "meat solve failed: retcode=$(sol.retcode), " *
+            "saved $(size(A, 2))/$(length(tsave)) points"))
     Tcore = A[1, :]
     Tsurf = A[nx, :]
     Wsurf = A[2nx, :]
@@ -159,11 +171,17 @@ function meat_solve(θ::AbstractVector, Tpit_knots::AbstractVector,
                     cfg::MeatConfig = MeatConfig(), abstol = 1e-6, reltol = 1e-6)
     nx = cfg.nx
     p = vcat(θ, Tpit_knots)
+    any(isnan, p) && throw(ArgumentError(
+        "meat solve got NaN inputs at indices $(findall(isnan, p)) of p (θ|Tpit)"))
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
     rhs! = make_meat_rhs(cfg, tk0, tkdt, length(tknots))
     prob = ODEProblem(rhs!, _meat_u0(cfg), (float(tsave[1]), float(tsave[end])), p)
     sol = solve(prob, FBDF(); saveat = tsave, abstol = abstol, reltol = reltol)
     A = Array(sol)
+    (SciMLBase.successful_retcode(sol) && size(A, 2) == length(tsave)) ||
+        throw(ErrorException(
+            "meat solve failed: retcode=$(sol.retcode), " *
+            "saved $(size(A, 2))/$(length(tsave)) points"))
     Tsurf = A[nx, :]
     Wsurf = A[2nx, :]
     Mts = hat_matrix(tsave, tk0, tkdt, length(tknots))
