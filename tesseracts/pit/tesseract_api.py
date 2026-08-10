@@ -115,6 +115,16 @@ def _own(x) -> np.ndarray:
     return np.array(x, dtype=np.float64, copy=True)
 
 
+# Soft-fail mode (BRISKET_SOFT_FAIL=1): a failed solve returns sentinel
+# outputs (absurd temperatures -> astronomically bad likelihood) instead of
+# raising, so MCMC treats pathological parameter proposals as rejections
+# rather than crashing the chain. NUTS warmup legitimately probes regions
+# where the pit ODE is unsolvable (e.g. tiny C_th); everything outside
+# sampling keeps hard failures.
+SOFT_FAIL = os.environ.get("BRISKET_SOFT_FAIL", "0") == "1"
+_SENTINEL_T = 1.0e4  # [K]
+
+
 def apply(inputs: InputSchema) -> OutputSchema:
     phi, u, utk, q, qtk, tsave = (_own(inputs.phi), _own(inputs.u_knots),
                                   _own(inputs.u_tknots), _own(inputs.qmeat_knots),
@@ -135,7 +145,13 @@ def apply(inputs: InputSchema) -> OutputSchema:
         # can deadlock the whole process (see meat tesseract_api.py).
         return np.asarray(T).copy(), np.asarray(m).copy()
 
-    T, m = _on_julia_thread(_run)
+    try:
+        T, m = _on_julia_thread(_run)
+    except RuntimeError:
+        if not SOFT_FAIL:
+            raise
+        nt = len(tsave)
+        T, m = np.full(nt, _SENTINEL_T), np.zeros(nt)
     return OutputSchema(tpit=T, m_fuel=m)
 
 
@@ -182,7 +198,14 @@ def vector_jacobian_product(
         return (np.asarray(dphi).copy(), np.asarray(du).copy(),
                 np.asarray(dq).copy())
 
-    dphi, du, dq = _on_julia_thread(_run)
+    try:
+        dphi, du, dq = _on_julia_thread(_run)
+    except RuntimeError:
+        if not SOFT_FAIL:
+            raise
+        # Zero gradients at an unsolvable point: the sampler is rejecting
+        # this proposal anyway (sentinel likelihood); zeros keep HMC finite.
+        dphi, du, dq = (np.zeros(len(phi)), np.zeros(len(u)), np.zeros(len(q)))
     out = {}
     if "phi" in vjp_inputs:
         out["phi"] = dphi

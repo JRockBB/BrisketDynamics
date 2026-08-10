@@ -9,11 +9,16 @@ corner plot and posterior-predictive band (figures/).
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
+
+# Must be set BEFORE the tesseract api modules import: failed solves at
+# pathological NUTS proposals become rejections, not chain crashes.
+os.environ["BRISKET_SOFT_FAIL"] = "1"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 

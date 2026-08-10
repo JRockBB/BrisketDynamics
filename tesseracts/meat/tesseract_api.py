@@ -121,6 +121,13 @@ class OutputSchema(BaseModel):
     )
 
 
+# Soft-fail mode for MCMC: failed solves return sentinel outputs / zero
+# gradients instead of raising, so pathological proposals become rejections.
+# See pit tesseract_api.py for rationale.
+SOFT_FAIL = os.environ.get("BRISKET_SOFT_FAIL", "0") == "1"
+_SENTINEL_T = 1.0e4  # [K]
+
+
 def _own(x) -> np.ndarray:
     """Eager owned copy of an input array, made ON THE CALLBACK THREAD.
 
@@ -158,7 +165,15 @@ def apply(inputs: InputSchema) -> OutputSchema:
                 np.asarray(j).copy(), np.asarray(q).copy(),
                 np.asarray(c).copy())
 
-    ts, tc, j, q, c = _on_julia_thread(_run)
+    try:
+        ts, tc, j, q, c = _on_julia_thread(_run)
+    except RuntimeError:
+        if not SOFT_FAIL:
+            raise
+        nt = len(tsave)
+        ts = tc = np.full(nt, _SENTINEL_T)
+        j = q = np.zeros(nt)
+        c = np.zeros(NX)
     return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c)
 
 
@@ -208,7 +223,12 @@ def vector_jacobian_product(
         # .copy(): no zero-copy views of Julia memory may cross threads
         return np.asarray(dtheta).copy(), np.asarray(dknots).copy()
 
-    dtheta, dknots = _on_julia_thread(_run)
+    try:
+        dtheta, dknots = _on_julia_thread(_run)
+    except RuntimeError:
+        if not SOFT_FAIL:
+            raise
+        dtheta, dknots = np.zeros(len(theta)), np.zeros(len(tpit))
     if np.isnan(dtheta).any() or np.isnan(dknots).any():
         # NaN gradients propagate silently through the whole pipeline (they
         # reached the optimizer state once and cost us an evening) — capture
