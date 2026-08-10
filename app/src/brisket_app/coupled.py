@@ -1,0 +1,113 @@
+"""End-to-end differentiable coupled cook: the single function consumed
+unchanged by Bayesian calibration (NumPyro) and optimal control (Optax).
+
+Coupling scheme: whole-horizon Picard iteration, K=2 fixed passes, unrolled —
+the model is *defined* as the unrolled map, so JAX reverse-mode through the
+composed Tesseract VJPs is the exact gradient of what we simulate.
+"""
+
+from dataclasses import dataclass, field
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+from tesseract_jax import apply_tesseract
+
+jax.config.update("jax_enable_x64", True)
+
+HR = 3600.0
+
+
+@dataclass(frozen=True)
+class CookGrids:
+    """Shared time grids: exchange/save grid and damper-knot grid."""
+
+    t_end: float = 12 * HR
+    dt_exchange: float = 300.0  # 5-min exchange/save grid
+    n_u: int = 16               # damper schedule knots
+    tknots: np.ndarray = field(init=False)
+    u_tknots: np.ndarray = field(init=False)
+
+    def __post_init__(self):
+        object.__setattr__(
+            self, "tknots", np.arange(0.0, self.t_end + self.dt_exchange / 2, self.dt_exchange)
+        )
+        object.__setattr__(self, "u_tknots", np.linspace(0.0, self.t_end, self.n_u))
+
+    @property
+    def nt(self) -> int:
+        return len(self.tknots)
+
+
+def coupled_cook(
+    theta,
+    phi,
+    u_knots,
+    meat_tx,
+    pit_tx,
+    grids: CookGrids,
+    K: int = 2,
+    abstol: float = 1e-6,
+    reltol: float = 1e-6,
+):
+    """Simulate the coupled pit-brisket system; differentiable w.r.t.
+    theta (meat params), phi (pit params), and u_knots (damper schedule).
+
+    Returns dict with tpit, tcore, tsurf, j_evap, q_meat, m_fuel,
+    c_field_final, and the Picard residual diagnostic picard_dT (max |ΔT_pit|
+    between the last two iterations; NaN when K=1).
+    """
+    tk = jnp.asarray(grids.tknots)
+    utk = jnp.asarray(grids.u_tknots)
+    q = jnp.zeros(grids.nt)
+    tpit_prev = None
+    pit = meat = None
+    for _ in range(K):
+        pit = apply_tesseract(
+            pit_tx,
+            {
+                "phi": phi,
+                "u_knots": u_knots,
+                "u_tknots": utk,
+                "qmeat_knots": q,
+                "q_tknots": tk,
+                "tsave": tk,
+                "abstol": min(abstol, 1e-8),
+                "reltol": min(reltol, 1e-8),
+            },
+        )
+        meat = apply_tesseract(
+            meat_tx,
+            {
+                "theta": theta,
+                "tpit_knots": pit["tpit"],
+                "tknots": tk,
+                "tsave": tk,
+                "abstol": abstol,
+                "reltol": reltol,
+            },
+        )
+        q = meat["q_meat"]
+        picard = (
+            jnp.max(jnp.abs(pit["tpit"] - tpit_prev)) if tpit_prev is not None else jnp.nan
+        )
+        tpit_prev = pit["tpit"]
+
+    return {
+        "tpit": pit["tpit"],
+        "m_fuel": pit["m_fuel"],
+        "tcore": meat["tcore"],
+        "tsurf": meat["tsurf"],
+        "j_evap": meat["j_evap"],
+        "q_meat": meat["q_meat"],
+        "c_field_final": meat["c_field_final"],
+        "picard_dT": picard,
+    }
+
+
+# Default parameters (shared with the Julia test suite). D_eff is an *effective*
+# moisture transport coefficient — an order of magnitude above molecular-diffusion
+# literature values because it lumps in pressure-driven juice expulsion/wicking,
+# the mechanism that actually keeps a brisket surface wet through the stall.
+THETA_DEFAULT = np.array([1.5e-8, 0.0018, 10.0, 0.03, 1.0])  # D_eff, k_m, h_c, L, k_mult
+PHI_DEFAULT = np.array([15e3, 20.0, 3e-4, 1.2e7, 0.2])     # C_th, UA, r_max, dH_eff, u_leak

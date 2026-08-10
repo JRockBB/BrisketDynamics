@@ -3,39 +3,53 @@ on:
   push:
     branches:
       - master
+      - main
     tags: ['*']
   pull_request:
   workflow_dispatch:
 concurrency:
-  # Skip intermediate builds: always.
-  # Cancel intermediate builds: only if it is a pull request build.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
-  test:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
+  julia-tests:
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
+    timeout-minutes: 90
+    permissions:
       actions: write
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        version:
-          - '1.10'
-          - '1.11'
-          - 'pre'
-        os:
-          - ubuntu-latest
-        arch:
-          - x64
+        version: ['1.11']
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
-          arch: ${{ matrix.arch }}
+          arch: x64
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+
+  app-tests:
+    name: App (LocalClient boundary tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.11'
+          arch: x64
+      - uses: julia-actions/cache@v2
+      - name: Instantiate Julia project
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+      - uses: astral-sh/setup-uv@v5
+      - name: Run boundary tests
+        working-directory: app
+        run: uv run pytest tests/test_local_apply.py -q

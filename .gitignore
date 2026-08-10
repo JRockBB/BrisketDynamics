@@ -1,1 +1,14 @@
-/Manifest*.toml
+# NOTE: Manifest.toml is deliberately TRACKED for hackathon reproducibility
+.claude/settings.local.json
+
+# Python
+app/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.CondaPkg/
+
+# Julia scratch
+*.jl.cov
+*.jl.mem
+LocalPreferences.toml
