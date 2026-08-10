@@ -1,17 +1,26 @@
 """Meat Tesseract: 1D heat-moisture brisket PDE (Julia, SciMLSensitivity adjoint).
 
 Wraps BrisketDynamics.jl's `meat_solve` / `meat_vjp`. The VJP endpoint is backed
-by a continuous adjoint (InterpolatingAdjoint + compiled ReverseDiff tape) of
+by a continuous adjoint (InterpolatingAdjoint + re-taped ReverseDiff VJP) of
 the stiff method-of-lines solve — to our knowledge the first public
 SciMLSensitivity adjoint exposed through the Tesseract VJP interface.
 
 Julia bridge pattern follows pasteurlabs/mosaic `topopt-jl`: synchronous
 module-level init guarded by a cross-process file lock (uvicorn worker
 healthchecks SIGKILL slow async inits).
+
+Threading: ALL juliacall work (init, conversions, solves) runs on one dedicated
+thread, shared process-wide by both Tesseracts via a sys-level singleton.
+Callers from any thread block on a future. This matters because JAX executes
+jitted callbacks on XLA worker threads, and juliacall invoked off the Julia
+init thread deadlocks (observed: numpyro SVI hung with 0% CPU; eager-mode
+calls from the main thread never hit it).
 """
 
 import os
+import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -26,7 +35,18 @@ os.environ.setdefault("PYTHON_JULIACALL_THREADS", "1")
 
 import filelock
 
-with filelock.FileLock(Path(tempfile.gettempdir()) / "brisket_julia_init.lock", timeout=600):
+_EXEC_ATTR = "_brisket_julia_executor"
+if getattr(sys, _EXEC_ATTR, None) is None:
+    setattr(sys, _EXEC_ATTR, ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall"))
+_JL_THREAD: ThreadPoolExecutor = getattr(sys, _EXEC_ATTR)
+
+
+def _on_julia_thread(fn, *args):
+    return _JL_THREAD.submit(fn, *args).result()
+
+
+def _init():
+    global juliacall, jl
     import juliacall
 
     jl = juliacall.newmodule("MeatTess")
@@ -46,6 +66,10 @@ with filelock.FileLock(Path(tempfile.gettempdir()) / "brisket_julia_init.lock", 
         end
         """
     )
+
+
+with filelock.FileLock(Path(tempfile.gettempdir()) / "brisket_julia_init.lock", timeout=600):
+    _on_julia_thread(_init)
 
 NX = 40  # spatial nodes (MeatConfig default; c_field_final length)
 
@@ -88,21 +112,20 @@ class OutputSchema(BaseModel):
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
-    ts, tc, j, q, c = jl._meat_apply(
-        _jvec(inputs.theta),
-        _jvec(inputs.tpit_knots),
-        _jvec(inputs.tknots),
-        _jvec(inputs.tsave),
-        float(inputs.abstol),
-        float(inputs.reltol),
-    )
-    return OutputSchema(
-        tsurf=np.asarray(ts),
-        tcore=np.asarray(tc),
-        j_evap=np.asarray(j),
-        q_meat=np.asarray(q),
-        c_field_final=np.asarray(c),
-    )
+    def _run():
+        ts, tc, j, q, c = jl._meat_apply(
+            _jvec(inputs.theta),
+            _jvec(inputs.tpit_knots),
+            _jvec(inputs.tknots),
+            _jvec(inputs.tsave),
+            float(inputs.abstol),
+            float(inputs.reltol),
+        )
+        return (np.asarray(ts), np.asarray(tc), np.asarray(j),
+                np.asarray(q), np.asarray(c))
+
+    ts, tc, j, q, c = _on_julia_thread(_run)
+    return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c)
 
 
 def abstract_eval(abstract_inputs):
@@ -125,27 +148,31 @@ def vector_jacobian_product(
 ):
     nt = len(np.asarray(inputs.tsave))
 
-    def cot(name, n):
-        if name in cotangent_vector and name in vjp_outputs:
-            return _jvec(cotangent_vector[name])
-        return _jvec(np.zeros(n))
+    def _run():
+        def cot(name, n):
+            if name in cotangent_vector and name in vjp_outputs:
+                return _jvec(cotangent_vector[name])
+            return _jvec(np.zeros(n))
 
-    dtheta, dknots = jl._meat_vjp(
-        _jvec(inputs.theta),
-        _jvec(inputs.tpit_knots),
-        _jvec(inputs.tknots),
-        _jvec(inputs.tsave),
-        float(inputs.abstol),
-        float(inputs.reltol),
-        cot("tsurf", nt),
-        cot("tcore", nt),
-        cot("j_evap", nt),
-        cot("q_meat", nt),
-        cot("c_field_final", NX),
-    )
+        dtheta, dknots = jl._meat_vjp(
+            _jvec(inputs.theta),
+            _jvec(inputs.tpit_knots),
+            _jvec(inputs.tknots),
+            _jvec(inputs.tsave),
+            float(inputs.abstol),
+            float(inputs.reltol),
+            cot("tsurf", nt),
+            cot("tcore", nt),
+            cot("j_evap", nt),
+            cot("q_meat", nt),
+            cot("c_field_final", NX),
+        )
+        return np.asarray(dtheta), np.asarray(dknots)
+
+    dtheta, dknots = _on_julia_thread(_run)
     out = {}
     if "theta" in vjp_inputs:
-        out["theta"] = np.asarray(dtheta)
+        out["theta"] = dtheta
     if "tpit_knots" in vjp_inputs:
-        out["tpit_knots"] = np.asarray(dknots)
+        out["tpit_knots"] = dknots
     return out

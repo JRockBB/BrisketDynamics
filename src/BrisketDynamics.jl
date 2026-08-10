@@ -3,7 +3,7 @@ module BrisketDynamics
 using SciMLBase: ODEProblem, solve
 using OrdinaryDiffEqBDF: FBDF
 using OrdinaryDiffEqTsit5: Tsit5
-using SciMLSensitivity: InterpolatingAdjoint, ReverseDiffVJP
+using SciMLSensitivity: InterpolatingAdjoint, GaussAdjoint, ReverseDiffVJP, EnzymeVJP
 using ForwardDiff
 using Zygote
 

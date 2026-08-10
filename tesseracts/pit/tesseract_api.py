@@ -9,7 +9,9 @@ composition meeting only at the Tesseract VJP boundary.
 """
 
 import os
+import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -24,7 +26,22 @@ os.environ.setdefault("PYTHON_JULIACALL_THREADS", "1")
 
 import filelock
 
-with filelock.FileLock(Path(tempfile.gettempdir()) / "brisket_julia_init.lock", timeout=600):
+# All juliacall work runs on one dedicated thread, shared process-wide with the
+# meat Tesseract (sys-level singleton) — jitted JAX callbacks arrive on XLA
+# worker threads, and juliacall off its init thread deadlocks. See the meat
+# tesseract_api.py docstring for the full story.
+_EXEC_ATTR = "_brisket_julia_executor"
+if getattr(sys, _EXEC_ATTR, None) is None:
+    setattr(sys, _EXEC_ATTR, ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall"))
+_JL_THREAD: ThreadPoolExecutor = getattr(sys, _EXEC_ATTR)
+
+
+def _on_julia_thread(fn, *args):
+    return _JL_THREAD.submit(fn, *args).result()
+
+
+def _init():
+    global juliacall, jl
     import juliacall
 
     jl = juliacall.newmodule("PitTess")
@@ -46,6 +63,10 @@ with filelock.FileLock(Path(tempfile.gettempdir()) / "brisket_julia_init.lock", 
         end
         """
     )
+
+
+with filelock.FileLock(Path(tempfile.gettempdir()) / "brisket_julia_init.lock", timeout=600):
+    _on_julia_thread(_init)
 
 
 def _jvec(x) -> "juliacall.VectorValue":
@@ -79,17 +100,21 @@ class OutputSchema(BaseModel):
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
-    T, m = jl._pit_apply(
-        _jvec(inputs.phi),
-        _jvec(inputs.u_knots),
-        _jvec(inputs.u_tknots),
-        _jvec(inputs.qmeat_knots),
-        _jvec(inputs.q_tknots),
-        _jvec(inputs.tsave),
-        float(inputs.abstol),
-        float(inputs.reltol),
-    )
-    return OutputSchema(tpit=np.asarray(T), m_fuel=np.asarray(m))
+    def _run():
+        T, m = jl._pit_apply(
+            _jvec(inputs.phi),
+            _jvec(inputs.u_knots),
+            _jvec(inputs.u_tknots),
+            _jvec(inputs.qmeat_knots),
+            _jvec(inputs.q_tknots),
+            _jvec(inputs.tsave),
+            float(inputs.abstol),
+            float(inputs.reltol),
+        )
+        return np.asarray(T), np.asarray(m)
+
+    T, m = _on_julia_thread(_run)
+    return OutputSchema(tpit=T, m_fuel=m)
 
 
 def abstract_eval(abstract_inputs):
@@ -108,28 +133,32 @@ def vector_jacobian_product(
 ):
     nt = len(np.asarray(inputs.tsave))
 
-    def cot(name):
-        if name in cotangent_vector and name in vjp_outputs:
-            return _jvec(cotangent_vector[name])
-        return _jvec(np.zeros(nt))
+    def _run():
+        def cot(name):
+            if name in cotangent_vector and name in vjp_outputs:
+                return _jvec(cotangent_vector[name])
+            return _jvec(np.zeros(nt))
 
-    dphi, du, dq = jl._pit_vjp(
-        _jvec(inputs.phi),
-        _jvec(inputs.u_knots),
-        _jvec(inputs.u_tknots),
-        _jvec(inputs.qmeat_knots),
-        _jvec(inputs.q_tknots),
-        _jvec(inputs.tsave),
-        float(inputs.abstol),
-        float(inputs.reltol),
-        cot("tpit"),
-        cot("m_fuel"),
-    )
+        dphi, du, dq = jl._pit_vjp(
+            _jvec(inputs.phi),
+            _jvec(inputs.u_knots),
+            _jvec(inputs.u_tknots),
+            _jvec(inputs.qmeat_knots),
+            _jvec(inputs.q_tknots),
+            _jvec(inputs.tsave),
+            float(inputs.abstol),
+            float(inputs.reltol),
+            cot("tpit"),
+            cot("m_fuel"),
+        )
+        return np.asarray(dphi), np.asarray(du), np.asarray(dq)
+
+    dphi, du, dq = _on_julia_thread(_run)
     out = {}
     if "phi" in vjp_inputs:
-        out["phi"] = np.asarray(dphi)
+        out["phi"] = dphi
     if "u_knots" in vjp_inputs:
-        out["u_knots"] = np.asarray(du)
+        out["u_knots"] = du
     if "qmeat_knots" in vjp_inputs:
-        out["qmeat_knots"] = np.asarray(dq)
+        out["qmeat_knots"] = dq
     return out

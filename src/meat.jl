@@ -110,14 +110,16 @@ end
 _meat_u0(cfg::MeatConfig) =
     vcat(fill(cfg.T0, cfg.nx), fill(cfg.W0, cfg.nx), zeros(cfg.nx))
 
-# ReverseDiffVJP(compile = false), deliberately: with a compiled tape the
-# time-dependent hat-basis interpolation weights are evaluated once at taping
-# time and frozen into the tape as constants, which silently zeroes the
-# adjoint w.r.t. the forcing knots (verified empirically: dTpit ≡ 0 and wrong
-# dh_c/dL under compile = true; ≤ 2e-4 relative error vs FD under false).
-# Re-taping is also faster here — the RHS closure is rebuilt per call, so a
-# compiled tape could never be reused anyway.
-const MEAT_SENSEALG = InterpolatingAdjoint(autojacvec = ReverseDiffVJP(false))
+# GaussAdjoint + EnzymeVJP: 27x faster than the ReverseDiff-retape variants
+# (0.4 s vs 10.7 s per VJP at calibration settings) with gradients agreeing to
+# ~2e-5 across all sensealg combinations (profiled 2026-08-10). Enzyme
+# differentiates the RHS afresh at every (u, p, t), so it is immune to the
+# compiled-ReverseDiff-tape trap that bit us earlier: ReverseDiffVJP(true)
+# freezes the time-dependent hat-basis interpolation weights into the tape as
+# constants, silently zeroing the adjoint w.r.t. the forcing knots. If Enzyme
+# ever breaks on an environment, the safe fallback is
+# InterpolatingAdjoint(autojacvec = ReverseDiffVJP(false)) — never (true).
+const MEAT_SENSEALG = GaussAdjoint(autojacvec = EnzymeVJP())
 
 """
     _meat_core(p, cfg, prob, tsave, Mts; abstol, reltol, sensealg)

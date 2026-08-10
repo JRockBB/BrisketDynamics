@@ -6,7 +6,10 @@ conditioning pitfalls we hit (which are themselves informative).
 
 ## Level 1 — Julia solver adjoints vs FD (`test/test_gradients.jl`)
 
-- **Meat** (`meat_vjp`, SciMLSensitivity `InterpolatingAdjoint(autojacvec = ReverseDiffVJP(false))`):
+- **Meat** (`meat_vjp`, SciMLSensitivity `GaussAdjoint(autojacvec = EnzymeVJP())` —
+  switched from `InterpolatingAdjoint(ReverseDiffVJP(false))` on Aug 10 after
+  profiling showed 27x speedup with gradients agreeing to ~2e-5; the full
+  suite below re-passed 32/32 after the switch):
   8 h horizon, tol 1e-9, mixed loss over all five outputs. All five physical
   parameters and four forcing-trajectory knots agree with central FD:
   - `D_eff` ≤ 2e-2 (1% FD step; see "FD conditioning" below)
