@@ -49,6 +49,27 @@ those are covered by Level 1's relative-step tests):
 5 meat parameters, 5 pit parameters (5e-3 gate; D_eff 2e-2 with a 1% step),
 and damper-knot directions. 6 h horizon, tolerances 1e-10, float64 end-to-end.
 
+## The NaN-gradient hunt (Phase C) — symptoms vs root cause
+
+A single root cause produced four distinct-looking symptoms over one evening:
+`GaussAdjoint`'s quadrature emits NaN gradients when the meat backward pass
+crosses a hot fuel-collapse pit trajectory carrying a coupling-feedback
+(`q_meat`) cotangent. The NaN reached the optimizer state, and downstream
+appeared as: (1) BoundsError from a 1-point pit solve (NaN damper → NaN dt →
+solver exits at t0), (2) "all-NaN u_knots" at the pit endpoint, (3) flaky
+iteration-dependent onset (the trajectory only collapses once the optimizer
+opens the damper), (4) apparent thread races. Fixed by switching to
+`InterpolatingAdjoint(EnzymeVJP())` (agrees with ReverseDiff to 6 digits on
+the captured failing call, 4x faster than Gauss there). The failing call was
+captured via an endpoint hook that dumps inputs+cotangents to disk on any NaN
+gradient and raises FloatingPointError — that guard stays in production.
+
+Separately-real threading rules learned en route (all load-bearing, all in
+the tesseract_api.py files): all juliacall work on one dedicated thread;
+stringify Julia exceptions on that thread; never let zero-copy views of
+Julia or XLA memory cross threads (copy on entry AND exit); solvers fail
+loudly on bad retcodes rather than returning truncated arrays.
+
 ## FD conditioning lessons (worth knowing before touching these tests)
 
 1. **`ReverseDiffVJP(true)` (compiled tape) is silently wrong here** — the
