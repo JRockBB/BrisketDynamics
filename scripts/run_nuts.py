@@ -1,16 +1,21 @@
-"""Phase B stage 2: full NUTS posterior, initialized at the MAP,
-with chunked checkpointing so a ~day-long run survives interruption.
+"""Phase B stage 2: full NUTS posterior, initialized at the MAP.
+
+EVERY step — warmup included — is checkpointed, via NumPyro's kernel-level
+API (`kernel.init` / `kernel.sample`): the HMCState namedtuple carries the
+complete sampler + adaptation state and pickles cleanly, so an interruption
+at any point (including hour 8 of warmup) resumes from the last checkpoint.
+The MCMC convenience wrapper cannot do this; this runner deliberately avoids
+it.
 
 Run from app/ (intended as a detached long run):
-    uv run python -u ../scripts/run_nuts.py [--warmup N] [--samples N] [--chunk N]
+    uv run python -u ../scripts/run_nuts.py [--warmup N] [--samples N]
 
 Checkpoints in data/calibration/nuts_ckpt/:
-    state.pkl     sampler state after warmup / after each chunk (resume point)
-    meta.json     run configuration + completed-chunk count
-    chunk_NNN.npz samples of each completed chunk
-Re-running the script resumes automatically: completed warmup is never
-repeated, and at most one chunk of samples is lost. On completion the chunks
-are concatenated to data/calibration/nuts_samples.npz and the corner +
+    state.pkl      HMCState at the last checkpointed step (resume point)
+    meta.json      run configuration
+    samples.npz    constrained samples collected so far (rewritten each save)
+Re-running the same command resumes automatically. On completion, samples are
+copied to data/calibration/nuts_samples.npz and the corner +
 posterior-predictive figures are rendered.
 """
 
@@ -39,80 +44,93 @@ from brisket_app.plots import corner_plot, posterior_predictive_plot
 
 REPO = Path(__file__).resolve().parents[1]
 CKPT = REPO / "data" / "calibration" / "nuts_ckpt"
+CKPT_EVERY = 5  # steps between state checkpoints (~10 min of compute at risk)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--warmup", type=int, default=300)
     ap.add_argument("--samples", type=int, default=300)
-    ap.add_argument("--chunk", type=int, default=25)
     ap.add_argument("--max-tree-depth", type=int, default=6)
     args = ap.parse_args()
+    total = args.warmup + args.samples
 
-    from numpyro.infer import MCMC, NUTS
     import numpyro
+    from numpyro.infer import NUTS
 
     data = synth.load("cook01")
     meat_tx, pit_tx = meat_client(), pit_client()
-    m = calibrate._bound_model(data, meat_tx, pit_tx)
+    model = calibrate._bound_model(data, meat_tx, pit_tx)
 
     map_file = REPO / "data" / "calibration" / "map_result.json"
     init = {k: v for k, v in json.loads(map_file.read_text()).items()
             if not k.startswith("_")}
 
-    kernel = NUTS(m, max_tree_depth=args.max_tree_depth,
+    kernel = NUTS(model, max_tree_depth=args.max_tree_depth,
                   init_strategy=numpyro.infer.init_to_value(values=init))
-    n_chunks = (args.samples + args.chunk - 1) // args.chunk
-    mcmc = MCMC(kernel, num_warmup=args.warmup, num_samples=args.chunk,
-                progress_bar=True)
+    # kernel.init sets up the adaptation schedule and potential fn; it must
+    # run on every start INCLUDING resumes (the pickled state then replaces
+    # the fresh one).
+    state = kernel.init(jax.random.PRNGKey(0), args.warmup,
+                        init_params=None, model_args=(), model_kwargs={})
+    postprocess = kernel.postprocess_fn((), {})
 
     CKPT.mkdir(parents=True, exist_ok=True)
     state_file = CKPT / "state.pkl"
     meta_file = CKPT / "meta.json"
+    samples_file = CKPT / "samples.npz"
 
-    done_chunks = 0
+    samples: list[dict] = []
     if state_file.exists() and meta_file.exists():
         meta = json.loads(meta_file.read_text())
         if meta.get("config") == vars(args):
             with open(state_file, "rb") as f:
-                mcmc.post_warmup_state = pickle.load(f)
-            done_chunks = meta["done_chunks"]
-            print(f"RESUMING: warmup done, {done_chunks}/{n_chunks} chunks complete",
-                  flush=True)
+                state = pickle.load(f)
+            if samples_file.exists():
+                with np.load(samples_file) as f:
+                    keys = f.files
+                    n = len(f[keys[0]])
+                    samples = [{k: f[k][i] for k in keys} for i in range(n)]
+            print(f"RESUMING at step {int(state.i)}/{total} "
+                  f"({len(samples)} samples already collected)", flush=True)
         else:
             print("checkpoint config mismatch — starting fresh", flush=True)
             state_file.unlink()
 
+    step = jax.jit(lambda s: kernel.sample(s, (), {}))
+
+    def save(st, done: bool = False):
+        with open(state_file, "wb") as f:
+            pickle.dump(jax.device_get(st), f)
+        meta_file.write_text(json.dumps({"config": vars(args), "done": done}))
+        if samples:
+            np.savez(samples_file,
+                     **{k: np.stack([s[k] for s in samples])
+                        for k in samples[0]})
+
     t0 = time.perf_counter()
-    if not state_file.exists():
-        print(f"warmup: {args.warmup} iterations (init at MAP)", flush=True)
-        mcmc.warmup(jax.random.PRNGKey(0))
-        with open(state_file, "wb") as f:
-            pickle.dump(jax.device_get(mcmc.post_warmup_state), f)
-        meta_file.write_text(json.dumps({"config": vars(args), "done_chunks": 0}))
-        print(f"warmup done in {(time.perf_counter() - t0) / 3600:.2f} h; "
-              "state checkpointed", flush=True)
+    i = int(state.i)
+    while i < total:
+        state = step(state)
+        jax.block_until_ready(state.z)
+        i = int(state.i)
+        phase = "warmup" if i <= args.warmup else "sample"
+        if i > args.warmup:
+            samples.append({k: np.asarray(v)
+                            for k, v in postprocess(state.z).items()})
+        if i % CKPT_EVERY == 0 or i == total:
+            save(state)
+        if i % 5 == 0 or i == total:
+            print(f"{phase} {i}/{total}  "
+                  f"({(time.perf_counter() - t0) / 60:.1f} min elapsed, "
+                  f"{len(samples)} samples)", flush=True)
 
-    for c in range(done_chunks, n_chunks):
-        tc = time.perf_counter()
-        mcmc.run(mcmc.post_warmup_state.rng_key)
-        np.savez(CKPT / f"chunk_{c:03d}.npz",
-                 **{k: np.asarray(v) for k, v in mcmc.get_samples().items()})
-        mcmc.post_warmup_state = mcmc.last_state
-        with open(state_file, "wb") as f:
-            pickle.dump(jax.device_get(mcmc.last_state), f)
-        meta_file.write_text(json.dumps({"config": vars(args), "done_chunks": c + 1}))
-        print(f"chunk {c + 1}/{n_chunks} done "
-              f"({(time.perf_counter() - tc) / 60:.1f} min)", flush=True)
-
-    # ---- assemble + figures ----
-    chunks = [np.load(CKPT / f"chunk_{c:03d}.npz") for c in range(n_chunks)]
-    samples = {k: np.concatenate([np.asarray(ch[k]) for ch in chunks])
-               for k in chunks[0].files}
+    save(state, done=True)
     out = REPO / "data" / "calibration"
-    np.savez(out / "nuts_samples.npz", **samples)
+    stacked = {k: np.stack([s[k] for s in samples]) for k in samples[0]}
+    np.savez(out / "nuts_samples.npz", **stacked)
     print(f"NUTS done in {(time.perf_counter() - t0) / 3600:.2f} h "
-          f"({len(samples[next(iter(samples))])} samples)", flush=True)
+          f"({len(samples)} samples)", flush=True)
 
     truths = {n: t for n, t in zip(
         [n for n, _ in calibrate.THETA_SITES], data["theta_true"])}
@@ -121,8 +139,8 @@ def main():
     grids = CookGrids(t_end=float(data["t"][-1]),
                       dt_exchange=float(data["t"][1] - data["t"][0]),
                       n_u=len(data["u_knots"]))
-    corner_plot(samples, REPO / "figures" / "corner.png", truths=truths)
-    posterior_predictive_plot(samples, data, meat_tx, pit_tx, grids,
+    corner_plot(stacked, REPO / "figures" / "corner.png", truths=truths)
+    posterior_predictive_plot(stacked, data, meat_tx, pit_tx, grids,
                               REPO / "figures" / "posterior_predictive.png")
     print("wrote figures/corner.png, figures/posterior_predictive.png", flush=True)
 
