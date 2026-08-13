@@ -148,7 +148,11 @@ def main():
                    "obs_core": log["obs_core"]}
         ics = {"tpit0": log["meta"]["tpit0_K"], "t_amb": 300.0,
                "t0_meat": log["meta"]["tcore0_K"]}
-        corner_plot(stacked, REPO / "figures" / "corner_real.png")  # no truths: real data
+        real_names = ([n for n, _ in calibrate.THETA_SITES]
+              + [n for n, _ in calibrate.PHI_SITES]
+              + [n for n, _ in calibrate.PHI_SITES_IGNITION])
+        corner_plot(stacked, REPO / "figures" / "corner_real.png",
+                    names=real_names)  # no truths: real data
         posterior_predictive_plot(
             stacked, pp_data, meat_tx, pit_tx, grids,
             REPO / "figures" / "posterior_predictive_real.png",

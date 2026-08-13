@@ -43,11 +43,33 @@ PHI_SITES = [
     ("dH_eff", dist.LogNormal(np.log(1.2e7), 0.3)),
     ("u_leak", dist.Beta(2.0, 8.0)),
 ]
+# Ignition-dynamics sites: sampled only for REAL-cook calibration. Synthetic
+# data was generated fully lit (a0 = 1, spread inert), so these constants are
+# appended deterministically there.
+PHI_SITES_IGNITION = [
+    ("k_spread", dist.LogNormal(np.log(3e-4), 0.7)),
+    ("a0", dist.Beta(2.0, 4.0)),
+]
+PHI_IGNITION_INERT = np.array([3e-4, 1.0])  # k_spread (inert at a0=1), a0
+
+
+def phi_full(params: dict) -> np.ndarray:
+    """Assemble the 7-vector phi from a params dict (MAP json, posterior
+    draw), filling ignition entries with inert defaults when absent —
+    backward-compatible with pre-ignition-state result files."""
+    base = [params[n] for n, _ in PHI_SITES]
+    ign = [params.get(n, d) for (n, _), d in
+           zip(PHI_SITES_IGNITION, PHI_IGNITION_INERT)]
+    return np.array(base + ign)
 
 
 def model(obs_pit, obs_core, u_knots, meat_tx, pit_tx, grids, tols):
     theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
-    phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES])
+    # synthetic data was generated fully lit: ignition entries stay inert
+    phi = jnp.concatenate([
+        jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES]),
+        jnp.asarray(PHI_IGNITION_INERT),
+    ])
     sigma_pit = numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
     sigma_core = numpyro.sample("sigma_core", dist.HalfNormal(2.0))
 
@@ -77,7 +99,9 @@ def model_real(obs_pit, obs_core, mask_pit, mask_core, u_knots, ics,
     (lid events + probe-settling excluded) with the digitization noise floor,
     initial conditions fixed from the log."""
     theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
-    phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES])
+    # real cooks start Minion-style: sample the ignition dynamics too
+    phi = jnp.stack([numpyro.sample(n, d)
+                     for n, d in PHI_SITES + PHI_SITES_IGNITION])
     sigma_pit = SIGMA_FLOOR_K + numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
     sigma_core = SIGMA_FLOOR_K + numpyro.sample("sigma_core", dist.HalfNormal(2.0))
 

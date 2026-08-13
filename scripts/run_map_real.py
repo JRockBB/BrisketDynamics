@@ -49,7 +49,7 @@ def main():
 
     # fit overlay figure
     theta = np.array([params[n] for n, _ in calibrate.THETA_SITES])
-    phi = np.array([params[n] for n, _ in calibrate.PHI_SITES])
+    phi = calibrate.phi_full(params)
     grids = CookGrids(t_end=float(log["t"][-1]),
                       dt_exchange=float(log["t"][1] - log["t"][0]),
                       n_u=len(log["t"]))

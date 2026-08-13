@@ -27,12 +27,12 @@ def main():
     args = ap.parse_args()
 
     from brisket_app import cooklog
-    from brisket_app.calibrate import THETA_SITES, PHI_SITES
+    from brisket_app.calibrate import THETA_SITES, phi_full
 
     log = cooklog.load(dt_min=10.0)
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
     theta = [m[n] for n, _ in THETA_SITES]
-    phi = [m[n] for n, _ in PHI_SITES]
+    phi = list(phi_full(m))
 
     # --- Julia: 2 Picard iterations of the coupled cook, full meat fields ---
     import juliacall

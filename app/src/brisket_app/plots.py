@@ -16,24 +16,28 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .calibrate import PHI_SITES, THETA_SITES
+from .calibrate import (PHI_IGNITION_INERT, PHI_SITES,
+                        PHI_SITES_IGNITION, THETA_SITES)
 from .coupled import HR, coupled_cook
 
 PARAM_NAMES = [n for n, _ in THETA_SITES] + [n for n, _ in PHI_SITES]
 # log-scale for the strictly positive scale parameters; u_leak stays linear
-LOG_PARAMS = {n for n in PARAM_NAMES if n != "u_leak"}
+# fractions stay linear; every other physical scale is log10
+_LINEAR = {"u_leak", "a0"}
+LOG_PARAMS = {n for n in PARAM_NAMES if n not in _LINEAR}
 
 
-def corner_plot(samples: dict, out_path: Path, truths: dict | None = None):
+def corner_plot(samples: dict, out_path: Path, truths: dict | None = None,
+                names: list | None = None):
     """Corner plot over the 10 physical parameters (log10 axes where apt)."""
     import corner as corner_mod
 
     cols = []
     labels = []
     truth_vals = [] if truths is not None else None
-    for n in PARAM_NAMES:
+    for n in (names or PARAM_NAMES):
         x = np.asarray(samples[n]).reshape(-1)
-        if n in LOG_PARAMS:
+        if n not in _LINEAR:
             cols.append(np.log10(x))
             labels.append(f"log10 {n}")
             if truths is not None:
@@ -75,8 +79,14 @@ def posterior_predictive_plot(samples: dict, data: dict, meat_tx, pit_tx, grids,
     for i in idx:
         theta = jnp.asarray([float(np.asarray(samples[n]).reshape(-1)[i])
                              for n, _ in THETA_SITES])
-        phi = jnp.asarray([float(np.asarray(samples[n]).reshape(-1)[i])
-                           for n, _ in PHI_SITES])
+        def _s(n, default=None):
+            if n in samples:
+                return float(np.asarray(samples[n]).reshape(-1)[i])
+            return float(default)
+
+        phi = jnp.asarray([_s(n) for n, _ in PHI_SITES]
+                          + [_s(n, d) for (n, _), d in
+                             zip(PHI_SITES_IGNITION, PHI_IGNITION_INERT)])
         sim = coupled_cook(theta, phi, jnp.asarray(data["u_knots"]),
                            meat_tx, pit_tx, grids, K=2, ics=ics)
         cores.append(np.asarray(sim["tcore"]))

@@ -64,7 +64,7 @@ end
     hr = 3600.0
     tsave = collect(0.0:600.0:6hr)
     u_tknots = collect(range(0, 6hr, length = 8))
-    φ = PIT_φ_DEFAULT
+    φ = PIT_φ_GRAD   # a0 < 1: ignition dynamics active, no clamp kink
     u = collect(range(0.3, 0.6, length = 8))
     q = fill(150.0, length(tsave))
 
@@ -78,7 +78,7 @@ end
     cot = (Tpit = wT .* 2 .* (o.Tpit .- 380), m_fuel = fill(wm, length(o.m_fuel)))
     g = pit_vjp(φ, u, u_tknots, q, tsave, tsave, cot; tol...)
 
-    for i in 1:5
+    for i in 1:7
         fd = fd_partial(v -> loss(v, u, q), φ, i)
         @test relerr(g.dφ[i], fd) < 1e-4
     end

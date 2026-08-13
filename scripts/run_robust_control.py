@@ -23,7 +23,7 @@ import jax.numpy as jnp
 from brisket_app.clients import meat_client, pit_client
 from brisket_app.control import ControlConfig, optimize_schedule_expected
 from brisket_app.coupled import HR, CookGrids, coupled_cook
-from brisket_app.calibrate import THETA_SITES, PHI_SITES
+from brisket_app.calibrate import THETA_SITES, PHI_SITES, PHI_SITES_IGNITION, PHI_IGNITION_INERT
 
 REPO = Path(__file__).resolve().parents[1]
 N_OPT = 8    # posterior draws in the optimization objective
@@ -32,7 +32,13 @@ N_EVAL = 30  # held-out draws for evaluating both schedules
 
 def draws(samples, idx):
     th = np.stack([np.stack([samples[n][i] for n, _ in THETA_SITES]) for i in idx])
-    ph = np.stack([np.stack([samples[n][i] for n, _ in PHI_SITES]) for i in idx])
+    def phi_row(i):
+        base = [samples[n][i] for n, _ in PHI_SITES]
+        ign = [samples[n][i] if n in samples else d
+               for (n, _), d in zip(PHI_SITES_IGNITION, PHI_IGNITION_INERT)]
+        return np.array(base + ign)
+
+    ph = np.stack([phi_row(i) for i in idx])
     return th, ph
 
 

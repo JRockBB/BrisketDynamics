@@ -126,4 +126,6 @@ def coupled_cook(
 # literature values because it lumps in pressure-driven juice expulsion/wicking,
 # the mechanism that actually keeps a brisket surface wet through the stall.
 THETA_DEFAULT = np.array([1.5e-8, 0.0018, 10.0, 0.03, 1.0])  # D_eff, k_m, h_c, L, k_mult
-PHI_DEFAULT = np.array([15e3, 20.0, 3e-4, 1.2e7, 0.2])     # C_th, UA, r_max, dH_eff, u_leak
+# C_th, UA, r_max, dH_eff, u_leak, k_spread, a0 — a0=1 makes the ignition
+# dynamics inert (exactly the pre-ignition-state model)
+PHI_DEFAULT = np.array([15e3, 20.0, 3e-4, 1.2e7, 0.2, 3e-4, 1.0])

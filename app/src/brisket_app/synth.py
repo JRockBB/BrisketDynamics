@@ -19,7 +19,8 @@ from .coupled import HR, CookGrids, coupled_cook
 # Offset from THETA_DEFAULT / PHI_DEFAULT (the prior centers) by 20-40%:
 # calibration has to *move* to find these, not just sit at the prior mode.
 THETA_TRUE = np.array([2.1e-8, 0.0014, 12.5, 0.026, 1.15])
-PHI_TRUE = np.array([18e3, 24.0, 2.5e-4, 1.35e7, 0.25])
+# ignition entries inert (a0 = 1): synthetic cooks start fully lit
+PHI_TRUE = np.array([18e3, 24.0, 2.5e-4, 1.35e7, 0.25, 3e-4, 1.0])
 
 OBS_SIGMA_PIT = 1.5  # K, thermocouple-in-turbulent-pit scale
 OBS_SIGMA_CORE = 0.8  # K, probe in thermal mass is quieter

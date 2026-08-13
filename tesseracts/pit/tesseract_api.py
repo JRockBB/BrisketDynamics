@@ -114,8 +114,10 @@ def _jvec(x) -> "juliacall.VectorValue":
 
 
 class InputSchema(BaseModel):
-    phi: Differentiable[Array[(5,), Float64]] = Field(
-        description="Pit parameters [C_th J/K, UA W/K, r_max kg/s, dH_eff J/kg, u_leak]"
+    phi: Differentiable[Array[(7,), Float64]] = Field(
+        description="Pit parameters [C_th J/K, UA W/K, r_max kg/s, dH_eff J/kg, "
+                    "u_leak, k_spread 1/s, a0] (a0 = initial ignited bed fraction; "
+                    "a0=1 disables ignition dynamics)"
     )
     u_knots: Differentiable[Array[(None,), Float64]] = Field(
         description="Damper schedule in [0,1] on the uniform grid `u_tknots`"

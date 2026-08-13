@@ -21,7 +21,7 @@ import jax.numpy as jnp
 from brisket_app.clients import meat_client, pit_client
 from brisket_app.control import ControlConfig, optimize_schedule
 from brisket_app.coupled import HR, CookGrids, coupled_cook
-from brisket_app.calibrate import THETA_SITES, PHI_SITES
+from brisket_app.calibrate import THETA_SITES, phi_full
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -35,7 +35,7 @@ def main():
     map_file = REPO / "data" / "calibration" / "map_result.json"
     m = json.loads(map_file.read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
-    phi = np.array([m[n] for n, _ in PHI_SITES])
+    phi = phi_full(m)
     print(f"MAP params from {map_file.name}: theta={theta}, phi={phi}")
 
     meat_tx, pit_tx = meat_client(), pit_client()
