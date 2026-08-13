@@ -12,3 +12,6 @@ __pycache__/
 *.jl.cov
 *.jl.mem
 LocalPreferences.toml
+
+# staged build contexts (created by scripts/build_containers.sh)
+tesseracts/*/BrisketDynamics/
