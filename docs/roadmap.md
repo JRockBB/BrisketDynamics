@@ -81,3 +81,17 @@ bark chemistry without calibration data.
 7. **Community/product shape.** Publish as a usable open-source stack
    (calibrate-from-your-log CLI, schedule/MPC frontend); write up the bark
    and pooling work properly if the data supports it.
+8. **Generalize across meats and cookers.** The architecture already is the
+   generalization — heat source ⇄ meat through (T_source, q_load), i.e. swap
+   one Tesseract, keep the other. The model family is small: geometry mode
+   (slab/cylinder/sphere — one curvature term), surface-BC mode (evaporative
+   / skin-barrier for poultry / saturated-steam / wrapped), source model
+   (charcoal / pellet-auger / two-zone offset / rock reservoir / electric),
+   and doneness kinetics (collagen, myosin, pasteurization — all Arrhenius).
+   Notable cases: pulled pork ≈ free transfer (geometry switch); ribs make
+   wrap physics mandatory; a combi oven identifies meat parameters under
+   controlled T+RH for transfer to any smoker; sous vide validates against
+   Baldwin's tables; and the sealed earth pit (pibil/imu) is the jewel —
+   saturated steam kills the stall entirely, the source is an uncontrolled
+   thermal discharge, and "control" becomes design (rock mass, seal time) in
+   an uninstrumented cooking tradition.
