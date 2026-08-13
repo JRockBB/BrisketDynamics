@@ -25,14 +25,44 @@ strategies**, composed in JAX via tesseract-jax:
 | `brisket-meat` | 1D slab heat+moisture PDE, 120 stiff ODEs (method of lines, FBDF), smoothed evaporative surface BC, collagen kinetics | **SciMLSensitivity continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`), exposed as the Tesseract `vector_jacobian_product` |
 | `brisket-pit` | lumped charcoal pit, 2 ODEs (energy balance, fuel burn with smooth burnout taper) | **exact dense ForwardDiff Jacobian**, transposed to a VJP |
 
+![Composition diagram](../figures/composition_diagram.png)
+
 The components are coupled **two-way** (pit temperature → meat boundary
 condition; meat evaporative + sensible load → pit energy balance) by a
 whole-horizon Picard iteration with K=2 fixed passes, unrolled in the JAX
-orchestrator. The model is *defined* as the unrolled map, so reverse-mode AD
-through the composed VJPs is the exact gradient of the simulated system — no
-implicit-function asterisk. One `jax.grad` of the composed log-density crosses
-the Julia↔JAX boundary four times (two adjoint solves, two forward-mode
-Jacobian transposes).
+orchestrator:
+
+$$
+\big(T_{pit}^{(k)},\, m^{(k)}\big) = P_\varphi\big(u,\, q^{(k-1)}\big),
+\qquad
+\big(T_{core},\, j_{evap},\, q^{(k)}\big) = M_\theta\big(T_{pit}^{(k)}\big),
+\qquad k = 1 \ldots K .
+$$
+
+The model is *defined* as the k=K output of this unrolled map, so
+reverse-mode AD through the composed VJPs is the exact gradient of the
+simulated system — no implicit-function asterisk. One `jax.grad` of the
+composed log-density crosses the Julia↔JAX boundary four times (two adjoint
+solves, two forward-mode Jacobian transposes).
+
+The stall mechanism — and the place where differentiability was deliberately
+engineered — is the meat's surface boundary condition. Evaporative flux is
+mass-transfer-limited with a *smoothed* moisture-availability switch and a
+*smoothly clamped* vapor-pressure deficit,
+
+$$
+j_{evap} \;=\; k_m \,\underbrace{\sigma\!\Big(\tfrac{W_s - W_{crit}}{\delta_W}\Big)}_{\text{availability}}\,
+\frac{\operatorname{softplus}_{\delta_p}\!\big(p_{sat}(T_s) - p_{pit}\big)}{R_v\, T_s},
+\qquad
+-k\,\partial_x T\big|_{s} \;=\; h_c\,(T_{pit}-T_s) + \varepsilon\sigma_{SB}\,(T_{pit}^4-T_s^4) - \lambda_{vap}\, j_{evap},
+$$
+
+so the plateau emerges (and breaks) smoothly: no branch ever enters the
+adjoint, and NUTS's likelihood surface stays differentiable through the very
+feature that carries the information. Calibration uses a masked Gaussian
+likelihood with a digitization noise floor,
+$y^{pit}_i \sim \mathcal N\big(T_{pit}(t_i;\theta,\varphi),\, (\sigma_0+\sigma_{pit})^2\big)$
+over non-lid-event observations (likewise for the core probe).
 
 A three-level gradient verification gate backs this: Julia adjoints vs central
 finite differences (rel. err ≤1e-3, most components ≤1e-5), per-endpoint
