@@ -23,7 +23,7 @@ strategies**, composed in JAX via tesseract-jax:
 | Component | Physics | Differentiation |
 |---|---|---|
 | `brisket-meat` | 1D slab heat+moisture PDE, 120 stiff ODEs (method of lines, FBDF), smoothed evaporative surface BC, collagen kinetics | **SciMLSensitivity continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`), exposed as the Tesseract `vector_jacobian_product` |
-| `brisket-pit` | lumped charcoal pit, 2 ODEs (energy balance, fuel burn with smooth burnout taper) | **exact dense ForwardDiff Jacobian**, transposed to a VJP |
+| `brisket-pit` | lumped charcoal pit, 3 ODEs (energy balance, fuel burn with smooth burnout taper, Minion-method ignition spread) | **exact dense ForwardDiff Jacobian**, transposed to a VJP |
 
 ![Composition diagram](../figures/composition_diagram.png)
 
@@ -67,7 +67,7 @@ over non-lid-event observations (likewise for the core probe).
 A three-level gradient verification gate backs this: Julia adjoints vs central
 finite differences (rel. err ≤1e-3, most components ≤1e-5), per-endpoint
 `tesseract-runtime check-gradients`, and a composed FD check of
-`jax.grad(loss ∘ coupled_cook)` — **13/13 pass at 1e-10 tolerances**
+`jax.grad(loss ∘ coupled_cook)` — **15/15 pass at 1e-10 tolerances** (every meat parameter, all 7 pit parameters incl. the ignition dynamics, and damper directions)
 (`docs/verification.md` documents the methodology, including why the
 compiled-ReverseDiff-tape variant is *silently wrong* for time-interpolated
 forcings, and the FD conditioning required to verify a parameter that spans
@@ -183,8 +183,9 @@ The model is honest about its scope. Pit humidity is fixed (a water pan would
 invalidate the calibrated evaporation coefficient — the k_m confound named in
 §3); the cook is assumed unwrapped throughout (true of our calibration data;
 a Texas-crutch wrap changes the surface physics entirely); "doneness" is
-collagen conversion — a good proxy for probe-tender, silent on bark, smoke
-ring, and juiciness; and the ~3 °C early-cook pit residual suggests the fuel
+collagen conversion — a good proxy for probe-tender, silent on bark and
+smoke ring (juiciness now has a first proxy: retained moisture at pull is a
+differentiable output); and the ~3 °C early-cook pit residual suggests the fuel
 bed's ignition progression (Minion method) is richer than a two-state pit.
 Smoke itself is deliberately *not* modeled as a fluid: a single-probe cook log
 cannot identify CFD-scale parameters, and flavor deposition is chemistry the

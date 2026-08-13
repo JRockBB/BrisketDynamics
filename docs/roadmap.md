@@ -7,13 +7,13 @@ dependency ordering that matters.
 
 ## Hackathon (by priority; ⚑ = ordering constraint)
 
-1. **Fuel-bed ignition state** — one extra pit ODE (logistic ignition spread,
-   Minion-method physics) targeting the one visible capstone misfit (~3 °C
-   early-cook pit overshoot). Small change, improves the headline figure.
-   ⚑ Must land **before** NUTS-real: model changes invalidate posteriors.
-2. **Juiciness output** — total retained moisture at pull, computed from the
-   existing W field; expose as an output and optional control-objective term.
-   Hours of work; partially answers "the last 10%".
+1. ✅ **Fuel-bed ignition state** (`937e6b0`) — third pit state (airflow-assisted
+   logistic ignition spread), a0=1 provably inert for synthetic
+   back-compat; k_spread/a0 sampled for the real cook. Julia 34/34,
+   composed gate 15/15.
+2. ✅ **Juiciness output** — retained moisture at pull as a differentiable
+   output (`w_retained`) + optional control-objective term (`w_juicy`).
+   Julia 36/36, app suite 18/18; docs/diagram/README updated.
 3. **Re-run MAP-real** after (1)+(2) — minutes; refreshes `map_real.json` and
    the fit figure.
 4. **NUTS on the real cook** — the calibration capstone's posterior

@@ -117,6 +117,7 @@ def coupled_cook(
         "j_evap": meat["j_evap"],
         "q_meat": meat["q_meat"],
         "c_field_final": meat["c_field_final"],
+        "w_retained": meat["w_retained"],
         "picard_dT": picard,
     }
 

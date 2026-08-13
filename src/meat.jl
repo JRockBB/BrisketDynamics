@@ -154,10 +154,12 @@ function _meat_core(p, cfg::MeatConfig, prob, tsave, Mts;
     Tsurf = A[nx, :]
     Wsurf = A[2nx, :]
     C_field_final = A[2nx+1:3nx, end]
+    # juiciness proxy: mean retained moisture at pull, as a fraction of W0
+    w_retained = sum(A[nx+1:2nx, end]) / (nx * cfg.W0)
     Tpit_ts = Mts * p[MEAT_NP+1:end]
     j_evap = evap_flux.(Tsurf, Wsurf, p[2], Ref(cfg))
     q_meat = cfg.A_meat .* surface_heat_in.(Tpit_ts, Tsurf, p[3], Ref(cfg))
-    (; Tsurf, Tcore, j_evap, q_meat, C_field_final)
+    (; Tsurf, Tcore, j_evap, q_meat, C_field_final, w_retained)
 end
 
 """
@@ -191,6 +193,7 @@ function meat_solve(θ::AbstractVector, Tpit_knots::AbstractVector,
        j_evap = evap_flux.(Tsurf, Wsurf, θ[2], Ref(cfg)),
        q_meat = cfg.A_meat .* surface_heat_in.(Tpit_ts, Tsurf, θ[3], Ref(cfg)),
        C_field_final = A[2nx+1:3nx, end],
+       w_retained = sum(A[nx+1:2nx, end]) / (nx * cfg.W0),
        T_field = A[1:nx, :], W_field = A[nx+1:2nx, :], C_field = A[2nx+1:3nx, :],
        t = collect(float.(tsave)))
 end
@@ -222,6 +225,7 @@ function meat_vjp(θ::AbstractVector, Tpit_knots::AbstractVector,
         j_evap = get(cot, :j_evap, z_t),
         q_meat = get(cot, :q_meat, z_t),
         C_field_final = get(cot, :C_field_final, z_x),
+        w_retained = get(cot, :w_retained, 0.0),
     )
     _, back = Zygote.pullback(pp -> _meat_core(pp, cfg, prob, tsave, Mts;
                                                abstol, reltol, sensealg), p)

@@ -59,8 +59,8 @@ ax.text(6.5, 4.05, "Tesseract boundary · apply / abstract_eval / VJP",
 # ---- pit tesseract (left) ----
 box(0.6, 0.85, 4.6, 2.55, "#fdf1e7", "#c96a1b",
     "brisket-pit  (Julia)",
-    ["lumped charcoal pit — 2 ODEs (Tsit5)",
-     "energy balance · fuel burn, smooth taper",
+    ["lumped charcoal pit — 3 ODEs (Tsit5)",
+     "energy · fuel burn · Minion ignition spread",
      "AD: exact dense ForwardDiff",
      "Jacobian, transposed to a VJP"])
 
@@ -96,7 +96,7 @@ label(3.8, 3.72, r"$T_{pit},\; m_{fuel}$", "#c96a1b")
 arrow((9.2, JAX_BOT), (9.2, LOW_TOP), "#3b6ea5")
 label(9.2, 4.44, r"$\theta,\; T_{pit}(t)$", "#3b6ea5")
 arrow((11.0, LOW_TOP), (11.0, JAX_BOT), "#b03a3a")
-label(11.0, 3.72, r"$T_{core},\, j_{evap},\, q,\, C$", "#b03a3a")
+label(11.0, 3.72, r"$T_{core},\, j_{evap},\, q,\, C,\, w$", "#b03a3a")
 
 # ---- gradient annotation (its own band at the bottom) ----
 ax.text(6.5, 0.32,

@@ -17,7 +17,7 @@ into one end-to-end differentiable function orchestrated from JAX:
 | Component | Physics | States | Differentiation strategy |
 |---|---|---|---|
 | **Meat Tesseract** | 1D slab heat + moisture PDE, smoothed evaporative surface BC, collagen kinetics | T, W, C × 40 nodes (120 ODEs, stiff, FBDF) | SciMLSensitivity **continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`) |
-| **Pit Tesseract** | Lumped charcoal pit: energy balance + fuel burn | T_pit, m_fuel (Tsit5) | **Exact dense ForwardDiff Jacobian**, transposed |
+| **Pit Tesseract** | Lumped charcoal pit: energy balance + fuel burn + Minion ignition spread | T_pit, m_fuel, ignited fraction (Tsit5) | **Exact dense ForwardDiff Jacobian**, transposed |
 
 The two are coupled **two-way** (pit temperature → meat boundary condition;
 meat evaporative + sensible load → pit energy balance) via K=2 whole-horizon
@@ -32,7 +32,7 @@ of a SciMLSensitivity continuous adjoint exposed as a Tesseract
 
 | | |
 |---|---|
-| **Gradient correctness** | 3-level FD verification; composed `jax.grad` gate **13/13** at 1e-10 ([docs/verification.md](docs/verification.md)) |
+| **Gradient correctness** | 3-level FD verification; composed `jax.grad` gate **15/15** at 1e-10 ([docs/verification.md](docs/verification.md)) |
 | **Synthetic calibration** | MAP recovers 7/10 params ≤10%; NUTS posterior with truths inside everywhere; the k_m–h_c ridge is the stall's cooling/heating trade-off ([corner](figures/corner.png), [predictive band](figures/posterior_predictive.png)) |
 | **Real-cook capstone** | 19-h WSM cook (digitized with provenance): pit hold tracked ±3 °C, core stall **and** stall break reproduced ([fit](figures/cooklog_fit_map.png), [data](data/cook_log/PROVENANCE.md)) |
 | **Optimal control** | doneness 0.26 → **0.900** on target, surface under bark limit ([before/after](figures/control_before_after.png)) |

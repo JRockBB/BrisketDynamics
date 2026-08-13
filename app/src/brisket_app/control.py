@@ -29,6 +29,7 @@ class ControlConfig:
     w_surf: float = 1.0
     w_fuel: float = 0.1
     w_smooth: float = 0.01
+    w_juicy: float = 0.0   # optional: reward retained moisture (juiciness proxy)
     lr: float = 0.05
     n_iter: int = 200
 
@@ -42,7 +43,8 @@ def objective(z, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig, tols):
     return (cc.w_done * (c_core - cc.c_target) ** 2
             + cc.w_surf * jnp.mean(surf_over**2)
             + cc.w_fuel * fuel_frac
-            + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2))
+            + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
+            - cc.w_juicy * sim["w_retained"])
 
 
 def optimize_schedule_expected(thetas, phis, meat_tx, pit_tx,

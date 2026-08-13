@@ -98,12 +98,13 @@ def _init():
         function _meat_apply(θ, knots, tknots, tsave, abstol, reltol, t0)
             cfg = MeatConfig(T0=t0)
             o = meat_solve(θ, knots, tknots, tsave; cfg=cfg, abstol=abstol, reltol=reltol)
-            return o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final
+            return o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final, o.w_retained
         end
         function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol, t0,
-                           cTs, cTc, cj, cq, cC)
+                           cTs, cTc, cj, cq, cC, cW)
             cfg = MeatConfig(T0=t0)
-            cot = (Tsurf=cTs, Tcore=cTc, j_evap=cj, q_meat=cq, C_field_final=cC)
+            cot = (Tsurf=cTs, Tcore=cTc, j_evap=cj, q_meat=cq, C_field_final=cC,
+                   w_retained=cW)
             g = meat_vjp(θ, knots, tknots, tsave, cot; cfg=cfg, abstol=abstol, reltol=reltol)
             return g.dθ, g.dTpit_knots
         end
@@ -153,6 +154,9 @@ class OutputSchema(BaseModel):
     c_field_final: Differentiable[Array[(NX,), Float64]] = Field(
         description="Final collagen conversion field (center → surface)"
     )
+    w_retained: Differentiable[Array[(), Float64]] = Field(
+        description="Juiciness proxy: mean retained moisture at pull / W0"
+    )
 
 
 # Soft-fail mode for MCMC: failed solves return sentinel outputs / zero
@@ -182,7 +186,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
             f"DEGENERATE MEAT INPUT: tpit_knots {tpit.shape} vs tknots {tknots.shape}")
 
     def _run():
-        ts, tc, j, q, c = jl._meat_apply(
+        ts, tc, j, q, c, wr = jl._meat_apply(
             _jvec(theta),
             _jvec(tpit),
             _jvec(tknots),
@@ -198,10 +202,10 @@ def apply(inputs: InputSchema) -> OutputSchema:
         # thread — a timing-dependent process-wide deadlock.
         return (np.asarray(ts).copy(), np.asarray(tc).copy(),
                 np.asarray(j).copy(), np.asarray(q).copy(),
-                np.asarray(c).copy())
+                np.asarray(c).copy(), np.float64(wr))
 
     try:
-        ts, tc, j, q, c = _on_julia_thread(_run)
+        ts, tc, j, q, c, wr = _on_julia_thread(_run)
     except RuntimeError:
         if not SOFT_FAIL:
             raise
@@ -209,7 +213,9 @@ def apply(inputs: InputSchema) -> OutputSchema:
         ts = tc = np.full(nt, _SENTINEL_T)
         j = q = np.zeros(nt)
         c = np.zeros(NX)
-    return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c)
+        wr = np.float64(0.0)
+    return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c,
+                        w_retained=wr)
 
 
 def abstract_eval(abstract_inputs):
@@ -221,6 +227,7 @@ def abstract_eval(abstract_inputs):
         "j_evap": vec(nt),
         "q_meat": vec(nt),
         "c_field_final": vec(NX),
+        "w_retained": ShapeDType(shape=(), dtype="float64"),
     }
 
 
@@ -235,7 +242,8 @@ def vector_jacobian_product(
     nt = len(tsave)
     cots = {name: (_own(cotangent_vector[name])
                    if name in cotangent_vector and name in vjp_outputs else None)
-            for name in ("tsurf", "tcore", "j_evap", "q_meat", "c_field_final")}
+            for name in ("tsurf", "tcore", "j_evap", "q_meat", "c_field_final",
+                         "w_retained")}
 
     def _run():
         def cot(name, n):
@@ -255,6 +263,7 @@ def vector_jacobian_product(
             cot("j_evap", nt),
             cot("q_meat", nt),
             cot("c_field_final", NX),
+            float(cots["w_retained"]) if cots["w_retained"] is not None else 0.0,
         )
         # .copy(): no zero-copy views of Julia memory may cross threads
         return np.asarray(dtheta).copy(), np.asarray(dknots).copy()

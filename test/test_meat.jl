@@ -40,4 +40,8 @@
 
     # doneness: collagen conversion happened but is not complete at the core
     @test 0.05 < out.C_field_final[1] < 1.0
+
+    # juiciness proxy: bounded, and losing moisture over the cook
+    @test 0.0 < out.w_retained < 1.0
+    @test out.w_retained < 0.999        # some moisture actually left
 end
