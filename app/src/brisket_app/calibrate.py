@@ -68,6 +68,41 @@ def _bound_model(data: dict, meat_tx, pit_tx, grids: CookGrids | None = None,
                    data["u_knots"], meat_tx, pit_tx, grids, tols)
 
 
+SIGMA_FLOOR_K = 1.2  # >= 2 F digitization noise floor (PROVENANCE.md)
+
+
+def model_real(obs_pit, obs_core, mask_pit, mask_core, u_knots, ics,
+               meat_tx, pit_tx, grids, tols):
+    """Calibration model for the real cook log: masked Gaussian likelihood
+    (lid events + probe-settling excluded) with the digitization noise floor,
+    initial conditions fixed from the log."""
+    theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
+    phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES])
+    sigma_pit = SIGMA_FLOOR_K + numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
+    sigma_core = SIGMA_FLOOR_K + numpyro.sample("sigma_core", dist.HalfNormal(2.0))
+
+    sim = coupled_cook(theta, phi, jnp.asarray(u_knots), meat_tx, pit_tx,
+                       grids, K=2, ics=ics, **tols)
+    numpyro.sample("pit", dist.Normal(sim["tpit"][mask_pit], sigma_pit),
+                   obs=obs_pit[mask_pit])
+    numpyro.sample("core", dist.Normal(sim["tcore"][mask_core], sigma_core),
+                   obs=obs_core[mask_core])
+
+
+def bound_model_real(log: dict, meat_tx, pit_tx, tols: dict | None = None):
+    """Bind model_real to a loaded cook log (see cooklog.load)."""
+    grids = CookGrids(t_end=float(log["t"][-1]),
+                      dt_exchange=float(log["t"][1] - log["t"][0]),
+                      n_u=len(log["t"]))
+    ics = {"tpit0": log["meta"]["tpit0_K"], "t_amb": 300.0,
+           "t0_meat": log["meta"]["tcore0_K"]}
+    tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
+    return partial(model_real,
+                   jnp.asarray(log["obs_pit"]), jnp.asarray(log["obs_core"]),
+                   np.asarray(log["mask_pit"]), np.asarray(log["mask_core"]),
+                   log["u"], ics, meat_tx, pit_tx, grids, tols)
+
+
 def time_gradient(data, meat_tx, pit_tx, **kw) -> float:
     """Seconds per log-density gradient at calibration settings — the number
     the Aug-16 NUTS go/no-go checkpoint runs on (ladder in the plan)."""

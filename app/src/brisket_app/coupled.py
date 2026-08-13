@@ -49,6 +49,7 @@ def coupled_cook(
     K: int = 2,
     abstol: float = 1e-6,
     reltol: float = 1e-6,
+    ics: dict | None = None,
 ):
     """Simulate the coupled pit-brisket system; differentiable w.r.t.
     theta (meat params), phi (pit params), and u_knots (damper schedule).
@@ -57,6 +58,12 @@ def coupled_cook(
     c_field_final, and the Picard residual diagnostic picard_dT (max |ΔT_pit|
     between the last two iterations; NaN when K=1).
     """
+    # ics: optional initial/boundary conditions, e.g. for a real cook log:
+    # {"tpit0": K, "t_amb": K, "m0": kg, "t0_meat": K}. Defaults (cold pit,
+    # fridge meat) live in the Tesseract schemas.
+    ics = ics or {}
+    pit_ics = {k: ics[k] for k in ("tpit0", "t_amb", "m0") if k in ics}
+    meat_ics = {k: ics[k] for k in ("t0_meat",) if k in ics}
     tk = jnp.asarray(grids.tknots)
     utk = jnp.asarray(grids.u_tknots)
     q = jnp.zeros(grids.nt)
@@ -80,6 +87,7 @@ def coupled_cook(
                 "tsave": tk,
                 "abstol": min(abstol, 1e-8),
                 "reltol": min(reltol, 1e-8),
+                **pit_ics,
             },
         )
         theta_i, tpit_i = jax.lax.optimization_barrier((theta, pit["tpit"]))
@@ -92,6 +100,7 @@ def coupled_cook(
                 "tsave": tk,
                 "abstol": abstol,
                 "reltol": reltol,
+                **meat_ics,
             },
         )
         q = meat["q_meat"]

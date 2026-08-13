@@ -60,15 +60,17 @@ def _init():
     jl.seval(
         """
         function _pit_apply(φ, u_knots, u_tknots, q_knots, q_tknots, tsave,
-                            abstol, reltol)
+                            abstol, reltol, tpit0, t_amb, m0)
+            cfg = PitConfig(Tpit0=tpit0, T_amb=t_amb, m0=m0)
             o = pit_solve(φ, u_knots, u_tknots, q_knots, q_tknots, tsave;
-                          abstol=abstol, reltol=reltol)
+                          cfg=cfg, abstol=abstol, reltol=reltol)
             return o.Tpit, o.m_fuel
         end
         function _pit_vjp(φ, u_knots, u_tknots, q_knots, q_tknots, tsave,
-                          abstol, reltol, cT, cm)
+                          abstol, reltol, tpit0, t_amb, m0, cT, cm)
+            cfg = PitConfig(Tpit0=tpit0, T_amb=t_amb, m0=m0)
             g = pit_vjp(φ, u_knots, u_tknots, q_knots, q_tknots, tsave,
-                        (Tpit=cT, m_fuel=cm); abstol=abstol, reltol=reltol)
+                        (Tpit=cT, m_fuel=cm); cfg=cfg, abstol=abstol, reltol=reltol)
             return g.dφ, g.du_knots, g.dqmeat_knots
         end
         """
@@ -98,6 +100,9 @@ class InputSchema(BaseModel):
     tsave: Array[(None,), Float64] = Field(description="Output save times [s]")
     abstol: float = Field(default=1e-8, description="ODE solver absolute tolerance")
     reltol: float = Field(default=1e-8, description="ODE solver relative tolerance")
+    tpit0: float = Field(default=293.15, description="Initial pit temperature [K]")
+    t_amb: float = Field(default=293.15, description="Ambient temperature [K]")
+    m0: float = Field(default=7.0, description="Initial fuel load [kg]")
 
 
 class OutputSchema(BaseModel):
@@ -139,6 +144,9 @@ def apply(inputs: InputSchema) -> OutputSchema:
             _jvec(tsave),
             float(inputs.abstol),
             float(inputs.reltol),
+            float(inputs.tpit0),
+            float(inputs.t_amb),
+            float(inputs.m0),
         )
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory; releasing it from another thread
@@ -191,6 +199,9 @@ def vector_jacobian_product(
             _jvec(tsave),
             float(inputs.abstol),
             float(inputs.reltol),
+            float(inputs.tpit0),
+            float(inputs.t_amb),
+            float(inputs.m0),
             cot("tpit"),
             cot("m_fuel"),
         )

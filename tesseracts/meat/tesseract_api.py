@@ -64,14 +64,16 @@ def _init():
     jl.seval("using BrisketDynamics")
     jl.seval(
         """
-        function _meat_apply(θ, knots, tknots, tsave, abstol, reltol)
-            o = meat_solve(θ, knots, tknots, tsave; abstol=abstol, reltol=reltol)
+        function _meat_apply(θ, knots, tknots, tsave, abstol, reltol, t0)
+            cfg = MeatConfig(T0=t0)
+            o = meat_solve(θ, knots, tknots, tsave; cfg=cfg, abstol=abstol, reltol=reltol)
             return o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final
         end
-        function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol,
+        function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol, t0,
                            cTs, cTc, cj, cq, cC)
+            cfg = MeatConfig(T0=t0)
             cot = (Tsurf=cTs, Tcore=cTc, j_evap=cj, q_meat=cq, C_field_final=cC)
-            g = meat_vjp(θ, knots, tknots, tsave, cot; abstol=abstol, reltol=reltol)
+            g = meat_vjp(θ, knots, tknots, tsave, cot; cfg=cfg, abstol=abstol, reltol=reltol)
             return g.dθ, g.dTpit_knots
         end
         """
@@ -101,6 +103,7 @@ class InputSchema(BaseModel):
     tsave: Array[(None,), Float64] = Field(description="Output save times [s]")
     abstol: float = Field(default=1e-6, description="ODE solver absolute tolerance")
     reltol: float = Field(default=1e-6, description="ODE solver relative tolerance")
+    t0_meat: float = Field(default=281.15, description="Initial meat temperature [K]")
 
 
 class OutputSchema(BaseModel):
@@ -155,6 +158,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
             _jvec(tsave),
             float(inputs.abstol),
             float(inputs.reltol),
+            float(inputs.t0_meat),
         )
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory. If that view escapes this thread,
@@ -214,6 +218,7 @@ def vector_jacobian_product(
             _jvec(tsave),
             float(inputs.abstol),
             float(inputs.reltol),
+            float(inputs.t0_meat),
             cot("tsurf", nt),
             cot("tcore", nt),
             cot("j_evap", nt),
