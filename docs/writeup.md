@@ -207,9 +207,10 @@ Everything is pinned (`Manifest.toml`, `uv.lock`) and layered so each claim is
 one command (`README.md`): Julia physics + gradient tests, boundary tests, the
 composed FD gate, each figure's generating script. The native no-Docker dev
 loop (`Tesseract.from_tesseract_api`) runs the full science pipeline on
-Windows; containerized builds (`scripts/build_containers.sh`, Julia toolchain
-baked at build time via `package_data`) provide the reproducible artifact
-[TODO: confirm container build + in-container checkgradients before
+Windows; both containers build and solve (`scripts/build_containers.sh` —
+Julia toolchain and precompiled package baked at build time via
+`package_data`; `brisket-meat:0.1.0` and `brisket-pit:0.1.0` verified with
+in-container applies) [TODO: in-container checkgradients sweep before
 submission]. Figures: the animated calibrated cook
 (`figures/cook_animation.gif`), corner plot, posterior-predictive band,
 control before/after, robust-control comparison, real-cook fit.
