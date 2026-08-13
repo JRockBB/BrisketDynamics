@@ -15,79 +15,95 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 REPO = Path(__file__).resolve().parents[1]
 
-fig, ax = plt.subplots(figsize=(11, 5.6))
-ax.set_xlim(0, 11)
-ax.set_ylim(0, 5.6)
+fig, ax = plt.subplots(figsize=(13, 6.4))
+ax.set_xlim(0, 13)
+ax.set_ylim(0, 6.4)
 ax.axis("off")
 
 BOX = dict(boxstyle="round,pad=0.12", linewidth=1.4)
+WHITE = dict(boxstyle="round,pad=0.14", fc="white", ec="none", alpha=0.95)
 
 
-def box(x, y, w, h, fc, ec, title, lines, title_size=10.5, size=8.6):
+def box(x, y, w, h, fc, ec, title, lines, title_size=11, size=8.8):
     ax.add_patch(FancyBboxPatch((x, y), w, h, fc=fc, ec=ec, **BOX))
-    ax.text(x + w / 2, y + h - 0.32, title, ha="center", va="center",
+    ax.text(x + w / 2, y + h - 0.34, title, ha="center", va="center",
             fontsize=title_size, fontweight="bold")
     for i, ln in enumerate(lines):
-        ax.text(x + w / 2, y + h - 0.72 - 0.34 * i, ln, ha="center",
+        ax.text(x + w / 2, y + h - 0.76 - 0.36 * i, ln, ha="center",
                 va="center", fontsize=size)
 
 
-def arrow(p, q, color, label=None, lx=0, ly=0, style="-|>", lw=1.8, ls="-",
-          connstyle="arc3,rad=0.0", size=13):
-    ax.add_patch(FancyArrowPatch(p, q, arrowstyle=style, mutation_scale=size,
-                                 color=color, lw=lw, linestyle=ls,
-                                 connectionstyle=connstyle))
-    if label:
-        ax.text((p[0] + q[0]) / 2 + lx, (p[1] + q[1]) / 2 + ly, label,
-                ha="center", va="center", fontsize=8.2, color=color)
+def arrow(p, q, color, lw=1.9):
+    ax.add_patch(FancyArrowPatch(p, q, arrowstyle="-|>", mutation_scale=14,
+                                 color=color, lw=lw))
+
+
+def label(x, y, s, color, size=8.4):
+    ax.text(x, y, s, ha="center", va="center", fontsize=size, color=color,
+            bbox=WHITE)
 
 
 # ---- JAX orchestrator (top) ----
-box(1.2, 4.0, 8.6, 1.35, "#eef3fb", "#3b6ea5",
+box(1.4, 4.75, 10.2, 1.45, "#eef3fb", "#3b6ea5",
     "JAX orchestrator  (Python)",
     ["coupled_cook: K=2 Picard, unrolled  ·  jax.jit / jax.grad",
      "NumPyro MAP + NUTS   ·   Optax control   ·   E[J] over posterior"])
 
-# ---- boundary ----
-ax.plot([0.4, 10.6], [3.55, 3.55], ls=(0, (6, 4)), color="#888", lw=1.2)
-ax.text(10.55, 3.7, "Tesseract boundary — apply · abstract_eval · VJP",
-        ha="right", fontsize=8.6, color="#555", style="italic")
+# ---- boundary (labels sit clear of boxes and line) ----
+ax.plot([0.3, 12.7], [4.05, 4.05], ls=(0, (6, 4)), color="#888", lw=1.2)
+# centered in the arrow-free span between the pit-side and meat-side crossings
+ax.text(6.5, 4.05, "Tesseract boundary · apply / abstract_eval / VJP",
+        ha="center", va="center", fontsize=8.8, color="#555", style="italic",
+        bbox=WHITE)
 
 # ---- pit tesseract (left) ----
-box(0.7, 0.6, 4.3, 2.3, "#fdf1e7", "#c96a1b",
+box(0.6, 0.85, 4.6, 2.55, "#fdf1e7", "#c96a1b",
     "brisket-pit  (Julia)",
     ["lumped charcoal pit — 2 ODEs (Tsit5)",
-     "energy balance · fuel burn + smooth taper",
-     "AD: exact dense ForwardDiff Jacobian,",
-     "transposed to a VJP"])
+     "energy balance · fuel burn, smooth taper",
+     "AD: exact dense ForwardDiff",
+     "Jacobian, transposed to a VJP"])
 
 # ---- meat tesseract (right) ----
-box(6.0, 0.6, 4.3, 2.3, "#fdeaea", "#b03a3a",
+box(7.8, 0.85, 4.6, 2.55, "#fdeaea", "#b03a3a",
     "brisket-meat  (Julia)",
-    ["1D slab heat + moisture PDE — 120 stiff",
-     "ODEs (FBDF) · smoothed evaporative stall",
+    ["1D slab heat + moisture PDE",
+     "120 stiff ODEs (FBDF) · smoothed stall",
      "AD: SciMLSensitivity continuous adjoint",
      "(InterpolatingAdjoint + EnzymeVJP)"])
 
-# ---- coupling arrows (between tesseracts) ----
-arrow((5.0, 2.15), (6.0, 2.15), "#b03a3a", r"$T_{pit}(t)$", ly=0.22)
-arrow((6.0, 1.25), (5.0, 1.25), "#c96a1b", r"$q_{meat}(t)$", ly=-0.24)
-ax.text(5.5, 1.72, "two-way\n(K=2, unrolled)", ha="center", va="center",
-        fontsize=7.8, color="#555")
+# FancyBboxPatch pads its VISIBLE border 0.12 beyond the nominal rect;
+# connect arrows to the padded edge with a small clearance so heads/tails
+# touch the border instead of piercing it.
+PAD, CLR = 0.12, 0.03
+JAX_BOT = 4.75 - PAD - CLR      # visible bottom edge of the JAX box
+LOW_TOP = 3.40 + PAD + CLR      # visible top edge of the component boxes
+PIT_R = 5.20 + PAD + CLR        # visible right edge of pit box
+MEAT_L = 7.80 - PAD - CLR       # visible left edge of meat box
 
-# ---- downward (primal) and upward (cotangent) crossings ----
-arrow((2.2, 4.0), (2.2, 2.9), "#3b6ea5", r"$\varphi,\ u(t),\ q$", lx=-0.75)
-arrow((3.4, 2.9), (3.4, 4.0), "#c96a1b", r"$T_{pit},\ m_{fuel}$", lx=0.85)
-arrow((7.5, 4.0), (7.5, 2.9), "#3b6ea5", r"$\theta,\ T_{pit}(t)$", lx=-0.75)
-arrow((8.7, 2.9), (8.7, 4.0), "#b03a3a", r"$T_{core},\ j_{evap},\ q,\ C$", lx=1.0)
+# ---- coupling arrows (in the gap between the boxes) ----
+arrow((PIT_R, 2.65), (MEAT_L, 2.65), "#b03a3a")
+label(6.5, 2.93, r"$T_{pit}(t)$", "#b03a3a")
+arrow((MEAT_L, 1.55), (PIT_R, 1.55), "#c96a1b")
+label(6.5, 1.27, r"$q_{meat}(t)$", "#c96a1b")
+label(6.5, 2.1, "two-way coupling\n(K = 2, unrolled)", "#555", size=8.0)
 
-# ---- gradient annotation ----
-ax.text(5.5, 0.18,
-        "one  jax.grad  of the composed log-density  =  4 VJP crossings of the boundary "
-        "(2 continuous-adjoint solves + 2 forward-mode transposes)",
-        ha="center", fontsize=9.2, color="#333", fontweight="bold")
+# ---- boundary crossings: primal down (blue), outputs/cotangents up ----
+arrow((2.0, JAX_BOT), (2.0, LOW_TOP), "#3b6ea5")
+label(2.0, 4.44, r"$\varphi,\; u(t),\; q$", "#3b6ea5")
+arrow((3.8, LOW_TOP), (3.8, JAX_BOT), "#c96a1b")
+label(3.8, 3.72, r"$T_{pit},\; m_{fuel}$", "#c96a1b")
+arrow((9.2, JAX_BOT), (9.2, LOW_TOP), "#3b6ea5")
+label(9.2, 4.44, r"$\theta,\; T_{pit}(t)$", "#3b6ea5")
+arrow((11.0, LOW_TOP), (11.0, JAX_BOT), "#b03a3a")
+label(11.0, 3.72, r"$T_{core},\, j_{evap},\, q,\, C$", "#b03a3a")
 
-fig.tight_layout()
+# ---- gradient annotation (its own band at the bottom) ----
+ax.text(6.5, 0.32,
+        "one  jax.grad  of the composed log-density  =  4 VJP crossings of the "
+        "boundary  (2 continuous-adjoint solves + 2 forward-mode transposes)",
+        ha="center", fontsize=9.4, color="#333", fontweight="bold")
+
 out = REPO / "figures" / "composition_diagram.png"
 fig.savefig(out, dpi=150, bbox_inches="tight")
 print(f"wrote {out}")
