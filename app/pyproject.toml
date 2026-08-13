@@ -10,7 +10,7 @@ dependencies = [
     "tesseract-jax>=0.1",
     "numpyro>=0.16",
     "optax>=0.2",
-    "juliacall==0.9.32",
+    "juliacall==0.9.35",
     "filelock>=3.13",
     "matplotlib>=3.9",
     "corner>=2.2",

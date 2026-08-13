@@ -13,6 +13,7 @@ build_config:
     - "RUN chmod -R 777 /app"
 
 env:
+  BRISKET_JL_DIRECT: "1"
   JULIA_PROJECT: "/app/BrisketDynamics"
   PYTHON_JULIAPKG_PROJECT: "/app/BrisketDynamics"
   JULIA_DEPOT_PATH: "/app/julia_depot"

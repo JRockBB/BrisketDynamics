@@ -268,7 +268,7 @@ requires-dist = [
     { name = "corner", specifier = ">=2.2" },
     { name = "filelock", specifier = ">=3.13" },
     { name = "jax", specifier = ">=0.4.35" },
-    { name = "juliacall", specifier = "==0.9.32" },
+    { name = "juliacall", specifier = "==0.9.35" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "numpyro", specifier = ">=0.16" },
@@ -1104,14 +1104,14 @@ wheels = [
 
 [[package]]
 name = "juliacall"
-version = "0.9.32"
+version = "0.9.35"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "juliapkg" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/71/4b/2135cd2329d5a2dba678d91128c77c87a4bab8097a6b8badac6607d57a1e/juliacall-0.9.32.tar.gz", hash = "sha256:3f43442cc73a5c2da8533fc724e1b2efae15179776661fd29895f1dc7f21e32a", size = 497707, upload-time = "2026-05-14T20:37:39.361Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/25/58cd25408a347f848174528f2d77b2da5d2b31fef19b0c2ba30571a39745/juliacall-0.9.35.tar.gz", hash = "sha256:7b1ad7572aff3651bbe4fa554140f0f5fd970c9820d998af6ae0deb98a270ad3", size = 499488, upload-time = "2026-06-08T07:37:55.526Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/29/64/eb4dffe254fa7b9903f77afc40ce611db18b1776cdbf77499e06a1e5a519/juliacall-0.9.32-py3-none-any.whl", hash = "sha256:4716394f140c1b89272f38e38d2339a616be9fc678092d343ed26de73ec5922e", size = 12428, upload-time = "2026-05-14T20:37:40.617Z" },
+    { url = "https://files.pythonhosted.org/packages/10/3b/ce7b39f8572f78f8946380e7cf53477f8cffbb8085e49fc54ad34124cc62/juliacall-0.9.35-py3-none-any.whl", hash = "sha256:fd58e7858b12a8e1aa44f9f9eeaea05ff8029dd9a19d98521a5451ca94f2f81a", size = 12593, upload-time = "2026-06-08T07:37:56.782Z" },
 ]
 
 [[package]]

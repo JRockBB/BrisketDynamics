@@ -28,10 +28,28 @@ from pydantic import BaseModel, Field
 
 from tesseract_core.runtime import Array, Differentiable, Float64, Int32, ShapeDType
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+try:
+    REPO_ROOT = Path(__file__).resolve().parents[2]
+except IndexError:
+    # Containerized: the api file sits at /tesseract/tesseract_api.py (no
+    # grandparent). JULIA_PROJECT points at the baked-in package instead.
+    REPO_ROOT = Path("/app/BrisketDynamics")
 
 os.environ.setdefault("PYTHON_JULIACALL_HANDLE_SIGNALS", "yes")
 os.environ.setdefault("PYTHON_JULIACALL_THREADS", "1")
+
+# In-container, PythonCall precompiles in a subprocess and cannot autodetect
+# libpython; point it explicitly (mosaic topopt-jl pattern). No-op when the
+# lib is not found (e.g. Windows dev host).
+if not os.environ.get("JULIA_PYTHONCALL_LIB") and sys.platform == "linux":
+    import glob as _glob
+    import sysconfig as _sysconfig
+
+    _libdir = _sysconfig.get_config_var("LIBDIR") or ""
+    _libs = _glob.glob(os.path.join(_libdir, "libpython*.so.1.0")) or \
+        _glob.glob(os.path.join(_libdir, "libpython*.so"))
+    if _libs:
+        os.environ["JULIA_PYTHONCALL_LIB"] = _libs[0]
 
 import filelock
 
@@ -39,6 +57,14 @@ _EXEC_ATTR = "_brisket_julia_executor"
 if getattr(sys, _EXEC_ATTR, None) is None:
     setattr(sys, _EXEC_ATTR, ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall"))
 _JL_THREAD: ThreadPoolExecutor = getattr(sys, _EXEC_ATTR)
+
+
+# Direct mode (BRISKET_JL_DIRECT=1, set in the container env): run Julia on
+# the CALLING thread with no executor. The executor exists to serialize
+# XLA-worker-thread callbacks under tesseract-jax's LocalClient; inside the
+# containerized runtime there is no JAX, and owning Julia on a non-main
+# thread hangs juliacall's atexit (jl_atexit_hook from the main thread).
+_DIRECT = os.environ.get("BRISKET_JL_DIRECT", "0") == "1"
 
 
 def _on_julia_thread(fn, *args):
@@ -52,6 +78,8 @@ def _on_julia_thread(fn, *args):
             # keeps the original object out of the propagated chain.
             raise RuntimeError(f"Julia call failed: {type(e).__name__}: {e}") from None
 
+    if _DIRECT:
+        return _guarded()
     return _JL_THREAD.submit(_guarded).result()
 
 
@@ -60,7 +88,10 @@ def _init():
     import juliacall
 
     jl = juliacall.newmodule("MeatTess")
-    jl.seval(f'import Pkg; Pkg.activate(raw"{REPO_ROOT}"; io=devnull)')
+    # In the container, JULIA_PROJECT points at the baked-in package copy;
+    # locally it is unset and we activate the repo root.
+    _project = os.environ.get("JULIA_PROJECT") or str(REPO_ROOT)
+    jl.seval(f'import Pkg; Pkg.activate(raw"{_project}"; io=devnull)')
     jl.seval("using BrisketDynamics")
     jl.seval(
         """
