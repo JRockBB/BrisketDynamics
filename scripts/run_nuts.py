@@ -38,12 +38,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 import jax
 
 from brisket_app.clients import meat_client, pit_client
-from brisket_app import calibrate, synth
+from brisket_app import calibrate, cooklog, synth
 from brisket_app.coupled import CookGrids
 from brisket_app.plots import corner_plot, posterior_predictive_plot
 
 REPO = Path(__file__).resolve().parents[1]
-CKPT = REPO / "data" / "calibration" / "nuts_ckpt"
 CKPT_EVERY = 5  # steps between state checkpoints (~10 min of compute at risk)
 
 
@@ -52,17 +51,26 @@ def main():
     ap.add_argument("--warmup", type=int, default=300)
     ap.add_argument("--samples", type=int, default=300)
     ap.add_argument("--max-tree-depth", type=int, default=6)
+    ap.add_argument("--real", action="store_true",
+                    help="calibrate against the real cook log (data/cook_log/) "
+                         "instead of the synthetic dataset")
     args = ap.parse_args()
     total = args.warmup + args.samples
+    tag = "_real" if args.real else ""
+    CKPT = REPO / "data" / "calibration" / f"nuts_ckpt{tag}"
 
     import numpyro
     from numpyro.infer import NUTS
 
-    data = synth.load("cook01")
     meat_tx, pit_tx = meat_client(), pit_client()
-    model = calibrate._bound_model(data, meat_tx, pit_tx)
-
-    map_file = REPO / "data" / "calibration" / "map_result.json"
+    if args.real:
+        log = cooklog.load(dt_min=10.0)
+        model = calibrate.bound_model_real(log, meat_tx, pit_tx)
+        map_file = REPO / "data" / "calibration" / "map_real.json"
+    else:
+        data = synth.load("cook01")
+        model = calibrate._bound_model(data, meat_tx, pit_tx)
+        map_file = REPO / "data" / "calibration" / "map_result.json"
     init = {k: v for k, v in json.loads(map_file.read_text()).items()
             if not k.startswith("_")}
 
@@ -128,21 +136,36 @@ def main():
     save(state, done=True)
     out = REPO / "data" / "calibration"
     stacked = {k: np.stack([s[k] for s in samples]) for k in samples[0]}
-    np.savez(out / "nuts_samples.npz", **stacked)
+    np.savez(out / f"nuts_samples{tag}.npz", **stacked)
     print(f"NUTS done in {(time.perf_counter() - t0) / 3600:.2f} h "
           f"({len(samples)} samples)", flush=True)
 
-    truths = {n: t for n, t in zip(
-        [n for n, _ in calibrate.THETA_SITES], data["theta_true"])}
-    truths.update({n: t for n, t in zip(
-        [n for n, _ in calibrate.PHI_SITES], data["phi_true"])})
-    grids = CookGrids(t_end=float(data["t"][-1]),
-                      dt_exchange=float(data["t"][1] - data["t"][0]),
-                      n_u=len(data["u_knots"]))
-    corner_plot(stacked, REPO / "figures" / "corner.png", truths=truths)
-    posterior_predictive_plot(stacked, data, meat_tx, pit_tx, grids,
-                              REPO / "figures" / "posterior_predictive.png")
-    print("wrote figures/corner.png, figures/posterior_predictive.png", flush=True)
+    if args.real:
+        grids = CookGrids(t_end=float(log["t"][-1]),
+                          dt_exchange=float(log["t"][1] - log["t"][0]),
+                          n_u=len(log["t"]))
+        pp_data = {"u_knots": log["u"], "obs_pit": log["obs_pit"],
+                   "obs_core": log["obs_core"]}
+        ics = {"tpit0": log["meta"]["tpit0_K"], "t_amb": 300.0,
+               "t0_meat": log["meta"]["tcore0_K"]}
+        corner_plot(stacked, REPO / "figures" / "corner_real.png")  # no truths: real data
+        posterior_predictive_plot(
+            stacked, pp_data, meat_tx, pit_tx, grids,
+            REPO / "figures" / "posterior_predictive_real.png",
+            ics=ics, masks={"pit": log["mask_pit"], "core": log["mask_core"]})
+    else:
+        truths = {n: t for n, t in zip(
+            [n for n, _ in calibrate.THETA_SITES], data["theta_true"])}
+        truths.update({n: t for n, t in zip(
+            [n for n, _ in calibrate.PHI_SITES], data["phi_true"])})
+        grids = CookGrids(t_end=float(data["t"][-1]),
+                          dt_exchange=float(data["t"][1] - data["t"][0]),
+                          n_u=len(data["u_knots"]))
+        corner_plot(stacked, REPO / "figures" / "corner.png", truths=truths)
+        posterior_predictive_plot(stacked, data, meat_tx, pit_tx, grids,
+                                  REPO / "figures" / "posterior_predictive.png")
+    print(f"wrote figures/corner{tag}.png, figures/posterior_predictive{tag}.png",
+          flush=True)
 
 
 if __name__ == "__main__":

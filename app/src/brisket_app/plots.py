@@ -56,11 +56,16 @@ def corner_plot(samples: dict, out_path: Path, truths: dict | None = None):
 
 
 def posterior_predictive_plot(samples: dict, data: dict, meat_tx, pit_tx, grids,
-                              out_path: Path, n_draws: int = 30, seed: int = 0):
+                              out_path: Path, n_draws: int = 30, seed: int = 0,
+                              ics: dict | None = None, masks: dict | None = None):
     """Simulate n_draws posterior samples through the coupled pipeline and
     plot the predictive band over the observed pit/core trajectories.
     Sequential loop over draws — vmap over Tesseract calls needs an explicit
-    vmap_method and buys nothing here."""
+    vmap_method and buys nothing here.
+
+    `data` needs u_knots/obs_pit/obs_core (synthetic dict or cooklog dict with
+    u renamed); `ics`/`masks` are for real logs (initial conditions and
+    observation masks)."""
     rng = np.random.default_rng(seed)
     n_total = len(np.asarray(samples[PARAM_NAMES[0]]).reshape(-1))
     idx = rng.choice(n_total, size=min(n_draws, n_total), replace=False)
@@ -73,21 +78,23 @@ def posterior_predictive_plot(samples: dict, data: dict, meat_tx, pit_tx, grids,
         phi = jnp.asarray([float(np.asarray(samples[n]).reshape(-1)[i])
                            for n, _ in PHI_SITES])
         sim = coupled_cook(theta, phi, jnp.asarray(data["u_knots"]),
-                           meat_tx, pit_tx, grids, K=2)
+                           meat_tx, pit_tx, grids, K=2, ics=ics)
         cores.append(np.asarray(sim["tcore"]))
         pits.append(np.asarray(sim["tpit"]))
     cores = np.array(cores) - 273.15
     pits = np.array(pits) - 273.15
 
+    mp = masks.get("pit") if masks else np.ones(len(th), dtype=bool)
+    mc = masks.get("core") if masks else np.ones(len(th), dtype=bool)
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharex=True)
-    for ax, sims, obs, name in [
-        (axes[0], pits, data["obs_pit"] - 273.15, "pit"),
-        (axes[1], cores, data["obs_core"] - 273.15, "core (probe)"),
+    for ax, sims, obs, mk, name in [
+        (axes[0], pits, data["obs_pit"] - 273.15, mp, "pit"),
+        (axes[1], cores, data["obs_core"] - 273.15, mc, "core (probe)"),
     ]:
         lo, hi = np.percentile(sims, [5, 95], axis=0)
         ax.fill_between(th, lo, hi, alpha=0.3, label="posterior 5-95%")
         ax.plot(th, np.median(sims, axis=0), lw=1.2, label="posterior median")
-        ax.plot(th, obs, ".", ms=3, color="k", alpha=0.5, label="observations")
+        ax.plot(th[mk], obs[mk], ".", ms=3, color="k", alpha=0.5, label="observations")
         ax.set(xlabel="time [h]", ylabel="temperature [C]", title=name)
         ax.legend(fontsize=8)
     fig.suptitle("Posterior predictive vs observed cook log")
