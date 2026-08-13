@@ -4,7 +4,8 @@
 
 **Bayesian calibration and optimal control of a coupled smoker–brisket system,
 built for the [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/)
-(track 04: differentiable inference & UQ; cross-track 02: multi-physics & coupled systems).**
+(track 04: differentiable inference & UQ; cross-track 02: multi-physics & coupled systems).
+Technical writeup: [docs/writeup.md](docs/writeup.md).**
 
 Real BBQ is a coupled multi-physics control problem: a charcoal pit with its own
 thermal dynamics drives heat into a brisket whose internal physics — coupled heat
@@ -15,57 +16,86 @@ into one end-to-end differentiable function orchestrated from JAX:
 
 | Component | Physics | States | Differentiation strategy |
 |---|---|---|---|
-| **Meat Tesseract** | 1D slab heat + moisture PDE, smoothed evaporative surface BC, collagen kinetics | T, W, C × 40 nodes (120 ODEs, stiff, FBDF) | SciMLSensitivity **continuous adjoint** (`InterpolatingAdjoint` + ReverseDiff VJP) |
+| **Meat Tesseract** | 1D slab heat + moisture PDE, smoothed evaporative surface BC, collagen kinetics | T, W, C × 40 nodes (120 ODEs, stiff, FBDF) | SciMLSensitivity **continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`) |
 | **Pit Tesseract** | Lumped charcoal pit: energy balance + fuel burn | T_pit, m_fuel (Tsit5) | **Exact dense ForwardDiff Jacobian**, transposed |
 
 The two are coupled **two-way** (pit temperature → meat boundary condition;
 meat evaporative + sensible load → pit energy balance) via K=2 whole-horizon
 Picard iteration, unrolled in JAX — so `jax.grad` of the composed cook crosses
 the Julia↔JAX Tesseract VJP boundary four times, and the gradients are exact
-for the unrolled map. To our knowledge this is the first public example of a
-SciMLSensitivity continuous adjoint exposed as a Tesseract
+for the unrolled map. To our knowledge (survey of pasteurlabs/mosaic, the
+official examples, and the si-tesseract forum) this is the first public example
+of a SciMLSensitivity continuous adjoint exposed as a Tesseract
 `vector_jacobian_product`.
 
-## Status (hackathon in progress)
+## Results
 
-- ✅ **Phase A** — physics + infrastructure: stall reproduced (Julia tests assert
-  the plateau quantitatively), WSM-like pit hold, both Tesseracts serving
-  `apply`/`abstract_eval`/`vector_jacobian_product` via juliacall, composed
-  12-h forward cook, and a composed finite-difference gradient gate
-  (**13/13 pass** — see [docs/verification.md](docs/verification.md))
-- ⬜ **Phase B** — NumPyro calibration (MAP → NUTS) against a cook log
-- ⬜ **Phase C** — Optax damper-schedule optimization for target doneness
-- ⬜ **Phase D** — containerized builds, writeup, submission
+| | |
+|---|---|
+| **Gradient correctness** | 3-level FD verification; composed `jax.grad` gate **13/13** at 1e-10 ([docs/verification.md](docs/verification.md)) |
+| **Synthetic calibration** | MAP recovers 7/10 params ≤10%; NUTS posterior with truths inside everywhere; the k_m–h_c ridge is the stall's cooling/heating trade-off ([corner](figures/corner.png), [predictive band](figures/posterior_predictive.png)) |
+| **Real-cook capstone** | 19-h WSM cook (digitized with provenance): pit hold tracked ±3 °C, core stall **and** stall break reproduced ([fit](figures/cooklog_fit_map.png), [data](data/cook_log/PROVENANCE.md)) |
+| **Optimal control** | doneness 0.26 → **0.900** on target, surface under bark limit ([before/after](figures/control_before_after.png)) |
+| **Robust control** | expected-objective schedule halves doneness spread across the posterior: 0.780±0.123 → 0.863±0.069 ([comparison](figures/control_robust.png)) |
+| **Animated cook** | calibrated T/W fields evolving through the real cook ([gif](figures/cook_animation.gif)) |
 
 ## Layout
 
 ```
-src/, test/            Julia package: solvers, VJPs, physics + gradient tests
-tesseracts/{meat,pit}/ Tesseract API definitions (Pydantic schemas + juliacall bridge)
-app/                   uv-managed Python: JAX orchestrator, tests; later calibration + control
-scripts/               forward_demo.py (12-h coupled cook figure)
-docs/                  project brief, verification record
+src/, test/            Julia package: solvers, adjoint VJPs, physics + gradient tests
+tesseracts/{meat,pit}/ Tesseract APIs (Pydantic schemas + juliacall bridge, threading notes)
+app/                   uv-managed Python: JAX orchestrator, NumPyro calibration,
+                       Optax control, plots; boundary + composed-gradient tests
+scripts/               one script per result (see below) + container build
+data/                  synthetic dataset, real cook log (+provenance), posteriors
+docs/                  writeup, verification record, project brief
+figures/               all generated figures
 ```
 
-## Running (native, no Docker)
+## Reproducing (native, no Docker)
 
 Requires Julia ≥ 1.10 and [uv](https://docs.astral.sh/uv/). The Tesseracts run
-in-process via `Tesseract.from_tesseract_api` (LocalClient) — containerized
-builds come in Phase D.
+in-process via `Tesseract.from_tesseract_api` (LocalClient); everything below
+runs on a laptop (Windows included).
 
 ```bash
-# Julia physics + gradient tests
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
-julia --project=. test/runtests.jl
+julia --project=. test/runtests.jl        # physics + Julia-level gradient tests
 
-# Python boundary + composed-gradient tests
 cd app
-uv run pytest tests/ -q
+uv run pytest tests/ -q                   # boundary tests + composed FD gradient gate
 
-# 12-h coupled forward demo (writes figures/forward_cook.png)
-uv run python ../scripts/forward_demo.py
+# each result is one script (run from app/):
+uv run python ../scripts/forward_demo.py        # coupled 12-h cook figure
+uv run python ../scripts/run_map.py             # synthetic MAP + recovery table
+uv run python ../scripts/run_nuts.py            # NUTS (checkpointed; resumable by re-running)
+uv run python ../scripts/run_control.py         # damper-schedule optimization
+uv run python ../scripts/run_robust_control.py  # control under posterior uncertainty
+uv run python ../scripts/replay_cooklog.py      # real cook, uncalibrated replay
+uv run python ../scripts/run_map_real.py        # real cook MAP calibration
+uv run python ../scripts/run_nuts.py --real     # real cook NUTS (long; checkpointed)
+uv run python ../scripts/render_animation.py    # animated calibrated cook
 ```
 
-## License
+NUTS runs checkpoint **every 5 steps including warmup** (power-loss-proof;
+survived four battery deaths during development) — re-run the same command to
+resume.
 
-Apache 2.0. All code authored during the hackathon window (Aug 3–31, 2026).
+## Containers (Linux/WSL2 + Docker)
+
+```bash
+./scripts/build_containers.sh all   # stages the Julia package, builds both images
+```
+
+The Julia toolchain and precompiled package are baked at build time
+(`package_data` + custom build steps); `BRISKET_JL_DIRECT=1` in the container
+env bypasses the LocalClient thread-executor (no JAX inside the container).
+`scripts/checkgradients/run.sh` runs the full endpoint gradient sweep as a
+verification artifact.
+
+## License & data
+
+Apache 2.0; all code authored during the hackathon window (Aug 3–31, 2026).
+Real cook log digitized from a public 2013 post by "Mache" (The Virtual Weber
+Bulletin Board) with attribution — see
+[data/cook_log/PROVENANCE.md](data/cook_log/PROVENANCE.md).
