@@ -177,6 +177,30 @@ The war stories are documented in `docs/verification.md`; highlights:
   flattening misaligns when only a subset of differentiable inputs carries
   tangents (minimal repro in repo history).
 
+## Limitations & where this goes
+
+The model is honest about its scope. Pit humidity is fixed (a water pan would
+invalidate the calibrated evaporation coefficient — the k_m confound named in
+§3); the cook is assumed unwrapped throughout (true of our calibration data;
+a Texas-crutch wrap changes the surface physics entirely); "doneness" is
+collagen conversion — a good proxy for probe-tender, silent on bark, smoke
+ring, and juiciness; and the ~3 °C early-cook pit residual suggests the fuel
+bed's ignition progression (Minion method) is richer than a two-state pit.
+Smoke itself is deliberately *not* modeled as a fluid: a single-probe cook log
+cannot identify CFD-scale parameters, and flavor deposition is chemistry the
+data cannot see — lumped heat delivery is what the evidence supports.
+
+The natural next step is closing the loop. Initial conditions are first-class
+Tesseract inputs, so the calibrated pipeline supports receding-horizon MPC:
+re-solve the remaining-horizon schedule from the measured state every few
+minutes (~seconds per re-plan at 1.5 s/gradient). Pit parameters are
+properties of the smoker and transfer across cooks; meat parameters are
+per-brisket, which makes hierarchical pooling across a user's logged cooks
+the right statistical structure — every cook tightens a personal prior. The
+workflow this enables for a backyard cook: one instrumented calibration cook,
+a posterior for *your* smoker, and a vent schedule — re-planned live — that
+lands tender, on time, with fuel to spare.
+
 ## 6. Reproducibility & communication
 
 Everything is pinned (`Manifest.toml`, `uv.lock`) and layered so each claim is
