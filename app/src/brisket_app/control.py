@@ -45,6 +45,52 @@ def objective(z, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig, tols):
             + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2))
 
 
+def optimize_schedule_expected(thetas, phis, meat_tx, pit_tx,
+                               grids: CookGrids | None = None,
+                               cc: ControlConfig = ControlConfig(),
+                               tols: dict | None = None,
+                               u_init=0.5,
+                               log_every: int = 10,
+                               callback=None):
+    """Adam on the damper schedule against the EXPECTED objective over N
+    posterior draws (thetas, phis: arrays of shape (N, 5)) — control under
+    calibrated uncertainty. Sequential loop over draws inside the objective
+    (vmap over Tesseract calls needs an explicit vmap_method and buys nothing
+    at N=8); cost is N x the single-draw gradient. `u_init` may be a scalar
+    or a schedule array (warm start)."""
+    grids = grids or CookGrids(dt_exchange=600.0, n_u=16)
+    tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
+    thetas = jnp.asarray(thetas)
+    phis = jnp.asarray(phis)
+    n = thetas.shape[0]
+
+    def expected_obj(z, ths, phs):
+        # differentiate w.r.t. ALL differentiable inputs (see optimize_schedule)
+        return sum(objective(z, ths[i], phs[i], meat_tx, pit_tx, grids, cc, tols)
+                   for i in range(n)) / n
+
+    u0 = jnp.broadcast_to(jnp.asarray(u_init), (grids.n_u,))
+    z = jnp.log(u0 / (1 - u0))
+    opt = optax.adam(cc.lr)
+    state = opt.init(z)
+    val_grad = jax.jit(jax.value_and_grad(expected_obj, argnums=(0, 1, 2)))
+
+    losses = []
+    t0 = time.perf_counter()
+    for i in range(cc.n_iter):
+        loss, (g, _, _) = val_grad(z, thetas, phis)
+        updates, state = opt.update(g, state, z)
+        z = optax.apply_updates(z, updates)
+        losses.append(float(loss))
+        if callback and (i % log_every == 0 or i == cc.n_iter - 1):
+            callback(i, float(loss), np.asarray(jax.nn.sigmoid(z)))
+    return np.asarray(jax.nn.sigmoid(z)), {
+        "losses": np.asarray(losses),
+        "wall_s": time.perf_counter() - t0,
+        "grids": grids,
+    }
+
+
 def optimize_schedule(theta, phi, meat_tx, pit_tx,
                       grids: CookGrids | None = None,
                       cc: ControlConfig = ControlConfig(),
