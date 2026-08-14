@@ -102,8 +102,12 @@ measured blower duty replays open-loop as the control input; initial
 conditions come from the log; lid events are masked. The calibrated model
 tracks the 19-hour pit hold within ~3 °C and reproduces the core's full arc —
 rise, multi-hour stall at ~70 °C, **stall break at ~14 h**, climb to 90 °C.
-The poster described his door as leaky; the posterior put the leak parameter
-at u_leak = 0.22. Honest residual: a ~3 °C pit overshoot in hours 2.5–5.5.
+The poster described his door as leaky; the calibration put the leak
+parameter at u_leak = 0.21, and the Minion-start ignition state landed at
+a0 = 0.73 with an hours-scale spread constant — both physical. Core noise
+calibrates to the digitization floor (σ_core = 0.88 K). Honest residual:
+±3 °C pit wobble at sub-hour timescales — a real model deficiency (see
+Limitations).
 
 **Optimal control** (`figures/control_before_after.png`): Optax Adam on 16
 sigmoid-bounded damper knots through the full coupled pipeline. Objective
@@ -185,8 +189,18 @@ invalidate the calibrated evaporation coefficient — the k_m confound named in
 a Texas-crutch wrap changes the surface physics entirely); "doneness" is
 collagen conversion — a good proxy for probe-tender, silent on bark and
 smoke ring (juiciness now has a first proxy: retained moisture at pull is a
-differentiable output); and the ~3 °C early-cook pit residual suggests the fuel
-bed's ignition progression (Minion method) is richer than a two-state pit.
+differentiable output); and the pit's **fast (sub-hour) dynamics are a known deficiency**: burn
+rate responds instantly to fan duty (no coal-bed thermal lag) and the pit is
+a single thermal node, so replaying the controller's fan moves open-loop
+produces ±3 °C wobble around a hold the real controller kept flat.
+Instructively, this dataset *cannot* repair that deficiency — the cook was
+recorded under closed-loop control, which correlates the input with the
+disturbances and suppresses exactly the excitation needed to identify the
+fast dynamics (the posterior widths of the pit-side parameters quantify
+this). The fix is a designed experiment, not a bigger model: a two-hour
+open-loop *characterization burn* — step the fan, no meat, no controller —
+would identify the fan-response dynamics directly and tell us whether a
+coal-bed lag state is warranted before we add one.
 Smoke itself is deliberately *not* modeled as a fluid: a single-probe cook log
 cannot identify CFD-scale parameters, and flavor deposition is chemistry the
 data cannot see — lumped heat delivery is what the evidence supports.

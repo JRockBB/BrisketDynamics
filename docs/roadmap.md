@@ -53,6 +53,9 @@ bark chemistry without calibration data.
    controller — our planner can sit above its PID as the planning layer).
    The library stops advising and starts piloting.
 2. **The ~$150 instrument package + data flywheel.** In value order: a
+   two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
+   meat, no controller — free, and the only way to identify the pit's fast
+   fan-response dynamics, which closed-loop cook logs provably hide); a
    *scale* (brisket before/after + fuel before/ash after — mass loss is the
    single most informative missing observable; directly identifies
    D_eff/k_m and the burn ridge); a second meat probe at known shallow depth
