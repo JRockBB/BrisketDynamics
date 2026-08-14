@@ -36,13 +36,21 @@ dependency ordering that matters.
    forum showcase post. User-owned: hackathon registration (required for
    prize eligibility).
 9. *Stretch, only if 1–8 are done — in this order:*
-   **Pull-when-done control formulation** — the practitioner-faithful
-   objective: doneness is the constraint, pull time the outcome
-   (t_done = differentiable crossing of C = 0.9), deadline as an asymmetric
-   lateness penalty `softplus(t_done − t_deadline)`; early finish ≈ free
-   (the resting hold). Fixes the fixed-horizon formulation error exposed by
-   the MPC demo (a losing cook should extend, not surrender). Promoted above
-   the other stretch items. **Differentiable wrap-time** (smooth
+   **Cook time as a decision variable** — the general formulation: planned
+   duration (equivalently, when to light the fire) is optimized *jointly*
+   with the schedule against a serving deadline, ideally chance-constrained
+   under the posterior (choose start time s.t. P(done by deadline) ≥ 95% —
+   unifying robust control with time planning). Doneness enters as a soft
+   term so the optimizer can trade slight underdoneness against lateness,
+   with the asymmetry kept (late ≫ early; earliness mildly penalized — a
+   2 a.m. fire-lighting has human cost, which makes the start-time optimum
+   nontrivial). Mid-cook this reduces to pull-when-done (elapsed time is
+   sunk; the live time-decision is the pull), whose t_done = differentiable
+   crossing of the doneness target. Fixes the fixed-horizon formulation
+   error exposed by the MPC demo (a losing cook should extend, not
+   surrender). Cheap first implementation: outer scan over candidate
+   durations with inner schedule optimization; differentiable duration via
+   s = t/t_f time-scaling later. Promoted above the other stretch items. **Differentiable wrap-time** (smooth
    Texas-crutch blend on the surface BC; "the model decides when to wrap").
    Flashy but new-physics-through-the-adjoint risk. **Extend synthetic NUTS
    chain** for better ESS (currently 7–82) from its checkpoint. **File the
