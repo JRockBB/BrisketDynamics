@@ -9,10 +9,10 @@ heat conduction and moisture transport with surface evaporation — produce the
 famous **stall**: a multi-hour plateau in internal temperature caused by
 evaporative cooling. We built both solvers in Julia, composed them through
 Tesseract into a single end-to-end differentiable function under JAX, and used
-the gradients four ways: MAP and full NUTS Bayesian calibration (synthetic
+the gradients five ways: MAP and full NUTS Bayesian calibration (synthetic
 recovery study **and** a real 19-hour cook log), damper-schedule optimization,
-and schedule optimization *in expectation over the posterior* — control under
-calibrated uncertainty. This document follows the six judging criteria in
+schedule optimization *in expectation over the posterior*, and
+receding-horizon MPC with disturbance rejection. This document follows the six judging criteria in
 order.
 
 ## 1. Composition across a real boundary
@@ -121,6 +121,18 @@ the MAP-optimal schedule yields doneness 0.780 ± 0.123 (worst case 0.582); the
 robust schedule 0.863 ± 0.069 (worst 0.727) — **half the spread** — and the
 schedule is interpretable: burn hard while fuel is plentiful, coast through
 the stall, reopen for the finish.
+
+**Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker as
+plant, hourly re-plans from the measured state (full T/W/C-field handoff
+through the Tesseracts' state IO), and a −15 K ambient cold front at t = 6 h
+that the controller's model does not know. Open-loop lands doneness 0.68;
+MPC lands **0.92** on a 0.90 target. Two emergent behaviors worth noting:
+the asymmetric deadline objective (undershoot ≫ overshoot; the resting hold
+makes early finishes cheap) front-loads heat as *insurance against
+disturbances the controller cannot foresee*, and once the target is banked
+the controller closes the damper and lets the cook coast — pull-when-done
+behavior arising from the objective's asymmetry rather than being
+programmed.
 
 ## 3. Why Tesseract is load-bearing
 

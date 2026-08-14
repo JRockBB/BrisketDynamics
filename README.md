@@ -37,6 +37,7 @@ of a SciMLSensitivity continuous adjoint exposed as a Tesseract
 | **Real-cook capstone** | 19-h WSM cook (digitized with provenance): pit hold tracked ±3 °C, core stall **and** stall break reproduced ([fit](figures/cooklog_fit_map.png), [data](data/cook_log/PROVENANCE.md)) |
 | **Optimal control** | doneness 0.26 → **0.900** on target, surface under bark limit ([before/after](figures/control_before_after.png)) |
 | **Robust control** | expected-objective schedule halves doneness spread across the posterior: 0.780±0.123 → 0.863±0.069 ([comparison](figures/control_robust.png)) |
+| **MPC** | hourly re-planning absorbs an unmodeled −15 K cold front: doneness 0.92 vs 0.68 open-loop ([demo](figures/mpc_demo.png)) |
 | **Animated cook** | calibrated T/W fields evolving through the real cook ([gif](figures/cook_animation.gif)) |
 
 ## Layout
@@ -74,6 +75,7 @@ uv run python ../scripts/run_robust_control.py  # control under posterior uncert
 uv run python ../scripts/replay_cooklog.py      # real cook, uncalibrated replay
 uv run python ../scripts/run_map_real.py        # real cook MAP calibration
 uv run python ../scripts/run_nuts.py --real     # real cook NUTS (long; checkpointed)
+uv run python ../scripts/run_mpc.py             # receding-horizon MPC demo
 uv run python ../scripts/render_animation.py    # animated calibrated cook
 ```
 

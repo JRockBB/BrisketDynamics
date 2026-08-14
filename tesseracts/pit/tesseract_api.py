@@ -92,7 +92,7 @@ def _init():
             cfg = PitConfig(Tpit0=tpit0, T_amb=t_amb, m0=m0)
             o = pit_solve(φ, u_knots, u_tknots, q_knots, q_tknots, tsave;
                           cfg=cfg, abstol=abstol, reltol=reltol)
-            return o.Tpit, o.m_fuel
+            return o.Tpit, o.m_fuel, o.ignited
         end
         function _pit_vjp(φ, u_knots, u_tknots, q_knots, q_tknots, tsave,
                           abstol, reltol, tpit0, t_amb, m0, cT, cm)
@@ -142,6 +142,8 @@ class OutputSchema(BaseModel):
     m_fuel: Differentiable[Array[(None,), Float64]] = Field(
         description="Remaining fuel mass [kg] at tsave"
     )
+    ignited: Array[(None,), Float64] = Field(
+        description="Ignited bed fraction at tsave (diagnostic/state handoff)")
 
 
 def _own(x) -> np.ndarray:
@@ -165,7 +167,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
                                   _own(inputs.u_tknots), _own(inputs.qmeat_knots),
                                   _own(inputs.q_tknots), _own(inputs.tsave))
     def _run():
-        T, m = jl._pit_apply(
+        T, m, a = jl._pit_apply(
             _jvec(phi),
             _jvec(u),
             _jvec(utk),
@@ -181,16 +183,16 @@ def apply(inputs: InputSchema) -> OutputSchema:
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory; releasing it from another thread
         # can deadlock the whole process (see meat tesseract_api.py).
-        return np.asarray(T).copy(), np.asarray(m).copy()
+        return np.asarray(T).copy(), np.asarray(m).copy(), np.asarray(a).copy()
 
     try:
-        T, m = _on_julia_thread(_run)
+        T, m, a = _on_julia_thread(_run)
     except RuntimeError:
         if not SOFT_FAIL:
             raise
         nt = len(tsave)
-        T, m = np.full(nt, _SENTINEL_T), np.zeros(nt)
-    return OutputSchema(tpit=T, m_fuel=m)
+        T, m, a = np.full(nt, _SENTINEL_T), np.zeros(nt), np.zeros(nt)
+    return OutputSchema(tpit=T, m_fuel=m, ignited=a)
 
 
 def abstract_eval(abstract_inputs):
@@ -198,6 +200,7 @@ def abstract_eval(abstract_inputs):
     return {
         "tpit": ShapeDType(shape=(nt,), dtype="float64"),
         "m_fuel": ShapeDType(shape=(nt,), dtype="float64"),
+        "ignited": ShapeDType(shape=(nt,), dtype="float64"),
     }
 
 

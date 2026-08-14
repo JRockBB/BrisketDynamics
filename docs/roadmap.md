@@ -21,10 +21,13 @@ dependency ordering that matters.
 4. **NUTS on the real cook** — the calibration capstone's posterior
    (`run_nuts.py --real`, checkpointed, needs plugged-in hours). ⚑ After (3).
    On completion: corner_real + predictive-band figures, writeup paragraph.
-5. **MPC re-planning demo** — receding-horizon re-optimization from mid-cook
-   state with a simulated disturbance (wind gust / fuel sag) visibly absorbed.
-   Uses existing pieces (ICs as inputs + control loop); the best new figure
-   available. Build while (4) samples.
+5. ✅ **MPC re-planning demo** — hourly receding-horizon re-planning with
+   full-field state handoff through the Tesseracts; a −15 K cold front the
+   controller's model does not know is absorbed: doneness 0.92 (MPC) vs 0.68
+   (open-loop), target 0.90. Emergent insurance: the asymmetric deadline
+   objective front-loads heat before the unforeseen disturbance, and the
+   cook "finishes early and lets go" — pull-when-done behavior arising from
+   the asymmetry. figures/mpc_demo.png.
 6. **In-container `checkgradients` sweep** — the deferred full endpoint
    verification artifact, run inside the built images
    (`scripts/checkgradients/run.sh`); flips the writeup's last TODO.

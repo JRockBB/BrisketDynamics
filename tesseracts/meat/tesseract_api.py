@@ -95,10 +95,13 @@ def _init():
     jl.seval("using BrisketDynamics")
     jl.seval(
         """
-        function _meat_apply(θ, knots, tknots, tsave, abstol, reltol, t0)
+        function _meat_apply(θ, knots, tknots, tsave, abstol, reltol, t0,
+                             T0f, W0f, C0f)
             cfg = MeatConfig(T0=t0)
-            o = meat_solve(θ, knots, tknots, tsave; cfg=cfg, abstol=abstol, reltol=reltol)
-            return o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final, o.w_retained
+            o = meat_solve(θ, knots, tknots, tsave; cfg=cfg, abstol=abstol,
+                           reltol=reltol, T0f=T0f, W0f=W0f, C0f=C0f)
+            return (o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final,
+                    o.w_retained, o.T_field[:, end], o.W_field[:, end])
         end
         function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol, t0,
                            cTs, cTc, cj, cq, cC, cW)
@@ -136,6 +139,14 @@ class InputSchema(BaseModel):
     abstol: float = Field(default=1e-6, description="ODE solver absolute tolerance")
     reltol: float = Field(default=1e-6, description="ODE solver relative tolerance")
     t0_meat: float = Field(default=281.15, description="Initial meat temperature [K]")
+    # Optional full-field initial state (receding-horizon state handoff);
+    # empty arrays fall back to uniform ICs. Non-differentiable by design.
+    t_field0: Array[(None,), Float64] = Field(
+        default_factory=list, description="Initial T field (len nx) or empty")
+    w_field0: Array[(None,), Float64] = Field(
+        default_factory=list, description="Initial W field (len nx) or empty")
+    c_field0: Array[(None,), Float64] = Field(
+        default_factory=list, description="Initial C field (len nx) or empty")
 
 
 class OutputSchema(BaseModel):
@@ -157,6 +168,10 @@ class OutputSchema(BaseModel):
     w_retained: Differentiable[Array[(), Float64]] = Field(
         description="Juiciness proxy: mean retained moisture at pull / W0"
     )
+    t_field_final: Array[(NX,), Float64] = Field(
+        description="Final temperature field (state handoff; non-differentiable)")
+    w_field_final: Array[(NX,), Float64] = Field(
+        description="Final moisture field (state handoff; non-differentiable)")
 
 
 # Soft-fail mode for MCMC: failed solves return sentinel outputs / zero
@@ -181,12 +196,14 @@ def _own(x) -> np.ndarray:
 def apply(inputs: InputSchema) -> OutputSchema:
     theta, tpit, tknots, tsave = (_own(inputs.theta), _own(inputs.tpit_knots),
                                   _own(inputs.tknots), _own(inputs.tsave))
+    t0f, w0f, c0f = (_own(inputs.t_field0), _own(inputs.w_field0),
+                     _own(inputs.c_field0))
     if tpit.shape != tknots.shape:
         raise ValueError(
             f"DEGENERATE MEAT INPUT: tpit_knots {tpit.shape} vs tknots {tknots.shape}")
 
     def _run():
-        ts, tc, j, q, c, wr = jl._meat_apply(
+        ts, tc, j, q, c, wr, tf, wf = jl._meat_apply(
             _jvec(theta),
             _jvec(tpit),
             _jvec(tknots),
@@ -194,6 +211,9 @@ def apply(inputs: InputSchema) -> OutputSchema:
             float(inputs.abstol),
             float(inputs.reltol),
             float(inputs.t0_meat),
+            _jvec(t0f),
+            _jvec(w0f),
+            _jvec(c0f),
         )
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory. If that view escapes this thread,
@@ -202,10 +222,11 @@ def apply(inputs: InputSchema) -> OutputSchema:
         # thread — a timing-dependent process-wide deadlock.
         return (np.asarray(ts).copy(), np.asarray(tc).copy(),
                 np.asarray(j).copy(), np.asarray(q).copy(),
-                np.asarray(c).copy(), np.float64(wr))
+                np.asarray(c).copy(), np.float64(wr),
+                np.asarray(tf).copy(), np.asarray(wf).copy())
 
     try:
-        ts, tc, j, q, c, wr = _on_julia_thread(_run)
+        ts, tc, j, q, c, wr, tf, wf = _on_julia_thread(_run)
     except RuntimeError:
         if not SOFT_FAIL:
             raise
@@ -214,8 +235,10 @@ def apply(inputs: InputSchema) -> OutputSchema:
         j = q = np.zeros(nt)
         c = np.zeros(NX)
         wr = np.float64(0.0)
+        tf = np.full(NX, _SENTINEL_T)
+        wf = np.zeros(NX)
     return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c,
-                        w_retained=wr)
+                        w_retained=wr, t_field_final=tf, w_field_final=wf)
 
 
 def abstract_eval(abstract_inputs):
@@ -228,6 +251,8 @@ def abstract_eval(abstract_inputs):
         "q_meat": vec(nt),
         "c_field_final": vec(NX),
         "w_retained": ShapeDType(shape=(), dtype="float64"),
+        "t_field_final": vec(NX),
+        "w_field_final": vec(NX),
     }
 
 

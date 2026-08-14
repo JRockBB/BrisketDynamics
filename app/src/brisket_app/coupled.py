@@ -63,7 +63,9 @@ def coupled_cook(
     # fridge meat) live in the Tesseract schemas.
     ics = ics or {}
     pit_ics = {k: ics[k] for k in ("tpit0", "t_amb", "m0") if k in ics}
-    meat_ics = {k: ics[k] for k in ("t0_meat",) if k in ics}
+    meat_ics = {k: ics[k]
+                for k in ("t0_meat", "t_field0", "w_field0", "c_field0")
+                if k in ics}
     tk = jnp.asarray(grids.tknots)
     utk = jnp.asarray(grids.u_tknots)
     q = jnp.zeros(grids.nt)
@@ -118,6 +120,9 @@ def coupled_cook(
         "q_meat": meat["q_meat"],
         "c_field_final": meat["c_field_final"],
         "w_retained": meat["w_retained"],
+        "t_field_final": meat["t_field_final"],
+        "w_field_final": meat["w_field_final"],
+        "ignited": pit["ignited"],
         "picard_dT": picard,
     }
 

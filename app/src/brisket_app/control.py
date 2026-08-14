@@ -30,17 +30,28 @@ class ControlConfig:
     w_fuel: float = 0.1
     w_smooth: float = 0.01
     w_juicy: float = 0.0   # optional: reward retained moisture (juiciness proxy)
+    # Asymmetric terminal-doneness penalty (MPC): undershooting the target at
+    # the deadline is the disaster; finishing early is nearly free (the hold
+    # exists for this). Symmetric quadratics 'give up' late in a losing cook:
+    # thermal lag kills the doneness gradient and fuel penalties take over.
+    asymmetric_done: bool = False
     lr: float = 0.05
     n_iter: int = 200
 
 
-def objective(z, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig, tols):
+def objective(z, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig, tols,
+              ics=None):
     u = jax.nn.sigmoid(z)
-    sim = coupled_cook(theta, phi, u, meat_tx, pit_tx, grids, K=2, **tols)
+    sim = coupled_cook(theta, phi, u, meat_tx, pit_tx, grids, K=2, ics=ics, **tols)
     c_core = sim["c_field_final"][0]                     # center node
     surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)
     fuel_frac = (sim["m_fuel"][0] - sim["m_fuel"][-1]) / sim["m_fuel"][0]
-    return (cc.w_done * (c_core - cc.c_target) ** 2
+    if cc.asymmetric_done:
+        k = 20.0  # undershoot-only, smooth: ~(target-c)^2 under, ~0 over
+        done_term = (jax.nn.softplus(k * (cc.c_target - c_core)) / k) ** 2
+    else:
+        done_term = (c_core - cc.c_target) ** 2
+    return (cc.w_done * done_term
             + cc.w_surf * jnp.mean(surf_over**2)
             + cc.w_fuel * fuel_frac
             + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
@@ -97,9 +108,10 @@ def optimize_schedule(theta, phi, meat_tx, pit_tx,
                       grids: CookGrids | None = None,
                       cc: ControlConfig = ControlConfig(),
                       tols: dict | None = None,
-                      u_init: float = 0.5,
+                      u_init=0.5,
                       log_every: int = 20,
-                      callback=None):
+                      callback=None,
+                      ics: dict | None = None):
     """Adam on the damper schedule at fixed (theta, phi). Returns
     (u_opt, history dict). `callback(i, loss, u)` fires every `log_every`."""
     grids = grids or CookGrids(dt_exchange=600.0, n_u=16)
@@ -107,7 +119,8 @@ def optimize_schedule(theta, phi, meat_tx, pit_tx,
     theta = jnp.asarray(theta)
     phi = jnp.asarray(phi)
 
-    z = jnp.full(grids.n_u, jnp.log(u_init / (1 - u_init)))  # logit(u_init)
+    u0 = jnp.broadcast_to(jnp.asarray(u_init), (grids.n_u,))
+    z = jnp.log(u0 / (1 - u0))
     opt = optax.adam(cc.lr)
     state = opt.init(z)
     # Two hard-won choices here:
@@ -122,7 +135,8 @@ def optimize_schedule(theta, phi, meat_tx, pit_tx,
     #    replayed with fixed shapes — the jitted SVI/MAP path has never
     #    exhibited the race across thousands of calls.
     val_grad = jax.jit(jax.value_and_grad(
-        lambda zz, th, ph: objective(zz, th, ph, meat_tx, pit_tx, grids, cc, tols),
+        lambda zz, th, ph: objective(zz, th, ph, meat_tx, pit_tx, grids, cc, tols,
+                                     ics=ics),
         argnums=(0, 1, 2)))
 
     losses, schedules = [], []

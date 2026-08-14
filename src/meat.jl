@@ -110,6 +110,22 @@ end
 _meat_u0(cfg::MeatConfig) =
     vcat(fill(cfg.T0, cfg.nx), fill(cfg.W0, cfg.nx), zeros(cfg.nx))
 
+"""
+    _meat_u0(cfg, T0f, W0f, C0f)
+
+Initial state from full fields (receding-horizon state handoff). Empty
+vectors fall back to the uniform defaults.
+"""
+function _meat_u0(cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector,
+                  C0f::AbstractVector)
+    T = isempty(T0f) ? fill(cfg.T0, cfg.nx) : collect(float.(T0f))
+    W = isempty(W0f) ? fill(cfg.W0, cfg.nx) : collect(float.(W0f))
+    C = isempty(C0f) ? zeros(cfg.nx) : collect(float.(C0f))
+    (length(T) == cfg.nx && length(W) == cfg.nx && length(C) == cfg.nx) ||
+        throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
+    vcat(T, W, C)
+end
+
 # InterpolatingAdjoint + EnzymeVJP. Both choices are load-bearing:
 #
 # EnzymeVJP: ~10-25x faster than ReverseDiff retaping, and immune to the
@@ -170,14 +186,17 @@ trajectories (`T_field` etc., nx × nt) for tests and visualization.
 """
 function meat_solve(θ::AbstractVector, Tpit_knots::AbstractVector,
                     tknots::AbstractVector, tsave::AbstractVector;
-                    cfg::MeatConfig = MeatConfig(), abstol = 1e-6, reltol = 1e-6)
+                    cfg::MeatConfig = MeatConfig(), abstol = 1e-6, reltol = 1e-6,
+                    T0f::AbstractVector = Float64[], W0f::AbstractVector = Float64[],
+                    C0f::AbstractVector = Float64[])
     nx = cfg.nx
     p = vcat(θ, Tpit_knots)
     any(isnan, p) && throw(ArgumentError(
         "meat solve got NaN inputs at indices $(findall(isnan, p)) of p (θ|Tpit)"))
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
     rhs! = make_meat_rhs(cfg, tk0, tkdt, length(tknots))
-    prob = ODEProblem(rhs!, _meat_u0(cfg), (float(tsave[1]), float(tsave[end])), p)
+    prob = ODEProblem(rhs!, _meat_u0(cfg, T0f, W0f, C0f),
+                      (float(tsave[1]), float(tsave[end])), p)
     sol = solve(prob, FBDF(); saveat = tsave, abstol = abstol, reltol = reltol)
     A = Array(sol)
     (SciMLBase.successful_retcode(sol) && size(A, 2) == length(tsave)) ||

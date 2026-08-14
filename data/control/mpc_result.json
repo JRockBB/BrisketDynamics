@@ -1,0 +1,7 @@
+{
+  "doneness_reference": 0.9505504231356199,
+  "doneness_openloop": 0.6766785008420814,
+  "doneness_mpc": 0.9231491299716674,
+  "t_disturbance_h": 6.0,
+  "dT_amb": 15.0
+}
