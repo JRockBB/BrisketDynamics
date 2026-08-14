@@ -92,20 +92,38 @@ bark chemistry without calibration data.
    (evaporation suppression, changed h) parameterized by wrap time; then
    "when to crutch" becomes a differentiable decision alongside the vent
    schedule.
-5. **Differentiable bark model.** Maillard/browning kinetics submodel driven
+5. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
+   diffusion (D_salt ~1e-10 m²/s, well-pinned in the ham-curing literature —
+   take it as a constant, don't calibrate): an isothermal fridge-temperature
+   pre-cook solve from t_salt to cook start yields the initial salt profile
+   S0(x); during the cook a fourth PDE state S(x,t) couples through (a) a
+   water-holding-capacity modification of the moisture sink — landing
+   exactly in the `w_retained` juiciness output — (b) a water-activity
+   factor a_w(S) on p_sat in the evaporation BC (smooth, stays
+   differentiable), and optionally (c) a small denaturation-temperature
+   shift. "When to salt" is structurally the same decision variable as
+   "when to light the fire" and joins the same chance-constrained planning
+   problem; d(juiciness)/d(t_salt) flows through the pre-cook horizon for
+   free. Identifiability discipline: temperature logs are nearly blind to
+   salt, so this ships only with the *scale* (item 2) and a designed
+   experiment — identical cuts salted at −24 h / −1 h / unsalted, weighed
+   before and after; mass loss vs salting time is the curve the WHC
+   coupling fits. Non-salt rub effects (sugar browning, emissivity, surface
+   mass transfer) belong to the bark item below, not here.
+6. **Differentiable bark model.** Maillard/browning kinetics submodel driven
    by the existing surface T/W histories (bread-crust color models
    transfer); calibrate against standardized-photo colorimetry (L\*a\*b\*
    index, color card) and optionally penetration-force texture. To our
    knowledge unpublished territory.
-6. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
+7. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
    center-line correction (~3× cost, differentiable, cheap taste of 3D);
    full 2D axisymmetric surface model *only* once thermal-camera surface
    fields exist to calibrate it (also feeds bark distribution / burnt ends).
    Sensors first, dimensions second.
-7. **Community/product shape.** Publish as a usable open-source stack
+8. **Community/product shape.** Publish as a usable open-source stack
    (calibrate-from-your-log CLI, schedule/MPC frontend); write up the bark
    and pooling work properly if the data supports it.
-8. **Generalize across meats and cookers.** The architecture already is the
+9. **Generalize across meats and cookers.** The architecture already is the
    generalization — heat source ⇄ meat through (T_source, q_load), i.e. swap
    one Tesseract, keep the other. The model family is small: geometry mode
    (slab/cylinder/sphere — one curvature term), surface-BC mode (evaporative
