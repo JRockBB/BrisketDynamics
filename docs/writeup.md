@@ -205,6 +205,15 @@ Smoke itself is deliberately *not* modeled as a fluid: a single-probe cook log
 cannot identify CFD-scale parameters, and flavor deposition is chemistry the
 data cannot see — lumped heat delivery is what the evidence supports.
 
+One control-side simplification is worth naming: our schedules optimize
+doneness at a *fixed* final time, but the practitioner's objective is
+pull-when-done — doneness as the constraint, pull time as the outcome, a
+deadline as an asymmetric lateness penalty (finishing early is nearly free;
+the resting hold exists for this). Fixed-horizon control cannot say "this
+brisket needs another 90 minutes," which is often the right answer; the
+differentiable pull-time formulation is the first control upgrade on the
+roadmap.
+
 The natural next step is closing the loop. Initial conditions are first-class
 Tesseract inputs, so the calibrated pipeline supports receding-horizon MPC:
 re-solve the remaining-horizon schedule from the measured state every few

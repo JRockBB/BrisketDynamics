@@ -35,7 +35,14 @@ dependency ordering that matters.
    URL), submission form, LinkedIn post (tag Pasteur Labs & ISI, Tesseract),
    forum showcase post. User-owned: hackathon registration (required for
    prize eligibility).
-9. *Stretch, only if 1–8 are done:* **differentiable wrap-time** (smooth
+9. *Stretch, only if 1–8 are done — in this order:*
+   **Pull-when-done control formulation** — the practitioner-faithful
+   objective: doneness is the constraint, pull time the outcome
+   (t_done = differentiable crossing of C = 0.9), deadline as an asymmetric
+   lateness penalty `softplus(t_done − t_deadline)`; early finish ≈ free
+   (the resting hold). Fixes the fixed-horizon formulation error exposed by
+   the MPC demo (a losing cook should extend, not surrender). Promoted above
+   the other stretch items. **Differentiable wrap-time** (smooth
    Texas-crutch blend on the surface BC; "the model decides when to wrap").
    Flashy but new-physics-through-the-adjoint risk. **Extend synthetic NUTS
    chain** for better ESS (currently 7–82) from its checkpoint. **File the
