@@ -34,10 +34,11 @@ dependency ordering that matters.
 7. **Repo public + push + CI green** — user creates the GitHub repo; fix
    remote, push all commits, shepherd the first CI runs.
    ⚑ Blocks submission; user-owned start.
-8. **Submission mechanics** — final writeup pass (NUTS-real paragraph, repo
-   URL), submission form, LinkedIn post (tag Pasteur Labs & ISI, Tesseract),
-   forum showcase post. User-owned: hackathon registration (required for
-   prize eligibility).
+8. **Submission mechanics** — drafts written (`docs/submission.md`: form
+   text, LinkedIn post, forum showcase — two placeholders: NUTS-real
+   sentence + repo URL confirm). Remaining: final writeup pass, actual
+   posting. User-owned: hackathon registration (required for prize
+   eligibility).
 9. *Stretch, only if 1–8 are done — in this order:*
    **Cook time as a decision variable** — the general formulation: planned
    duration (equivalently, when to light the fire) is optimized *jointly*

@@ -228,10 +228,12 @@ schedule and chance-constrained under the posterior ("when should I light
 the fire so P(done by dinner) ≥ 95%?") — is the first control upgrade on
 the roadmap.
 
-The natural next step is closing the loop. Initial conditions are first-class
-Tesseract inputs, so the calibrated pipeline supports receding-horizon MPC:
-re-solve the remaining-horizon schedule from the measured state every few
-minutes (~seconds per re-plan at 1.5 s/gradient). Pit parameters are
+The natural next step is closing the loop on a physical smoker. The
+receding-horizon re-planner is demonstrated in simulation (§2); state — full
+temperature/moisture/doneness fields — is first-class Tesseract IO, so
+pointing it at a real pit is an estimator plus a fan controller away
+(HeaterMeter integration is first on the post-hackathon roadmap). Pit
+parameters are
 properties of the smoker and transfer across cooks; meat parameters are
 per-brisket, which makes hierarchical pooling across a user's logged cooks
 the right statistical structure — every cook tightens a personal prior. The
