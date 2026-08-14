@@ -30,13 +30,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=300)
     ap.add_argument("--lr", type=float, default=2e-2)
+    ap.add_argument("--init", type=str, default=None,
+                    help="JSON of parameter values to warm-start the guide")
     args = ap.parse_args()
 
     log = cooklog.load(dt_min=10.0)
     meat_tx, pit_tx = meat_client(), pit_client()
     m = calibrate.bound_model_real(log, meat_tx, pit_tx)
 
-    guide = AutoDelta(m)
+    if args.init:
+        init_vals = {k: float(v) for k, v in
+                     json.loads(Path(args.init).read_text()).items()}
+        guide = AutoDelta(m, init_loc_fn=numpyro.infer.init_to_value(values=init_vals))
+    else:
+        guide = AutoDelta(m)
     svi = SVI(m, guide, numpyro.optim.Adam(args.lr), Trace_ELBO())
     result = svi.run(jax.random.PRNGKey(0), args.steps, progress_bar=True)
     params = {k: float(np.asarray(v)) for k, v in guide.median(result.params).items()}

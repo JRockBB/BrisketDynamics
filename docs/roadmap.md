@@ -14,8 +14,10 @@ dependency ordering that matters.
 2. ✅ **Juiciness output** — retained moisture at pull as a differentiable
    output (`w_retained`) + optional control-objective term (`w_juicy`).
    Julia 36/36, app suite 18/18; docs/diagram/README updated.
-3. **Re-run MAP-real** after (1)+(2) — minutes; refreshes `map_real.json` and
-   the fit figure.
+3. ✅ **Re-run MAP-real** — warm-started 600-step refinement: loss 551 → 516,
+   σ_pit 2.6 → 2.1, σ_core 1.4 → 0.88 (at the digitization floor); early-cook
+   overshoot resolved; a0 = 0.73, k_spread ≈ 4e-4 (physical). Cold-start
+   lesson: 12-latent SVI needs the warm start (`run_map_real.py --init`).
 4. **NUTS on the real cook** — the calibration capstone's posterior
    (`run_nuts.py --real`, checkpointed, needs plugged-in hours). ⚑ After (3).
    On completion: corner_real + predictive-band figures, writeup paragraph.
