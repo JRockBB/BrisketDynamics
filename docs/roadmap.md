@@ -18,7 +18,7 @@ dependency ordering that matters.
    σ_pit 2.6 → 2.1, σ_core 1.4 → 0.88 (at the digitization floor); early-cook
    overshoot resolved; a0 = 0.73, k_spread ≈ 4e-4 (physical). Cold-start
    lesson: 12-latent SVI needs the warm start (`run_map_real.py --init`).
-4. **NUTS on the real cook** — the calibration capstone's posterior
+5. **NUTS on the real cook** — the calibration capstone's posterior
    (`run_nuts.py --real`, checkpointed, needs plugged-in hours). ⚑ After (3).
    On completion: corner_real + predictive-band figures, writeup paragraph.
 5. ✅ **MPC re-planning demo** — hourly receding-horizon re-planning with
@@ -28,13 +28,13 @@ dependency ordering that matters.
    objective front-loads heat before the unforeseen disturbance, and the
    cook "finishes early and lets go" — pull-when-done behavior arising from
    the asymmetry. figures/mpc_demo.png.
-6. **In-container `checkgradients` sweep** — the deferred full endpoint
+7. **In-container `checkgradients` sweep** — the deferred full endpoint
    verification artifact, run inside the built images
    (`scripts/checkgradients/run.sh`); flips the writeup's last TODO.
-7. **Repo public + push + CI green** — user creates the GitHub repo; fix
+8. **Repo public + push + CI green** — user creates the GitHub repo; fix
    remote, push all commits, shepherd the first CI runs.
    ⚑ Blocks submission; user-owned start.
-8. **Submission mechanics** — drafts written (`docs/submission.md`: form
+9. **Submission mechanics** — drafts written (`docs/submission.md`: form
    text, LinkedIn post, forum showcase — two placeholders: NUTS-real
    sentence + repo URL confirm). Remaining: final writeup pass, actual
    posting. User-owned: hackathon registration (required for prize
@@ -71,7 +71,27 @@ bark chemistry without calibration data.
    receding-horizon re-planner; integrate with HeaterMeter (open-source fan
    controller — our planner can sit above its PID as the planning layer).
    The library stops advising and starts piloting.
-2. **The ~$150 instrument package + data flywheel.** In value order: a
+2. **Monolith / Dyad exploration: move the Tesseract boundary to the
+   edge.** The K=2 Picard split exists only because the pit/meat boundary
+   bisects the physics; a monolithic Julia core (one ~123-state DAE, one
+   adjoint, Turing/AdvancedHMC calibration, MCMCThreads parallel chains)
+   is worth ~2x per gradient, trivial multi-chain, and retires the
+   juliacall threading zoo entirely. Two candidate shapes to prototype
+   against the two-Tesseract baseline: (a) hand-written monolith (merge
+   the RHS functions, keep full sensealg control); (b) **Dyad/MTK acausal
+   components** — pit, fuel bed, and future heat sources as declared
+   components with typed ports (T_source in, q_load out), the PDE staying
+   a hand-written component inside. Dyad's component discipline is exactly
+   the architecture the meats-and-cookers generalization item wants, so
+   this exploration doubles as its foundation — benchmark both for
+   gradient cost, NUTS wall-clock, and adjoint controllability (we needed
+   surgical sensealg choices; symbolic layers add distance to those
+   knobs). Either way, keep what Tesseract is actually for post-hackathon
+   by wrapping the *whole* coupled model as a single Tesseract — a
+   language-agnostic, versioned deployment skin for the MPC/HeaterMeter
+   service — so the boundary sits around the physics, not through it.
+   Decides *where* the items below get built.
+3. **The ~$150 instrument package + data flywheel.** In value order: a
    two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
    meat, no controller — free, and the only way to identify the pit's fast
    fan-response dynamics, which closed-loop cook logs provably hide); a
@@ -82,17 +102,17 @@ bark chemistry without calibration data.
    wick — measures the exact stall-relevant quantity; industrial smokehouse
    practice) to make humidity an input and retire the p_v,pit confound; IR
    spot readings of the surface (h_c/k_m separation).
-3. **Hierarchical multi-cook pooling.** Pit parameters are properties of the
+4. **Hierarchical multi-cook pooling.** Pit parameters are properties of the
    smoker (pool tightly across cooks); meat parameters are per-brisket
    (partial pooling → a personal prior over "briskets I buy"). Every logged
    cook tightens the twin. Designed experiment worth running early: water
    pan in vs. out, two otherwise-identical cooks, to identify the humidity
    pathway.
-4. **Wrap physics + wrap-time optimization.** Smooth surface-BC blend
+5. **Wrap physics + wrap-time optimization.** Smooth surface-BC blend
    (evaporation suppression, changed h) parameterized by wrap time; then
    "when to crutch" becomes a differentiable decision alongside the vent
    schedule.
-5. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
+6. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
    diffusion (D_salt ~1e-10 m²/s, well-pinned in the ham-curing literature —
    take it as a constant, don't calibrate): an isothermal fridge-temperature
    pre-cook solve from t_salt to cook start yields the initial salt profile
@@ -110,20 +130,20 @@ bark chemistry without calibration data.
    before and after; mass loss vs salting time is the curve the WHC
    coupling fits. Non-salt rub effects (sugar browning, emissivity, surface
    mass transfer) belong to the bark item below, not here.
-6. **Differentiable bark model.** Maillard/browning kinetics submodel driven
+7. **Differentiable bark model.** Maillard/browning kinetics submodel driven
    by the existing surface T/W histories (bread-crust color models
    transfer); calibrate against standardized-photo colorimetry (L\*a\*b\*
    index, color card) and optionally penetration-force texture. To our
    knowledge unpublished territory.
-7. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
+8. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
    center-line correction (~3× cost, differentiable, cheap taste of 3D);
    full 2D axisymmetric surface model *only* once thermal-camera surface
    fields exist to calibrate it (also feeds bark distribution / burnt ends).
    Sensors first, dimensions second.
-8. **Community/product shape.** Publish as a usable open-source stack
+9. **Community/product shape.** Publish as a usable open-source stack
    (calibrate-from-your-log CLI, schedule/MPC frontend); write up the bark
    and pooling work properly if the data supports it.
-9. **Generalize across meats and cookers.** The architecture already is the
+10. **Generalize across meats and cookers.** The architecture already is the
    generalization — heat source ⇄ meat through (T_source, q_load), i.e. swap
    one Tesseract, keep the other. The model family is small: geometry mode
    (slab/cylinder/sphere — one curvature term), surface-BC mode (evaporative
