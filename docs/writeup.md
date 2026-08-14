@@ -210,9 +210,11 @@ doneness at a *fixed* final time, but the practitioner's objective is
 pull-when-done — doneness as the constraint, pull time as the outcome, a
 deadline as an asymmetric lateness penalty (finishing early is nearly free;
 the resting hold exists for this). Fixed-horizon control cannot say "this
-brisket needs another 90 minutes," which is often the right answer; the
-differentiable pull-time formulation is the first control upgrade on the
-roadmap.
+brisket needs another 90 minutes," which is often the right answer. The
+general fix — cook time as a decision variable, chosen jointly with the
+schedule and chance-constrained under the posterior ("when should I light
+the fire so P(done by dinner) ≥ 95%?") — is the first control upgrade on
+the roadmap.
 
 The natural next step is closing the loop. Initial conditions are first-class
 Tesseract inputs, so the calibrated pipeline supports receding-horizon MPC:
