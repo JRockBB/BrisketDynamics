@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="64 0 152 260">
+  <!-- The Smoky Barrel — Concept A "The Stall". For light grounds (paper, kraft, white). -->
+  <path d="M78,150 Q78,128 120,128 Q162,128 162,150 L162,169.75 L78,169.75 Z" fill="#241C15"/>
+  <path d="M78,174.25 L162,174.25 L162,195.75 L78,195.75 Z" fill="#241C15"/>
+  <path fill-rule="evenodd" d="M78,200.25 L162,200.25 L162,216 Q162,226 152,226 L88,226 Q78,226 78,216 Z M120,204.5 a8.5,8.5 0 1 0 0,17 a8.5,8.5 0 1 0 0,-17 Z" fill="#241C15"/>
+  <path d="M106,126 Q120,110 134,126" fill="none" stroke="#241C15" stroke-width="7" stroke-linecap="round"/>
+  <path d="M94,226 L86,250 M146,226 L154,250" stroke="#241C15" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="120" cy="213" r="6" fill="#C8501A"/>
+  <g fill="#57606B">
+    <circle cx="183" cy="18.5" r="4.5"/><circle cx="188" cy="25" r="5.5"/><circle cx="193" cy="34" r="6.8"/>
+    <circle cx="194" cy="44" r="6"/><circle cx="190" cy="54" r="7.5"/><circle cx="182" cy="62" r="6.5"/>
+    <circle cx="172" cy="58.5" r="8"/><circle cx="161" cy="64" r="7"/><circle cx="150" cy="59" r="8.5"/>
+    <circle cx="139" cy="64" r="6.5"/><circle cx="129" cy="72" r="7.5"/><circle cx="123" cy="82" r="5.5"/>
+    <circle cx="124" cy="93" r="6.5"/><circle cx="120" cy="103" r="5"/>
+  </g>
+</svg>
