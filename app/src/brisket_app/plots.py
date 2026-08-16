@@ -48,13 +48,33 @@ def corner_plot(samples: dict, out_path: Path, truths: dict | None = None,
             if truths is not None:
                 truth_vals.append(truths[n])
     data = np.column_stack(cols)
+    # One-hue sequential blues carry the density (2D contours + 1D marginals);
+    # orange is the single accent, reserved for the truth cross-hairs.
+    BLUE, BLUE_DARK, BLUE_LIGHT, ORANGE = "#256abf", "#1c5cab", "#9ec5f4", "#eb6834"
+    INK, MUTED, BASELINE, SURFACE = "#0b0b0b", "#52514e", "#c3c2b7", "#fcfcfb"
     fig = corner_mod.corner(
-        data, labels=labels, truths=truth_vals, truth_color="tab:red",
-        show_titles=True, title_fmt=".3f", title_kwargs={"fontsize": 9},
-        label_kwargs={"fontsize": 9},
+        data, labels=labels, truths=truth_vals, truth_color=ORANGE,
+        color=BLUE, fill_contours=True, smooth=1.0,
+        plot_datapoints=True,
+        data_kwargs={"color": BLUE_LIGHT, "alpha": 0.4, "ms": 1.5},
+        contour_kwargs={"linewidths": 0.8},
+        hist_kwargs={"histtype": "stepfilled", "facecolor": BLUE_LIGHT,
+                     "edgecolor": BLUE_DARK, "linewidth": 1.1},
+        quantiles=[0.16, 0.5, 0.84],
+        show_titles=True, title_fmt=".3f",
+        title_kwargs={"fontsize": 9, "color": INK},
+        label_kwargs={"fontsize": 9, "color": INK},
     )
-    fig.suptitle("Posterior over pit + meat parameters (stall-informed)", y=1.02)
-    fig.savefig(out_path, dpi=130, bbox_inches="tight")
+    fig.patch.set_facecolor(SURFACE)
+    for ax in fig.axes:
+        ax.set_facecolor(SURFACE)
+        ax.tick_params(colors=MUTED, labelsize=7)
+        for spine in ax.spines.values():
+            spine.set_color(BASELINE)
+    fig.suptitle("Posterior over pit + meat parameters (stall-informed)",
+                 y=1.02, color=INK)
+    fig.savefig(out_path, dpi=130, bbox_inches="tight",
+                facecolor=fig.get_facecolor())
     plt.close(fig)
     return out_path
 
