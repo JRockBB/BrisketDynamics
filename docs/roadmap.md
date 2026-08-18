@@ -40,26 +40,33 @@ dependency ordering that matters.
    posting. User-owned: hackathon registration (required for prize
    eligibility).
 9. *Stretch, only if 1–8 are done — in this order:*
-   **Cook time as a decision variable** — the general formulation: planned
-   duration (equivalently, when to light the fire) is optimized *jointly*
-   with the schedule against a serving deadline, ideally chance-constrained
-   under the posterior (choose start time s.t. P(done by deadline) ≥ 95% —
-   unifying robust control with time planning). Doneness enters as a soft
-   term so the optimizer can trade slight underdoneness against lateness,
-   with the asymmetry kept (late ≫ early; earliness mildly penalized — a
-   2 a.m. fire-lighting has human cost, which makes the start-time optimum
-   nontrivial). Mid-cook this reduces to pull-when-done (elapsed time is
-   sunk; the live time-decision is the pull), whose t_done = differentiable
-   crossing of the doneness target. Fixes the fixed-horizon formulation
-   error exposed by the MPC demo (a losing cook should extend, not
-   surrender). Cheap first implementation: outer scan over candidate
-   durations with inner schedule optimization; differentiable duration via
-   s = t/t_f time-scaling later. Promoted above the other stretch items. **Differentiable wrap-time** (smooth
-   Texas-crutch blend on the surface BC; "the model decides when to wrap").
-   Flashy but new-physics-through-the-adjoint risk. **Extend synthetic NUTS
-   chain** for better ESS (currently 7–82) from its checkpoint. **File the
-   tesseract-jax partial-tangent bug** upstream with our minimal repro.
-   **≤5-min demo video.**
+   1. **Cook time as a decision variable** — the general formulation:
+      planned duration (equivalently, when to light the fire) is optimized
+      *jointly* with the schedule against a serving deadline, ideally
+      chance-constrained under the posterior (choose start time s.t.
+      P(done by deadline) ≥ 95% — unifying robust control with time
+      planning). Doneness enters as a soft term so the optimizer can trade
+      slight underdoneness against lateness, with the asymmetry kept
+      (late ≫ early; earliness mildly penalized — a 2 a.m. fire-lighting
+      has human cost, which makes the start-time optimum nontrivial).
+      Mid-cook this reduces to pull-when-done (elapsed time is sunk; the
+      live time-decision is the pull), whose t_done = differentiable
+      crossing of the doneness target. Fixes the fixed-horizon formulation
+      error exposed by the MPC demo (a losing cook should extend, not
+      surrender). Cheap first implementation: outer scan over candidate
+      durations with inner schedule optimization; differentiable duration
+      via s = t/t_f time-scaling later.
+   2. **Multi-chain NUTS-real** — 2–3 short chains from dispersed inits
+      (separate processes); real split-r̂ across chains and a test of
+      whether the pit-ridge mass location is reproducible.
+   3. **Differentiable wrap-time** — smooth Texas-crutch blend on the
+      surface BC ("the model decides when to wrap"). Flashy but
+      new-physics-through-the-adjoint risk.
+   4. **Extend synthetic NUTS chain** for better ESS (currently 7–82) from
+      its checkpoint.
+   5. **File the tesseract-jax partial-tangent bug** upstream with our
+      minimal repro.
+   6. **≤5-min demo video.**
 
 Explicitly out of scope for the hackathon (identifiability-first ethos):
 CFD smoke, 2D/3D meat, humidity dynamics without an RH/wet-bulb sensor,
