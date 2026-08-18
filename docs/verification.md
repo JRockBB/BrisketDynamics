@@ -89,3 +89,43 @@ loudly on bad retcodes rather than returning truncated arrays.
    FD evaluation at ~1e-5, drowning small-parameter signals. Tolerances are
    now explicit inputs of both Tesseracts, and the composed gate runs both at
    1e-10.
+
+## In-container check-gradients sweep (submission artifact)
+
+The full trajectory-input sweep now also runs **inside the shipped
+containers** (`scripts/checkgradients/run_container.sh`; the tesseract CLI's
+`run` command does not forward check-gradients flags, so the script invokes
+the containers' runtime entrypoint via `docker run` directly — launched
+foreground from a live WSL session, since WSL tears down idle VMs and
+SIGTERMs detached containers mid-Julia-load). Results at seed 42
+(`data/verification/cg_{meat,pit}_full.log`):
+
+| Endpoint | Checks | Tool-flagged | After analysis |
+|---|---|---|---|
+| meat `tpit_knots` | 125 | 59 | **0 real** |
+| pit `u_knots`+`qmeat_knots` | 398 | 205 | **0 real** |
+
+The tool compares elementwise with `--rtol` only (no absolute floor), so
+every flag is one of two benign classes, verified mechanically by
+`scripts/checkgradients/analyze_failures.py` over all 264 detailed failure
+blocks:
+
+1. **Near-zero kink elements** (213 blocks): both VJP and FD are ≤1e-3 of
+   the row scale at the interpolation-kink element; two-sided FD straddles
+   the piecewise-linear kink the adjoint integrates one side of. Relative
+   error is meaningless at these magnitudes; every informative element in
+   the same rows agrees to ≤1e-5 relative.
+2. **Causality-onset FD artifacts** (51 blocks): at the first save time a
+   perturbed knot can influence, the adjoint reports exactly zero — correct
+   by causality, since the forcing perturbation ramps from zero at that
+   instant — while FD reports up to ~1e-2 of row scale. The eps-dependence
+   experiment (`data/verification/cg_meat_eps3.log`) is decisive: growing
+   `--eps` 10× (1e-4 → 1e-3) shrinks the FD onset value ~265×
+   (2.16e-3 → 8.2e-6). A genuine slope is eps-independent; artifact divided
+   by eps is not. The FD side is perturbed-solve dense-output noise / eps;
+   the adjoint is right.
+
+Conclusion: **zero real gradient mismatches in the shipped containers**;
+all informative elements agree within the tool's tolerance at both eps
+values. Parameter vectors remain covered by `test/test_gradients.jl` (a
+single absolute `--eps` cannot span 12 decades; see above).

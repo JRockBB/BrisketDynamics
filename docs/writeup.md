@@ -271,8 +271,11 @@ loop (`Tesseract.from_tesseract_api`) runs the full science pipeline on
 Windows; both containers build and solve (`scripts/build_containers.sh` —
 Julia toolchain and precompiled package baked at build time via
 `package_data`; `brisket-meat:0.1.0` and `brisket-pit:0.1.0` verified with
-in-container applies) [TODO: in-container checkgradients sweep before
-submission]. Figures: the animated calibrated cook
+in-container applies **and a full in-container check-gradients sweep** —
+523 checks over every trajectory input, zero real mismatches; the two
+benign FD-artifact classes at measure-zero kink/onset elements are
+dissected, with an eps-dependence experiment proving the adjoint right, in
+`docs/verification.md`). Figures: the animated calibrated cook
 (`figures/cook_animation.gif`), corner plots (synthetic + real), 
 posterior-predictive bands (synthetic + real), control before/after,
 robust-control comparison, MPC demo, real-cook fit.
