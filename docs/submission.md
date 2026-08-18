@@ -64,7 +64,7 @@ interface.
 
 **Key artifacts:** `docs/writeup.md` (six-criteria writeup) ·
 `figures/cook_animation.gif` · `figures/cooklog_fit_map.png` ·
-`figures/corner.png` · `figures/mpc_demo.png` ·
+`figures/corner.png` · `figures/corner_real.png` · `figures/mpc_demo.png` ·
 `figures/composition_diagram.png` · `docs/verification.md`
 
 ---
@@ -84,8 +84,10 @@ on every step:
 
 🔥 Bayesian calibration (NumPyro NUTS) against a real 19-hour overnight
 cook digitized from a 2013 forum post — the model reproduces the full arc:
-rise, five-hour stall, break at hour 14. The calibration even found the
-poster's leaky smoker door.
+rise, five-hour stall, break at hour 14. And the posterior tells you
+exactly which physics a cook log can pin (the meat's) and which it only
+constrains in combinations (the pit's) - uncertainty quantification with
+an interpretable shape.
 
 🔥 An optimized vent schedule that hits target doneness on deadline —
 and a robust version optimized in expectation over the posterior.
@@ -136,8 +138,9 @@ simulated system. One gradient crosses the Julia↔JAX boundary four times.
 **What the gradients do.** NumPyro NUTS calibration (12 latents) against a
 digitized real overnight WSM cook — pit hold tracked within ~3 °C, the
 stall and its break reproduced, and physically interpretable parameters
-(the poster mentioned his door leaked; the leak parameter calibrated to
-0.21). The full posterior pins the meat-side physics to a few percent but
+(the poster mentioned his door leaked; the MAP put the leak parameter at
+0.21 - though see below on what the posterior says about pinning it
+individually). The full posterior pins the meat-side physics to a few percent but
 identifies the pit side only along two clean ridges (heat loss vs heat
 release, burn rate vs leak) — the identifiability fingerprint of
 closed-loop data, quantified. Optax damper-schedule
