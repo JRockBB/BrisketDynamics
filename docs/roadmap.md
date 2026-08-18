@@ -46,7 +46,14 @@ dependency ordering that matters.
    posting. User-owned: hackathon registration (required for prize
    eligibility).
 9. *Stretch, only if 1–8 are done — in this order:*
-   1. **Cook time as a decision variable** — the perfect brisket defines
+   1. ✅ **Cook time as a decision variable** — implemented as the
+      outer-scan planner (`timeplan.py`, `figures/timeplan.png`): quality
+      finds an interior optimum (9 h, hot-and-fast; each extra hour costs
+      ~0.03 retained moisture), and the chance layer's honest refusal —
+      P(done) = 0 on all durations, 84 °C pit disagreement between MAP and
+      posterior under the same damper — demonstrates the closed-loop
+      identifiability limit in decision space. Differentiable-duration
+      (s = t/t_f) still open. Original formulation: the perfect brisket defines
       its own time: duration is chosen by *pure cook quality* (target
       doneness, bark constraint, maximum retained moisture), with no
       external costs bending it. The serving deadline never changes the

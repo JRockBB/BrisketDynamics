@@ -38,6 +38,7 @@ of a SciMLSensitivity continuous adjoint exposed as a Tesseract
 | **Optimal control** | doneness 0.26 → **0.900** on target, surface under bark limit ([before/after](figures/control_before_after.png)) |
 | **Robust control** | expected-objective schedule halves doneness spread across the posterior: 0.780±0.123 → 0.863±0.069 ([comparison](figures/control_robust.png)) |
 | **MPC** | hourly re-planning absorbs an unmodeled −15 K cold front: doneness 0.92 vs 0.68 open-loop ([demo](figures/mpc_demo.png)) |
+| **Cook-time planning** | quality picks the duration (9 h, hot-and-fast); the posterior honestly refuses to certify an open-loop start ([figure](figures/timeplan.png)) |
 | **Animated cook** | calibrated T/W fields evolving through the real cook ([gif](figures/cook_animation.gif)) |
 
 ## Layout
@@ -76,6 +77,7 @@ uv run python ../scripts/replay_cooklog.py      # real cook, uncalibrated replay
 uv run python ../scripts/run_map_real.py        # real cook MAP calibration
 uv run python ../scripts/run_nuts.py --real     # real cook NUTS (long; checkpointed)
 uv run python ../scripts/run_mpc.py             # receding-horizon MPC demo
+uv run python ../scripts/run_timeplan.py        # cook-time-as-decision-variable
 uv run python ../scripts/render_animation.py    # animated calibrated cook
 ```
 

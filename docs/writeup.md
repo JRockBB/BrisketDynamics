@@ -9,10 +9,11 @@ heat conduction and moisture transport with surface evaporation — produce the
 famous **stall**: a multi-hour plateau in internal temperature caused by
 evaporative cooling. We built both solvers in Julia, composed them through
 Tesseract into a single end-to-end differentiable function under JAX, and used
-the gradients five ways: MAP and full NUTS Bayesian calibration (synthetic
+the gradients six ways: MAP and full NUTS Bayesian calibration (synthetic
 recovery study **and** a real 19-hour cook log), damper-schedule optimization,
-schedule optimization *in expectation over the posterior*, and
-receding-horizon MPC with disturbance rejection. This document follows the six judging criteria in
+schedule optimization *in expectation over the posterior*, receding-horizon
+MPC with disturbance rejection, and cook-time planning — duration chosen by
+cook quality, start time interrogated against the posterior. This document follows the six judging criteria in
 order.
 
 ## 1. Composition across a real boundary
@@ -154,6 +155,25 @@ disturbances the controller cannot foresee*, and once the target is banked
 the controller closes the damper and lets the cook coast — pull-when-done
 behavior arising from the objective's asymmetry rather than being
 programmed.
+
+**Cook time as a decision variable** (`figures/timeplan.png`): the perfect
+brisket defines its own time — an outer scan over planned durations, each
+with an inner schedule optimization under a pure quality objective
+(asymmetric doneness + bark constraint + retained moisture), finds a clean
+interior optimum: **9 h** for this calibrated (thin, ~4.3 cm) flat, with
+every extra hour costing ~0.03 retained moisture — the optimizer
+rediscovers hot-and-fast barbecue. The chance layer then asks the NUTS-real
+posterior to certify a start time and receives **an honest refusal**:
+P(serveably done) = 0 at every duration, because the closed-loop cook log
+never exercised the damper above ~0.35 and the control-relevant pit
+response is unidentified — the *same* damper input yields a 202 °C pit at
+the MAP and 118 °C at a posterior draw, both fitting the 19-hour log
+equally well. The planner thus reproduces, in decision space, the
+identifiability limit named in Limitations: open-loop guarantees await the
+characterization burn; live guarantees come from closing the loop (the MPC
+above). Caveat: absolute hours inherit the uncalibrated doneness scale
+(fixed literature collagen kinetics; C = 0.90 as "probe tender" is not yet
+anchored by texture data).
 
 ## 3. Why Tesseract is load-bearing
 

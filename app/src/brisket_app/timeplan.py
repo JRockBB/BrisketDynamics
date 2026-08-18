@@ -1,0 +1,107 @@
+"""Cook time as a decision variable (roadmap stretch item 1).
+
+Framing: **the perfect brisket defines its own time.** Duration is chosen
+by pure cook quality — hit target doneness without burning bark, retain
+maximum moisture (`w_juicy` > 0), spend fuel lightly — with no external
+costs bending it. The deadline never changes the cook; it positions the
+*start*: light the fire (planned duration) before serving, where the
+planned duration is the quality optimum padded by an uncertainty margin
+from the posterior. Finishing early is nearly free (the resting hold
+exists for this), so the safety padding is one-sided — exactly the
+asymmetry the MPC objective already encodes.
+
+Cheap first implementation (per roadmap): an outer scan over candidate
+durations with the inner Optax schedule optimization per duration
+(warm-started along the scan), then a chance layer that re-simulates each
+duration's optimized schedule over posterior draws to find the shortest
+planned duration with P(serveably done) above target. The differentiable-
+duration variant (s = t/t_f time-scaling) is the documented next step.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+from .control import ControlConfig, optimize_schedule
+from .coupled import HR, CookGrids, coupled_cook
+
+
+def _grids_for(t_f: float) -> CookGrids:
+    n_u = max(8, int(round(t_f / (0.75 * HR))))
+    return CookGrids(t_end=t_f, dt_exchange=600.0, n_u=n_u)
+
+
+def plan_duration(theta, phi, meat_tx, pit_tx, durations_h,
+                  cc: ControlConfig | None = None,
+                  ics: dict | None = None,
+                  inner_iters: int = 60,
+                  log=print):
+    """Outer scan over candidate durations under a pure quality objective
+    (asymmetric doneness + bark constraint + juiciness + light fuel term).
+    Returns per-duration records: optimized schedule, quality objective,
+    doneness, retained moisture. Warm-starts each duration from the
+    previous optimum interpolated by fractional cook progress."""
+    cc = cc or ControlConfig(asymmetric_done=True, w_juicy=1.0,
+                             n_iter=inner_iters)
+    records = []
+    u_prev, grids_prev = None, None
+    for th_f in durations_h:
+        t_f = th_f * HR
+        grids = _grids_for(t_f)
+        if u_prev is None:
+            u_init = 0.5
+        else:
+            frac_prev = grids_prev.u_tknots / grids_prev.u_tknots[-1]
+            frac_new = grids.u_tknots / grids.u_tknots[-1]
+            u_init = np.clip(np.interp(frac_new, frac_prev, u_prev),
+                             1e-3, 1 - 1e-3)
+        u_opt, hist = optimize_schedule(theta, phi, meat_tx, pit_tx,
+                                        grids=grids, cc=cc, u_init=u_init,
+                                        ics=ics)
+        u_prev, grids_prev = u_opt, grids
+        sim = coupled_cook(np.asarray(theta), np.asarray(phi),
+                           np.asarray(u_opt), meat_tx, pit_tx, grids, K=2,
+                           ics=ics)
+        c_end = float(np.asarray(sim["c_field_final"])[0])
+        w_ret = float(np.asarray(sim["w_retained"]))
+        records.append({"t_f_h": float(th_f), "u_opt": u_opt, "grids": grids,
+                        "j_quality": float(hist["losses"][-1]),
+                        "doneness": c_end, "w_retained": w_ret})
+        log(f"  t_f={th_f:5.1f} h  J={records[-1]['j_quality']:7.3f}  "
+            f"doneness={c_end:.3f}  juiciness={w_ret:.3f}")
+    return records
+
+
+def optimal_duration(records, plateau_frac: float = 0.02) -> dict:
+    """The quality optimum, with a plateau rule: the *shortest* duration
+    whose objective is within `plateau_frac` of the best. If quality
+    saturates ("anything >= X h is perfect"), the optimum is the plateau's
+    left edge, not an arbitrary interior point."""
+    js = np.array([r["j_quality"] for r in records])
+    j_best = float(js.min())
+    tol = abs(j_best) * plateau_frac + 1e-9
+    for r, j in zip(records, js):
+        if j <= j_best + tol:
+            return r
+    return records[int(np.argmin(js))]
+
+
+def chance_of_done(record, thetas, phis, meat_tx, pit_tx,
+                   c_serveable: float = 0.85, ics: dict | None = None,
+                   log=print):
+    """P(serveably done at t_f) for one duration's optimized schedule,
+    evaluated on posterior draws — the uncertainty side of the start-time
+    decision (start = serving deadline - planned duration)."""
+    grids, u_opt = record["grids"], record["u_opt"]
+    done = []
+    for i in range(len(thetas)):
+        sim = coupled_cook(np.asarray(thetas[i]), np.asarray(phis[i]),
+                           np.asarray(u_opt), meat_tx, pit_tx, grids, K=2,
+                           ics=ics)
+        done.append(float(np.asarray(sim["c_field_final"])[0]))
+    done = np.asarray(done)
+    p = float(np.mean(done >= c_serveable))
+    log(f"  t_f={record['t_f_h']:5.1f} h  P(done)={p:.2f}  "
+        f"doneness draws: {np.percentile(done, 5):.3f}..."
+        f"{np.percentile(done, 95):.3f}")
+    return p, done
