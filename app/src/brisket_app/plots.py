@@ -61,18 +61,22 @@ def corner_plot(samples: dict, out_path: Path, truths: dict | None = None,
         hist_kwargs={"histtype": "stepfilled", "facecolor": BLUE_LIGHT,
                      "edgecolor": BLUE_DARK, "linewidth": 1.1},
         quantiles=[0.16, 0.5, 0.84],
-        show_titles=True, title_fmt=".3f",
-        title_kwargs={"fontsize": 9, "color": INK},
-        label_kwargs={"fontsize": 9, "color": INK},
+        show_titles=True, title_fmt=".2f",
+        title_kwargs={"fontsize": 11, "color": INK},
+        label_kwargs={"fontsize": 14, "color": INK},
+        max_n_ticks=4,
     )
+    # titles are wider than their panels: give rows headroom so a diagonal
+    # panel's title cannot collide with the histogram up-left of it
+    fig.subplots_adjust(hspace=0.35, wspace=0.12)
     fig.patch.set_facecolor(SURFACE)
     for ax in fig.axes:
         ax.set_facecolor(SURFACE)
-        ax.tick_params(colors=MUTED, labelsize=7)
+        ax.tick_params(colors=MUTED, labelsize=9)
         for spine in ax.spines.values():
             spine.set_color(BASELINE)
     fig.suptitle("Posterior over pit + meat parameters (stall-informed)",
-                 y=1.02, color=INK)
+                 y=1.01, color=INK, fontsize=18)
     fig.savefig(out_path, dpi=130, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     plt.close(fig)

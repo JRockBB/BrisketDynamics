@@ -122,7 +122,10 @@ posterior slides along two clean ridges (UA ∝ ΔH_eff, heat loss vs heat
 release; r_max vs u_leak, burn rate vs leak dilution), the fingerprint of
 closed-loop data. Instructively, the MAP's u_leak = 0.21 and the
 posterior's 0.70–0.79 band produce near-identical trajectories: the "leaky
-door" is a property of the burn ridge, not an individually pinned number.
+door" is a property of the burn ridge, not an individually pinned number
+(`figures/corner_real_widerange.png` widens the axes to overlay the MAP
+point — point estimate and posterior bulk sit far apart along the flat
+ridge directions while fitting the data equally well).
 Diagnostics quoted as-is: single chain, ESS 4–17, split-r̂ up to 2.6 — the
 chain explores the ridges but has not equilibrated; it remains extendable
 from its checkpoint.
