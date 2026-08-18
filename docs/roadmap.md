@@ -46,22 +46,22 @@ dependency ordering that matters.
    posting. User-owned: hackathon registration (required for prize
    eligibility).
 9. *Stretch, only if 1–8 are done — in this order:*
-   1. **Cook time as a decision variable** — the general formulation:
-      planned duration (equivalently, when to light the fire) is optimized
-      *jointly* with the schedule against a serving deadline, ideally
-      chance-constrained under the posterior (choose start time s.t.
-      P(done by deadline) ≥ 95% — unifying robust control with time
-      planning). Doneness enters as a soft term so the optimizer can trade
-      slight underdoneness against lateness, with the asymmetry kept
-      (late ≫ early; earliness mildly penalized — a 2 a.m. fire-lighting
-      has human cost, which makes the start-time optimum nontrivial).
-      Mid-cook this reduces to pull-when-done (elapsed time is sunk; the
-      live time-decision is the pull), whose t_done = differentiable
-      crossing of the doneness target. Fixes the fixed-horizon formulation
-      error exposed by the MPC demo (a losing cook should extend, not
-      surrender). Cheap first implementation: outer scan over candidate
-      durations with inner schedule optimization; differentiable duration
-      via s = t/t_f time-scaling later.
+   1. **Cook time as a decision variable** — the perfect brisket defines
+      its own time: duration is chosen by *pure cook quality* (target
+      doneness, bark constraint, maximum retained moisture), with no
+      external costs bending it. The serving deadline never changes the
+      cook; it positions the *start*: light the fire (planned duration)
+      before serving, where planned ≥ quality-optimal duration is the
+      shortest with P(serveably done) ≥ 95% under the posterior — the
+      safety margin is one-sided because finishing early is nearly free
+      (the resting hold exists for this). Mid-cook this reduces to
+      pull-when-done (elapsed time is sunk; the live time-decision is the
+      pull), whose t_done = differentiable crossing of the doneness
+      target. Fixes the fixed-horizon formulation error exposed by the MPC
+      demo (a losing cook should extend, not surrender). Cheap first
+      implementation: outer scan over candidate durations with inner
+      schedule optimization; differentiable duration via s = t/t_f
+      time-scaling later.
    2. **Multi-chain NUTS-real** — 2–3 short chains from dispersed inits
       (separate processes); real split-r̂ across chains and a test of
       whether the pit-ridge mass location is reproducible.
