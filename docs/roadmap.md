@@ -18,9 +18,12 @@ dependency ordering that matters.
    σ_pit 2.6 → 2.1, σ_core 1.4 → 0.88 (at the digitization floor); early-cook
    overshoot resolved; a0 = 0.73, k_spread ≈ 4e-4 (physical). Cold-start
    lesson: 12-latent SVI needs the warm start (`run_map_real.py --init`).
-5. **NUTS on the real cook** — the calibration capstone's posterior
-   (`run_nuts.py --real`, checkpointed, needs plugged-in hours). ⚑ After (3).
-   On completion: corner_real + predictive-band figures, writeup paragraph.
+4. ✅ **NUTS on the real cook** — 300+300 over all 12 latents, 34 h
+   wall-clock, checkpointed through every power loss. Predictive band holds
+   both 19-h traces; meat side pinned (D_eff ±13%, k_m/L ±3%), pit side
+   identified only along two ridges (UA∝ΔH_eff, r_max vs u_leak) — the
+   closed-loop identifiability limit, quantified. ESS 4–17, split-r̂ ≤ 2.6
+   quoted as-is; extendable from checkpoint (multi-chain in stretch).
 5. ✅ **MPC re-planning demo** — hourly receding-horizon re-planning with
    full-field state handoff through the Tesseracts; a −15 K cold front the
    controller's model does not know is absorbed: doneness 0.92 (MPC) vs 0.68
@@ -28,13 +31,16 @@ dependency ordering that matters.
    objective front-loads heat before the unforeseen disturbance, and the
    cook "finishes early and lets go" — pull-when-done behavior arising from
    the asymmetry. figures/mpc_demo.png.
-7. **In-container `checkgradients` sweep** — the deferred full endpoint
-   verification artifact, run inside the built images
-   (`scripts/checkgradients/run.sh`); flips the writeup's last TODO.
-8. **Repo public + push + CI green** — user creates the GitHub repo; fix
+6. ✅ **In-container `checkgradients` sweep** (`58ea01b`) — 523 checks over
+   every trajectory input inside the shipped containers, zero real
+   mismatches; all 264 tool-flagged failures classified as benign FD
+   artifacts at measure-zero kink/onset elements, with an eps-dependence
+   experiment proving the adjoint right (`analyze_failures.py`, logs in
+   `data/verification/`). Writeup's last TODO flipped.
+7. **Repo public + push + CI green** — user creates the GitHub repo; fix
    remote, push all commits, shepherd the first CI runs.
    ⚑ Blocks submission; user-owned start.
-9. **Submission mechanics** — drafts written (`docs/submission.md`: form
+8. **Submission mechanics** — drafts written (`docs/submission.md`: form
    text, LinkedIn post, forum showcase — two placeholders: NUTS-real
    sentence + repo URL confirm). Remaining: final writeup pass, actual
    posting. User-owned: hackathon registration (required for prize
