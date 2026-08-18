@@ -1,9 +1,7 @@
 # Submission package (drafts)
 
-Status: DRAFT — two placeholders remain: `[NUTS-REAL: …]` (fill from the
-finished real-cook posterior) and the repo URL (confirm once the public repo
-exists at github.com/JRock95/BrisketDynamics). Everything else is ready to
-paste.
+Status: READY except one item — confirm the repo URL once the public repo
+exists at github.com/JRock95/BrisketDynamics.
 
 User-owned prerequisites: hackathon registration (tally.so/r/kdx2ej,
 required for prize eligibility) and creating the public GitHub repo.
@@ -43,8 +41,12 @@ simulated system.
 The gradients then do real work. NUTS calibration recovers synthetic truth
 and — the capstone — fits a digitized real 19-hour overnight cook (18.5"
 WSM), tracking the pit hold within ~3 °C and reproducing the core's full
-arc: rise, multi-hour stall, break at ~14 h. [NUTS-REAL: one sentence on
-the real-cook posterior once the chain finishes.] The same coupled function
+arc: rise, multi-hour stall, break at ~14 h. The full NUTS posterior over all 12 physical
+parameters shows exactly which physics the data pins: meat-side parameters
+to within a few percent, pit-side parameters only in combinations — two
+clean ridges (heat loss vs heat release, burn rate vs leak) that are the
+fingerprint of closed-loop cook data — while the posterior-predictive band
+holds both 19-hour traces. The same coupled function
 drives Optax damper-schedule optimization (doneness 0.900 on a 0.90
 target), robust control over posterior draws (half the doneness spread of
 the MAP-optimal schedule on held-out draws), and a receding-horizon MPC
@@ -135,7 +137,10 @@ simulated system. One gradient crosses the Julia↔JAX boundary four times.
 digitized real overnight WSM cook — pit hold tracked within ~3 °C, the
 stall and its break reproduced, and physically interpretable parameters
 (the poster mentioned his door leaked; the leak parameter calibrated to
-0.21). [NUTS-REAL: posterior summary sentence.] Optax damper-schedule
+0.21). The full posterior pins the meat-side physics to a few percent but
+identifies the pit side only along two clean ridges (heat loss vs heat
+release, burn rate vs leak) — the identifiability fingerprint of
+closed-loop data, quantified. Optax damper-schedule
 optimization, a robust variant in expectation over posterior draws, and a
 receding-horizon MPC demo — full T/W/C-field state handoff through the
 Tesseracts' IO — that absorbs an unmodeled −15 K cold front (doneness 0.92

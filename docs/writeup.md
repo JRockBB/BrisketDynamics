@@ -109,6 +109,24 @@ calibrates to the digitization floor (σ_core = 0.88 K). Honest residual:
 ±3 °C pit wobble at sub-hour timescales — a real model deficiency (see
 Limitations).
 
+**The real-cook posterior** (`figures/corner_real.png`,
+`figures/posterior_predictive_real.png`): full NUTS over all 12 physical
+latents + 2 noise scales — 300 warmup + 300 samples, 34 h wall-clock on two
+throttled laptop threads, kernel-checkpointed through the power losses. The
+posterior-predictive band holds the entire 19-hour pit trace and the core's
+rise–stall–break arc. Parameter space quantifies the identifiability story
+told in Limitations: the meat side is pinned (D_eff to ±13%, k_m and L to
+±3% at 90% credibility — the long horizon and the stall break carry real
+information), while the pit side is identified only in *combinations* — the
+posterior slides along two clean ridges (UA ∝ ΔH_eff, heat loss vs heat
+release; r_max vs u_leak, burn rate vs leak dilution), the fingerprint of
+closed-loop data. Instructively, the MAP's u_leak = 0.21 and the
+posterior's 0.70–0.79 band produce near-identical trajectories: the "leaky
+door" is a property of the burn ridge, not an individually pinned number.
+Diagnostics quoted as-is: single chain, ESS 4–17, split-r̂ up to 2.6 — the
+chain explores the ridges but has not equilibrated; it remains extendable
+from its checkpoint.
+
 **Optimal control** (`figures/control_before_after.png`): Optax Adam on 16
 sigmoid-bounded damper knots through the full coupled pipeline. Objective
 falls 40.9 → 0.10 in 200 iterations; core doneness 0.26 → **0.900 on a 0.90
@@ -252,8 +270,9 @@ Julia toolchain and precompiled package baked at build time via
 `package_data`; `brisket-meat:0.1.0` and `brisket-pit:0.1.0` verified with
 in-container applies) [TODO: in-container checkgradients sweep before
 submission]. Figures: the animated calibrated cook
-(`figures/cook_animation.gif`), corner plot, posterior-predictive band,
-control before/after, robust-control comparison, real-cook fit.
+(`figures/cook_animation.gif`), corner plots (synthetic + real), 
+posterior-predictive bands (synthetic + real), control before/after,
+robust-control comparison, MPC demo, real-cook fit.
 
 ---
 
