@@ -28,10 +28,23 @@ Base.@kwdef struct MeatConfig
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
     R_gas::Float64 = 8.314
+    # Texas-crutch wrap constants (foil defaults; butcher paper ≈ η_evap 0.5,
+    # ε_wrap 0.3). Literature-fixed pending a wrapped-cook log — the wrap
+    # moment is documented in such logs, making the wrap event a known-input
+    # step-response experiment for these constants (see roadmap).
+    δ_wrap::Float64 = 600.0     # wrap blend width [s] (~wrapping takes minutes)
+    η_evap::Float64 = 0.9       # evaporation suppression when wrapped (foil)
+    ε_wrap::Float64 = 0.10      # wrapped surface emissivity (foil)
+    η_h::Float64 = 0.2          # convective-coefficient reduction when wrapped
 end
 
 # θ = [D_eff, k_m, h_c, L, k_mult] — the meat-side latent parameter vector.
 const MEAT_NP = 5
+
+# Default wrap time: far beyond any horizon. logistic((t − 1e9)/δ_wrap) is
+# EXACTLY 0.0 (tanh saturates), so the unwrapped model is recovered bitwise
+# and the reverse-mode derivative underflows to a clean zero.
+const WRAP_NEVER = 1.0e9
 
 """
     evap_flux(Ts, Ws, k_m, cfg)
@@ -52,6 +65,23 @@ end
 surface_heat_in(Tpit, Ts, h_c, cfg::MeatConfig) =
     h_c * (Tpit - Ts) + cfg.ε * σ_SB * (Tpit^4 - Ts^4)
 
+"""
+    wrap_blend(t, t_wrap, cfg)
+
+Smooth Texas-crutch switch s ∈ [0, 1]: 0 unwrapped, → 1 after `t_wrap` over
+width `δ_wrap`. Branch-free (tanh logistic), so it is safe in every AD path.
+A smooth blend — not a DiffEq event — keeps t_wrap an ordinary parameter of
+the verified continuous adjoint (event-time adjoints need jump conditions,
+and FD across a discrete switch is ill-posed); it also smears toward reality,
+since wrapping a brisket takes minutes, not an instant.
+"""
+wrap_blend(t, t_wrap, cfg::MeatConfig) = logistic((t - t_wrap) / cfg.δ_wrap)
+
+"Wrapped-blend surface heat flux: convection reduced by η_h·s, emissivity blended to ε_wrap."
+surface_heat_in_wrapped(Tpit, Ts, h_c, s, cfg::MeatConfig) =
+    h_c * (1 - cfg.η_h * s) * (Tpit - Ts) +
+    (cfg.ε * (1 - s) + cfg.ε_wrap * s) * σ_SB * (Tpit^4 - Ts^4)
+
 "Arrhenius collagen conversion rate [s⁻¹] at temperature T."
 collagen_rate(T, cfg::MeatConfig) =
     cfg.k_ref * exp(-(cfg.Ea / cfg.R_gas) * (1 / T - 1 / cfg.T_ref))
@@ -69,6 +99,7 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
     function meat_rhs!(du, u, p, t)
         D_eff, k_m, h_c, L, k_mult = p[1], p[2], p[3], p[4], p[5]
         knots = @view p[MEAT_NP+1:MEAT_NP+nk]
+        t_wrap = p[MEAT_NP+nk+1]
 
         Δx = L / (nx - 1)
         k_th = k_mult * K_MEAT
@@ -92,10 +123,12 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
         dT[1] = 2α * (T[2] - T[1]) / Δx^2
         dW[1] = 2D_eff * (W[2] - W[1]) / Δx^2
 
-        # surface: half-cell finite-volume balance
+        # surface: half-cell finite-volume balance, with the smooth
+        # Texas-crutch blend (s = 0 recovers the unwrapped BC exactly)
         Ts, Ws = T[nx], W[nx]
-        j = evap_flux(Ts, Ws, k_m, cfg)
-        q_net = surface_heat_in(Tpit, Ts, h_c, cfg) - cfg.λ_vap * j
+        s = wrap_blend(t, t_wrap, cfg)
+        j = (1 - cfg.η_evap * s) * evap_flux(Ts, Ws, k_m, cfg)
+        q_net = surface_heat_in_wrapped(Tpit, Ts, h_c, s, cfg) - cfg.λ_vap * j
         dT[nx] = (k_th * (T[nx-1] - Ts) / Δx + q_net) / (RHO_MEAT * CP_MEAT * Δx / 2)
         dW[nx] = (RHO_DRY * D_eff * (W[nx-1] - Ws) / Δx - j) / (RHO_DRY * Δx / 2)
 
@@ -172,9 +205,16 @@ function _meat_core(p, cfg::MeatConfig, prob, tsave, Mts;
     C_field_final = A[2nx+1:3nx, end]
     # juiciness proxy: mean retained moisture at pull, as a fraction of W0
     w_retained = sum(A[nx+1:2nx, end]) / (nx * cfg.W0)
-    Tpit_ts = Mts * p[MEAT_NP+1:end]
-    j_evap = evap_flux.(Tsurf, Wsurf, p[2], Ref(cfg))
-    q_meat = cfg.A_meat .* surface_heat_in.(Tpit_ts, Tsurf, p[3], Ref(cfg))
+    nk = size(Mts, 2)
+    Tpit_ts = Mts * p[MEAT_NP+1:MEAT_NP+nk]
+    # observables MUST apply the same wrap blend as the RHS: the bark
+    # integral (∫ j_evap dt) and the pit coupling consume these, and an
+    # unblended observable would carry a silently wrong t_wrap gradient
+    t_wrap = p[end]
+    s_ts = wrap_blend.(tsave, t_wrap, Ref(cfg))
+    j_evap = (1 .- cfg.η_evap .* s_ts) .* evap_flux.(Tsurf, Wsurf, p[2], Ref(cfg))
+    q_meat = cfg.A_meat .*
+             surface_heat_in_wrapped.(Tpit_ts, Tsurf, p[3], s_ts, Ref(cfg))
     (; Tsurf, Tcore, j_evap, q_meat, C_field_final, w_retained)
 end
 
@@ -188,11 +228,11 @@ function meat_solve(θ::AbstractVector, Tpit_knots::AbstractVector,
                     tknots::AbstractVector, tsave::AbstractVector;
                     cfg::MeatConfig = MeatConfig(), abstol = 1e-6, reltol = 1e-6,
                     T0f::AbstractVector = Float64[], W0f::AbstractVector = Float64[],
-                    C0f::AbstractVector = Float64[])
+                    C0f::AbstractVector = Float64[], t_wrap::Real = WRAP_NEVER)
     nx = cfg.nx
-    p = vcat(θ, Tpit_knots)
+    p = vcat(θ, Tpit_knots, float(t_wrap))
     any(isnan, p) && throw(ArgumentError(
-        "meat solve got NaN inputs at indices $(findall(isnan, p)) of p (θ|Tpit)"))
+        "meat solve got NaN inputs at indices $(findall(isnan, p)) of p (θ|Tpit|t_wrap)"))
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
     rhs! = make_meat_rhs(cfg, tk0, tkdt, length(tknots))
     prob = ODEProblem(rhs!, _meat_u0(cfg, T0f, W0f, C0f),
@@ -207,10 +247,13 @@ function meat_solve(θ::AbstractVector, Tpit_knots::AbstractVector,
     Wsurf = A[2nx, :]
     Mts = hat_matrix(tsave, tk0, tkdt, length(tknots))
     Tpit_ts = Mts * Tpit_knots
+    s_ts = wrap_blend.(tsave, float(t_wrap), Ref(cfg))
     (; Tsurf,
        Tcore = A[1, :],
-       j_evap = evap_flux.(Tsurf, Wsurf, θ[2], Ref(cfg)),
-       q_meat = cfg.A_meat .* surface_heat_in.(Tpit_ts, Tsurf, θ[3], Ref(cfg)),
+       j_evap = (1 .- cfg.η_evap .* s_ts) .*
+                evap_flux.(Tsurf, Wsurf, θ[2], Ref(cfg)),
+       q_meat = cfg.A_meat .*
+                surface_heat_in_wrapped.(Tpit_ts, Tsurf, θ[3], s_ts, Ref(cfg)),
        C_field_final = A[2nx+1:3nx, end],
        w_retained = sum(A[nx+1:2nx, end]) / (nx * cfg.W0),
        T_field = A[1:nx, :], W_field = A[nx+1:2nx, :], C_field = A[2nx+1:3nx, :],
@@ -229,8 +272,8 @@ adjoint of the stiff solve.
 function meat_vjp(θ::AbstractVector, Tpit_knots::AbstractVector,
                   tknots::AbstractVector, tsave::AbstractVector, cot;
                   cfg::MeatConfig = MeatConfig(), abstol = 1e-6, reltol = 1e-6,
-                  sensealg = MEAT_SENSEALG)
-    p = vcat(θ, Tpit_knots)
+                  sensealg = MEAT_SENSEALG, t_wrap::Real = WRAP_NEVER)
+    p = vcat(θ, Tpit_knots, float(t_wrap))
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
     Mts = hat_matrix(tsave, tk0, tkdt, length(tknots))
     rhs! = make_meat_rhs(cfg, tk0, tkdt, length(tknots))
@@ -250,5 +293,5 @@ function meat_vjp(θ::AbstractVector, Tpit_knots::AbstractVector,
                                                abstol, reltol, sensealg), p)
     dp = back(cotfull)[1]
     dp = dp === nothing ? zeros(length(p)) : dp
-    (dθ = dp[1:MEAT_NP], dTpit_knots = dp[MEAT_NP+1:end])
+    (dθ = dp[1:MEAT_NP], dTpit_knots = dp[MEAT_NP+1:end-1], dt_wrap = dp[end])
 end

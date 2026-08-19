@@ -1,0 +1,162 @@
+"""Roadmap stretch item 3: differentiable wrap-time (Texas crutch).
+
+Joint optimization of the damper schedule AND the wrap moment at the
+MAP-real smoker: wrapping suppresses evaporation (kills the stall, keeps
+moisture) but starves bark formation (bark proxy = integrated evaporative
+flux), so "when to wrap" is a genuine trade-off with an interior optimum.
+
+Run from app/:  uv run python -u ../scripts/run_wraptime.py
+Writes figures/wraptime.png + data/control/wraptime_result.json.
+"""
+
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
+
+import jax.numpy as jnp
+
+from brisket_app.clients import meat_client, pit_client
+from brisket_app.calibrate import THETA_SITES, phi_full
+from brisket_app.control import ControlConfig, optimize_schedule
+from brisket_app.coupled import HR, CookGrids, coupled_cook
+
+REPO = Path(__file__).resolve().parents[1]
+T_F = 10 * HR
+GRIDS = CookGrids(t_end=T_F, dt_exchange=600.0, n_u=14)
+ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
+ITERS = 60
+W_JUICY = 5.0
+W_BARK = 10.0
+BARK_FRAC = 0.7   # bark target as a fraction of the no-wrap cook's integral
+
+
+def simulate(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
+    sim = coupled_cook(jnp.asarray(theta), jnp.asarray(phi), jnp.asarray(u),
+                       meat_tx, pit_tx, GRIDS, K=2, ics=ICS, t_wrap=t_wrap)
+    return {k: np.asarray(v) for k, v in sim.items()}
+
+
+def metrics(sim, tk):
+    TcoreC = sim["tcore"] - 273.15
+    dt_h = (tk[1] - tk[0]) / HR
+    rate = np.diff(TcoreC) / dt_h
+    in_stall = (rate < 1.5) & (TcoreC[:-1] >= 60) & (TcoreC[:-1] <= 82)
+    best = cur = 0
+    for b in in_stall:
+        cur = cur + 1 if b else 0
+        best = max(best, cur)
+    return {
+        "doneness": float(sim["c_field_final"][0]),
+        "w_retained": float(sim["w_retained"]),
+        "bark": float(np.trapezoid(sim["j_evap"], tk)),
+        "stall_h": best * dt_h,
+        "core_end_C": float(TcoreC[-1]),
+    }
+
+
+def main():
+    m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
+    theta = np.array([m[n] for n, _ in THETA_SITES])
+    phi = phi_full(m)
+    meat_tx, pit_tx = meat_client(), pit_client()
+    tk = np.asarray(GRIDS.tknots)
+
+    print("1) no-wrap optimum (juiciness-aware)")
+    cc0 = ControlConfig(asymmetric_done=True, w_juicy=W_JUICY, n_iter=ITERS)
+    u0, h0 = optimize_schedule(theta, phi, meat_tx, pit_tx, grids=GRIDS,
+                               cc=cc0, u_init=0.5, ics=ICS)
+    sim0 = simulate(theta, phi, u0, meat_tx, pit_tx)
+    m0 = metrics(sim0, tk)
+    bark_target = BARK_FRAC * m0["bark"]
+    print(f"   no-wrap: {m0}   bark_target={bark_target:.4g}")
+
+    print("2) joint (schedule, t_wrap) optimization, 3-point multi-start")
+    cc = ControlConfig(asymmetric_done=True, w_juicy=W_JUICY, opt_wrap=True,
+                       bark_target=bark_target, w_bark=W_BARK, n_iter=ITERS)
+    best = None
+    for zw0 in (-2.0, 0.0, 2.0):
+        u, h = optimize_schedule(theta, phi, meat_tx, pit_tx, grids=GRIDS,
+                                 cc=cc, u_init=u0, ics=ICS, z_w_init=zw0)
+        print(f"   start z_w={zw0:+.0f}: J={h['losses'][-1]:.4f}  "
+              f"t_wrap={h['t_wrap'] / HR:.2f} h")
+        if best is None or h["losses"][-1] < best[1]["losses"][-1]:
+            best = (u, h)
+    u_w, h_w = best
+    t_wrap = h_w["t_wrap"]
+    sim_w = simulate(theta, phi, u_w, meat_tx, pit_tx, t_wrap=t_wrap)
+    m_w = metrics(sim_w, tk)
+    print(f"   optimal wrap at {t_wrap / HR:.2f} h: {m_w}")
+
+    print("3) 1-D objective slice over t_wrap at the optimal schedule")
+    from brisket_app.control import objective
+    import jax
+    slice_tw = np.linspace(0.1 * T_F, T_F, 15)
+    zs = np.log(np.clip(u_w, 1e-3, 1 - 1e-3) / (1 - np.clip(u_w, 1e-3, 1 - 1e-3)))
+    js = []
+    for twv in slice_tw:
+        zw = np.log(twv / (T_F - twv)) if twv < T_F else 8.0
+        j = float(objective(jnp.asarray(zs), jnp.asarray(zw),
+                            jnp.asarray(theta), jnp.asarray(phi),
+                            meat_tx, pit_tx, GRIDS, cc,
+                            {"abstol": 1e-6, "reltol": 1e-6}, ics=ICS))
+        js.append(j)
+        print(f"   t_wrap={twv / HR:5.2f} h  J={j:.4f}")
+
+    (REPO / "data" / "control").mkdir(parents=True, exist_ok=True)
+    (REPO / "data" / "control" / "wraptime_result.json").write_text(json.dumps({
+        "t_wrap_h": t_wrap / HR,
+        "no_wrap": m0, "wrapped": m_w,
+        "bark_target": bark_target,
+        "slice_t_wrap_h": (slice_tw / HR).tolist(),
+        "slice_J": js,
+        "u_no_wrap": u0.tolist(), "u_wrap": u_w.tolist(),
+    }, indent=2))
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    BLUE, ORANGE, INK, MUTED = "#256abf", "#eb6834", "#0b0b0b", "#52514e"
+    th = tk / HR
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.3))
+
+    ax = axes[0]
+    ax.plot(th, sim0["tcore"] - 273.15, "--", color=MUTED,
+            label="no wrap: core")
+    ax.plot(th, sim_w["tcore"] - 273.15, "-", color=BLUE, lw=2,
+            label="wrapped: core")
+    ax.plot(th, sim_w["tsurf"] - 273.15, "-", color=BLUE, lw=1, alpha=0.5,
+            label="wrapped: surface")
+    ax.axvline(t_wrap / HR, color=ORANGE, lw=1.5, ls=":")
+    ax.annotate(f"wrap at {t_wrap / HR:.1f} h", (t_wrap / HR + 0.15, 30),
+                color=ORANGE, fontsize=10)
+    ax.set(xlabel="time [h]", ylabel="temperature [°C]",
+           title=f"the model decides when to wrap "
+                 f"(doneness {m_w['doneness']:.2f}, "
+                 f"juiciness {m_w['w_retained']:.2f} vs {m0['w_retained']:.2f})")
+    ax.legend(fontsize=9, loc="lower right")
+
+    ax = axes[1]
+    ax.plot(slice_tw / HR, js, "o-", color=BLUE, lw=2)
+    ax.axvline(t_wrap / HR, color=ORANGE, lw=1.5, ls=":")
+    ax.annotate(f"optimizer: {t_wrap / HR:.1f} h",
+                (t_wrap / HR + 0.15,
+                 float(np.min(js)) + 0.75 * (float(np.max(js)) - float(np.min(js)))),
+                color=ORANGE, fontsize=10)
+    ax.set(xlabel="wrap time [h]", ylabel="objective J",
+           title="objective vs wrap time (fixed optimal schedule)")
+
+    fig.suptitle("Differentiable Texas crutch: wrap time optimized jointly "
+                 "with the damper schedule", y=1.0)
+    fig.tight_layout()
+    fig.savefig(REPO / "figures" / "wraptime.png", dpi=140,
+                bbox_inches="tight")
+    print("wrote figures/wraptime.png")
+
+
+if __name__ == "__main__":
+    main()

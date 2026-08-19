@@ -60,6 +60,50 @@ relerr(a, b) = abs(a - b) / max(abs(a), abs(b), 1e-12)
     end
 end
 
+@testset "wrap-time adjoint vs FD" begin
+    hr = 3600.0
+    tknots = collect(0.0:600.0:8hr)
+    tsave = tknots
+    θ = MEAT_θ_DEFAULT
+    Tpit = collect(range(380.0, 390.0, length = length(tknots)))
+    tol = (abstol = 1e-9, reltol = 1e-9)
+    t_wrap = 4hr   # blend live mid-horizon so the gradient is nonzero
+
+    wts = (Tsurf = 0.3, Tcore = 1.0, j_evap = 1e3, q_meat = 1e-2, C_field_final = 10.0)
+    function loss(θv, Tpitv, tw)
+        o = meat_solve(θv, Tpitv, tknots, tsave; t_wrap = tw, tol...)
+        wts.Tsurf * sum(abs2, o.Tsurf .- 350) / length(o.Tsurf) +
+        wts.Tcore * sum(abs2, o.Tcore .- 340) / length(o.Tcore) +
+        wts.j_evap * sum(o.j_evap) +
+        wts.q_meat * sum(o.q_meat) +
+        wts.C_field_final * sum(o.C_field_final)
+    end
+    o = meat_solve(θ, Tpit, tknots, tsave; t_wrap, tol...)
+    cot = (Tsurf = wts.Tsurf .* 2 .* (o.Tsurf .- 350) ./ length(o.Tsurf),
+           Tcore = wts.Tcore .* 2 .* (o.Tcore .- 340) ./ length(o.Tcore),
+           j_evap = fill(wts.j_evap, length(o.j_evap)),
+           q_meat = fill(wts.q_meat, length(o.q_meat)),
+           C_field_final = fill(wts.C_field_final, length(o.C_field_final)))
+    g = meat_vjp(θ, Tpit, tknots, tsave, cot; t_wrap, tol...)
+
+    # FD on t_wrap: hrel = 1e-3 → ~14 s step, well inside δ_wrap = 600 s so
+    # the central difference samples the smooth blend, not a switch
+    fd_tw = (loss(θ, Tpit, t_wrap * (1 + 1e-3)) -
+             loss(θ, Tpit, t_wrap * (1 - 1e-3))) / (2 * t_wrap * 1e-3)
+    @test relerr(g.dt_wrap, fd_tw) < 1e-3
+
+    # θ and last-knot directions with the wrap ACTIVE: catches contamination
+    # of the existing slices by the appended p-tail entry (off-by-one guard)
+    fd = fd_partial(v -> loss(v, Tpit, t_wrap), θ, 3)
+    @test relerr(g.dθ[3], fd) < 1e-3
+    # 5e-3, not 1e-3: with the wrap suppressing end-of-horizon evaporation
+    # the last knot's gradient is small (~0.046) and FD noise-limited (0.2%
+    # observed). As the off-by-one guard this is ample — tail contamination
+    # would swap in dt_wrap's slot (−0.021), a ~100% relative error.
+    fd = fd_partial(v -> loss(θ, v, t_wrap), Tpit, length(Tpit); hrel = 1e-4)
+    @test relerr(g.dTpit_knots[end], fd) < 5e-3
+end
+
 @testset "pit ForwardDiff VJP vs FD" begin
     hr = 3600.0
     tsave = collect(0.0:600.0:6hr)

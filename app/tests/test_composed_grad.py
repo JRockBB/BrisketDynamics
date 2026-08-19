@@ -119,3 +119,53 @@ def test_grad_u(loss_fn, grad_and_args, i):
     g, args = grad_and_args
     fd = central_fd(loss_fn, args, 2, i)
     assert rel_err(float(g[2][i]), fd) < GATE_TOL, f"u[{i}]: ad={float(g[2][i])} fd={fd}"
+
+
+# --- Texas-crutch wrap time: composed gradient + backward compatibility ---
+# t_wrap = 3 h on the 6 h grid: the blend transitions mid-horizon, so the
+# gradient is live through BOTH the meat adjoint and the pit coupling
+# (suppressed j_evap changes q_meat, which changes the next Picard pass).
+
+
+@pytest.fixture(scope="module")
+def wrap_loss_fn():
+    meat_tx, pit_tx = meat_client(), pit_client()
+
+    def loss(theta, phi, u_knots, t_wrap):
+        out = coupled_cook(theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2,
+                           t_wrap=t_wrap, **TOLS)
+        return (
+            1e-3 * jnp.sum((out["tcore"] - 340.0) ** 2)
+            + 1e-3 * jnp.sum((out["tpit"] - 390.0) ** 2)
+            + 10.0 * jnp.sum(out["c_field_final"])
+            + 1e3 * jnp.sum(out["j_evap"])
+            + jnp.sum(out["m_fuel"]) / GRIDS.nt
+        )
+
+    return loss
+
+
+def test_grad_twrap(wrap_loss_fn):
+    theta = jnp.asarray(THETA_DEFAULT)
+    phi = jnp.asarray(PHI_DEFAULT)
+    u = jnp.asarray(np.linspace(0.3, 0.6, GRIDS.n_u))
+    t_wrap = jnp.asarray(3.0 * HR)
+    g = jax.grad(wrap_loss_fn, argnums=(0, 1, 2, 3))(theta, phi, u, t_wrap)
+    tw = float(t_wrap)
+    h = 1e-3 * tw  # ~11 s step, well inside the 600 s blend width
+    fp = float(wrap_loss_fn(theta, phi, u, jnp.asarray(tw + h)))
+    fm = float(wrap_loss_fn(theta, phi, u, jnp.asarray(tw - h)))
+    fd = (fp - fm) / (2 * h)
+    ad = float(g[3])
+    assert rel_err(ad, fd) < GATE_TOL, f"t_wrap: ad={ad} fd={fd}"
+
+
+def test_wrap_default_backward_compat(loss_fn, wrap_loss_fn):
+    """No t_wrap arg vs explicit 1e9 must be the identical unwrapped cook
+    (the blend is exactly zero at the default)."""
+    theta = jnp.asarray(THETA_DEFAULT)
+    phi = jnp.asarray(PHI_DEFAULT)
+    u = jnp.asarray(np.linspace(0.3, 0.6, GRIDS.n_u))
+    a = float(loss_fn(theta, phi, u))
+    b = float(wrap_loss_fn(theta, phi, u, jnp.asarray(1.0e9)))
+    assert np.isclose(a, b, rtol=0, atol=1e-9), f"{a} vs {b}"

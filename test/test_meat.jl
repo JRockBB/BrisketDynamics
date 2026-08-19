@@ -45,3 +45,38 @@
     @test 0.0 < out.w_retained < 1.0
     @test out.w_retained < 0.999        # some moisture actually left
 end
+
+@testset "texas crutch (wrap blend) physics" begin
+    hr = 3600.0
+    tknots = collect(0.0:600.0:16hr)
+    tsave = tknots
+    θ = MEAT_θ_DEFAULT
+    Tpit = fill(383.15, length(tknots))
+
+    unwrapped = meat_solve(θ, Tpit, tknots, tsave)
+    default_tw = meat_solve(θ, Tpit, tknots, tsave; t_wrap = WRAP_NEVER)
+    wrapped = meat_solve(θ, Tpit, tknots, tsave; t_wrap = 5hr)
+
+    # WRAP_NEVER default is the unwrapped model exactly (blend ≡ 0 bitwise)
+    @test default_tw.Tcore == unwrapped.Tcore
+    @test default_tw.j_evap == unwrapped.j_evap
+    @test default_tw.w_retained == unwrapped.w_retained
+
+    dt = tsave[2] - tsave[1]
+    ∫j(o) = sum(o.j_evap) * dt
+    # wrapping suppresses evaporation → less total moisture flux, more retained
+    @test ∫j(wrapped) < 0.7 * ∫j(unwrapped)
+    @test wrapped.w_retained > unwrapped.w_retained
+
+    # the crutch does its job: the wrapped cook finishes hotter (stall broken
+    # early instead of burning hours of evaporative cooling)
+    @test wrapped.Tcore[end] > unwrapped.Tcore[end] + 2.0
+
+    # post-wrap, evaporative flux collapses: the 90% suppression must beat
+    # the (wetter, hotter) wrapped surface's raised raw demand by a wide
+    # margin, so compare against the wrapped cook's own pre-wrap peak
+    cfg = MeatConfig()
+    pre = findall(t -> t < 5hr - 2 * cfg.δ_wrap, tsave)
+    post = findall(t -> t > 5hr + 2 * cfg.δ_wrap, tsave)
+    @test maximum(wrapped.j_evap[post]) < 0.25 * maximum(wrapped.j_evap[pre])
+end

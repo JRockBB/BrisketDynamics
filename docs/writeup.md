@@ -238,8 +238,13 @@ The war stories are documented in `docs/verification.md`; highlights:
 
 The model is honest about its scope. Pit humidity is fixed (a water pan would
 invalidate the calibrated evaporation coefficient — the k_m confound named in
-§3); the cook is assumed unwrapped throughout (true of our calibration data;
-a Texas-crutch wrap changes the surface physics entirely); "doneness" is
+§3); the Texas-crutch wrap is now modeled — a smooth surface-BC blend
+(evaporation suppression, emissivity and convection changes) with a
+*differentiable wrap time*, so "when to wrap" is optimized jointly with the
+vents — but its foil constants are literature-fixed pending a wrapped-cook
+log: our calibration cook was unwrapped, and since wrapped logs document the
+wrap moment, the wrap event is a known-input step-response experiment
+waiting for the two-cook joint fit; "doneness" is
 collagen conversion — a good proxy for probe-tender, silent on bark and
 smoke ring (juiciness now has a first proxy: retained moisture at pull is a
 differentiable output); and the pit's **fast (sub-hour) dynamics are a known deficiency**: burn

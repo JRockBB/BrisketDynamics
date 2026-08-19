@@ -50,9 +50,11 @@ def coupled_cook(
     abstol: float = 1e-6,
     reltol: float = 1e-6,
     ics: dict | None = None,
+    t_wrap=1.0e9,
 ):
     """Simulate the coupled pit-brisket system; differentiable w.r.t.
-    theta (meat params), phi (pit params), and u_knots (damper schedule).
+    theta (meat params), phi (pit params), u_knots (damper schedule), and
+    t_wrap (Texas-crutch wrap time [s]; default = never wrap).
 
     Returns dict with tpit, tcore, tsurf, j_evap, q_meat, m_fuel,
     c_field_final, and the Picard residual diagnostic picard_dT (max |ΔT_pit|
@@ -92,12 +94,14 @@ def coupled_cook(
                 **pit_ics,
             },
         )
-        theta_i, tpit_i = jax.lax.optimization_barrier((theta, pit["tpit"]))
+        theta_i, tpit_i, twrap_i = jax.lax.optimization_barrier(
+            (theta, pit["tpit"], jnp.asarray(t_wrap)))
         meat = apply_tesseract(
             meat_tx,
             {
                 "theta": theta_i,
                 "tpit_knots": tpit_i,
+                "t_wrap": twrap_i,
                 "tknots": tk,
                 "tsave": tk,
                 "abstol": abstol,

@@ -13,7 +13,7 @@ include("interpolation.jl")
 include("meat.jl")
 include("pit.jl")
 
-export MeatConfig, meat_solve, meat_vjp,
+export MeatConfig, meat_solve, meat_vjp, wrap_blend, WRAP_NEVER,
        PitConfig, pit_solve, pit_vjp,
        lininterp, hat_matrix, p_sat, evap_flux
 
