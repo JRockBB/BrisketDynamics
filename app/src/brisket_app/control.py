@@ -150,11 +150,11 @@ def optimize_schedule(theta, phi, meat_tx, pit_tx,
     z_w = jnp.asarray(z_w_init if cc.opt_wrap else 8.0)
     opt = optax.adam(cc.lr)
     state = opt.init((z, z_w))
-    # Two hard-won choices here:
+    # Two deliberate choices here:
     # 1. Differentiate w.r.t. ALL differentiable Tesseract inputs (z via u,
-    #    z_w via t_wrap, theta, phi) and use only the gradients you need —
-    #    tesseract-jax's JVP-rule input flattening misaligns when only a
-    #    subset of differentiable inputs carries tangents.
+    #    z_w via t_wrap, theta, phi) and discard the gradients you don't
+    #    need — one traced graph regardless of which decision variables are
+    #    active, and no per-caller special-casing of tangent structure.
     # 2. jax.jit the whole value_and_grad: the EAGER AD path re-linearizes
     #    per call and has a timing-dependent race that hands one Tesseract a
     #    degenerate input (observed: 1-element tpit_knots at the endpoint,

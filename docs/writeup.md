@@ -230,16 +230,6 @@ The war stories are documented in `docs/verification.md`; highlights:
   cleanly, so our runner checkpoints *every 5 NUTS steps, warmup included*.
   The posterior in this writeup survived four battery deaths with zero lost
   samples.
-- A claimed tesseract-jax partial-tangent bug, **responsibly retracted**:
-  our control code defends against a JVP-rule misalignment we hit in early
-  debugging when only a subset of differentiable inputs carried tangents.
-  Before filing upstream we built a clean minimal repro
-  (`scripts/upstream_repro/`) — simple, interleaved-non-differentiable,
-  multi-output, jitted, and Picard-chained cases — and none reproduce on
-  the pinned version: the original failure was either fixed upstream or
-  mis-attributed amid two concurrent race bugs. The defensive
-  all-inputs-tangent discipline stays (it costs nothing), and the repro
-  stays in the repo as the receipt.
 
 ## Limitations & where this goes
 
