@@ -9,10 +9,6 @@
 # artifacts at measure-zero kink/onset elements; analyze_failures.py
 # classifies them mechanically).
 #
-# TODO(next sweep): meat_payload.json predates the t_wrap input (defaults
-# to never-wrap, so existing results stand); add t_wrap to the payload and
-# an --input-paths t_wrap direction to cover the wrap gradient in-container.
-#
 # Notes from the first run (2026-08-18):
 # - `tesseract run` does NOT forward check-gradients flags — invoke the
 #   container runtime entrypoint directly via `docker run`.
@@ -33,7 +29,8 @@ echo "pit exit: $?"
 
 echo "=== meat (in-container): tpit_knots ==="
 $DR brisket-meat:0.1.0 check-gradients @/pl/meat_payload.json \
-  --input-paths tpit_knots --max-evals 25 --max-failures 500 --seed 42
+  --input-paths tpit_knots --input-paths smoke_knots --input-paths t_wrap \
+  --max-evals 25 --max-failures 500 --seed 42
 echo "meat exit: $?"
 
 echo "SWEEP COMPLETE — classify flagged failures with:"
