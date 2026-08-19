@@ -43,8 +43,17 @@ unpublished" claim survives this research pass.
 
 ## 2. Model design
 
-Two surface states driven by histories we already compute, **integrated
-in closed form in JAX** — no new solver, no new Tesseract, gradients free:
+Two additional surface ODE states **inside the meat solve (Julia)** —
+physics lives in the physics component, the states ride the existing
+continuous adjoint natively, and the v2 feedback path (crust resistance
+altering moisture/heat transport, plausibly part of stall break) becomes a
+one-line RHS change instead of a rewrite. The cross-component coupling
+uses the established forcing-knots pattern: the pit exports its exact burn
+rate (`mdot`, new output), the orchestrator passes it to the meat as
+`smoke_knots` (new differentiable forcing input, same plumbing as
+`tpit_knots`). v1 has NO feedback into T/W/C — bark states are pure
+integrators, so existing physics is unchanged (solver step sizes shift
+microscopically; test baselines recompute).
 
 **Water activity** from surface moisture via a smooth sorption isotherm
 (Oswin form, meat parameters from literature):
@@ -54,16 +63,16 @@ in closed form in JAX** — no new solver, no new Tesseract, gradients free:
     dB/dt = k_B(T_s, a_w) · (1 − B)
     k_B = k₀ · exp(−E_a/R · (1/T_s − 1/T_ref)) · g(a_w)
     g(a_w) = exp(−((a_w − a_pk)² / (2 σ_aw²)))        # bell, a_pk ≈ 0.65
-Linear in B given the histories ⇒ exact solution
-    B(t) = 1 − exp(−∫₀ᵗ k_B dτ)                        # cumulative trapezoid
+Integrated as ODE state 3nx+1 of the meat system (linear in B given the
+surface trajectory; FBDF handles it incidentally).
 
 **Smoke deposition state** S (accumulated phenolics):
-    dS/dt = k_dep · wet(a_w) · φ_smoke(t)
+    dS/dt = k_dep · wet(a_w) · φ_smoke(t) · (1 − s_wrap(t))
     wet(a_w) = logistic((a_w − a_dry)/δ_dry)           # needs a moist surface
-    φ_smoke  ∝ fuel burn rate = −d m_fuel/dt           # FROM THE PIT OUTPUT
-S is a plain integral. Note the new physics coupling: bark consumes the
-**meat** surface history AND the **pit** combustion history — a genuinely
-two-Tesseract observable, computed in the orchestrator.
+    φ_smoke  = lininterp(t, smoke_knots)               # pit burn rate forcing
+State 3nx+2. The smoke forcing crosses the component boundary exactly like
+the pit-temperature forcing does — a genuinely two-Tesseract quantity,
+wired in the orchestrator, differentiated through both VJPs.
 
 **Observables:**
     L*(t) = L₀ − ΔL_B·B − ΔL_S·S        (a*, b* analogous if wanted)
@@ -71,11 +80,10 @@ two-Tesseract observable, computed in the orchestrator.
     bark texture proxy = surface-layer dryness (∫ or final W in the top
     cells — already available from W_field)
 
-**Wrap interaction for free:** wrapping (existing `t_wrap` blend) raises
-a_w back toward 1 and stops evaporation ⇒ g(a_w) falls off-peak AND
-`wet`≈1 but φ_smoke keeps only if unwrapped — add the wrap blend factor
-(1 − s(t)) to dS/dt (foil blocks smoke contact). The model then
-reproduces "wrapping freezes bark" mechanistically.
+**Wrap interaction for free:** the existing `t_wrap` blend s(t) enters
+dS/dt directly (foil blocks smoke contact), and wrapping raises surface
+a_w off the Maillard bell — the model reproduces "wrapping freezes bark"
+mechanistically.
 
 **Parameters** (all literature-anchored, none calibrated until photos
 exist): k₀, E_a (init from bread: 64 kJ/mol), a_pk, σ_aw, k_ox, n_ox,
@@ -84,24 +92,30 @@ calibration in phase 1.
 
 ## 3. Implementation plan (branch `bark-model`)
 
-1. **Meat Tesseract: one additive output** `wsurf` (surface moisture
-   trajectory at tsave) — same pattern as `w_retained` (additive outputs
-   are non-breaking; VJP cotangent optional). Needed because only
-   `w_field_final` is exposed today.
-2. **`app/src/brisket_app/bark.py`**: isotherm, g(a_w), closed-form
-   B(t)/S(t) over `tsurf`/`wsurf`/`m_fuel` (+ wrap blend s(t)), L*/BI
-   observables; `BarkParams` dataclass with literature defaults + source
-   comments.
-3. **Forward validation (no data needed):** reproduce the four
-   qualitative laws — (a) low-slow beats hot-fast on smoke color;
-   (b) wrap freezes bark; (c) bark window = first 4–6 h (moist surface);
-   (d) monotone darkening, saturating late. One figure:
-   `figures/bark_model.png`, 3 cook styles × (L*(t), B, S components).
-4. **Control integration:** replace the crude bark proxy in the wrap
-   objective (∫ j_evap dt) with model L* shortfall — "when to wrap"
-   then trades *actual* predicted bark against juiciness/speed. Re-run
-   `run_wraptime.py` comparison.
-5. **Calibration (blocked on data, design now):** photo protocol —
+1. **Julia core (`src/meat.jl`, `src/pit.jl`)**: bark constants + isotherm
+   + g(a_w) helpers in meat; states 3nx+1 (B), 3nx+2 (S) in the meat RHS
+   with `smoke_knots` as a second forcing block in `p`
+   (`p = vcat(θ, Tpit_knots, smoke_knots, t_wrap)` — t_wrap stays the
+   tail); pit gains an exact `mdot` output (it already computes ṁ).
+   Outputs: `bark_b`, `bark_s` trajectories + `l_star` at tsave.
+2. **Tesseracts**: meat — `smoke_knots` Differentiable input (default
+   zeros = no smoke), `bark_b`/`bark_s`/`l_star` Differentiable outputs,
+   VJP returns `dsmoke_knots`; pit — `mdot` output with its ForwardDiff
+   VJP row.
+3. **Orchestrator (`coupled.py`)**: wire `pit["mdot"]` → meat
+   `smoke_knots` through the Picard loop (barrier includes it); expose
+   bark outputs in the result dict.
+4. **Forward validation (no data needed):** Julia physics testset +
+   demo script reproducing the four qualitative laws — (a) low-slow
+   beats hot-fast on smoke color; (b) wrap freezes bark; (c) bark window
+   = first 4–6 h (moist surface); (d) monotone darkening, saturating
+   late. Figure `figures/bark_model.png`, 3 cook styles.
+5. **Verification (small)**: Julia FD directions for one `smoke_knots`
+   knot and bark-output cotangents; existing suites green (baselines
+   recompute where solver stepping shifted).
+6. **Control integration:** replace the wrap objective's crude bark
+   proxy (∫ j_evap dt) with model L* shortfall; re-run `run_wraptime.py`.
+7. **Calibration (blocked on data, design now):** photo protocol —
    phone photo + color card at each hourly lid-open plus final;
    `scripts/bark_colorimetry.py` extracting card-corrected L*a*b* from
    photos; hierarchical fit once ≥2 instrumented cooks exist.
