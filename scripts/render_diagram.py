@@ -67,8 +67,8 @@ box(0.6, 0.85, 4.6, 2.55, "#fdf1e7", "#c96a1b",
 # ---- meat tesseract (right) ----
 box(7.8, 0.85, 4.6, 2.55, "#fdeaea", "#b03a3a",
     "brisket-meat  (Julia)",
-    ["1D slab heat + moisture PDE",
-     "120 stiff ODEs (FBDF) · smoothed stall",
+    ["1D slab heat + moisture PDE + bark",
+     "122 stiff ODEs (FBDF) · smoothed stall",
      "AD: SciMLSensitivity continuous adjoint",
      "(InterpolatingAdjoint + EnzymeVJP)"])
 
@@ -82,21 +82,22 @@ PIT_R = 5.20 + PAD + CLR        # visible right edge of pit box
 MEAT_L = 7.80 - PAD - CLR       # visible left edge of meat box
 
 # ---- coupling arrows (in the gap between the boxes) ----
-arrow((PIT_R, 2.65), (MEAT_L, 2.65), "#b03a3a")
-label(6.5, 2.93, r"$T_{pit}(t)$", "#b03a3a")
-arrow((MEAT_L, 1.55), (PIT_R, 1.55), "#c96a1b")
-label(6.5, 1.27, r"$q_{meat}(t)$", "#c96a1b")
-label(6.5, 2.1, "two-way coupling\n(K = 2, unrolled)", "#555", size=8.0)
+arrow((PIT_R, 2.85), (MEAT_L, 2.85), "#b03a3a")
+label(6.5, 3.13, r"$T_{pit}(t),\ \dot m(t)$", "#b03a3a")
+arrow((MEAT_L, 1.40), (PIT_R, 1.40), "#c96a1b")
+label(6.5, 1.12, r"$q_{meat}(t)$", "#c96a1b")
+label(6.5, 2.12, "two-way coupling\n(K = 2, unrolled)\nsmoke = burn rate",
+      "#555", size=7.4)
 
 # ---- boundary crossings: primal down (blue), outputs/cotangents up ----
 arrow((2.0, JAX_BOT), (2.0, LOW_TOP), "#3b6ea5")
 label(2.0, 4.44, r"$\varphi,\; u(t),\; q$", "#3b6ea5")
 arrow((3.8, LOW_TOP), (3.8, JAX_BOT), "#c96a1b")
-label(3.8, 3.72, r"$T_{pit},\; m_{fuel}$", "#c96a1b")
+label(3.8, 3.72, r"$T_{pit},\, m_{fuel},\, \dot m$", "#c96a1b")
 arrow((9.2, JAX_BOT), (9.2, LOW_TOP), "#3b6ea5")
-label(9.2, 4.44, r"$\theta,\; T_{pit}(t)$", "#3b6ea5")
+label(9.2, 4.44, r"$\theta,\, T_{pit}(t),\, \dot m(t),\, t_{wrap}$", "#3b6ea5")
 arrow((11.0, LOW_TOP), (11.0, JAX_BOT), "#b03a3a")
-label(11.0, 3.72, r"$T_{core},\, j_{evap},\, q,\, C,\, w$", "#b03a3a")
+label(11.0, 3.72, r"$T_{core},\, j_{evap},\, q,\, C,\, w,\, L^{*}$", "#b03a3a")
 
 # ---- gradient annotation (its own band at the bottom) ----
 ax.text(6.5, 0.32,

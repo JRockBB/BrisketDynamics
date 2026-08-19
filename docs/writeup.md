@@ -9,11 +9,13 @@ heat conduction and moisture transport with surface evaporation — produce the
 famous **stall**: a multi-hour plateau in internal temperature caused by
 evaporative cooling. We built both solvers in Julia, composed them through
 Tesseract into a single end-to-end differentiable function under JAX, and used
-the gradients six ways: MAP and full NUTS Bayesian calibration (synthetic
+the gradients seven ways: MAP and full NUTS Bayesian calibration (synthetic
 recovery study **and** a real 19-hour cook log), damper-schedule optimization,
 schedule optimization *in expectation over the posterior*, receding-horizon
-MPC with disturbance rejection, and cook-time planning — duration chosen by
-cook quality, start time interrogated against the posterior. This document follows the six judging criteria in
+MPC with disturbance rejection, cook-time planning — duration chosen by cook
+quality, start time interrogated against the posterior — and a mechanistic
+**bark model** (Maillard + smoke deposition) whose color gradients flow
+through both components and complete the quality objective. This document follows the six judging criteria in
 order.
 
 ## 1. Composition across a real boundary
@@ -175,6 +177,30 @@ above). Caveat: absolute hours inherit the uncalibrated doneness scale
 (fixed literature collagen kinetics; C = 0.90 as "probe tender" is not yet
 anchored by texture data).
 
+**The bark model — quality's third leg** (`figures/bark_model.png`,
+`figures/fullplan.png`): two surface states inside the meat solve — Maillard
+browning (first-order in lightness, Arrhenius × a water-activity bell via a
+smooth sorption isotherm; bread-crust kinetics lineage) and smoke-phenolic
+deposition, which requires a *moist* surface and smoke flux. The smoke flux
+is the pit's **exact burn rate**, exported as a new output and passed as a
+forcing to the meat — making bark color a genuinely **two-component
+observable**: `d(color)/d(damper)` crosses the boundary through the pit's
+ForwardDiff VJP and the meat's continuous adjoint (composed FD-verified).
+Constants are literature-anchored and explicitly uncalibrated — the
+designed calibration experiment (hourly photos with a color card; a
+wrapped/unwrapped cook pair to separate smoke color from Maillard) is
+specified in `docs/bark_plan.md`. Forward validation reproduces pitmaster
+lore mechanistically: hot-and-fast Maillard-saturates, low-and-slow is
+smoke-dominated, wrapping freezes bark. With color completing the quality
+vector, the full composition — duration × wrap × schedule jointly optimized
+— **rediscovers traditional practice**: a ~17 h low-and-slow cook, wrap
+never chosen at any duration (the reference real cook: 19 h, unwrapped).
+The Texas crutch drops out of the leisure-optimal plan and re-emerges as
+what it actually is — a closed-loop contingency tool for cooks under
+deadline pressure (the MPC-with-wrap demo is roadmapped). Absolute
+durations are conditional on placeholder quality weights; the structure of
+the conclusion is not.
+
 ## 3. Why Tesseract is load-bearing
 
 The meat PDE is stiff with a moving evaporation front; the correct
@@ -235,11 +261,11 @@ The war stories are documented in `docs/verification.md`; highlights:
 
 The model is honest about its scope. Pit humidity is fixed (a water pan would
 invalidate the calibrated evaporation coefficient — the k_m confound named in
-§3); the Texas-crutch wrap is now modeled — a smooth surface-BC blend
-(evaporation suppression, emissivity and convection changes) with a
-*differentiable wrap time*, so "when to wrap" is optimized jointly with the
-vents — but its foil constants are literature-fixed pending a wrapped-cook
-log: our calibration cook was unwrapped, and since wrapped logs document the
+§3); the Texas-crutch wrap and bark (Maillard + smoke deposition) are now
+modeled — smooth blends and surface states with a *differentiable wrap
+time*, so "when to wrap" is optimized jointly with the vents — but their
+constants are literature-fixed pending calibration data (wrapped-cook log;
+bark photos): our calibration cook was unwrapped, and since wrapped logs document the
 wrap moment, the wrap event is a known-input step-response experiment
 waiting for the two-cook joint fit; "doneness" is
 collagen conversion — a good proxy for probe-tender, silent on bark and

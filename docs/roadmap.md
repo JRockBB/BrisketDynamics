@@ -94,7 +94,13 @@ bark chemistry without calibration data.
 1. **Close the loop for real: MPC as the controller.** Productionize the
    receding-horizon re-planner; integrate with HeaterMeter (open-source fan
    controller — our planner can sit above its PID as the planning layer).
-   The library stops advising and starts piloting.
+   The library stops advising and starts piloting. Includes
+   **MPC-with-wrap**: the crutch as a closed-loop contingency (the full
+   composition showed it never enters the leisure-optimal plan; it exists
+   to rescue cooks under deadline pressure). Prerequisites: fix the meat
+   VJP field-IC gap (documented at `_meat_vjp`) and bark-state continuity
+   across the receding-horizon handoff; wrap irreversibility (t_wrap
+   frozen once executed).
 2. **Monolith / Dyad exploration: move the Tesseract boundary to the
    edge.** The K=2 Picard split exists only because the pit/meat boundary
    bisects the physics; a monolithic Julia core (one ~123-state DAE, one
@@ -158,10 +164,14 @@ bark chemistry without calibration data.
    before and after; mass loss vs salting time is the curve the WHC
    coupling fits. Non-salt rub effects (sugar browning, emissivity, surface
    mass transfer) belong to the bark item below, not here.
-7. **Differentiable bark model.** Maillard/browning kinetics submodel driven
-   by the existing surface T/W histories (bread-crust color models
-   transfer); calibrate against standardized-photo colorimetry (L\*a\*b\*
-   index, color card) and optionally penetration-force texture. To our
+7. **Bark model calibration.** The mechanistic bark model LANDED during
+   the hackathon (branch `bark-model`, merged: Maillard + smoke-deposition
+   states, smoke flux = pit burn rate, full composition demo). Remaining:
+   calibrate against standardized-photo colorimetry (hourly lid-open photos
+   + color card; wrapped/unwrapped pair separates ΔL_S from ΔL_B — plan in
+   `docs/bark_plan.md`), replace the one-sided paleness penalty with a
+   two-sided mahogany band (the softplus tail currently encodes
+   darker-is-better), and optionally penetration-force texture. To our
    knowledge unpublished territory.
 8. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
    center-line correction (~3× cost, differentiable, cheap taste of 3D);
