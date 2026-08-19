@@ -54,9 +54,16 @@ def main():
     ap.add_argument("--real", action="store_true",
                     help="calibrate against the real cook log (data/cook_log/) "
                          "instead of the synthetic dataset")
+    ap.add_argument("--chain", default="",
+                    help="chain tag for multi-chain runs: suffixes the "
+                         "checkpoint dir and samples file, skips figures")
+    ap.add_argument("--seed", type=int, default=0, help="PRNG seed")
+    ap.add_argument("--init-json", default=None,
+                    help="override init-value file (default: the MAP json)")
     args = ap.parse_args()
     total = args.warmup + args.samples
-    tag = "_real" if args.real else ""
+    chain = f"_{args.chain}" if args.chain else ""
+    tag = ("_real" if args.real else "") + chain
     CKPT = REPO / "data" / "calibration" / f"nuts_ckpt{tag}"
 
     import numpyro
@@ -71,6 +78,8 @@ def main():
         data = synth.load("cook01")
         model = calibrate._bound_model(data, meat_tx, pit_tx)
         map_file = REPO / "data" / "calibration" / "map_result.json"
+    if args.init_json:
+        map_file = Path(args.init_json)
     init = {k: v for k, v in json.loads(map_file.read_text()).items()
             if not k.startswith("_")}
 
@@ -79,7 +88,7 @@ def main():
     # kernel.init sets up the adaptation schedule and potential fn; it must
     # run on every start INCLUDING resumes (the pickled state then replaces
     # the fresh one).
-    state = kernel.init(jax.random.PRNGKey(0), args.warmup,
+    state = kernel.init(jax.random.PRNGKey(args.seed), args.warmup,
                         init_params=None, model_args=(), model_kwargs={})
     postprocess = kernel.postprocess_fn((), {})
 
@@ -140,6 +149,9 @@ def main():
     print(f"NUTS done in {(time.perf_counter() - t0) / 3600:.2f} h "
           f"({len(samples)} samples)", flush=True)
 
+    if args.chain:
+        print(f"chain {args.chain}: samples saved; figures skipped", flush=True)
+        return
     if args.real:
         grids = CookGrids(t_end=float(log["t"][-1]),
                           dt_exchange=float(log["t"][1] - log["t"][0]),
