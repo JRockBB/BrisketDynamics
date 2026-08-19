@@ -83,8 +83,12 @@ dependency ordering that matters.
       without a fallback.
    4. **Extend synthetic NUTS chain** for better ESS (currently 7–82) from
       its checkpoint.
-   5. **File the tesseract-jax partial-tangent bug** upstream with our
-      minimal repro.
+   5. ✅ **Tesseract-jax partial-tangent bug: investigated and retracted.**
+      Built the clean minimal repro (`scripts/upstream_repro/`) — subset
+      gradients are CORRECT on the pinned version across simple,
+      multi-output, jitted, and chained cases. Not filed (unreproducible);
+      writeup updated to a responsible retraction; the defensive
+      argnums-cover-all pattern retained.
    6. **≤5-min demo video.**
 
 Explicitly out of scope for the hackathon (identifiability-first ethos):

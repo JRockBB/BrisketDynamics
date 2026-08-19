@@ -100,7 +100,19 @@ def main():
     samples: list[dict] = []
     if state_file.exists() and meta_file.exists():
         meta = json.loads(meta_file.read_text())
-        if meta.get("config") == vars(args):
+        # Chain EXTENSION is a valid resume: raising --samples with every
+        # other option unchanged keeps the kernel/adaptation identical, and
+        # the step loop simply continues past the old total. (Changing
+        # warmup would change the adaptation schedule — that stays a fresh
+        # start.)
+        old_cfg = dict(meta.get("config") or {})
+        new_cfg = vars(args)
+        extension_ok = (
+            {k: v for k, v in old_cfg.items() if k != "samples"}
+            == {k: v for k, v in new_cfg.items() if k != "samples"}
+            and old_cfg.get("samples", -1) <= new_cfg["samples"]
+        )
+        if extension_ok:
             with open(state_file, "rb") as f:
                 state = pickle.load(f)
             if samples_file.exists():
