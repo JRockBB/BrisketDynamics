@@ -47,9 +47,10 @@ dependency ordering that matters.
    eligibility).
 9. *Stretch, only if 1–8 are done — in this order:*
    1. ✅ **Cook time as a decision variable** — implemented as the
-      outer-scan planner (`timeplan.py`, `figures/timeplan.png`): quality
-      finds an interior optimum (9 h, hot-and-fast; each extra hour costs
-      ~0.03 retained moisture), and the chance layer's honest refusal —
+      outer-scan planner (`timeplan.py`, `figures/timeplan.png`): the
+      pre-color quality objective found 9 h hot-and-fast, superseded by
+      the bark-complete full composition (17 h low-and-slow,
+      `figures/fullplan.png`), and the chance layer's honest refusal —
       P(done) = 0 on all durations, 84 °C pit disagreement between MAP and
       posterior under the same damper — demonstrates the closed-loop
       identifiability limit in decision space. Differentiable-duration

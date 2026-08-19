@@ -25,7 +25,7 @@ strategies**, composed in JAX via tesseract-jax:
 
 | Component | Physics | Differentiation |
 |---|---|---|
-| `brisket-meat` | 1D slab heat+moisture PDE, 120 stiff ODEs (method of lines, FBDF), smoothed evaporative surface BC, collagen kinetics | **SciMLSensitivity continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`), exposed as the Tesseract `vector_jacobian_product` |
+| `brisket-meat` | 1D slab heat+moisture PDE + surface bark states (Maillard, smoke deposition), 122 stiff ODEs (method of lines, FBDF), smoothed evaporative surface BC, collagen kinetics | **SciMLSensitivity continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`), exposed as the Tesseract `vector_jacobian_product` |
 | `brisket-pit` | lumped charcoal pit, 3 ODEs (energy balance, fuel burn with smooth burnout taper, Minion-method ignition spread) | **exact dense ForwardDiff Jacobian**, transposed to a VJP |
 
 ![Composition diagram](../figures/composition_diagram.png)
@@ -70,7 +70,7 @@ over non-lid-event observations (likewise for the core probe).
 A three-level gradient verification gate backs this: Julia adjoints vs central
 finite differences (rel. err ≤1e-3, most components ≤1e-5), per-endpoint
 `tesseract-runtime check-gradients`, and a composed FD check of
-`jax.grad(loss ∘ coupled_cook)` — **15/15 pass at 1e-10 tolerances** (every meat parameter, all 7 pit parameters incl. the ignition dynamics, and damper directions)
+`jax.grad(loss ∘ coupled_cook)` — **17/17 directions pass at 1e-10 tolerances** (every meat parameter, all 7 pit parameters incl. the ignition dynamics, damper directions, the wrap time, and the damper→burn-rate→smoke→bark-color chain through both components; the Julia-level suite runs 68 tests incl. 27 adjoint-vs-FD checks)
 (`docs/verification.md` documents the methodology, including why the
 compiled-ReverseDiff-tape variant is *silently wrong* for time-interpolated
 forcings, and the FD conditioning required to verify a parameter that spans
@@ -159,13 +159,15 @@ behavior arising from the objective's asymmetry rather than being
 programmed.
 
 **Cook time as a decision variable** (`figures/timeplan.png`): the perfect
-brisket defines its own time — an outer scan over planned durations, each
-with an inner schedule optimization under a pure quality objective
-(asymmetric doneness + bark constraint + retained moisture), finds a clean
-interior optimum: **9 h** for this calibrated (thin, ~4.3 cm) flat, with
-every extra hour costing ~0.03 retained moisture — the optimizer
-rediscovers hot-and-fast barbecue. The chance layer then asks the NUTS-real
-posterior to certify a start time and receives **an honest refusal**:
+brisket defines its own time — an outer scan over planned durations with an
+inner schedule optimization per duration. Instructively, the answer moved
+as the quality objective completed: with doneness + juiciness alone the
+optimizer chose a **9 h hot-and-fast** cook (`timeplan.png`, left panel);
+adding bark color flipped it to the **~17 h low-and-slow** of the full
+composition below — the clearest demonstration in this project that *what
+you optimize is part of the model*. The chance layer then asks the
+NUTS-real posterior to certify a start time and receives **an honest
+refusal**:
 P(serveably done) = 0 at every duration, because the closed-loop cook log
 never exercised the damper above ~0.35 and the control-relevant pit
 response is unidentified — the *same* damper input yields a 202 °C pit at

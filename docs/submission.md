@@ -21,10 +21,13 @@ Multi-physics & coupled systems)
 A charcoal smoker and a brisket as two Julia Tesseracts — a stiff
 heat–moisture PDE with a SciMLSensitivity continuous adjoint and a lumped
 pit ODE with a ForwardDiff Jacobian — composed into one end-to-end
-differentiable JAX function and used five ways: MAP + NUTS Bayesian
+differentiable JAX function and used seven ways: MAP + NUTS Bayesian
 calibration (synthetic and a real 19-hour cook log), damper-schedule
-optimization, robust control in expectation over the posterior, and
-receding-horizon MPC that absorbs an unmodeled cold front.
+optimization, robust control in expectation over the posterior,
+receding-horizon MPC that absorbs an unmodeled cold front, cook-time
+planning, and a mechanistic bark-color model whose gradients cross both
+components — the full composition (duration × wrap × vents) rediscovers
+the traditional ~17 h unwrapped low-and-slow cook.
 
 **Longer description (if the form has a field for it):**
 Real barbecue is a coupled multi-physics control problem: a charcoal pit
@@ -55,7 +58,7 @@ unmodeled −15 K cold front, MPC lands doneness 0.92 vs open-loop's 0.68.
 
 A three-tier gradient verification gate (Julia adjoint vs FD,
 per-endpoint check-gradients, composed FD through the full pipeline —
-15/15) backs every result, and the writeup names the model's deficiencies
+17/17 directions) backs every result, and the writeup names the model's deficiencies
 honestly, including why closed-loop cook logs provably cannot identify the
 pit's fast dynamics. To our knowledge — based on a survey of the mosaic
 suite, the official examples, and the forum — no public example existed of
@@ -65,6 +68,7 @@ interface.
 **Key artifacts:** `docs/writeup.md` (six-criteria writeup) ·
 `figures/cook_animation.gif` · `figures/cooklog_fit_map.png` ·
 `figures/corner.png` · `figures/corner_real.png` · `figures/mpc_demo.png` ·
+`figures/fullplan.png` · `figures/bark_model.png` ·
 `figures/composition_diagram.png` · `docs/verification.md`
 
 ---
@@ -94,14 +98,21 @@ and a robust version optimized in expectation over the posterior.
 
 🔥 Receding-horizon MPC: hit the simulated cook with a cold front the
 controller has never seen, and it re-plans hourly — doneness 0.92 vs 0.68
-for the open-loop schedule. My favorite part: the asymmetric deadline
-objective makes the controller bank heat early as insurance, then ease off
-once the cook is won — nobody programmed that.
+for the open-loop schedule. The asymmetric deadline objective makes the
+controller bank heat early as insurance, then ease off once the cook is
+won — nobody programmed that.
+
+🔥 A mechanistic bark model (Maillard + smoke deposition, smoke flux =
+the pit's own burn rate — gradients cross both physics components). Given
+tenderness + juiciness + color as the objective, the optimizer
+rediscovered the traditional ~17-hour unwrapped low-and-slow brisket —
+and the Texas crutch dropped out of the optimal plan, re-emerging as what
+it really is: a rescue tool for cooks under deadline pressure.
 
 The interesting engineering: a SciMLSensitivity continuous adjoint exposed
 as a Tesseract VJP (to my knowledge a first in public code), two-way
 coupling by an unrolled Picard iteration so the composed gradient is exact,
-and a 15/15 finite-difference verification gate on every parameter.
+and a 17-direction finite-difference verification gate on every parameter and coupling path.
 
 Repo: https://github.com/JRock95/BrisketDynamics
 
@@ -123,9 +134,9 @@ Hi all — my hackathon entry composes two Julia Tesseracts into an
 end-to-end differentiable BBQ simulator, then uses the gradients for
 Bayesian calibration on a real 19-hour cook log and for optimal control.
 
-**The composition.** `brisket-meat` is a 1D heat–moisture PDE (method of
-lines, 120 stiff ODEs, FBDF) whose smoothed evaporative surface BC
-produces the stall; its `vector_jacobian_product` endpoint is a
+**The composition.** `brisket-meat` is a 1D heat–moisture PDE plus surface bark states
+(method of lines, 122 stiff ODEs, FBDF) whose smoothed evaporative surface
+BC produces the stall; its `vector_jacobian_product` endpoint is a
 SciMLSensitivity continuous adjoint (`InterpolatingAdjoint` + `EnzymeVJP`).
 `brisket-pit` is a 3-state charcoal-pit ODE (energy balance, fuel burn,
 Minion-method ignition spread) differentiated with an exact ForwardDiff

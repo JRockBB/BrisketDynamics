@@ -16,7 +16,7 @@ into one end-to-end differentiable function orchestrated from JAX:
 
 | Component | Physics | States | Differentiation strategy |
 |---|---|---|---|
-| **Meat Tesseract** | 1D slab heat + moisture PDE, smoothed evaporative surface BC, collagen kinetics | T, W, C × 40 nodes (120 ODEs, stiff, FBDF) | SciMLSensitivity **continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`) |
+| **Meat Tesseract** | 1D slab heat + moisture PDE, smoothed evaporative surface BC, collagen kinetics, bark states (Maillard + smoke deposition) | T, W, C × 40 nodes + B, S (122 ODEs, stiff, FBDF) | SciMLSensitivity **continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`) |
 | **Pit Tesseract** | Lumped charcoal pit: energy balance + fuel burn + Minion ignition spread | T_pit, m_fuel, ignited fraction (Tsit5) | **Exact dense ForwardDiff Jacobian**, transposed |
 
 The two are coupled **two-way** (pit temperature → meat boundary condition;
@@ -32,13 +32,13 @@ of a SciMLSensitivity continuous adjoint exposed as a Tesseract
 
 | | |
 |---|---|
-| **Gradient correctness** | 3-level FD verification; composed `jax.grad` gate **15/15** at 1e-10 ([docs/verification.md](docs/verification.md)) |
+| **Gradient correctness** | 3-level FD verification; composed `jax.grad` gate **17/17 directions** at 1e-10, incl. the cross-component bark chain ([docs/verification.md](docs/verification.md)) |
 | **Synthetic calibration** | MAP recovers 7/10 params ≤10%; NUTS posterior with truths inside everywhere; the k_m–h_c ridge is the stall's cooling/heating trade-off ([corner](figures/corner.png), [predictive band](figures/posterior_predictive.png)) |
 | **Real-cook capstone** | 19-h WSM cook (digitized with provenance): pit hold tracked ±3 °C, core stall **and** stall break reproduced ([fit](figures/cooklog_fit_map.png), [data](data/cook_log/PROVENANCE.md)) |
 | **Optimal control** | doneness 0.26 → **0.900** on target, surface under bark limit ([before/after](figures/control_before_after.png)) |
 | **Robust control** | expected-objective schedule halves doneness spread across the posterior: 0.780±0.123 → 0.863±0.069 ([comparison](figures/control_robust.png)) |
 | **MPC** | hourly re-planning absorbs an unmodeled −15 K cold front: doneness 0.92 vs 0.68 open-loop ([demo](figures/mpc_demo.png)) |
-| **Cook-time planning** | quality picks the duration (9 h, hot-and-fast); the posterior honestly refuses to certify an open-loop start ([figure](figures/timeplan.png)) |
+| **Cook-time planning** | the answer moved as quality completed (9 h pre-color → 17 h with bark); the posterior honestly refuses to certify an open-loop start ([figure](figures/timeplan.png)) |
 | **Differentiable Texas crutch** | wrap time optimized jointly with the vents against predicted bark color ([figure](figures/wraptime.png)) |
 | **Mechanistic bark model** | Maillard + smoke deposition as meat states, smoke flux = pit burn rate; hot-fast vs low-slow vs wrap reproduced ([figure](figures/bark_model.png)) |
 | **The full composition** | duration × wrap × vents jointly optimized rediscovers the traditional ~17 h unwrapped low-and-slow ([figure](figures/fullplan.png)) |
