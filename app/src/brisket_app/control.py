@@ -31,19 +31,28 @@ class ControlConfig:
     w_smooth: float = 0.01
     w_juicy: float = 0.0   # optional: reward retained moisture (juiciness proxy)
     # Texas-crutch wrap decision (differentiable t_wrap through the meat BC).
-    # bark proxy = trapezoid(j_evap): integrated evaporative flux; post-wrap
-    # flux is suppressed in-model, so wrapping early starves bark formation.
-    # The asymmetric shortfall penalty makes "when to wrap" a real trade-off
-    # (else moisture+speed always favor wrapping at t=0).
+    # Bark quality = the MODEL's predicted final surface lightness L*
+    # (Maillard + smoke deposition states; docs/bark_plan.md). The penalty is
+    # one-sided on lightness EXCESS — pale bark is the failure mode a wrap
+    # can cause; burning is separately handled by the surface-temperature
+    # constraint. This is what makes "when to wrap" a real trade-off (else
+    # moisture+speed always favor wrapping at t=0).
     opt_wrap: bool = False       # optimize t_wrap jointly with the schedule
-    bark_target: float = 0.0     # target integral of j_evap [kg/m2]; 0 = off
+    l_star_target: float = 0.0   # target final surface L*; 0 disables term
     w_bark: float = 0.0
-    dbark_soft: float = 0.05     # penalty width, fraction of bark_target
+    dl_soft: float = 2.0         # penalty width [L* units]
     # Asymmetric terminal-doneness penalty (MPC): undershooting the target at
     # the deadline is the disaster; finishing early is nearly free (the hold
     # exists for this). Symmetric quadratics 'give up' late in a losing cook:
     # thermal lag kills the doneness gradient and fuel penalties take over.
     asymmetric_done: bool = False
+    # Overdone band ceiling: above this, a gentle penalty stands in for
+    # texture degradation (collagen saturation = pot roast). The asymmetry
+    # was a license to finish EARLY, not to overshoot without limit — at a
+    # fixed horizon a bark-hungry schedule otherwise parks at C ~ 0.9999.
+    # Placeholder until probe-tender data calibrates real texture loss.
+    c_overdone: float = 0.95
+    w_overdone: float = 25.0
     lr: float = 0.05
     n_iter: int = 200
 
@@ -62,6 +71,15 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
     if cc.asymmetric_done:
         k = 20.0  # undershoot-only, smooth: ~(target-c)^2 under, ~0 over
         done_term = (jax.nn.softplus(k * (cc.c_target - c_core)) / k) ** 2
+        # overdone band: one-sided penalty above c_overdone. Shape rules:
+        # steepness k_ov = 4/band so the softplus transition spans a QUARTER
+        # of the band (at k=20 the tail charged 2.4 at the target itself),
+        # and normalization by the band width so full saturation costs
+        # exactly w_overdone/w_done — commensurate with the other terms.
+        band = 1.0 - cc.c_overdone
+        k_ov = 4.0 / band
+        over = (jax.nn.softplus(k_ov * (c_core - cc.c_overdone)) / k_ov) / band
+        done_term = done_term + (cc.w_overdone / cc.w_done) * over ** 2
     else:
         done_term = (c_core - cc.c_target) ** 2
     j = (cc.w_done * done_term
@@ -69,10 +87,9 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
          + cc.w_fuel * fuel_frac
          + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
          - cc.w_juicy * sim["w_retained"])
-    if cc.bark_target > 0.0:  # static config branch: jit-safe
-        bark = jnp.trapezoid(sim["j_evap"], jnp.asarray(grids.tknots))
-        shortfall = (cc.bark_target - bark) / (cc.dbark_soft * cc.bark_target)
-        j = j + cc.w_bark * (cc.dbark_soft * jax.nn.softplus(shortfall)) ** 2
+    if cc.l_star_target > 0.0:  # static config branch: jit-safe
+        pale = (sim["l_star"][-1] - cc.l_star_target) / cc.dl_soft
+        j = j + cc.w_bark * jax.nn.softplus(pale) ** 2
     return j
 
 

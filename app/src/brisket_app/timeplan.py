@@ -35,16 +35,24 @@ def plan_duration(theta, phi, meat_tx, pit_tx, durations_h,
                   cc: ControlConfig | None = None,
                   ics: dict | None = None,
                   inner_iters: int = 60,
-                  log=print):
+                  log=print,
+                  seed: dict | None = None):
     """Outer scan over candidate durations under a pure quality objective
-    (asymmetric doneness + bark constraint + juiciness + light fuel term).
-    Returns per-duration records: optimized schedule, quality objective,
-    doneness, retained moisture. Warm-starts each duration from the
-    previous optimum interpolated by fractional cook progress."""
+    (doneness band + bark + juiciness + light fuel term). When cc.opt_wrap
+    is set, the WRAP TIME is optimized jointly with the schedule inside
+    each duration — the full composition duration x wrap x schedule.
+    Warm-starts each duration from the previous optimum: the schedule by
+    fractional cook progress, the wrap time by horizon fraction (z_w
+    carries over directly since t_wrap = t_end * sigmoid(z_w))."""
     cc = cc or ControlConfig(asymmetric_done=True, w_juicy=1.0,
                              n_iter=inner_iters)
     records = []
-    u_prev, grids_prev = None, None
+    u_prev, grids_prev, zw_prev = None, None, 0.0
+    if seed is not None:  # warm-start the FIRST duration from a prior scan
+        u_prev = np.asarray(seed["u"])
+        grids_prev = _grids_for(seed["t_f_h"] * HR)
+        f = min(max(seed.get("t_wrap_frac", 0.5), 1e-4), 1 - 1e-4)
+        zw_prev = float(np.log(f / (1 - f)))
     for th_f in durations_h:
         t_f = th_f * HR
         grids = _grids_for(t_f)
@@ -57,18 +65,26 @@ def plan_duration(theta, phi, meat_tx, pit_tx, durations_h,
                              1e-3, 1 - 1e-3)
         u_opt, hist = optimize_schedule(theta, phi, meat_tx, pit_tx,
                                         grids=grids, cc=cc, u_init=u_init,
-                                        ics=ics)
+                                        ics=ics, z_w_init=zw_prev)
         u_prev, grids_prev = u_opt, grids
+        t_wrap = hist.get("t_wrap", 1.0e9)
+        if cc.opt_wrap:
+            frac = min(max(t_wrap / t_f, 1e-4), 1 - 1e-4)
+            zw_prev = float(np.log(frac / (1 - frac)))
         sim = coupled_cook(np.asarray(theta), np.asarray(phi),
                            np.asarray(u_opt), meat_tx, pit_tx, grids, K=2,
-                           ics=ics)
+                           ics=ics, t_wrap=t_wrap if cc.opt_wrap else 1.0e9)
         c_end = float(np.asarray(sim["c_field_final"])[0])
         w_ret = float(np.asarray(sim["w_retained"]))
+        l_end = float(np.asarray(sim["l_star"])[-1])
         records.append({"t_f_h": float(th_f), "u_opt": u_opt, "grids": grids,
                         "j_quality": float(hist["losses"][-1]),
-                        "doneness": c_end, "w_retained": w_ret})
+                        "doneness": c_end, "w_retained": w_ret,
+                        "t_wrap_h": (t_wrap / HR) if cc.opt_wrap else None,
+                        "l_star_end": l_end})
         log(f"  t_f={th_f:5.1f} h  J={records[-1]['j_quality']:7.3f}  "
-            f"doneness={c_end:.3f}  juiciness={w_ret:.3f}")
+            f"doneness={c_end:.3f}  juiciness={w_ret:.3f}  L*={l_end:.1f}"
+            + (f"  wrap@{t_wrap / HR:.2f} h" if cc.opt_wrap else ""))
     return records
 
 

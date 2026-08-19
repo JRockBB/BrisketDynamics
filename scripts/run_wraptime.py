@@ -2,8 +2,10 @@
 
 Joint optimization of the damper schedule AND the wrap moment at the
 MAP-real smoker: wrapping suppresses evaporation (kills the stall, keeps
-moisture) but starves bark formation (bark proxy = integrated evaporative
-flux), so "when to wrap" is a genuine trade-off with an interior optimum.
+moisture) but freezes smoke deposition and slows browning — bark quality
+here is the MECHANISTIC bark model's predicted final surface L*
+(docs/bark_plan.md), so "when to wrap" trades juiciness and speed against
+actual predicted color.
 
 Run from app/:  uv run python -u ../scripts/run_wraptime.py
 Writes figures/wraptime.png + data/control/wraptime_result.json.
@@ -30,8 +32,8 @@ GRIDS = CookGrids(t_end=T_F, dt_exchange=600.0, n_u=14)
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 ITERS = 60
 W_JUICY = 5.0
-W_BARK = 10.0
-BARK_FRAC = 0.7   # bark target as a fraction of the no-wrap cook's integral
+W_BARK = 0.5
+L_TARGET = 30.0   # placeholder mahogany L* (uncalibrated; bark plan step 7)
 
 
 def simulate(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
@@ -52,7 +54,9 @@ def metrics(sim, tk):
     return {
         "doneness": float(sim["c_field_final"][0]),
         "w_retained": float(sim["w_retained"]),
-        "bark": float(np.trapezoid(sim["j_evap"], tk)),
+        "l_star_end": float(sim["l_star"][-1]),
+        "bark_b": float(sim["bark_b"][-1]),
+        "bark_s": float(sim["bark_s"][-1]),
         "stall_h": best * dt_h,
         "core_end_C": float(TcoreC[-1]),
     }
@@ -65,18 +69,18 @@ def main():
     meat_tx, pit_tx = meat_client(), pit_client()
     tk = np.asarray(GRIDS.tknots)
 
-    print("1) no-wrap optimum (juiciness-aware)")
-    cc0 = ControlConfig(asymmetric_done=True, w_juicy=W_JUICY, n_iter=ITERS)
+    print("1) no-wrap optimum (juiciness- and bark-aware)")
+    cc0 = ControlConfig(asymmetric_done=True, w_juicy=W_JUICY,
+                        l_star_target=L_TARGET, w_bark=W_BARK, n_iter=ITERS)
     u0, h0 = optimize_schedule(theta, phi, meat_tx, pit_tx, grids=GRIDS,
                                cc=cc0, u_init=0.5, ics=ICS)
     sim0 = simulate(theta, phi, u0, meat_tx, pit_tx)
     m0 = metrics(sim0, tk)
-    bark_target = BARK_FRAC * m0["bark"]
-    print(f"   no-wrap: {m0}   bark_target={bark_target:.4g}")
+    print(f"   no-wrap: {m0}")
 
     print("2) joint (schedule, t_wrap) optimization, 3-point multi-start")
     cc = ControlConfig(asymmetric_done=True, w_juicy=W_JUICY, opt_wrap=True,
-                       bark_target=bark_target, w_bark=W_BARK, n_iter=ITERS)
+                       l_star_target=L_TARGET, w_bark=W_BARK, n_iter=ITERS)
     best = None
     for zw0 in (-2.0, 0.0, 2.0):
         u, h = optimize_schedule(theta, phi, meat_tx, pit_tx, grids=GRIDS,
@@ -110,7 +114,7 @@ def main():
     (REPO / "data" / "control" / "wraptime_result.json").write_text(json.dumps({
         "t_wrap_h": t_wrap / HR,
         "no_wrap": m0, "wrapped": m_w,
-        "bark_target": bark_target,
+        "l_star_target": L_TARGET,
         "slice_t_wrap_h": (slice_tw / HR).tolist(),
         "slice_J": js,
         "u_no_wrap": u0.tolist(), "u_wrap": u_w.tolist(),
@@ -136,8 +140,9 @@ def main():
                 color=ORANGE, fontsize=10)
     ax.set(xlabel="time [h]", ylabel="temperature [°C]",
            title=f"the model decides when to wrap "
-                 f"(doneness {m_w['doneness']:.2f}, "
-                 f"juiciness {m_w['w_retained']:.2f} vs {m0['w_retained']:.2f})")
+                 f"(doneness {m_w['doneness']:.3f}, juiciness "
+                 f"{m_w['w_retained']:.2f} vs {m0['w_retained']:.2f}, "
+                 f"bark L* {m_w['l_star_end']:.0f} vs {m0['l_star_end']:.0f})")
     ax.legend(fontsize=9, loc="lower right")
 
     ax = axes[1]

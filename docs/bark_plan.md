@@ -3,8 +3,12 @@
 Status: steps 1-5 IMPLEMENTED on branch `bark-model` (2026-08-19):
 Julia bark states + pit mdot + smoke forcing + coupled wiring + forward
 validation (`figures/bark_model.png`; Julia 68/68, app 21/21, composed
-damper->mdot->smoke->bark gradient FD-verified). Open: step 6 (bark-aware
-wrap objective) and step 7 (photo calibration, blocked on data).
+damper->mdot->smoke->bark gradient FD-verified). Step 6 done (bark-aware wrap
+objective, L* target replacing the evaporation-integral proxy; overdone
+band added after the fixed-horizon run parked at C=0.9999). Open: step 7
+(photo calibration, blocked on data) and composing DURATION x wrap x
+schedule (timeplan outer scan around the joint optimization) so surplus
+hours shorten the cook instead of overshooting doneness.
 Research pass 2026-08-19; sources at the end.
 
 ## 1. What the literature actually supports
