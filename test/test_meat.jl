@@ -80,3 +80,40 @@ end
     post = findall(t -> t > 5hr + 2 * cfg.δ_wrap, tsave)
     @test maximum(wrapped.j_evap[post]) < 0.25 * maximum(wrapped.j_evap[pre])
 end
+
+@testset "bark model physics" begin
+    hr = 3600.0
+    tk = collect(0.0:600.0:14hr)
+    θ = MEAT_θ_DEFAULT
+    smoke = fill(1.2e-4, length(tk))
+
+    lo = meat_solve(θ, fill(383.15, length(tk)), tk, tk; smoke_knots = smoke)
+    hi = meat_solve(θ, fill(408.15, length(tk)), tk, tk; smoke_knots = smoke)
+    wr = meat_solve(θ, fill(383.15, length(tk)), tk, tk; smoke_knots = smoke,
+                    t_wrap = 5hr)
+    dry = meat_solve(θ, fill(383.15, length(tk)), tk, tk)  # no smoke input
+
+    # states bounded and monotone; L* monotone darkening
+    for o in (lo, hi, wr)
+        @test all(0 .<= o.bark_b .< 1)
+        @test all(0 .<= o.bark_s .< 1)
+        # monotone up to solver interpolation noise (post-wrap dS ~ 0 and
+        # FBDF dense output wiggles at ~1e-12)
+        @test all(diff(o.bark_b) .> -1e-8) && all(diff(o.bark_s) .> -1e-8)
+        @test issorted(o.l_star, rev = true)
+    end
+    # no smoke -> no deposition, browning unaffected
+    @test all(dry.bark_s .== 0)
+    # rtol 1e-6, not 1e-10: with S dynamics active the solver's step
+    # sequence differs, so B matches to solver tolerance, not bitwise
+    @test isapprox(dry.bark_b[end], lo.bark_b[end]; rtol = 1e-6)
+    # hot cook Maillard-saturates; low-slow keeps (slightly) more smoke color
+    @test hi.bark_b[end] > 3 * lo.bark_b[end]
+    @test lo.bark_s[end] > hi.bark_s[end]
+    # wrapping freezes smoke deposition (the known wrap cost)
+    @test wr.bark_s[end] < 0.75 * lo.bark_s[end]
+    @test isapprox(wr.bark_b[end], lo.bark_b[end]; rtol = 0.3)
+    # bark window: most deposition happens in the first half of the cook
+    ihalf = findfirst(t -> t >= 7hr, tk)
+    @test lo.bark_s[ihalf] > 0.6 * lo.bark_s[end]
+end

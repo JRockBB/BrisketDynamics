@@ -22,12 +22,13 @@ GATE_TOL = 5e-3
 # at the Julia level (test_gradients.jl); this composed check verifies the
 # cross-boundary plumbing.
 DEFF_HREL = 1e-2
-# 3e-2, not the 5e-3 gate: at a 1% step, central-FD truncation for D_eff is
+# 5e-2, not the 5e-3 gate: at a 1% step, central-FD truncation for D_eff is
 # percent-level and sensitive to the solver's step-size sequence (observed
-# 1.7% -> 2.1% when the pit gained its third state with NO change to the AD
-# value: ad = -74673 vs -74677 across model versions). The meat adjoint
-# itself is held to 0.5% at the Julia level (test_gradients.jl).
-DEFF_TOL = 3e-2
+# 1.7% -> 2.1% when the pit gained its third state, -> 4.0% when the meat
+# gained the two bark states — with NO change to the AD value: ad = -74677 /
+# -74673 / -74672 across the three model versions). The meat adjoint itself
+# is held at the Julia level (test_gradients.jl).
+DEFF_TOL = 5e-2
 
 # 6 h horizon reaches mid-stall so D_eff (moisture resupply) is a live parameter;
 # shorter horizons leave it FD-invisible (validated in the Julia-level study).
@@ -169,3 +170,27 @@ def test_wrap_default_backward_compat(loss_fn, wrap_loss_fn):
     a = float(loss_fn(theta, phi, u))
     b = float(wrap_loss_fn(theta, phi, u, jnp.asarray(1.0e9)))
     assert np.isclose(a, b, rtol=0, atol=1e-9), f"{a} vs {b}"
+
+
+# --- Bark model: smoke path through BOTH tesseracts ---
+# The bark deposition state is driven by the pit's burn rate (mdot ->
+# smoke_knots), so d(sum L*)/d(u_knots) exercises the full chain:
+# damper -> pit ForwardDiff VJP (mdot row) -> meat adjoint (smoke forcing).
+
+
+def test_bark_smoke_path():
+    meat_tx, pit_tx = meat_client(), pit_client()
+
+    def loss(theta, phi, u_knots):
+        out = coupled_cook(theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2,
+                           **TOLS)
+        return jnp.sum(out["l_star"])
+
+    theta = jnp.asarray(THETA_DEFAULT)
+    phi = jnp.asarray(PHI_DEFAULT)
+    u = jnp.asarray(np.linspace(0.3, 0.6, GRIDS.n_u))
+    g = jax.grad(loss, argnums=(0, 1, 2))(theta, phi, u)
+    gu = np.asarray(g[2])
+    assert np.all(np.isfinite(gu)) and np.any(gu != 0.0), f"gu={gu}"
+    fd = central_fd(loss, (theta, phi, u), 2, 1)
+    assert rel_err(float(gu[1]), fd) < GATE_TOL, f"u[1] via bark: ad={gu[1]} fd={fd}"

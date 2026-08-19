@@ -94,14 +94,15 @@ def coupled_cook(
                 **pit_ics,
             },
         )
-        theta_i, tpit_i, twrap_i = jax.lax.optimization_barrier(
-            (theta, pit["tpit"], jnp.asarray(t_wrap)))
+        theta_i, tpit_i, twrap_i, smoke_i = jax.lax.optimization_barrier(
+            (theta, pit["tpit"], jnp.asarray(t_wrap), pit["mdot"]))
         meat = apply_tesseract(
             meat_tx,
             {
                 "theta": theta_i,
                 "tpit_knots": tpit_i,
                 "t_wrap": twrap_i,
+                "smoke_knots": smoke_i,
                 "tknots": tk,
                 "tsave": tk,
                 "abstol": abstol,
@@ -127,6 +128,10 @@ def coupled_cook(
         "t_field_final": meat["t_field_final"],
         "w_field_final": meat["w_field_final"],
         "ignited": pit["ignited"],
+        "mdot": pit["mdot"],
+        "bark_b": meat["bark_b"],
+        "bark_s": meat["bark_s"],
+        "l_star": meat["l_star"],
         "picard_dT": picard,
     }
 

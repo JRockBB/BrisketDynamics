@@ -92,13 +92,14 @@ def _init():
             cfg = PitConfig(Tpit0=tpit0, T_amb=t_amb, m0=m0)
             o = pit_solve(φ, u_knots, u_tknots, q_knots, q_tknots, tsave;
                           cfg=cfg, abstol=abstol, reltol=reltol)
-            return o.Tpit, o.m_fuel, o.ignited
+            return o.Tpit, o.m_fuel, o.ignited, o.mdot
         end
         function _pit_vjp(φ, u_knots, u_tknots, q_knots, q_tknots, tsave,
-                          abstol, reltol, tpit0, t_amb, m0, cT, cm)
+                          abstol, reltol, tpit0, t_amb, m0, cT, cm, cmd)
             cfg = PitConfig(Tpit0=tpit0, T_amb=t_amb, m0=m0)
             g = pit_vjp(φ, u_knots, u_tknots, q_knots, q_tknots, tsave,
-                        (Tpit=cT, m_fuel=cm); cfg=cfg, abstol=abstol, reltol=reltol)
+                        (Tpit=cT, m_fuel=cm, mdot=cmd); cfg=cfg, abstol=abstol,
+                        reltol=reltol)
             return g.dφ, g.du_knots, g.dqmeat_knots
         end
         """
@@ -144,6 +145,9 @@ class OutputSchema(BaseModel):
     )
     ignited: Array[(None,), Float64] = Field(
         description="Ignited bed fraction at tsave (diagnostic/state handoff)")
+    mdot: Differentiable[Array[(None,), Float64]] = Field(
+        description="Exact instantaneous fuel burn rate [kg/s] at tsave "
+                    "(smoke-flux proxy for the bark model)")
 
 
 def _own(x) -> np.ndarray:
@@ -167,7 +171,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
                                   _own(inputs.u_tknots), _own(inputs.qmeat_knots),
                                   _own(inputs.q_tknots), _own(inputs.tsave))
     def _run():
-        T, m, a = jl._pit_apply(
+        T, m, a, md = jl._pit_apply(
             _jvec(phi),
             _jvec(u),
             _jvec(utk),
@@ -183,16 +187,18 @@ def apply(inputs: InputSchema) -> OutputSchema:
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory; releasing it from another thread
         # can deadlock the whole process (see meat tesseract_api.py).
-        return np.asarray(T).copy(), np.asarray(m).copy(), np.asarray(a).copy()
+        return (np.asarray(T).copy(), np.asarray(m).copy(),
+                np.asarray(a).copy(), np.asarray(md).copy())
 
     try:
-        T, m, a = _on_julia_thread(_run)
+        T, m, a, md = _on_julia_thread(_run)
     except RuntimeError:
         if not SOFT_FAIL:
             raise
         nt = len(tsave)
-        T, m, a = np.full(nt, _SENTINEL_T), np.zeros(nt), np.zeros(nt)
-    return OutputSchema(tpit=T, m_fuel=m, ignited=a)
+        T, m, a, md = (np.full(nt, _SENTINEL_T), np.zeros(nt), np.zeros(nt),
+                       np.zeros(nt))
+    return OutputSchema(tpit=T, m_fuel=m, ignited=a, mdot=md)
 
 
 def abstract_eval(abstract_inputs):
@@ -201,6 +207,7 @@ def abstract_eval(abstract_inputs):
         "tpit": ShapeDType(shape=(nt,), dtype="float64"),
         "m_fuel": ShapeDType(shape=(nt,), dtype="float64"),
         "ignited": ShapeDType(shape=(nt,), dtype="float64"),
+        "mdot": ShapeDType(shape=(nt,), dtype="float64"),
     }
 
 
@@ -216,7 +223,7 @@ def vector_jacobian_product(
     nt = len(tsave)
     cots = {name: (_own(cotangent_vector[name])
                    if name in cotangent_vector and name in vjp_outputs else None)
-            for name in ("tpit", "m_fuel")}
+            for name in ("tpit", "m_fuel", "mdot")}
 
     def _run():
         def cot(name):
@@ -237,6 +244,7 @@ def vector_jacobian_product(
             float(inputs.m0),
             cot("tpit"),
             cot("m_fuel"),
+            cot("mdot"),
         )
         # .copy(): no zero-copy views of Julia memory may cross threads
         return (np.asarray(dphi).copy(), np.asarray(du).copy(),

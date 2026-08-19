@@ -77,20 +77,46 @@ function _pit_solve_arr(p, cfg::PitConfig, u_tknots, q_tknots, tsave;
     A
 end
 
+# Exact burn rate at the save times, recomputed algebraically from the
+# saved states and the damper interpolant — the same expression as the RHS,
+# so it is exact (no numerical differencing of m_fuel) and ForwardDiff
+# carries its sensitivity when called with dual-valued p.
+function _pit_mdot_row(A, p, cfg::PitConfig, u_tknots, tsave, nu::Int)
+    u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
+    r_max, u_leak = p[3], p[5]
+    uk = @view p[PIT_NP+1:PIT_NP+nu]
+    [begin
+         u = clamp(lininterp(float(tsave[i]), u_t0, u_dt, uk), 0, 1)
+         airflow = u_leak + (1 - u_leak) * u
+         m = A[2, i]
+         a = clamp(A[3, i], zero(A[3, i]), one(A[3, i]))
+         r_max * airflow * a * tanh(max(m, zero(m)) / cfg.m_taper)
+     end for i in eachindex(tsave)]
+end
+
+# States + mdot as one 4×nt array, for the ForwardDiff Jacobian path.
+function _pit_outputs_arr(p, cfg::PitConfig, u_tknots, q_tknots, tsave, nu::Int;
+                          abstol = 1e-8, reltol = 1e-8)
+    A = _pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol)
+    vcat(A, transpose(_pit_mdot_row(A, p, cfg, u_tknots, tsave, nu)))
+end
+
 """
     pit_solve(φ, u_knots, u_tknots, qmeat_knots, q_tknots, tsave; cfg)
 
-Forward solve. Returns `(; Tpit, m_fuel)` trajectories at `tsave`.
+Forward solve. Returns `(; Tpit, m_fuel, ignited, mdot)` trajectories at
+`tsave` (`mdot` = exact instantaneous burn rate, the smoke-flux proxy for
+the bark model).
 """
 function pit_solve(φ::AbstractVector, u_knots::AbstractVector, u_tknots::AbstractVector,
                    qmeat_knots::AbstractVector, q_tknots::AbstractVector,
                    tsave::AbstractVector; cfg::PitConfig = PitConfig(),
                    abstol = 1e-8, reltol = 1e-8)
-    A = _pit_solve_arr(vcat(φ, u_knots, qmeat_knots), cfg, u_tknots, q_tknots, tsave;
-                       abstol, reltol)
-    # `ignited` is a Julia-side diagnostic; the Tesseract OutputSchema stays
-    # (Tpit, m_fuel) so downstream consumers are unaffected.
-    (Tpit = A[1, :], m_fuel = A[2, :], ignited = A[3, :], t = collect(float.(tsave)))
+    p = vcat(φ, u_knots, qmeat_knots)
+    A = _pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol)
+    mdot = _pit_mdot_row(A, p, cfg, u_tknots, tsave, length(u_knots))
+    (Tpit = A[1, :], m_fuel = A[2, :], ignited = A[3, :], mdot = mdot,
+     t = collect(float.(tsave)))
 end
 
 """
@@ -106,12 +132,14 @@ function pit_vjp(φ::AbstractVector, u_knots::AbstractVector, u_tknots::Abstract
                  abstol = 1e-8, reltol = 1e-8)
     nu, nq, nt = length(u_knots), length(qmeat_knots), length(tsave)
     v = vcat(φ, u_knots, qmeat_knots)
-    f = p -> vec(_pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol))
-    J = ForwardDiff.jacobian(f, v)            # (3nt) × (PIT_NP+nu+nq)
+    f = p -> vec(_pit_outputs_arr(p, cfg, u_tknots, q_tknots, tsave, nu;
+                                  abstol, reltol))
+    J = ForwardDiff.jacobian(f, v)            # (4nt) × (PIT_NP+nu+nq)
     z = zeros(nt)
-    # column order matches vec(3×nt): [T₁,m₁,a₁, T₂,m₂,a₂, ...]; the ignited
-    # fraction is a diagnostic with no external cotangent.
-    v̄ = vec(transpose(hcat(get(cot, :Tpit, z), get(cot, :m_fuel, z), z)))
+    # column order matches vec(4×nt): [T₁,m₁,a₁,ṁ₁, T₂,m₂,a₂,ṁ₂, ...]; the
+    # ignited fraction is a diagnostic with no external cotangent.
+    v̄ = vec(transpose(hcat(get(cot, :Tpit, z), get(cot, :m_fuel, z), z,
+                            get(cot, :mdot, z))))
     g = transpose(J) * v̄
     (dφ = g[1:PIT_NP], du_knots = g[PIT_NP+1:PIT_NP+nu],
      dqmeat_knots = g[PIT_NP+nu+1:PIT_NP+nu+nq])

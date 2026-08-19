@@ -96,13 +96,14 @@ def _init():
     jl.seval(
         """
         function _meat_apply(θ, knots, tknots, tsave, abstol, reltol, t0,
-                             T0f, W0f, C0f, t_wrap)
+                             T0f, W0f, C0f, t_wrap, smoke)
             cfg = MeatConfig(T0=t0)
             o = meat_solve(θ, knots, tknots, tsave; cfg=cfg, abstol=abstol,
                            reltol=reltol, T0f=T0f, W0f=W0f, C0f=C0f,
-                           t_wrap=t_wrap)
+                           t_wrap=t_wrap, smoke_knots=smoke)
             return (o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final,
-                    o.w_retained, o.T_field[:, end], o.W_field[:, end])
+                    o.w_retained, o.T_field[:, end], o.W_field[:, end],
+                    o.bark_b, o.bark_s, o.l_star)
         end
         # KNOWN GAP (documented, not fixed here): the VJP path builds its
         # initial state from cfg only — the field ICs T0f/W0f/C0f are NOT
@@ -110,13 +111,13 @@ def _init():
         # (receding-horizon MPC) silently use uniform ICs. Whole-horizon
         # optimization and calibration are unaffected. t_wrap IS threaded.
         function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol, t0,
-                           t_wrap, cTs, cTc, cj, cq, cC, cW)
+                           t_wrap, smoke, cTs, cTc, cj, cq, cC, cW, cB, cS, cL)
             cfg = MeatConfig(T0=t0)
             cot = (Tsurf=cTs, Tcore=cTc, j_evap=cj, q_meat=cq, C_field_final=cC,
-                   w_retained=cW)
+                   w_retained=cW, bark_b=cB, bark_s=cS, l_star=cL)
             g = meat_vjp(θ, knots, tknots, tsave, cot; cfg=cfg, abstol=abstol,
-                         reltol=reltol, t_wrap=t_wrap)
-            return g.dθ, g.dTpit_knots, g.dt_wrap
+                         reltol=reltol, t_wrap=t_wrap, smoke_knots=smoke)
+            return g.dθ, g.dTpit_knots, g.dsmoke_knots, g.dt_wrap
         end
         """
     )
@@ -150,6 +151,12 @@ class InputSchema(BaseModel):
         default=1.0e9,
         description="Texas-crutch wrap time [s]; default (1e9) = never wrap. "
                     "Smooth blend of width MeatConfig.δ_wrap; differentiable.")
+    smoke_knots: Differentiable[Array[(None,), Float64]] = Field(
+        default_factory=list,
+        description="Smoke-flux forcing (pit burn rate, kg/s) on the tknots "
+                    "grid; empty = no smoke. Drives the bark deposition state; "
+                    "differentiable so gradients flow damper -> burn rate -> "
+                    "smoke -> bark.")
     # Optional full-field initial state (receding-horizon state handoff);
     # empty arrays fall back to uniform ICs. Non-differentiable by design.
     t_field0: Array[(None,), Float64] = Field(
@@ -179,6 +186,12 @@ class OutputSchema(BaseModel):
     w_retained: Differentiable[Array[(), Float64]] = Field(
         description="Juiciness proxy: mean retained moisture at pull / W0"
     )
+    bark_b: Differentiable[Array[(None,), Float64]] = Field(
+        description="Bark Maillard browning state B in [0,1) at tsave")
+    bark_s: Differentiable[Array[(None,), Float64]] = Field(
+        description="Bark smoke-deposition state S in [0,1) at tsave")
+    l_star: Differentiable[Array[(None,), Float64]] = Field(
+        description="Predicted surface lightness L* (CIELAB) at tsave")
     t_field_final: Array[(NX,), Float64] = Field(
         description="Final temperature field (state handoff; non-differentiable)")
     w_field_final: Array[(NX,), Float64] = Field(
@@ -209,12 +222,13 @@ def apply(inputs: InputSchema) -> OutputSchema:
                                   _own(inputs.tknots), _own(inputs.tsave))
     t0f, w0f, c0f = (_own(inputs.t_field0), _own(inputs.w_field0),
                      _own(inputs.c_field0))
+    smoke = _own(inputs.smoke_knots)
     if tpit.shape != tknots.shape:
         raise ValueError(
             f"DEGENERATE MEAT INPUT: tpit_knots {tpit.shape} vs tknots {tknots.shape}")
 
     def _run():
-        ts, tc, j, q, c, wr, tf, wf = jl._meat_apply(
+        ts, tc, j, q, c, wr, tf, wf, bb, bs, ls = jl._meat_apply(
             _jvec(theta),
             _jvec(tpit),
             _jvec(tknots),
@@ -226,6 +240,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
             _jvec(w0f),
             _jvec(c0f),
             float(np.asarray(inputs.t_wrap)),
+            _jvec(smoke),
         )
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory. If that view escapes this thread,
@@ -235,10 +250,12 @@ def apply(inputs: InputSchema) -> OutputSchema:
         return (np.asarray(ts).copy(), np.asarray(tc).copy(),
                 np.asarray(j).copy(), np.asarray(q).copy(),
                 np.asarray(c).copy(), np.float64(wr),
-                np.asarray(tf).copy(), np.asarray(wf).copy())
+                np.asarray(tf).copy(), np.asarray(wf).copy(),
+                np.asarray(bb).copy(), np.asarray(bs).copy(),
+                np.asarray(ls).copy())
 
     try:
-        ts, tc, j, q, c, wr, tf, wf = _on_julia_thread(_run)
+        ts, tc, j, q, c, wr, tf, wf, bb, bs, ls = _on_julia_thread(_run)
     except RuntimeError:
         if not SOFT_FAIL:
             raise
@@ -249,8 +266,11 @@ def apply(inputs: InputSchema) -> OutputSchema:
         wr = np.float64(0.0)
         tf = np.full(NX, _SENTINEL_T)
         wf = np.zeros(NX)
+        bb = bs = np.zeros(nt)
+        ls = np.full(nt, 52.0)
     return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c,
-                        w_retained=wr, t_field_final=tf, w_field_final=wf)
+                        w_retained=wr, t_field_final=tf, w_field_final=wf,
+                        bark_b=bb, bark_s=bs, l_star=ls)
 
 
 def abstract_eval(abstract_inputs):
@@ -265,6 +285,9 @@ def abstract_eval(abstract_inputs):
         "w_retained": ShapeDType(shape=(), dtype="float64"),
         "t_field_final": vec(NX),
         "w_field_final": vec(NX),
+        "bark_b": vec(nt),
+        "bark_s": vec(nt),
+        "l_star": vec(nt),
     }
 
 
@@ -277,17 +300,18 @@ def vector_jacobian_product(
     theta, tpit, tknots, tsave = (_own(inputs.theta), _own(inputs.tpit_knots),
                                   _own(inputs.tknots), _own(inputs.tsave))
     nt = len(tsave)
+    smoke = _own(inputs.smoke_knots)
     cots = {name: (_own(cotangent_vector[name])
                    if name in cotangent_vector and name in vjp_outputs else None)
             for name in ("tsurf", "tcore", "j_evap", "q_meat", "c_field_final",
-                         "w_retained")}
+                         "w_retained", "bark_b", "bark_s", "l_star")}
 
     def _run():
         def cot(name, n):
             v = cots[name]
             return _jvec(v if v is not None else np.zeros(n))
 
-        dtheta, dknots, dtwrap = jl._meat_vjp(
+        dtheta, dknots, dsmoke, dtwrap = jl._meat_vjp(
             _jvec(theta),
             _jvec(tpit),
             _jvec(tknots),
@@ -296,24 +320,31 @@ def vector_jacobian_product(
             float(inputs.reltol),
             float(inputs.t0_meat),
             float(np.asarray(inputs.t_wrap)),
+            _jvec(smoke),
             cot("tsurf", nt),
             cot("tcore", nt),
             cot("j_evap", nt),
             cot("q_meat", nt),
             cot("c_field_final", NX),
             float(cots["w_retained"]) if cots["w_retained"] is not None else 0.0,
+            cot("bark_b", nt),
+            cot("bark_s", nt),
+            cot("l_star", nt),
         )
         # .copy(): no zero-copy views of Julia memory may cross threads
         return (np.asarray(dtheta).copy(), np.asarray(dknots).copy(),
-                float(dtwrap))
+                np.asarray(dsmoke).copy(), float(dtwrap))
 
     try:
-        dtheta, dknots, dtwrap = _on_julia_thread(_run)
+        dtheta, dknots, dsmoke, dtwrap = _on_julia_thread(_run)
     except RuntimeError:
         if not SOFT_FAIL:
             raise
-        dtheta, dknots, dtwrap = np.zeros(len(theta)), np.zeros(len(tpit)), 0.0
-    if np.isnan(dtheta).any() or np.isnan(dknots).any() or np.isnan(dtwrap):
+        dtheta, dknots, dsmoke, dtwrap = (np.zeros(len(theta)),
+                                          np.zeros(len(tpit)),
+                                          np.zeros(len(smoke)), 0.0)
+    if (np.isnan(dtheta).any() or np.isnan(dknots).any()
+            or np.isnan(dsmoke).any() or np.isnan(dtwrap)):
         # NaN gradients propagate silently through the whole pipeline (they
         # reached the optimizer state once and cost us an evening) — capture
         # the exact call for offline replay in Julia, then fail loudly.
@@ -330,4 +361,6 @@ def vector_jacobian_product(
         out["tpit_knots"] = dknots
     if "t_wrap" in vjp_inputs:
         out["t_wrap"] = np.asarray(dtwrap, dtype=np.float64)
+    if "smoke_knots" in vjp_inputs:
+        out["smoke_knots"] = dsmoke
     return out

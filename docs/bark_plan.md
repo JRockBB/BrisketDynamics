@@ -1,6 +1,10 @@
 # Differentiable Bark Model — Research Summary & Feature Plan
 
-Status: PLAN (branch `bark-model`; post-hackathon roadmap item 7).
+Status: steps 1-5 IMPLEMENTED on branch `bark-model` (2026-08-19):
+Julia bark states + pit mdot + smoke forcing + coupled wiring + forward
+validation (`figures/bark_model.png`; Julia 68/68, app 21/21, composed
+damper->mdot->smoke->bark gradient FD-verified). Open: step 6 (bark-aware
+wrap objective) and step 7 (photo calibration, blocked on data).
 Research pass 2026-08-19; sources at the end.
 
 ## 1. What the literature actually supports
