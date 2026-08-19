@@ -72,9 +72,15 @@ dependency ordering that matters.
    2. **Multi-chain NUTS-real** — 2–3 short chains from dispersed inits
       (separate processes); real split-r̂ across chains and a test of
       whether the pit-ridge mass location is reproducible.
-   3. **Differentiable wrap-time** — smooth Texas-crutch blend on the
-      surface BC ("the model decides when to wrap"). Flashy but
-      new-physics-through-the-adjoint risk.
+   3. ✅ **Differentiable wrap-time** — smooth Texas-crutch blend on the
+      surface BC (evaporation suppression + emissivity/convection changes,
+      foil constants in MeatConfig), t_wrap as the first differentiable
+      SCALAR Tesseract input, jointly optimized with the schedule against a
+      bark proxy (∫ j_evap dt shortfall penalty). Demo (`run_wraptime.py`,
+      `figures/wraptime.png`): optimal wrap at 6.0 h — doneness 0.82 → 0.96,
+      juiciness 0.40 → 0.62, ~10% bark trade. dt_wrap adjoint matches FD to
+      5.5e-6; Julia 46/46, app 20/20. The adjoint took the new physics
+      without a fallback.
    4. **Extend synthetic NUTS chain** for better ESS (currently 7–82) from
       its checkpoint.
    5. **File the tesseract-jax partial-tangent bug** upstream with our
@@ -128,10 +134,14 @@ bark chemistry without calibration data.
    cook tightens the twin. Designed experiment worth running early: water
    pan in vs. out, two otherwise-identical cooks, to identify the humidity
    pathway.
-5. **Wrap physics + wrap-time optimization.** Smooth surface-BC blend
-   (evaporation suppression, changed h) parameterized by wrap time; then
-   "when to crutch" becomes a differentiable decision alongside the vent
-   schedule.
+5. **Wrap-constant calibration.** The wrap physics + differentiable
+   wrap-time landed during the hackathon (stretch item 3); what remains is
+   calibrating η_evap/ε_wrap against a wrapped cook log — posts document
+   the wrap moment, making the wrap event a known-input step-response
+   experiment — via the two-cook joint fit (pooling, above). Log
+   acquisition is user-owned, like the 2013 log. A state-triggered wrap
+   ("wrap at 165 °F internal") needs event sensitivities — natural in the
+   Dyad/monolith exploration where events are first-class.
 6. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
    diffusion (D_salt ~1e-10 m²/s, well-pinned in the ham-curing literature —
    take it as a constant, don't calibrate): an isothermal fridge-temperature
