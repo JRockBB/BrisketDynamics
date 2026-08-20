@@ -103,7 +103,8 @@ def _init():
                            t_wrap=t_wrap, smoke_knots=smoke)
             return (o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final,
                     o.w_retained, o.T_field[:, end], o.W_field[:, end],
-                    o.bark_b, o.bark_s, o.l_star)
+                    o.bark_b, o.bark_s, o.l_star,
+                    o.juiciness, o.fat_rendered, o.evap_w, o.drip_w, o.drip_f)
         end
         # KNOWN GAP (documented, not fixed here): the VJP path builds its
         # initial state from cfg only — the field ICs T0f/W0f/C0f are NOT
@@ -111,10 +112,12 @@ def _init():
         # (receding-horizon MPC) silently use uniform ICs. Whole-horizon
         # optimization and calibration are unaffected. t_wrap IS threaded.
         function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol, t0,
-                           t_wrap, smoke, cTs, cTc, cj, cq, cC, cW, cB, cS, cL)
+                           t_wrap, smoke, cTs, cTc, cj, cq, cC, cW, cB, cS, cL,
+                           cJu, cFr)
             cfg = MeatConfig(T0=t0)
             cot = (Tsurf=cTs, Tcore=cTc, j_evap=cj, q_meat=cq, C_field_final=cC,
-                   w_retained=cW, bark_b=cB, bark_s=cS, l_star=cL)
+                   w_retained=cW, bark_b=cB, bark_s=cS, l_star=cL,
+                   juiciness=cJu, fat_rendered=cFr)
             g = meat_vjp(θ, knots, tknots, tsave, cot; cfg=cfg, abstol=abstol,
                          reltol=reltol, t_wrap=t_wrap, smoke_knots=smoke)
             return g.dθ, g.dTpit_knots, g.dsmoke_knots, g.dt_wrap
@@ -192,6 +195,17 @@ class OutputSchema(BaseModel):
         description="Bark smoke-deposition state S in [0,1) at tsave")
     l_star: Differentiable[Array[(None,), Float64]] = Field(
         description="Predicted surface lightness L* (CIELAB) at tsave")
+    juiciness: Differentiable[Array[(), Float64]] = Field(
+        description="Perceptual juiciness: retained water + β·retained "
+                    "rendered fat, as water-equivalent fraction of W0")
+    fat_rendered: Differentiable[Array[(), Float64]] = Field(
+        description="Mean rendered fat fraction at pull (0-1)")
+    evap_w: Array[(), Float64] = Field(
+        description="Evaporated water, dry-basis mean units (scale calib)")
+    drip_w: Array[(), Float64] = Field(
+        description="Dripped (purged) water, dry-basis mean units")
+    drip_f: Array[(), Float64] = Field(
+        description="Drained rendered fat (tallow catch), dry-basis mean units")
     t_field_final: Array[(NX,), Float64] = Field(
         description="Final temperature field (state handoff; non-differentiable)")
     w_field_final: Array[(NX,), Float64] = Field(
@@ -228,7 +242,8 @@ def apply(inputs: InputSchema) -> OutputSchema:
             f"DEGENERATE MEAT INPUT: tpit_knots {tpit.shape} vs tknots {tknots.shape}")
 
     def _run():
-        ts, tc, j, q, c, wr, tf, wf, bb, bs, ls = jl._meat_apply(
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls,
+         ju, fr, ew, dw, df) = jl._meat_apply(
             _jvec(theta),
             _jvec(tpit),
             _jvec(tknots),
@@ -252,10 +267,12 @@ def apply(inputs: InputSchema) -> OutputSchema:
                 np.asarray(c).copy(), np.float64(wr),
                 np.asarray(tf).copy(), np.asarray(wf).copy(),
                 np.asarray(bb).copy(), np.asarray(bs).copy(),
-                np.asarray(ls).copy())
+                np.asarray(ls).copy(), np.float64(ju), np.float64(fr),
+                np.float64(ew), np.float64(dw), np.float64(df))
 
     try:
-        ts, tc, j, q, c, wr, tf, wf, bb, bs, ls = _on_julia_thread(_run)
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls,
+         ju, fr, ew, dw, df) = _on_julia_thread(_run)
     except RuntimeError:
         if not SOFT_FAIL:
             raise
@@ -268,9 +285,12 @@ def apply(inputs: InputSchema) -> OutputSchema:
         wf = np.zeros(NX)
         bb = bs = np.zeros(nt)
         ls = np.full(nt, 52.0)
+        ju = fr = ew = dw = df = np.float64(0.0)
     return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c,
                         w_retained=wr, t_field_final=tf, w_field_final=wf,
-                        bark_b=bb, bark_s=bs, l_star=ls)
+                        bark_b=bb, bark_s=bs, l_star=ls,
+                        juiciness=ju, fat_rendered=fr,
+                        evap_w=ew, drip_w=dw, drip_f=df)
 
 
 def abstract_eval(abstract_inputs):
@@ -288,6 +308,11 @@ def abstract_eval(abstract_inputs):
         "bark_b": vec(nt),
         "bark_s": vec(nt),
         "l_star": vec(nt),
+        "juiciness": ShapeDType(shape=(), dtype="float64"),
+        "fat_rendered": ShapeDType(shape=(), dtype="float64"),
+        "evap_w": ShapeDType(shape=(), dtype="float64"),
+        "drip_w": ShapeDType(shape=(), dtype="float64"),
+        "drip_f": ShapeDType(shape=(), dtype="float64"),
     }
 
 
@@ -304,7 +329,8 @@ def vector_jacobian_product(
     cots = {name: (_own(cotangent_vector[name])
                    if name in cotangent_vector and name in vjp_outputs else None)
             for name in ("tsurf", "tcore", "j_evap", "q_meat", "c_field_final",
-                         "w_retained", "bark_b", "bark_s", "l_star")}
+                         "w_retained", "bark_b", "bark_s", "l_star",
+                         "juiciness", "fat_rendered")}
 
     def _run():
         def cot(name, n):
@@ -330,6 +356,8 @@ def vector_jacobian_product(
             cot("bark_b", nt),
             cot("bark_s", nt),
             cot("l_star", nt),
+            float(cots["juiciness"]) if cots["juiciness"] is not None else 0.0,
+            float(cots["fat_rendered"]) if cots["fat_rendered"] is not None else 0.0,
         )
         # .copy(): no zero-copy views of Julia memory may cross threads
         return (np.asarray(dtheta).copy(), np.asarray(dknots).copy(),

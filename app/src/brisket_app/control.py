@@ -123,7 +123,9 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
     S_end = sim["bark_s"][-1]
     smoke_band = (jax.nn.softplus((cc.s_smoke_lo - S_end) / cc.ds_soft) ** 2
                   + jax.nn.softplus((S_end - cc.s_smoke_hi) / cc.ds_soft) ** 2)
-    taste = smoke_band + cc.w_dry * (1.0 - sim["w_retained"]) ** 2
+    # dryness now uses perceptual juiciness (water + rendered fat) —
+    # moisture_plan.md; w_retained remains available for the scale story
+    taste = smoke_band + cc.w_dry * (1.0 - sim["juiciness"]) ** 2
 
     # operational terms
     surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)

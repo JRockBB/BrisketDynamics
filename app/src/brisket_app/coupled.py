@@ -132,6 +132,11 @@ def coupled_cook(
         "bark_b": meat["bark_b"],
         "bark_s": meat["bark_s"],
         "l_star": meat["l_star"],
+        "juiciness": meat["juiciness"],
+        "fat_rendered": meat["fat_rendered"],
+        "evap_w": meat["evap_w"],
+        "drip_w": meat["drip_w"],
+        "drip_f": meat["drip_f"],
         "picard_dT": picard,
     }
 
