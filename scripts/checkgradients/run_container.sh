@@ -28,9 +28,15 @@ $DR brisket-pit:0.1.0 check-gradients @/pl/pit_payload.json \
 echo "pit exit: $?"
 
 echo "=== meat (in-container): tpit_knots ==="
+# t_wrap and smoke_knots stay in the PAYLOAD (nonzero, so the sweep
+# exercises the wrap + bark code paths in-container) but are NOT swept as
+# input directions: the tool's single absolute --eps cannot span their
+# scales (1.4e4 s and 1.2e-4 kg/s), the same doctrine that excludes the
+# parameter vectors (see run.sh). Both directions are FD-verified at the
+# Julia level with per-parameter RELATIVE steps (test_gradients.jl) and in
+# the composed 17-direction gate.
 $DR brisket-meat:0.1.0 check-gradients @/pl/meat_payload.json \
-  --input-paths tpit_knots --input-paths smoke_knots --input-paths t_wrap \
-  --max-evals 25 --max-failures 500 --seed 42
+  --input-paths tpit_knots --max-evals 25 --max-failures 500 --seed 42
 echo "meat exit: $?"
 
 echo "SWEEP COMPLETE — classify flagged failures with:"

@@ -129,3 +129,34 @@ Conclusion: **zero real gradient mismatches in the shipped containers**;
 all informative elements agree within the tool's tolerance at both eps
 values. Parameter vectors remain covered by `test/test_gradients.jl` (a
 single absolute `--eps` cannot span 12 decades; see above).
+
+## Bark-era container sweep (rebuilt images, 2026-08-20)
+
+Both images rebuilt with the wrap + bark model (122 meat states, pit
+`mdot` output) and re-swept in-container
+(`data/verification/sweep_bark_containers.log`). The payload activates the
+wrap (t_wrap = 4 h) and a realistic smoke flux, so the new code paths
+execute inside the shipped containers; the swept FD *directions* are the
+trajectory forcings only. `t_wrap` and `smoke_knots` are **excluded as FD
+directions by the same absolute-eps doctrine as the parameter vectors**
+(one --eps cannot span 1.4e4 s and 1.2e-4 kg/s; a first sweep that included
+them produced exactly the predicted artifacts: an 83% relative kick on
+smoke measuring solver noise against the adjoint's correct zero, and a
+7e-9 relative step on t_wrap measuring nothing). Both directions are held
+at the Julia level with per-parameter relative steps (agreement 1e-5–2e-3)
+and in the composed 17-direction gate.
+
+Classified by `analyze_failures.py --exclude-inputs smoke_knots,t_wrap`:
+pit 126 tool-flags and meat 39 tool-flags → **0 real mismatches**; classes
+are the two established benign patterns plus a third documented here:
+*FD-unresolvable weak rows* (entire row response < 1e-5 — e.g.
+`tpit_knots → bark_s`, where a single forcing knot moves smoke deposition
+at the 1e-6 level and VJP/FD agree in sign and order inside solver noise).
+
+Known issue: the in-container meat runtime intermittently hangs at
+initialization (worker frozen at 0.29 s CPU; observed 2 of 3 launches on
+the rebuilt image; the successful run supplied this artifact).
+`probe_container.sh` detects the hang in one 45 s sample; sweep runs now
+carry an 8-minute liveness gate. Suspected juliacall-init timing race —
+tracked for the HeaterMeter/service era, where container startup
+reliability actually matters.
