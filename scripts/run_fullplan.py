@@ -28,22 +28,15 @@ from brisket_app.coupled import HR, coupled_cook
 from brisket_app.timeplan import optimal_duration, plan_duration
 
 REPO = Path(__file__).resolve().parents[1]
-# CLI: run_fullplan.py [--judge] [durations...]; --judge scores the scan
-# with the KCBS-weighted judge objective (see ControlConfig.judge_mode)
-JUDGE = "--judge" in sys.argv
-_args = [a for a in sys.argv[1:] if a != "--judge"]
+# CLI: run_fullplan.py [durations...]. The objective is the default
+# ControlConfig (KCBS-weighted quality + safety); override weights there.
+_args = sys.argv[1:]
 DURATIONS_H = ([float(a) for a in _args] if _args else
                [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0])
-RESULT_NAME = (("fullplan_judge" + ("_ext" if _args else "") + ".json")
-               if JUDGE else
-               ("fullplan_result_ext.json" if _args else
-                "fullplan_result.json"))
+RESULT_NAME = ("fullplan_result_ext.json" if _args else
+               "fullplan_result.json")
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
-CC = (ControlConfig(asymmetric_done=True, opt_wrap=True, judge_mode=True,
-                    n_iter=60)
-      if "--judge" in sys.argv else
-      ControlConfig(asymmetric_done=True, w_juicy=5.0, opt_wrap=True,
-                    l_star_target=30.0, w_bark=0.5, n_iter=60))
+CC = ControlConfig(opt_wrap=True, n_iter=60)
 
 
 def main():

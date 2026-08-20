@@ -43,10 +43,13 @@ be calibrated/observed.
    nothing bounding danger-zone dwell or verifying pasteurization. The one
    gap with an ethics dimension for a tool that tells people how to cook
    meat. Cost: HOURS — integrate a standard lethality curve from the
-   existing T field; constrain in every planner. STATUS: DONE (smooth
-   surface danger-zone dwell, capped at 4 h, w_safety=500, applied in
-   every objective mode; verified: normal cooks pay ~0, a cold smolder
-   start pays ~850).
+   existing T field; constrain in every planner. STATUS: DONE,
+   curve-faithful: integrated surface lethality F = ∫10^((Ts−60°C)/z)dt
+   (z = 6 °C) required to reach the FSIS ~7-log equivalent (720
+   60°C-seconds), penalized on log-shortfall, PLUS a 4 h danger-zone
+   dwell cap for the growth phase — both unconditional in the single
+   objective. Verified: normal cooks pay ~0; a cold smolder start pays
+   ~1160 with 5x gradient pressure.
 5. **Rest / carryover.** The deadline formulation leans on "the hold" while
    modeling nothing after the pull: carryover (core rises several °C),
    juice redistribution. The pull decision is biased without it. Cost:

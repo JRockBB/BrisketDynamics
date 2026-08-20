@@ -22,72 +22,75 @@ from .coupled import CookGrids, coupled_cook
 
 @dataclass(frozen=True)
 class ControlConfig:
-    c_target: float = 0.90       # core collagen conversion at t_f
-    t_surf_max: float = 368.15   # 95 C bark-burn proxy [K]
-    dT_soft: float = 2.0         # softplus width for the surface penalty [K]
-    w_done: float = 100.0
+    """The quality objective for the coupled cook.
+
+    The DEFAULT objective is the KCBS-weighted quality vector — appearance /
+    taste / tenderness at the multipliers real judges' scores carry
+    (0.56 / 2.2972 / 1.1428, normalized 0.14 / 0.57 / 0.29) — over the
+    subset of each category the simulation observes, plus operational terms
+    and the food-safety constraints. Every weight and band is a plain field:
+    a different preference is a different config, not a different mode.
+
+    HONEST TAXONOMY (docs/model_gaps.md is the standing audit):
+      tenderness — mechanistic proxy: collagen conversion IS the physics of
+        probe-tender; the C = 0.90 scale is literature kinetics,
+        uncalibrated against texture data. Two-sided band: undershoot =
+        tough, saturation = pot roast; overshoot is discounted by
+        `over_rel` because early finishes are absorbed by the resting hold.
+      taste — two correlates: smoke-phenolic mass (deposited guaiacol /
+        syringol; band = depth without acrid over-deposition; smoke
+        QUALITY clean-vs-dirty is not modeled) and retained moisture
+        (WATER-ONLY pending the fat/expulsion build — gap audit #1/#2).
+        Seasoning, sweetness, beef flavor: absent.
+      appearance — predicted color only (two-sided mahogany L* band;
+        judges ding black bark as burnt-looking). Uniformity, sheen,
+        presentation: absent.
+    """
+
+    # category weights — KCBS-cited defaults, override at will
+    w_appearance: float = 0.14
+    w_taste: float = 0.57
+    w_tenderness: float = 0.29
+    # tenderness band (collagen conversion at the center node)
+    c_target: float = 0.90
+    c_overdone: float = 0.95
+    over_rel: float = 0.5        # overshoot severity relative to undershoot
+    # appearance band (predicted surface CIELAB L*)
+    l_mahogany_lo: float = 28.0  # blacker reads burnt
+    l_mahogany_hi: float = 34.0  # paler reads underdeveloped
+    dl_soft: float = 2.0
+    # taste: smoke-deposition band + dryness
+    s_smoke_lo: float = 0.55
+    s_smoke_hi: float = 0.90
+    ds_soft: float = 0.08
+    w_dry: float = 4.0
+    # operational terms
+    t_surf_max: float = 368.15   # 95 C bark-burn limit [K]
+    dT_soft: float = 2.0
     w_surf: float = 1.0
     w_fuel: float = 0.1
     w_smooth: float = 0.01
-    w_juicy: float = 0.0   # optional: reward retained moisture (juiciness proxy)
-    # Texas-crutch wrap decision (differentiable t_wrap through the meat BC).
-    # Bark quality = the MODEL's predicted final surface lightness L*
-    # (Maillard + smoke deposition states; docs/bark_plan.md). The penalty is
-    # one-sided on lightness EXCESS — pale bark is the failure mode a wrap
-    # can cause; burning is separately handled by the surface-temperature
-    # constraint. This is what makes "when to wrap" a real trade-off (else
-    # moisture+speed always favor wrapping at t=0).
-    opt_wrap: bool = False       # optimize t_wrap jointly with the schedule
-    l_star_target: float = 0.0   # target final surface L*; 0 disables term
-    w_bark: float = 0.0
-    dl_soft: float = 2.0         # penalty width [L* units]
-    # --- judge mode: KCBS-weighted quality (research: docs/bark_plan.md) ---
-    # KCBS scores appearance/taste/tenderness on 1-9 with fixed multipliers
-    # 0.56 / 2.2972 / 1.1428 => normalized weights 0.14 / 0.57 / 0.29.
-    # HONEST TAXONOMY - this is the KCBS weighting applied to the SUBSET of
-    # each category the simulation can observe, not a flavor simulation:
-    #   tenderness: MECHANISTIC PROXY (collagen conversion IS the physics of
-    #     probe-tender; the C=0.90 scale is literature kinetics, uncalibrated
-    #     against texture data). Two-sided band: under = tough, saturated =
-    #     pot roast.
-    #   taste: TWO CORRELATES - smoke-phenolic mass S (the deposited
-    #     guaiacol/syringol ARE smoke flavor; band = depth without acrid
-    #     over-deposition; smoke QUALITY clean-vs-dirty is not modeled) and
-    #     retained moisture (dry brisket loses taste points). Seasoning,
-    #     sweetness, beef flavor: ABSENT.
-    #   appearance: color L* predicted (mahogany band, NOT black - judges
-    #     ding black as burnt); uniformity/sheen/presentation: ABSENT.
-    # Band normalizations are placeholders; the WEIGHTS are cited.
-    judge_mode: bool = False
-    # --- food-safety constraint (docs/model_gaps.md Tier 1 #4) ---
-    # Smooth danger-zone dwell: hours the SURFACE spends between t_danger_lo
-    # and t_danger_hi (bacteria live on the surface of intact muscle; USDA
-    # guidance caps cumulative danger-zone time ~4 h). Applied in EVERY
-    # objective mode - safety is a constraint, not a preference. Typical
-    # smoker schedules clear the zone in 1-2 h and pay zero; the term exists
-    # to stop the optimizer from ever recommending a cold-smolder start.
+    # --- food safety: LETHALITY-CURVE constraint (gap audit Tier 1 #4) ---
+    # Pasteurization is a time-temperature CURVE, not a threshold. The
+    # z-value equivalence integrates surface lethality
+    #     F = integral 10^((T_s - T_ref)/z) dt   [T_ref-equivalent seconds]
+    # FSIS guidance for ~7-log Salmonella reduction in beef: ~12 min at
+    # 60 C with z ~ 6 C. The constraint requires F >= leth_f_req by end of
+    # cook, penalized on the log10 shortfall (curve-faithful: any
+    # time-temperature path achieving the required lethality passes). A
+    # danger-zone dwell cap separately guards the GROWTH phase before
+    # lethal temperatures are reached. Both computed from the existing
+    # surface-temperature output; applied unconditionally.
+    leth_t_ref: float = 333.15   # 60 C
+    leth_z: float = 6.0          # z-value [K]
+    leth_f_req: float = 720.0    # 60 C-equivalent seconds (~7-log)
+    w_lethality: float = 500.0
     t_danger_lo: float = 277.6   # 4.4 C
     t_danger_hi: float = 333.15  # 60 C
     danger_cap_h: float = 4.0
-    w_safety: float = 500.0
-    l_mahogany_lo: float = 28.0  # blacker than this reads burnt
-    l_mahogany_hi: float = 34.0  # paler than this reads underdeveloped
-    s_smoke_lo: float = 0.55     # less smoke than this: shallow taste
-    s_smoke_hi: float = 0.90     # more: bitter/creosote territory
-    ds_soft: float = 0.08
-    w_judge_dry: float = 4.0     # dryness penalty scale inside taste
-    # Asymmetric terminal-doneness penalty (MPC): undershooting the target at
-    # the deadline is the disaster; finishing early is nearly free (the hold
-    # exists for this). Symmetric quadratics 'give up' late in a losing cook:
-    # thermal lag kills the doneness gradient and fuel penalties take over.
-    asymmetric_done: bool = False
-    # Overdone band ceiling: above this, a gentle penalty stands in for
-    # texture degradation (collagen saturation = pot roast). The asymmetry
-    # was a license to finish EARLY, not to overshoot without limit — at a
-    # fixed horizon a bark-hungry schedule otherwise parks at C ~ 0.9999.
-    # Placeholder until probe-tender data calibrates real texture loss.
-    c_overdone: float = 0.95
-    w_overdone: float = 25.0
+    w_dwell: float = 500.0
+    # decision variables / optimizer
+    opt_wrap: bool = False       # optimize t_wrap jointly with the schedule
     lr: float = 0.05
     n_iter: int = 200
 
@@ -99,58 +102,52 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
     # ~t_end is physically a no-wrap, so that corner stays reachable
     t_wrap = grids.t_end * jax.nn.sigmoid(z_w)
     sim = coupled_cook(theta, phi, u, meat_tx, pit_tx, grids, K=2, ics=ics,
-                       t_wrap=t_wrap, **tols)
-    c_core = sim["c_field_final"][0]                     # center node
+                      t_wrap=t_wrap, **tols)
+
+    # tenderness: two-sided collagen band, each side normalized to O(1)
+    # per its band width (undershoot 0.05; overshoot 1 - c_overdone)
+    c_core = sim["c_field_final"][0]
+    k = 20.0
+    under = (jax.nn.softplus(k * (cc.c_target - c_core)) / k) / 0.05
+    band_o = 1.0 - cc.c_overdone
+    k_ov = 4.0 / band_o
+    over = (jax.nn.softplus(k_ov * (c_core - cc.c_overdone)) / k_ov) / band_o
+    tenderness = under**2 + cc.over_rel * over**2
+
+    # appearance: two-sided mahogany band on predicted final L*
+    Lst = sim["l_star"][-1]
+    appearance = (jax.nn.softplus((Lst - cc.l_mahogany_hi) / cc.dl_soft) ** 2
+                  + jax.nn.softplus((cc.l_mahogany_lo - Lst) / cc.dl_soft) ** 2)
+
+    # taste: smoke-depth band + dryness (water-only; see taxonomy)
+    S_end = sim["bark_s"][-1]
+    smoke_band = (jax.nn.softplus((cc.s_smoke_lo - S_end) / cc.ds_soft) ** 2
+                  + jax.nn.softplus((S_end - cc.s_smoke_hi) / cc.ds_soft) ** 2)
+    taste = smoke_band + cc.w_dry * (1.0 - sim["w_retained"]) ** 2
+
+    # operational terms
     surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)
-    # smooth indicator of the surface sitting in the bacterial danger zone
-    tk_h = jnp.asarray(grids.tknots) / 3600.0
-    in_zone = (jax.nn.sigmoid((sim["tsurf"] - cc.t_danger_lo) / 2.0)
-               * jax.nn.sigmoid((cc.t_danger_hi - sim["tsurf"]) / 2.0))
-    danger_h = jnp.trapezoid(in_zone, tk_h)
-    safety_pen = cc.w_safety * jax.nn.softplus(
-        (danger_h - cc.danger_cap_h) / 0.5) ** 2
     fuel_frac = (sim["m_fuel"][0] - sim["m_fuel"][-1]) / sim["m_fuel"][0]
-    if cc.asymmetric_done:
-        k = 20.0  # undershoot-only, smooth: ~(target-c)^2 under, ~0 over
-        done_term = (jax.nn.softplus(k * (cc.c_target - c_core)) / k) ** 2
-        # overdone band: one-sided penalty above c_overdone. Shape rules:
-        # steepness k_ov = 4/band so the softplus transition spans a QUARTER
-        # of the band (at k=20 the tail charged 2.4 at the target itself),
-        # and normalization by the band width so full saturation costs
-        # exactly w_overdone/w_done — commensurate with the other terms.
-        band = 1.0 - cc.c_overdone
-        k_ov = 4.0 / band
-        over = (jax.nn.softplus(k_ov * (c_core - cc.c_overdone)) / k_ov) / band
-        done_term = done_term + (cc.w_overdone / cc.w_done) * over ** 2
-    else:
-        done_term = (c_core - cc.c_target) ** 2
-    if cc.judge_mode:
-        # KCBS-weighted judge objective. Each group is normalized to O(1)
-        # over its realistic range so the cited weights govern the trades.
-        Lst = sim["l_star"][-1]
-        appearance = (jax.nn.softplus((Lst - cc.l_mahogany_hi) / cc.dl_soft) ** 2
-                      + jax.nn.softplus((cc.l_mahogany_lo - Lst) / cc.dl_soft) ** 2)
-        S_end = sim["bark_s"][-1]
-        smoke_band = (jax.nn.softplus((cc.s_smoke_lo - S_end) / cc.ds_soft) ** 2
-                      + jax.nn.softplus((S_end - cc.s_smoke_hi) / cc.ds_soft) ** 2)
-        taste = smoke_band + cc.w_judge_dry * (1.0 - sim["w_retained"]) ** 2
-        tenderness = done_term * cc.w_done / 10.0  # existing band, rescaled O(1)
-        j = (0.14 * appearance + 0.57 * taste + 0.29 * tenderness
-             + cc.w_surf * jnp.mean(surf_over**2)
-             + cc.w_fuel * fuel_frac
-             + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
-             + safety_pen)
-        return j
-    j = (cc.w_done * done_term
-         + cc.w_surf * jnp.mean(surf_over**2)
-         + cc.w_fuel * fuel_frac
-         + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
-         - cc.w_juicy * sim["w_retained"]
-         + safety_pen)
-    if cc.l_star_target > 0.0:  # static config branch: jit-safe
-        pale = (sim["l_star"][-1] - cc.l_star_target) / cc.dl_soft
-        j = j + cc.w_bark * jax.nn.softplus(pale) ** 2
-    return j
+
+    # food safety (unconditional): lethality curve + growth-phase dwell
+    Ts = sim["tsurf"]
+    t_s = jnp.asarray(grids.tknots)
+    F = jnp.trapezoid(10.0 ** ((Ts - cc.leth_t_ref) / cc.leth_z), t_s)
+    leth_pen = cc.w_lethality * jax.nn.softplus(
+        (jnp.log10(cc.leth_f_req) - jnp.log10(F + 1e-9)) / 0.2) ** 2
+    in_zone = (jax.nn.sigmoid((Ts - cc.t_danger_lo) / 2.0)
+               * jax.nn.sigmoid((cc.t_danger_hi - Ts) / 2.0))
+    danger_h = jnp.trapezoid(in_zone, t_s / 3600.0)
+    dwell_pen = cc.w_dwell * jax.nn.softplus(
+        (danger_h - cc.danger_cap_h) / 0.5) ** 2
+
+    return (cc.w_appearance * appearance
+            + cc.w_taste * taste
+            + cc.w_tenderness * tenderness
+            + cc.w_surf * jnp.mean(surf_over**2)
+            + cc.w_fuel * fuel_frac
+            + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
+            + leth_pen + dwell_pen)
 
 
 def optimize_schedule_expected(thetas, phis, meat_tx, pit_tx,

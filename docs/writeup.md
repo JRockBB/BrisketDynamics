@@ -199,26 +199,30 @@ vector, the full composition — duration × wrap × schedule jointly optimized
 never chosen at any duration (the reference real cook: 19 h, unwrapped).
 The Texas crutch drops out of the leisure-optimal plan and re-emerges as
 what it actually is — a closed-loop contingency tool for cooks under
-deadline pressure (the MPC-with-wrap demo is roadmapped). The objective
-also offers a **judge mode**: the KCBS scoring weights (appearance 0.14 /
-taste 0.57 / tenderness 0.29 — the multipliers real judges' scores carry)
-applied to the subset of each category the simulation can observe — a
-two-sided *mahogany* color band (judges ding black bark as burnt-looking),
-a smoke-deposition band (phenolic mass as a smoke-depth correlate, with an
-over-deposition/bitterness ceiling), moisture, and the collagen tenderness
-band. Stated plainly: tenderness is a mechanistic proxy, taste is two
-correlates (smoke mass, moisture — seasoning and smoke *quality* are
+deadline pressure (the MPC-with-wrap demo is roadmapped). The **default
+quality objective** is KCBS-weighted: appearance 0.14 / taste 0.57 /
+tenderness 0.29 — the multipliers real judges' scores carry — applied to
+the subset of each category the simulation observes: a two-sided
+*mahogany* color band (judges ding black bark as burnt-looking), a
+smoke-deposition band (phenolic mass as a smoke-depth correlate with an
+over-deposition/bitterness ceiling), moisture, and the two-sided collagen
+tenderness band. Every weight and band is an overridable config field — a
+different preference is a different config, not a different mode. Stated
+plainly: tenderness is a mechanistic proxy, taste is two correlates
+(smoke mass, water-only moisture — seasoning and smoke *quality* are
 absent), appearance is color only. Absolute durations remain conditional
-on these placeholder normalizations; the weights, at least, are now cited
-rather than invented.
+on the placeholder band normalizations; the weights are cited.
 
-Every objective mode also carries a **food-safety constraint**: a smooth
-integral of surface time in the bacterial danger zone (4.4–60 °C), capped
-at the USDA-guidance 4 hours — normal smoker schedules pay nothing; the
-term exists so no optimizer, ever, recommends a cold-smolder start. A
-model that tells people how to cook meat owes them this term
-(`docs/model_gaps.md` is the standing audit of what the quality layer
-does and does not yet model).
+The objective also carries **food-safety constraints, curve-faithful**:
+pasteurization is a time–temperature curve, so the binding constraint is
+an integrated surface **lethality** F = ∫10^((T_s−T_ref)/z) dt required to
+reach the FSIS-guidance ~7-log equivalent (60 °C reference, z ≈ 6 °C) —
+any time-temperature path achieving it passes — plus a danger-zone dwell
+cap guarding the growth phase before lethal temperatures. Normal smoker
+schedules pay nothing; the terms exist so no optimizer, ever, recommends
+a cold-smolder start. A model that tells people how to cook meat owes
+them this (`docs/model_gaps.md` is the standing audit of what the quality
+layer does and does not yet model).
 
 ## 3. Why Tesseract is load-bearing
 

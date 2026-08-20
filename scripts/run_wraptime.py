@@ -31,9 +31,6 @@ T_F = 10 * HR
 GRIDS = CookGrids(t_end=T_F, dt_exchange=600.0, n_u=14)
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 ITERS = 60
-W_JUICY = 5.0
-W_BARK = 0.5
-L_TARGET = 30.0   # placeholder mahogany L* (uncalibrated; bark plan step 7)
 
 
 def simulate(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
@@ -70,8 +67,7 @@ def main():
     tk = np.asarray(GRIDS.tknots)
 
     print("1) no-wrap optimum (juiciness- and bark-aware)")
-    cc0 = ControlConfig(asymmetric_done=True, w_juicy=W_JUICY,
-                        l_star_target=L_TARGET, w_bark=W_BARK, n_iter=ITERS)
+    cc0 = ControlConfig(n_iter=ITERS)
     u0, h0 = optimize_schedule(theta, phi, meat_tx, pit_tx, grids=GRIDS,
                                cc=cc0, u_init=0.5, ics=ICS)
     sim0 = simulate(theta, phi, u0, meat_tx, pit_tx)
@@ -79,8 +75,7 @@ def main():
     print(f"   no-wrap: {m0}")
 
     print("2) joint (schedule, t_wrap) optimization, 3-point multi-start")
-    cc = ControlConfig(asymmetric_done=True, w_juicy=W_JUICY, opt_wrap=True,
-                       l_star_target=L_TARGET, w_bark=W_BARK, n_iter=ITERS)
+    cc = ControlConfig(opt_wrap=True, n_iter=ITERS)
     best = None
     for zw0 in (-2.0, 0.0, 2.0):
         u, h = optimize_schedule(theta, phi, meat_tx, pit_tx, grids=GRIDS,
@@ -114,7 +109,6 @@ def main():
     (REPO / "data" / "control" / "wraptime_result.json").write_text(json.dumps({
         "t_wrap_h": t_wrap / HR,
         "no_wrap": m0, "wrapped": m_w,
-        "l_star_target": L_TARGET,
         "slice_t_wrap_h": (slice_tw / HR).tolist(),
         "slice_J": js,
         "u_no_wrap": u0.tolist(), "u_wrap": u_w.tolist(),

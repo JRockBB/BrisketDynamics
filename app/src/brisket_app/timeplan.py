@@ -2,7 +2,7 @@
 
 Framing: **the perfect brisket defines its own time.** Duration is chosen
 by pure cook quality — hit target doneness without burning bark, retain
-maximum moisture (`w_juicy` > 0), spend fuel lightly — with no external
+maximum retained moisture, spend fuel lightly — with no external
 costs bending it. The deadline never changes the cook; it positions the
 *start*: light the fire (planned duration) before serving, where the
 planned duration is the quality optimum padded by an uncertainty margin
@@ -44,8 +44,7 @@ def plan_duration(theta, phi, meat_tx, pit_tx, durations_h,
     Warm-starts each duration from the previous optimum: the schedule by
     fractional cook progress, the wrap time by horizon fraction (z_w
     carries over directly since t_wrap = t_end * sigmoid(z_w))."""
-    cc = cc or ControlConfig(asymmetric_done=True, w_juicy=1.0,
-                             n_iter=inner_iters)
+    cc = cc or ControlConfig(n_iter=inner_iters)
     records = []
     u_prev, grids_prev, zw_prev = None, None, 0.0
     if seed is not None:  # warm-start the FIRST duration from a prior scan

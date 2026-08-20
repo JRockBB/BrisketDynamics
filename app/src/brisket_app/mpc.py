@@ -112,8 +112,7 @@ def run_cook(theta, phi_plant, plant_t_amb_fn, t_f=12 * HR, dt_replan=1 * HR,
     for seg in range(n_seg):
         t_remaining = t_f - state.t
         if mode == "mpc":
-            from dataclasses import replace as _rp
-            cc_mpc = _rp(cc, asymmetric_done=True)
+            cc_mpc = cc  # the default objective already carries the band
             if u_prev_plan is None:
                 u_init = 0.5
             else:
