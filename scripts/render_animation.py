@@ -1,4 +1,4 @@
-"""The animated cook: T(x,t) and W(x,t) fields of the calibrated model
+"""The animated cook: T(x,t), W(x,t), F(x,t) fields of the calibrated model
 replaying the real cook (MAP-real parameters, measured fan schedule).
 
 Run from app/:  uv run python -u ../scripts/render_animation.py [--stride N]
@@ -57,7 +57,10 @@ def main():
     T = np.asarray(meat.T_field).copy() - 273.15   # nx × nt
     W = np.asarray(meat.W_field).copy()            # dry-basis
     C = np.asarray(meat.C_field).copy()
+    F = np.asarray(meat.F_field).copy()            # un-rendered fat, dry-basis
     j_evap = np.asarray(meat.j_evap).copy() * 1e6  # mg/m2/s
+    W0 = float(cfg_meat.W0)
+    F0 = float(cfg_meat.F0)
     nx, nt = T.shape
     L_cm = theta[3] * 100.0
     x = np.linspace(0.0, L_cm, nx)                 # center -> surface [cm]
@@ -80,13 +83,22 @@ def main():
             ylabel="T [°C]", title="temperature through the slab")
     axT.axhline(100, color="gray", lw=0.6, ls=":")
 
+    # normalized profiles share one axis; the 1.05-1.3 band is reserved
+    # headroom for labels so curves (<=1.02) can never collide with them
     lnW, = axW.plot([], [], color="tab:blue", lw=2)
-    axW.set(xlim=(0, L_cm), ylim=(0, 2.5), xlabel="depth from center [cm]",
-            ylabel="W [kg/kg dry]", title="moisture through the slab")
-    wcrit = 0.40
+    lnF, = axW.plot([], [], color="darkgoldenrod", lw=2)
+    axW.set(xlim=(0, L_cm), ylim=(0, 1.3), xlabel="depth from center [cm]",
+            ylabel="fraction of initial", title="water & fat through the slab")
+    axW.axhline(1.0, color="gray", lw=0.6, ls=":")
+    axW.text(0.02, 0.94, "water W/W₀", fontsize=8, color="tab:blue",
+             va="center", transform=axW.transAxes)
+    axW.text(0.40, 0.94, "un-rendered fat F/F₀", fontsize=8,
+             color="darkgoldenrod", va="center", transform=axW.transAxes)
+    wcrit = 0.40 / W0
     axW.axhline(wcrit, color="tab:blue", lw=0.6, ls=":")
-    axW.annotate("evaporation throttles below this", (0.02, wcrit + 0.06),
-                 fontsize=7, color="tab:blue")
+    axW.annotate("evaporation throttles below this", (0.02, wcrit + 0.03),
+                 fontsize=7, color="tab:blue",
+                 bbox=dict(fc="white", ec="none", alpha=0.7, pad=0.5))
 
     axS.plot(th, tpit, color="tab:orange", lw=1, alpha=0.8, label="pit")
     axS.plot(th, T[0], color="tab:red", lw=1.4, label="core")
@@ -94,8 +106,10 @@ def main():
     obs = log["obs_core"] - 273.15
     axS.plot(th[log["mask_core"]], obs[log["mask_core"]], ".", ms=2,
              color="k", alpha=0.35, label="observed core")
-    cursor = axS.axvline(0, color="k", lw=1)
-    axS.set(xlabel="time [h]", ylabel="T [°C]",
+    cursor = axS.axvline(0, color="k", lw=1, ymax=0.76)  # stop below text band
+    # ylim headroom: data tops out ~112 °C; the 115-145 band is reserved
+    # for the 3-line status text so it never sits on the pit trace
+    axS.set(xlabel="time [h]", ylabel="T [°C]", ylim=(15, 145),
             title="the calibrated cook (Mache/TVWBB, 18.5\" WSM)")
     axS.legend(fontsize=8, loc="lower right")
     txt = axS.text(0.02, 0.97, "", transform=axS.transAxes, fontsize=9,
@@ -105,13 +119,18 @@ def main():
 
     def update(i):
         lnT.set_data(x, T[:, i])
-        lnW.set_data(x, W[:, i])
+        lnW.set_data(x, W[:, i] / W0)
+        lnF.set_data(x, F[:, i] / F0)
         cursor.set_xdata([th[i], th[i]])
-        stall = "STALL: evaporative cooling ~ heat input" if \
+        stall = "STALL: evap cooling ≈ heat input" if \
             (55 <= T[0, i] <= 75 and i > nt // 8 and T[0, i] - T[0, max(0, i - 6)] < 1.5) else ""
+        w_ret = W[:, i].mean() / W0
+        f_ren = 1.0 - F[:, i].mean() / F0
         txt.set_text(f"t = {th[i]:5.1f} h   core {T[0, i]:5.1f} °C   "
-                     f"evap {j_evap[i]:6.0f} mg/m²/s   doneness {C[0, i]:.2f}\n{stall}")
-        return lnT, lnW, cursor, txt
+                     f"evap {j_evap[i]:6.0f} mg/m²/s   doneness {C[0, i]:.2f}\n"
+                     f"water retained {w_ret:4.0%}   fat rendered {f_ren:4.0%}\n"
+                     f"{stall}")
+        return lnT, lnW, lnF, cursor, txt
 
     anim = FuncAnimation(fig, update, frames=frames, blit=False)
     out = REPO / "figures" / "cook_animation.gif"
