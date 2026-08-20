@@ -175,3 +175,29 @@ end
     fd = (loss(θ, smoke, t_wrap + h) - loss(θ, smoke, t_wrap - h)) / (2h)
     @test relerr(g.dt_wrap, fd) < 2e-3
 end
+
+@testset "moisture adjoint vs FD" begin
+    hr = 3600.0
+    tknots = collect(0.0:600.0:8hr)
+    tsave = tknots
+    θ = MEAT_θ_DEFAULT
+    Tpit = collect(range(380.0, 390.0, length = length(tknots)))
+    tol = (abstol = 1e-9, reltol = 1e-9)
+    wj, wf = 10.0, 5.0
+
+    loss(θv, Tpitv) = wj * meat_solve(θv, Tpitv, tknots, tsave; tol...).juiciness +
+                      wf * meat_solve(θv, Tpitv, tknots, tsave; tol...).fat_rendered
+    o = meat_solve(θ, Tpit, tknots, tsave; tol...)
+    cot = (juiciness = wj, fat_rendered = wf)
+    g = meat_vjp(θ, Tpit, tknots, tsave, cot; tol...)
+
+    # h_c direction: drives surface T -> expulsion + render + evaporation
+    fd = fd_partial(v -> loss(v, Tpit), θ, 3)
+    @test relerr(g.dθ[3], fd) < 2e-3
+    # k_mult (conduction): moves interior T history -> expulsion field
+    fd = fd_partial(v -> loss(v, Tpit), θ, 5)
+    @test relerr(g.dθ[5], fd) < 2e-3
+    # mid trajectory knot through the new outputs
+    fd = fd_partial(v -> loss(θ, v), Tpit, 13; hrel = 1e-4)
+    @test relerr(g.dTpit_knots[13], fd) < 5e-3
+end

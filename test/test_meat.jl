@@ -68,9 +68,16 @@ end
     @test ∫j(wrapped) < 0.7 * ∫j(unwrapped)
     @test wrapped.w_retained > unwrapped.w_retained
 
-    # the crutch does its job: the wrapped cook finishes hotter (stall broken
-    # early instead of burning hours of evaporative cooling)
-    @test wrapped.Tcore[end] > unwrapped.Tcore[end] + 2.0
+    # the crutch does its job where it matters: it breaks the stall EARLY
+    # (~14 K core advantage near 9 h with wrap at 5 h). With expulsion
+    # modeled, the unwrapped surface dries and self-breaks its stall late
+    # in the cook, so the advantage peaks mid-cook and CONVERGES by the
+    # 16 h asymptote — where the foil's lower effective h and ε can even
+    # cost ~0.5 K (the trapped-steam braise channel is unmodeled; see
+    # docs/model_gaps.md). Assert the mid-cook stall-break, after t_wrap.
+    adv = wrapped.Tcore .- unwrapped.Tcore
+    @test maximum(adv) > 8.0
+    @test tsave[argmax(adv)] > 5hr
 
     # post-wrap, evaporative flux collapses: the 90% suppression must beat
     # the (wetter, hotter) wrapped surface's raised raw demand by a wide
@@ -107,8 +114,12 @@ end
     # rtol 1e-6, not 1e-10: with S dynamics active the solver's step
     # sequence differs, so B matches to solver tolerance, not bitwise
     @test isapprox(dry.bark_b[end], lo.bark_b[end]; rtol = 1e-6)
-    # hot cook Maillard-saturates; low-slow keeps (slightly) more smoke color
-    @test hi.bark_b[end] > 3 * lo.bark_b[end]
+    # hot cook Maillard-saturates; with expulsion drying the surface the
+    # low-slow cook browns substantially too (deeper into the a_w bell),
+    # so a fixed hi/lo ratio is the wrong invariant (hi pins near 1) —
+    # assert saturation vs a clear sub-saturation margin instead
+    @test hi.bark_b[end] > 0.95
+    @test lo.bark_b[end] < 0.6 * hi.bark_b[end]
     @test lo.bark_s[end] > hi.bark_s[end]
     # wrapping freezes smoke deposition (the known wrap cost)
     @test wr.bark_s[end] < 0.75 * lo.bark_s[end]
@@ -116,4 +127,43 @@ end
     # bark window: most deposition happens in the first half of the cook
     ihalf = findfirst(t -> t >= 7hr, tk)
     @test lo.bark_s[ihalf] > 0.6 * lo.bark_s[end]
+end
+
+@testset "moisture physics: fat rendering + expulsion" begin
+    hr = 3600.0
+    tk = collect(0.0:600.0:12hr)
+    θ = MEAT_θ_DEFAULT
+    cfg = MeatConfig()
+
+    lo = meat_solve(θ, fill(383.15, length(tk)), tk, tk)   # 110 C pit
+    hi = meat_solve(θ, fill(408.15, length(tk)), tk, tk)   # 135 C pit
+
+    # mass closure: water lost = evaporated + dripped, algebraically exact
+    for o in (lo, hi)
+        water_lost = cfg.W0 * (1 - o.w_retained)
+        @test isapprox(water_lost, o.evap_w + o.drip_w; atol = 1e-8)
+        @test 0 <= o.fat_rendered <= 1
+        @test o.drip_f ≈ cfg.η_drain * cfg.F0 * o.fat_rendered atol = 1e-10
+        # juiciness = water + β·retained rendered fat (exceeds water-only)
+        @test o.juiciness > o.w_retained
+        @test o.juiciness ≈ o.w_retained +
+              cfg.β_fat * (1 - cfg.η_drain) * cfg.F0 * o.fat_rendered / cfg.W0 atol = 1e-10
+    end
+
+    # hotter cook: more fat rendered, more expulsion, less water retained
+    @test hi.fat_rendered > lo.fat_rendered
+    @test hi.w_retained < lo.w_retained
+
+    # total wet-basis mass loss in the realistic band for a long unwrapped
+    # cook (~35-55%; packers commonly yield ~half of raw weight)
+    for o in (lo, hi)
+        wet0 = 1.0 + cfg.W0 + cfg.F0     # dry matter + water + fat
+        loss = cfg.W0 * (1 - o.w_retained) + o.drip_f
+        @test 0.30 < loss / wet0 < 0.60
+    end
+
+    # expulsion is one-sided: a cool cook (60 C pit) barely purges
+    cool = meat_solve(θ, fill(333.15, length(tk)), tk, tk)
+    @test cool.w_retained > lo.w_retained
+    @test cool.fat_rendered < 0.5
 end

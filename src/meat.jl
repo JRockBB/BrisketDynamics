@@ -4,8 +4,9 @@
 # Geometry: half-slab x ∈ [0, L] with symmetry at x = 0 (center, where the
 # temperature probe sits) and the convective/radiative/evaporative boundary at
 # x = L (surface). Method of lines on nx uniform nodes; states are the fields
-# T [K], W [kg water / kg dry matter], and collagen conversion C ∈ [0, 1],
-# giving 3·nx ODEs.
+# T [K], W [kg water / kg dry matter], collagen conversion C ∈ [0, 1], and
+# un-rendered fat F [kg fat / kg dry matter], plus the two surface bark
+# states — 4·nx + 2 ODEs.
 #
 # Differentiation: continuous adjoint via SciMLSensitivity
 # (InterpolatingAdjoint + ReverseDiffVJP compiled tape), pulled through
@@ -54,6 +55,27 @@ Base.@kwdef struct MeatConfig
     L0_bark::Float64 = 52.0     # initial (rubbed, raw) surface lightness L*
     dL_B::Float64 = 20.0        # max L* drop from Maillard browning
     dL_S::Float64 = 10.0        # max L* drop from smoke deposition
+    # Moisture physics (docs/moisture_plan.md; gap audit Tier 1 #1/#2).
+    # Fat rendering: tallow melts ~32-49 C, drains (cell rupture) from
+    # ~54 C; k_f0 sets an hours-scale render time in the BBQ band.
+    F0::Float64 = 0.22          # initial fat fraction, dry basis (marbling)
+    T_render::Float64 = 328.15  # render switch center [K] (55 C)
+    δ_render::Float64 = 4.0     # switch width [K]
+    k_f0::Float64 = 4.6e-5      # render rate when hot [1/s] (~1/6h)
+    η_drain::Float64 = 0.5      # rendered fat fraction that drains (drips)
+    β_fat::Float64 = 1.8        # perceived-juiciness weight of retained
+                                # rendered fat vs water (sensory placeholder)
+    # Denaturation-driven water expulsion (purge): relaxation toward the
+    # temperature-dependent water-holding equilibrium W_eq(T), which drops
+    # in two literature-shaped steps (myosin ~58 C, actin ~72 C).
+    k_e::Float64 = 5.6e-4       # expulsion relaxation rate [1/s] (~1/30min)
+    δ_e::Float64 = 0.02         # softplus width of the one-sided relaxation
+    a_myosin::Float64 = 0.20    # W_eq drop at the myosin step
+    T_myosin::Float64 = 331.15  # 58 C
+    δ_myosin::Float64 = 4.0
+    a_actin::Float64 = 0.25     # W_eq drop at the actin step
+    T_actin::Float64 = 345.15   # 72 C
+    δ_actin::Float64 = 4.0
 end
 
 # θ = [D_eff, k_m, h_c, L, k_mult] — the meat-side latent parameter vector.
@@ -117,6 +139,24 @@ bark_rate(Ts, aw, cfg::MeatConfig) =
 "Surface lightness from the two bark states (affine map to CIELAB L*)."
 l_star_bark(B, S, cfg::MeatConfig) = cfg.L0_bark - cfg.dL_B * B - cfg.dL_S * S
 
+# --- Moisture physics (docs/moisture_plan.md) ------------------------------
+"Temperature-dependent water-holding equilibrium: two denaturation steps."
+w_eq(T, cfg::MeatConfig) =
+    cfg.W0 * (1 - cfg.a_myosin * logistic((T - cfg.T_myosin) / cfg.δ_myosin)
+                - cfg.a_actin * logistic((T - cfg.T_actin) / cfg.δ_actin))
+
+"Smooth one-sided expulsion sink: relax W toward w_eq(T) from above only."
+expulsion_rate(W, T, cfg::MeatConfig) =
+    cfg.k_e * cfg.δ_e * log1pexp((W - w_eq(T, cfg)) / cfg.δ_e)
+
+"Fat render rate [1/s]: smooth melt/drain switch times base rate."
+fat_rate(T, cfg::MeatConfig) =
+    cfg.k_f0 * logistic((T - cfg.T_render) / cfg.δ_render)
+
+# numerically-stable softplus for the expulsion sink (Enzyme-safe,
+# branch-free like softclamp)
+log1pexp(x) = max(x, zero(x)) + log1p(exp(-abs(x)))
+
 "Arrhenius collagen conversion rate [s⁻¹] at temperature T."
 collagen_rate(T, cfg::MeatConfig) =
     cfg.k_ref * exp(-(cfg.Ea / cfg.R_gas) * (1 / T - 1 / cfg.T_ref))
@@ -133,8 +173,9 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
     nx = cfg.nx
     # p = [θ(5) | Tpit_knots(nk) | smoke_knots(nk) | t_wrap]; the smoke
     # forcing (pit burn rate, bark smoke-flux proxy) shares the Tpit knot
-    # grid. States: [T(nx) | W(nx) | C(nx) | B | S] — bark browning B and
-    # smoke deposit S are pure integrators (no feedback into T/W/C in v1).
+    # grid. States: [T(nx) | W(nx) | C(nx) | F(nx) | B | S]. Bark states are
+    # pure integrators; fat F is a pure sink; the ONE quality-physics
+    # feedback is the expulsion sink in dW (denaturation purge).
     function meat_rhs!(du, u, p, t)
         D_eff, k_m, h_c, L, k_mult = p[1], p[2], p[3], p[4], p[5]
         knots = @view p[MEAT_NP+1:MEAT_NP+nk]
@@ -148,9 +189,11 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
         T = @view u[1:nx]
         W = @view u[nx+1:2nx]
         C = @view u[2nx+1:3nx]
+        F = @view u[3nx+1:4nx]
         dT = @view du[1:nx]
         dW = @view du[nx+1:2nx]
         dC = @view du[2nx+1:3nx]
+        dF = @view du[3nx+1:4nx]
 
         Tpit = lininterp(t, tk0, tkdt, knots)
 
@@ -173,26 +216,31 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
         dW[nx] = (RHO_DRY * D_eff * (W[nx-1] - Ws) / Δx - j) / (RHO_DRY * Δx / 2)
 
         # collagen conversion (doneness diagnostic as state — adjoint for free)
+        # + denaturation-driven water expulsion (purge; drips out of the
+        #   node budget) + fat rendering
         @inbounds for i in 1:nx
             dC[i] = collagen_rate(T[i], cfg) * (1 - C[i])
+            dW[i] -= expulsion_rate(W[i], T[i], cfg)
+            dF[i] = -fat_rate(T[i], cfg) * F[i]
         end
 
         # bark states: Maillard browning B and smoke deposit S at the surface
         aw = a_w_oswin(Ws, cfg)
-        B = u[3nx+1]
+        B = u[4nx+1]
         smoke = lininterp(t, tk0, tkdt, smoke_knots)
-        du[3nx+1] = bark_rate(Ts, aw, cfg) * (1 - B)
-        S = u[3nx+2]
+        du[4nx+1] = bark_rate(Ts, aw, cfg) * (1 - B)
+        S = u[4nx+2]
         # (1 - S): deposition sites saturate, so S ∈ [0, 1) and dL_S is the
         # max smoke darkening; (1 - s): foil blocks smoke contact
-        du[3nx+2] = cfg.k_dep * wet_blend(aw, cfg) * max(smoke, zero(smoke)) *
+        du[4nx+2] = cfg.k_dep * wet_blend(aw, cfg) * max(smoke, zero(smoke)) *
                     (1 - s) * (1 - S)
         nothing
     end
 end
 
 _meat_u0(cfg::MeatConfig) =
-    vcat(fill(cfg.T0, cfg.nx), fill(cfg.W0, cfg.nx), zeros(cfg.nx), zeros(2))
+    vcat(fill(cfg.T0, cfg.nx), fill(cfg.W0, cfg.nx), zeros(cfg.nx),
+         fill(cfg.F0, cfg.nx), zeros(2))
 
 """
     _meat_u0(cfg, T0f, W0f, C0f)
@@ -207,9 +255,10 @@ function _meat_u0(cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector,
     C = isempty(C0f) ? zeros(cfg.nx) : collect(float.(C0f))
     (length(T) == cfg.nx && length(W) == cfg.nx && length(C) == cfg.nx) ||
         throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
-    # bark states restart at 0 on a state handoff — a mid-cook re-plan does
-    # not need bark continuity (observable-only in v1); documented limitation
-    vcat(T, W, C, zeros(2))
+    # bark states restart at 0 and fat restarts full on a state handoff —
+    # mid-cook re-plans do not need their continuity (observable-only in
+    # v1); documented limitation
+    vcat(T, W, C, fill(cfg.F0, cfg.nx), zeros(2))
 end
 
 # InterpolatingAdjoint + EnzymeVJP. Both choices are load-bearing:
@@ -217,8 +266,11 @@ end
 # EnzymeVJP: ~10-25x faster than ReverseDiff retaping, and immune to the
 # compiled-tape trap (ReverseDiffVJP(true) freezes the time-dependent
 # hat-basis interpolation weights as constants, silently zeroing the
-# forcing-knot adjoint). Fallback: InterpolatingAdjoint(ReverseDiffVJP(false)),
-# never (true).
+# forcing-knot adjoint). InterpolatingAdjoint(ReverseDiffVJP(false)) is the
+# DIAGNOSTIC ALTERNATIVE — an independent differentiator for cross-checking
+# suspected adjoint bugs (it settled the 2026-08-20 silent-zero hunt by
+# agreeing with Enzyme, proving the bug upstream of the backend). It is
+# never auto-substituted; production is Enzyme, always. Never (true).
 #
 # InterpolatingAdjoint, NOT GaussAdjoint: GaussAdjoint's quadrature goes NaN
 # on this problem when the backward pass crosses a hot fuel-collapse pit
@@ -256,13 +308,22 @@ function _meat_core(p, cfg::MeatConfig, prob, tsave, Mts;
     Tsurf = A[nx, :]
     Wsurf = A[2nx, :]
     C_field_final = A[2nx+1:3nx, end]
-    # juiciness proxy: mean retained moisture at pull, as a fraction of W0
+    # water retained (water-only; kept for continuity + scale calibration)
     w_retained = sum(A[nx+1:2nx, end]) / (nx * cfg.W0)
     nk = size(Mts, 2)
     Tpit_ts = Mts * p[MEAT_NP+1:MEAT_NP+nk]
-    bark_b = A[3nx+1, :]
-    bark_s = A[3nx+2, :]
+    bark_b = A[4nx+1, :]
+    bark_s = A[4nx+2, :]
     l_star = l_star_bark.(bark_b, bark_s, Ref(cfg))
+    # moisture physics observables (docs/moisture_plan.md): rendered fat,
+    # perceptual juiciness (water + β·retained rendered fat), and the
+    # cook-loss decomposition the scale experiment measures. All dry-basis
+    # mean units; mass closure is algebraic (dripped water = water lost
+    # minus evaporated), assuming uniform ICs (handoff caveat documented).
+    F_mean = sum(A[3nx+1:4nx, end]) / nx
+    fat_rendered = (cfg.F0 - F_mean) / cfg.F0
+    R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
+    juiciness = w_retained + cfg.β_fat * R_ret / cfg.W0
     # observables MUST apply the same wrap blend as the RHS: the bark
     # integral (∫ j_evap dt) and the pit coupling consume these, and an
     # unblended observable would carry a silently wrong t_wrap gradient
@@ -271,8 +332,15 @@ function _meat_core(p, cfg::MeatConfig, prob, tsave, Mts;
     j_evap = (1 .- cfg.η_evap .* s_ts) .* evap_flux.(Tsurf, Wsurf, p[2], Ref(cfg))
     q_meat = cfg.A_meat .*
              surface_heat_in_wrapped.(Tpit_ts, Tsurf, p[3], s_ts, Ref(cfg))
+    # evaporated water in dry-basis mean units: ∫j dt / (ρ_dry · L)
+    dts = tsave[2:end] .- tsave[1:end-1]
+    evap_w = sum((j_evap[1:end-1] .+ j_evap[2:end]) ./ 2 .* dts) /
+             (RHO_DRY * p[4])
+    drip_w = (cfg.W0 - w_retained * cfg.W0) - evap_w
+    drip_f = cfg.η_drain * (cfg.F0 - F_mean)
     (; Tsurf, Tcore, j_evap, q_meat, C_field_final, w_retained,
-       bark_b, bark_s, l_star)
+       bark_b, bark_s, l_star,
+       juiciness, fat_rendered, evap_w, drip_w, drip_f)
 end
 
 """
@@ -309,19 +377,32 @@ function meat_solve(θ::AbstractVector, Tpit_knots::AbstractVector,
     Mts = hat_matrix(tsave, tk0, tkdt, length(tknots))
     Tpit_ts = Mts * Tpit_knots
     s_ts = wrap_blend.(tsave, float(t_wrap), Ref(cfg))
-    bark_b = A[3nx+1, :]
-    bark_s = A[3nx+2, :]
+    bark_b = A[4nx+1, :]
+    bark_s = A[4nx+2, :]
+    j_evap = (1 .- cfg.η_evap .* s_ts) .*
+             evap_flux.(Tsurf, Wsurf, θ[2], Ref(cfg))
+    w_retained = sum(A[nx+1:2nx, end]) / (nx * cfg.W0)
+    F_mean = sum(A[3nx+1:4nx, end]) / nx
+    R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
+    dts = diff(collect(float.(tsave)))
+    evap_w = sum((j_evap[1:end-1] .+ j_evap[2:end]) ./ 2 .* dts) /
+             (RHO_DRY * θ[4])
     (; Tsurf,
        Tcore = A[1, :],
        bark_b, bark_s,
        l_star = l_star_bark.(bark_b, bark_s, Ref(cfg)),
-       j_evap = (1 .- cfg.η_evap .* s_ts) .*
-                evap_flux.(Tsurf, Wsurf, θ[2], Ref(cfg)),
+       j_evap,
        q_meat = cfg.A_meat .*
                 surface_heat_in_wrapped.(Tpit_ts, Tsurf, θ[3], s_ts, Ref(cfg)),
        C_field_final = A[2nx+1:3nx, end],
-       w_retained = sum(A[nx+1:2nx, end]) / (nx * cfg.W0),
+       w_retained,
+       juiciness = w_retained + cfg.β_fat * R_ret / cfg.W0,
+       fat_rendered = (cfg.F0 - F_mean) / cfg.F0,
+       evap_w,
+       drip_w = (cfg.W0 - w_retained * cfg.W0) - evap_w,
+       drip_f = cfg.η_drain * (cfg.F0 - F_mean),
        T_field = A[1:nx, :], W_field = A[nx+1:2nx, :], C_field = A[2nx+1:3nx, :],
+       F_field = A[3nx+1:4nx, :],
        t = collect(float.(tsave)))
 end
 
@@ -358,11 +439,39 @@ function meat_vjp(θ::AbstractVector, Tpit_knots::AbstractVector,
         bark_b = get(cot, :bark_b, z_t),
         bark_s = get(cot, :bark_s, z_t),
         l_star = get(cot, :l_star, z_t),
+        juiciness = get(cot, :juiciness, 0.0),
+        fat_rendered = get(cot, :fat_rendered, 0.0),
+        evap_w = get(cot, :evap_w, 0.0),
+        drip_w = get(cot, :drip_w, 0.0),
+        drip_f = get(cot, :drip_f, 0.0),
     )
+    # Cotangent normalization: the backward adjoint solve can fail its
+    # FIRST step (dt < eps abort -> SILENT ZERO gradients) when terminal
+    # lambda injections are large — observed at ||cot|| ~ 1e3 with the
+    # moisture RHS while the identical seed at unit norm is exact to 2e-6.
+    # The VJP is linear in the cotangent, so normalizing in and rescaling
+    # out is EXACT and removes the magnitude trigger entirely.
+    cscale = maximum(x -> maximum(abs, x; init = 0.0),
+                     (cotfull.Tsurf, cotfull.Tcore, cotfull.j_evap,
+                      cotfull.q_meat, cotfull.C_field_final,
+                      [cotfull.w_retained], cotfull.bark_b, cotfull.bark_s,
+                      cotfull.l_star, [cotfull.juiciness],
+                      [cotfull.fat_rendered], [cotfull.evap_w],
+                      [cotfull.drip_w], [cotfull.drip_f]))
+    cscale = cscale > 0 ? cscale : 1.0
+    cotn = map(c -> c isa AbstractArray ? c ./ cscale : c / cscale, cotfull)
     _, back = Zygote.pullback(pp -> _meat_core(pp, cfg, prob, tsave, Mts;
                                                abstol, reltol, sensealg), p)
-    dp = back(cotfull)[1]
-    dp = dp === nothing ? zeros(length(p)) : dp
+    dp = back(cotn)[1]
+    dp = dp === nothing ? zeros(length(p)) : dp .* cscale
+    # Loud guard against the silent-zero failure mode: an identically zero
+    # gradient with nonzero seeds means the backward solve aborted.
+    if cscale > 0 && all(iszero, dp) && any(c -> any(!iszero, c isa AbstractArray ? c : [c]), cotfull)
+        throw(ErrorException(
+            "meat adjoint returned identically zero gradients for nonzero " *
+            "cotangents — backward solve likely aborted (dt_epsilon); " *
+            "do not trust this gradient"))
+    end
     nk = length(Tpit_knots)
     (dθ = dp[1:MEAT_NP],
      dTpit_knots = dp[MEAT_NP+1:MEAT_NP+nk],
