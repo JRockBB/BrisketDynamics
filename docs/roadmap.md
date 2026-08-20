@@ -102,7 +102,28 @@ bark chemistry without calibration data.
    VJP field-IC gap (documented at `_meat_vjp`) and bark-state continuity
    across the receding-horizon handoff; wrap irreversibility (t_wrap
    frozen once executed).
-2. **Monolith / Dyad exploration: move the Tesseract boundary to the
+2. **Discrete adjoint via Enzyme-through-the-stepper: kill the backward
+   pass properly.** Measured 2026-08-21: the meat VJP costs ~1.9 s base
+   + 66 ms per cotangent save point (~9 s at 49 points, ~80% of gradient
+   cost on the 115-point real-cook grid) against a 0.06 s forward solve,
+   and the cost is flat in tolerance. Mechanism (SciMLSensitivity
+   source-confirmed): every discrete cotangent injection is a u-modifying
+   callback that restarts the backward BDF at order 1 — an artifact of
+   the *continuous* adjoint formulation. A **discrete adjoint** —
+   Enzyme reverse-mode through the stepper iteration itself — has no
+   backward ODE and no restarts: save-point cotangents simply add into
+   the reverse sweep, cost ≈ small multiple of the forward. Potential
+   ~10-50x on every NUTS/SVI/control gradient, dwarfing every
+   configuration-level option (QuadratureAdjoint failed our FD gate;
+   KenCarp/checkpointing/sparsity all measured out). Price: Enzyme
+   cannot eat adaptive FBDF, so this means a hand-rolled fixed-step
+   stiff stepper (TRBDF2-class) with a custom Enzyme rule for the
+   Newton/LU linear solve, fixed-step accuracy validation against the
+   adaptive reference, and a full re-run of the gradient-verification
+   doctrine. Week-class; the single highest-leverage performance item
+   on this list. Composes with the monolith item below (one stepper,
+   one discrete adjoint for the whole 165-state coupled system).
+3. **Monolith / Dyad exploration: move the Tesseract boundary to the
    edge.** The K=2 Picard split exists only because the pit/meat boundary
    bisects the physics; a monolithic Julia core (one ~123-state DAE, one
    adjoint, Turing/AdvancedHMC calibration, MCMCThreads parallel chains)
@@ -130,7 +151,7 @@ bark chemistry without calibration data.
    single Tesseract — a language-agnostic, versioned deployment skin for
    the MPC/HeaterMeter service — so the boundary sits around the physics,
    not through it. Decides *where* the items below get built.
-3. **The ~$150 instrument package + data flywheel.** In value order: a
+4. **The ~$150 instrument package + data flywheel.** In value order: a
    two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
    meat, no controller — free, and the only way to identify the pit's fast
    fan-response dynamics, which closed-loop cook logs provably hide); a
@@ -141,13 +162,13 @@ bark chemistry without calibration data.
    wick — measures the exact stall-relevant quantity; industrial smokehouse
    practice) to make humidity an input and retire the p_v,pit confound; IR
    spot readings of the surface (h_c/k_m separation).
-4. **Hierarchical multi-cook pooling.** Pit parameters are properties of the
+5. **Hierarchical multi-cook pooling.** Pit parameters are properties of the
    smoker (pool tightly across cooks); meat parameters are per-brisket
    (partial pooling → a personal prior over "briskets I buy"). Every logged
    cook tightens the twin. Designed experiment worth running early: water
    pan in vs. out, two otherwise-identical cooks, to identify the humidity
    pathway.
-5. **Wrap-constant calibration.** The wrap physics + differentiable
+6. **Wrap-constant calibration.** The wrap physics + differentiable
    wrap-time landed during the hackathon (stretch item 3); what remains is
    calibrating η_evap/ε_wrap against a wrapped cook log — posts document
    the wrap moment, making the wrap event a known-input step-response
@@ -155,7 +176,7 @@ bark chemistry without calibration data.
    acquisition is user-owned, like the 2013 log. A state-triggered wrap
    ("wrap at 165 °F internal") needs event sensitivities — natural in the
    Dyad/monolith exploration where events are first-class.
-6. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
+7. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
    diffusion (D_salt ~1e-10 m²/s, well-pinned in the ham-curing literature —
    take it as a constant, don't calibrate): an isothermal fridge-temperature
    pre-cook solve from t_salt to cook start yields the initial salt profile
@@ -173,7 +194,7 @@ bark chemistry without calibration data.
    before and after; mass loss vs salting time is the curve the WHC
    coupling fits. Non-salt rub effects (sugar browning, emissivity, surface
    mass transfer) belong to the bark item below, not here.
-7. **Bark model calibration.** The mechanistic bark model LANDED during
+8. **Bark model calibration.** The mechanistic bark model LANDED during
    the hackathon (branch `bark-model`, merged: Maillard + smoke-deposition
    states, smoke flux = pit burn rate, full composition demo). Remaining:
    calibrate against standardized-photo colorimetry (hourly lid-open photos
@@ -186,15 +207,15 @@ bark chemistry without calibration data.
    combustion changes deposition chemistry at the same mass — plausibly a
    differentiable function of airflow/burn state, making bitterness a
    controllable output. To our knowledge unpublished territory.
-8. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
+9. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
    center-line correction (~3× cost, differentiable, cheap taste of 3D);
    full 2D axisymmetric surface model *only* once thermal-camera surface
    fields exist to calibrate it (also feeds bark distribution / burnt ends).
    Sensors first, dimensions second.
-9. **Community/product shape.** Publish as a usable open-source stack
+10. **Community/product shape.** Publish as a usable open-source stack
    (calibrate-from-your-log CLI, schedule/MPC frontend); write up the bark
    and pooling work properly if the data supports it.
-10. **Generalize across meats and cookers.** The architecture already is the
+11. **Generalize across meats and cookers.** The architecture already is the
    generalization — heat source ⇄ meat through (T_source, q_load), i.e. swap
    one Tesseract, keep the other. The model family is small: geometry mode
    (slab/cylinder/sphere — one curvature term), surface-BC mode (evaporative
