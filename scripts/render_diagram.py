@@ -68,7 +68,7 @@ box(0.6, 0.85, 4.6, 2.55, "#fdf1e7", "#c96a1b",
 box(7.8, 0.85, 4.6, 2.55, "#fdeaea", "#b03a3a",
     "brisket-meat  (Julia)",
     ["1D slab heat + moisture PDE + bark",
-     "122 stiff ODEs (FBDF) · smoothed stall",
+     "162 stiff ODEs (FBDF) · smoothed stall",
      "AD: SciMLSensitivity continuous adjoint",
      "(InterpolatingAdjoint + EnzymeVJP)"])
 

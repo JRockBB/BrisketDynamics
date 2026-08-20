@@ -39,8 +39,10 @@ class ControlConfig:
         `over_rel` because early finishes are absorbed by the resting hold.
       taste — two correlates: smoke-phenolic mass (deposited guaiacol /
         syringol; band = depth without acrid over-deposition; smoke
-        QUALITY clean-vs-dirty is not modeled) and retained moisture
-        (WATER-ONLY pending the fat/expulsion build — gap audit #1/#2).
+        QUALITY clean-vs-dirty is not modeled) and perceptual juiciness
+        (retained water + β_fat-weighted retained rendered fat from the
+        fat-rendering/expulsion model — gap audit #1/#2 DONE; β_fat is a
+        sensory placeholder pending the scale experiment).
         Seasoning, sweetness, beef flavor: absent.
       appearance — predicted color only (two-sided mahogany L* band;
         judges ding black bark as burnt-looking). Uniformity, sheen,
@@ -119,7 +121,7 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
     appearance = (jax.nn.softplus((Lst - cc.l_mahogany_hi) / cc.dl_soft) ** 2
                   + jax.nn.softplus((cc.l_mahogany_lo - Lst) / cc.dl_soft) ** 2)
 
-    # taste: smoke-depth band + dryness (water-only; see taxonomy)
+    # taste: smoke-depth band + dryness (see taxonomy)
     S_end = sim["bark_s"][-1]
     smoke_band = (jax.nn.softplus((cc.s_smoke_lo - S_end) / cc.ds_soft) ** 2
                   + jax.nn.softplus((S_end - cc.s_smoke_hi) / cc.ds_soft) ** 2)

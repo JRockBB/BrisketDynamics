@@ -135,7 +135,7 @@ end-to-end differentiable BBQ simulator, then uses the gradients for
 Bayesian calibration on a real 19-hour cook log and for optimal control.
 
 **The composition.** `brisket-meat` is a 1D heat–moisture PDE plus surface bark states
-(method of lines, 122 stiff ODEs, FBDF) whose smoothed evaporative surface
+(method of lines, 162 stiff ODEs, FBDF) whose smoothed evaporative surface
 BC produces the stall; its `vector_jacobian_product` endpoint is a
 SciMLSensitivity continuous adjoint (`InterpolatingAdjoint` + `EnzymeVJP`).
 `brisket-pit` is a 3-state charcoal-pit ODE (energy balance, fuel burn,

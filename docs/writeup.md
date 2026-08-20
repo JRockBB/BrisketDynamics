@@ -25,7 +25,7 @@ strategies**, composed in JAX via tesseract-jax:
 
 | Component | Physics | Differentiation |
 |---|---|---|
-| `brisket-meat` | 1D slab heat+moisture PDE + surface bark states (Maillard, smoke deposition), 122 stiff ODEs (method of lines, FBDF), smoothed evaporative surface BC, collagen kinetics | **SciMLSensitivity continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`), exposed as the Tesseract `vector_jacobian_product` |
+| `brisket-meat` | 1D slab heat+moisture PDE (denaturation expulsion, fat rendering) + surface bark states (Maillard, smoke deposition), 162 stiff ODEs (method of lines, FBDF), smoothed evaporative surface BC, collagen kinetics | **SciMLSensitivity continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`), exposed as the Tesseract `vector_jacobian_product` |
 | `brisket-pit` | lumped charcoal pit, 3 ODEs (energy balance, fuel burn with smooth burnout taper, Minion-method ignition spread) | **exact dense ForwardDiff Jacobian**, transposed to a VJP |
 
 ![Composition diagram](../figures/composition_diagram.png)
@@ -205,13 +205,19 @@ tenderness 0.29 — the multipliers real judges' scores carry — applied to
 the subset of each category the simulation observes: a two-sided
 *mahogany* color band (judges ding black bark as burnt-looking), a
 smoke-deposition band (phenolic mass as a smoke-depth correlate with an
-over-deposition/bitterness ceiling), moisture, and the two-sided collagen
-tenderness band. Every weight and band is an overridable config field — a
-different preference is a different config, not a different mode. Stated
-plainly: tenderness is a mechanistic proxy, taste is two correlates
-(smoke mass, water-only moisture — seasoning and smoke *quality* are
-absent), appearance is color only. Absolute durations remain conditional
-on the placeholder band normalizations; the weights are cited.
+over-deposition/bitterness ceiling), perceptual juiciness, and the
+two-sided collagen tenderness band. Every weight and band is an
+overridable config field — a different preference is a different config,
+not a different mode. Juiciness is now mechanistic on both channels:
+retained water under denaturation-driven expulsion (myosin/actin
+water-holding-capacity steps) plus retained rendered fat (the
+fat-rendering state), with the cook-loss budget — evaporation, purge,
+drained tallow — closed algebraically and testable against a kitchen
+scale. Stated plainly: tenderness is a mechanistic proxy, taste is two
+correlates (smoke mass, juiciness — seasoning and smoke *quality* are
+absent; the fat/water sensory weighting β_fat is a placeholder),
+appearance is color only. Absolute durations remain conditional on the
+placeholder band normalizations; the weights are cited.
 
 The objective also carries **food-safety constraints, curve-faithful**:
 pasteurization is a time–temperature curve, so the binding constraint is
