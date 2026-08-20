@@ -172,8 +172,12 @@ bark chemistry without calibration data.
    + color card; wrapped/unwrapped pair separates ΔL_S from ΔL_B — plan in
    `docs/bark_plan.md`), replace the one-sided paleness penalty with a
    two-sided mahogany band (the softplus tail currently encodes
-   darker-is-better), and optionally penetration-force texture. To our
-   knowledge unpublished territory.
+   darker-is-better — DONE for the objective via judge mode's two-sided
+   mahogany band), and optionally penetration-force texture. Add **smoke
+   quality** (the "thin blue smoke" variable): clean vs smoldering
+   combustion changes deposition chemistry at the same mass — plausibly a
+   differentiable function of airflow/burn state, making bitterness a
+   controllable output. To our knowledge unpublished territory.
 8. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
    center-line correction (~3× cost, differentiable, cheap taste of 3D);
    full 2D axisymmetric surface model *only* once thermal-camera surface

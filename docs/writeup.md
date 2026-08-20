@@ -199,9 +199,18 @@ vector, the full composition — duration × wrap × schedule jointly optimized
 never chosen at any duration (the reference real cook: 19 h, unwrapped).
 The Texas crutch drops out of the leisure-optimal plan and re-emerges as
 what it actually is — a closed-loop contingency tool for cooks under
-deadline pressure (the MPC-with-wrap demo is roadmapped). Absolute
-durations are conditional on placeholder quality weights; the structure of
-the conclusion is not.
+deadline pressure (the MPC-with-wrap demo is roadmapped). The objective
+also offers a **judge mode**: the KCBS scoring weights (appearance 0.14 /
+taste 0.57 / tenderness 0.29 — the multipliers real judges' scores carry)
+applied to the subset of each category the simulation can observe — a
+two-sided *mahogany* color band (judges ding black bark as burnt-looking),
+a smoke-deposition band (phenolic mass as a smoke-depth correlate, with an
+over-deposition/bitterness ceiling), moisture, and the collagen tenderness
+band. Stated plainly: tenderness is a mechanistic proxy, taste is two
+correlates (smoke mass, moisture — seasoning and smoke *quality* are
+absent), appearance is color only. Absolute durations remain conditional
+on these placeholder normalizations; the weights, at least, are now cited
+rather than invented.
 
 ## 3. Why Tesseract is load-bearing
 

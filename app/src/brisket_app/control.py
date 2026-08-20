@@ -41,6 +41,30 @@ class ControlConfig:
     l_star_target: float = 0.0   # target final surface L*; 0 disables term
     w_bark: float = 0.0
     dl_soft: float = 2.0         # penalty width [L* units]
+    # --- judge mode: KCBS-weighted quality (research: docs/bark_plan.md) ---
+    # KCBS scores appearance/taste/tenderness on 1-9 with fixed multipliers
+    # 0.56 / 2.2972 / 1.1428 => normalized weights 0.14 / 0.57 / 0.29.
+    # HONEST TAXONOMY - this is the KCBS weighting applied to the SUBSET of
+    # each category the simulation can observe, not a flavor simulation:
+    #   tenderness: MECHANISTIC PROXY (collagen conversion IS the physics of
+    #     probe-tender; the C=0.90 scale is literature kinetics, uncalibrated
+    #     against texture data). Two-sided band: under = tough, saturated =
+    #     pot roast.
+    #   taste: TWO CORRELATES - smoke-phenolic mass S (the deposited
+    #     guaiacol/syringol ARE smoke flavor; band = depth without acrid
+    #     over-deposition; smoke QUALITY clean-vs-dirty is not modeled) and
+    #     retained moisture (dry brisket loses taste points). Seasoning,
+    #     sweetness, beef flavor: ABSENT.
+    #   appearance: color L* predicted (mahogany band, NOT black - judges
+    #     ding black as burnt); uniformity/sheen/presentation: ABSENT.
+    # Band normalizations are placeholders; the WEIGHTS are cited.
+    judge_mode: bool = False
+    l_mahogany_lo: float = 28.0  # blacker than this reads burnt
+    l_mahogany_hi: float = 34.0  # paler than this reads underdeveloped
+    s_smoke_lo: float = 0.55     # less smoke than this: shallow taste
+    s_smoke_hi: float = 0.90     # more: bitter/creosote territory
+    ds_soft: float = 0.08
+    w_judge_dry: float = 4.0     # dryness penalty scale inside taste
     # Asymmetric terminal-doneness penalty (MPC): undershooting the target at
     # the deadline is the disaster; finishing early is nearly free (the hold
     # exists for this). Symmetric quadratics 'give up' late in a losing cook:
@@ -82,6 +106,22 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
         done_term = done_term + (cc.w_overdone / cc.w_done) * over ** 2
     else:
         done_term = (c_core - cc.c_target) ** 2
+    if cc.judge_mode:
+        # KCBS-weighted judge objective. Each group is normalized to O(1)
+        # over its realistic range so the cited weights govern the trades.
+        Lst = sim["l_star"][-1]
+        appearance = (jax.nn.softplus((Lst - cc.l_mahogany_hi) / cc.dl_soft) ** 2
+                      + jax.nn.softplus((cc.l_mahogany_lo - Lst) / cc.dl_soft) ** 2)
+        S_end = sim["bark_s"][-1]
+        smoke_band = (jax.nn.softplus((cc.s_smoke_lo - S_end) / cc.ds_soft) ** 2
+                      + jax.nn.softplus((S_end - cc.s_smoke_hi) / cc.ds_soft) ** 2)
+        taste = smoke_band + cc.w_judge_dry * (1.0 - sim["w_retained"]) ** 2
+        tenderness = done_term * cc.w_done / 10.0  # existing band, rescaled O(1)
+        j = (0.14 * appearance + 0.57 * taste + 0.29 * tenderness
+             + cc.w_surf * jnp.mean(surf_over**2)
+             + cc.w_fuel * fuel_frac
+             + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2))
+        return j
     j = (cc.w_done * done_term
          + cc.w_surf * jnp.mean(surf_over**2)
          + cc.w_fuel * fuel_frac
