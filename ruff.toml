@@ -1,0 +1,19 @@
+# Repo-wide ruff config: app/, scripts/, tesseracts/ all resolve here.
+line-length = 88
+
+[lint]
+# defaults (pyflakes F, pycodestyle E4/E7/E9) plus import order, bugbear,
+# pyupgrade, and pydocstyle for the docstring convention
+extend-select = ["I", "B", "UP", "D"]
+ignore = [
+    "D203", # one-blank-line-before-class (conflicts with D211)
+    "D213", # multi-line-summary-second-line (we use the D212 style)
+    "E731", # lambda assignments are idiomatic in the science scripts
+]
+
+[lint.pydocstyle]
+convention = "numpy"
+
+[lint.per-file-ignores]
+# tests document themselves through their assertions
+"app/tests/*" = ["D"]

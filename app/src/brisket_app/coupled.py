@@ -145,7 +145,7 @@ def coupled_cook(
 # moisture transport coefficient — an order of magnitude above molecular-diffusion
 # literature values because it lumps in pressure-driven juice expulsion/wicking,
 # the mechanism that actually keeps a brisket surface wet through the stall.
-THETA_DEFAULT = np.array([1.5e-8, 0.0018, 10.0, 0.03, 1.0])  # D_eff, k_m, h_c, L, k_mult
+THETA_DEFAULT = np.array([1.5e-8, 0.0018, 10.0, 0.03, 1.0, 5.6e-4, 0.20])  # D_eff, k_m, h_c, L, k_mult, k_e, a_myosin
 # C_th, UA, r_max, dH_eff, u_leak, k_spread, a0 — a0=1 makes the ignition
 # dynamics inert (exactly the pre-ignition-state model)
 PHI_DEFAULT = np.array([15e3, 20.0, 3e-4, 1.2e7, 0.2, 3e-4, 1.0])

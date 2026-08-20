@@ -35,6 +35,12 @@ THETA_SITES = [
     ("h_c", dist.LogNormal(np.log(10.0), 0.4)),
     ("L", dist.LogNormal(np.log(0.03), 0.25)),
     ("k_mult", dist.LogNormal(0.0, 0.3)),
+    # expulsion kinetics joined theta 2026-08-21: frozen literature values
+    # left the real-cook refit at loss 495 vs 245 (they shape the stall
+    # entry, which the core probe sees). a_myosin prior kept sub-0.5 at 2
+    # sigma so W_eq stays positive with the fixed actin amplitude.
+    ("k_e", dist.LogNormal(np.log(5.6e-4), 0.5)),
+    ("a_myosin", dist.LogNormal(np.log(0.20), 0.4)),
 ]
 PHI_SITES = [
     ("C_th", dist.LogNormal(np.log(15e3), 0.5)),

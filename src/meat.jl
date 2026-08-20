@@ -78,8 +78,14 @@ Base.@kwdef struct MeatConfig
     δ_actin::Float64 = 4.0
 end
 
-# θ = [D_eff, k_m, h_c, L, k_mult] — the meat-side latent parameter vector.
-const MEAT_NP = 5
+# θ = [D_eff, k_m, h_c, L, k_mult, k_e, a_myosin] — the meat-side latent
+# parameter vector. k_e (expulsion relaxation rate) and a_myosin (W_eq drop
+# at the myosin denaturation step) joined θ 2026-08-21: with them frozen at
+# literature values the real-cook refit plateaued at loss 495 vs 245 — the
+# five original knobs were compensating for expulsion kinetics the log can
+# see (they shape the stall entry). cfg.k_e / cfg.a_myosin remain as the
+# uncalibrated defaults for cfg-only call paths.
+const MEAT_NP = 7
 
 # Default wrap time: far beyond any horizon. logistic((t − 1e9)/δ_wrap) is
 # EXACTLY 0.0 (tanh saturates), so the unwrapped model is recovered bitwise
@@ -140,14 +146,30 @@ bark_rate(Ts, aw, cfg::MeatConfig) =
 l_star_bark(B, S, cfg::MeatConfig) = cfg.L0_bark - cfg.dL_B * B - cfg.dL_S * S
 
 # --- Moisture physics (docs/moisture_plan.md) ------------------------------
-"Temperature-dependent water-holding equilibrium: two denaturation steps."
-w_eq(T, cfg::MeatConfig) =
-    cfg.W0 * (1 - cfg.a_myosin * logistic((T - cfg.T_myosin) / cfg.δ_myosin)
-                - cfg.a_actin * logistic((T - cfg.T_actin) / cfg.δ_actin))
+"""
+    w_eq(T, a_myosin, cfg)
 
-"Smooth one-sided expulsion sink: relax W toward w_eq(T) from above only."
+Temperature-dependent water-holding equilibrium (dry basis): W₀ scaled down
+by two smooth denaturation steps (myosin ~58 °C amplitude `a_myosin`, actin
+~72 °C amplitude `cfg.a_actin`). `a_myosin` is a θ latent (calibrated); the
+actin amplitude stays a config constant.
+"""
+w_eq(T, a_myosin, cfg::MeatConfig) =
+    cfg.W0 * (1 - a_myosin * logistic((T - cfg.T_myosin) / cfg.δ_myosin)
+                - cfg.a_actin * logistic((T - cfg.T_actin) / cfg.δ_actin))
+w_eq(T, cfg::MeatConfig) = w_eq(T, cfg.a_myosin, cfg)
+
+"""
+    expulsion_rate(W, T, k_e, a_myosin, cfg)
+
+Smooth one-sided expulsion sink [1/s]: relax `W` toward `w_eq(T)` from above
+only (softplus of the excess, width `cfg.δ_e`). `k_e` and `a_myosin` are θ
+latents; the cfg-only method uses the uncalibrated defaults.
+"""
+expulsion_rate(W, T, k_e, a_myosin, cfg::MeatConfig) =
+    k_e * cfg.δ_e * log1pexp((W - w_eq(T, a_myosin, cfg)) / cfg.δ_e)
 expulsion_rate(W, T, cfg::MeatConfig) =
-    cfg.k_e * cfg.δ_e * log1pexp((W - w_eq(T, cfg)) / cfg.δ_e)
+    expulsion_rate(W, T, cfg.k_e, cfg.a_myosin, cfg)
 
 "Fat render rate [1/s]: smooth melt/drain switch times base rate."
 fat_rate(T, cfg::MeatConfig) =
@@ -171,13 +193,14 @@ in `p` is what exposes the VJP w.r.t. the boundary-condition trajectory.
 """
 function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
     nx = cfg.nx
-    # p = [θ(5) | Tpit_knots(nk) | smoke_knots(nk) | t_wrap]; the smoke
+    # p = [θ(7) | Tpit_knots(nk) | smoke_knots(nk) | t_wrap]; the smoke
     # forcing (pit burn rate, bark smoke-flux proxy) shares the Tpit knot
     # grid. States: [T(nx) | W(nx) | C(nx) | F(nx) | B | S]. Bark states are
     # pure integrators; fat F is a pure sink; the ONE quality-physics
     # feedback is the expulsion sink in dW (denaturation purge).
     function meat_rhs!(du, u, p, t)
         D_eff, k_m, h_c, L, k_mult = p[1], p[2], p[3], p[4], p[5]
+        k_e, a_myosin = p[6], p[7]
         knots = @view p[MEAT_NP+1:MEAT_NP+nk]
         smoke_knots = @view p[MEAT_NP+nk+1:MEAT_NP+2nk]
         t_wrap = p[MEAT_NP+2nk+1]
@@ -220,7 +243,7 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
         #   node budget) + fat rendering
         @inbounds for i in 1:nx
             dC[i] = collagen_rate(T[i], cfg) * (1 - C[i])
-            dW[i] -= expulsion_rate(W[i], T[i], cfg)
+            dW[i] -= expulsion_rate(W[i], T[i], k_e, a_myosin, cfg)
             dF[i] = -fat_rate(T[i], cfg) * F[i]
         end
 
@@ -359,6 +382,9 @@ function meat_solve(θ::AbstractVector, Tpit_knots::AbstractVector,
     sk = isempty(smoke_knots) ? zeros(length(tknots)) : collect(float.(smoke_knots))
     length(sk) == length(tknots) || throw(ArgumentError(
         "smoke_knots must share the tknots grid (got $(length(sk)) vs $(length(tknots)))"))
+    length(θ) == MEAT_NP || throw(ArgumentError(
+        "θ must have length $MEAT_NP = [D_eff, k_m, h_c, L, k_mult, k_e, " *
+        "a_myosin]; got $(length(θ))"))
     p = vcat(θ, Tpit_knots, sk, float(t_wrap))
     any(isnan, p) && throw(ArgumentError(
         "meat solve got NaN inputs at indices $(findall(isnan, p)) of p (θ|Tpit|smoke|t_wrap)"))
@@ -423,6 +449,9 @@ function meat_vjp(θ::AbstractVector, Tpit_knots::AbstractVector,
                   cfg::MeatConfig = MeatConfig(), abstol = 1e-6, reltol = 1e-6,
                   sensealg = MEAT_SENSEALG, t_wrap::Real = WRAP_NEVER,
                   smoke_knots::AbstractVector = Float64[])
+    length(θ) == MEAT_NP || throw(ArgumentError(
+        "θ must have length $MEAT_NP = [D_eff, k_m, h_c, L, k_mult, k_e, " *
+        "a_myosin]; got $(length(θ))"))
     sk = isempty(smoke_knots) ? zeros(length(tknots)) : collect(float.(smoke_knots))
     p = vcat(θ, Tpit_knots, sk, float(t_wrap))
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])

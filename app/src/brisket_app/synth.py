@@ -18,7 +18,9 @@ from .coupled import HR, CookGrids, coupled_cook
 
 # Offset from THETA_DEFAULT / PHI_DEFAULT (the prior centers) by 20-40%:
 # calibration has to *move* to find these, not just sit at the prior mode.
-THETA_TRUE = np.array([2.1e-8, 0.0014, 12.5, 0.026, 1.15])
+# (k_e/a_myosin truths offset likewise since joining theta 2026-08-21;
+# regenerating synthetic data + recovery study is a post-merge task.)
+THETA_TRUE = np.array([2.1e-8, 0.0014, 12.5, 0.026, 1.15, 7.3e-4, 0.26])
 # ignition entries inert (a0 = 1): synthetic cooks start fully lit
 PHI_TRUE = np.array([18e3, 24.0, 2.5e-4, 1.35e7, 0.25, 3e-4, 1.0])
 

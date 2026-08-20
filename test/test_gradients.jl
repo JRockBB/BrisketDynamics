@@ -200,4 +200,19 @@ end
     # mid trajectory knot through the new outputs
     fd = fd_partial(v -> loss(θ, v), Tpit, 13; hrel = 1e-4)
     @test relerr(g.dTpit_knots[13], fd) < 5e-3
+
+    # the calibrated expulsion latents (theta 5->7, 2026-08-21): k_e scales
+    # the purge everywhere, a_myosin moves the W_eq step the stall entry
+    # rides on — both reach juiciness through the W field
+    fd = fd_partial(v -> loss(v, Tpit), θ, 6)
+    @test relerr(g.dθ[6], fd) < 2e-3
+    fd = fd_partial(v -> loss(v, Tpit), θ, 7)
+    @test relerr(g.dθ[7], fd) < 2e-3
+
+    # k_e also alters surface moisture -> evaporative cooling -> Tcore: check
+    # the coupled path through a trajectory head as well
+    cotT = (Tcore = ones(length(tsave)),)
+    gT = meat_vjp(θ, Tpit, tknots, tsave, cotT; tol...)
+    fd = fd_partial(v -> sum(meat_solve(v, Tpit, tknots, tsave; tol...).Tcore), θ, 6)
+    @test relerr(gT.dθ[6], fd) < 2e-3
 end

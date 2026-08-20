@@ -137,8 +137,9 @@ def _jvec(x) -> "juliacall.VectorValue":
 
 
 class InputSchema(BaseModel):
-    theta: Differentiable[Array[(5,), Float64]] = Field(
-        description="Meat parameters [D_eff m²/s, k_m m/s, h_c W/m²K, L m, k_mult]"
+    theta: Differentiable[Array[(7,), Float64]] = Field(
+        description="Meat parameters [D_eff m²/s, k_m m/s, h_c W/m²K, L m, "
+                    "k_mult, k_e 1/s, a_myosin]"
     )
     tpit_knots: Differentiable[Array[(None,), Float64]] = Field(
         description="Pit temperature trajectory [K] on the uniform knot grid `tknots`"

@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.8"]
 
 [build-system]
 requires = ["hatchling"]
@@ -28,3 +28,6 @@ packages = ["src/brisket_app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# ruff config lives in the repo-root ruff.toml (single source of truth for
+# app/, scripts/, and tesseracts/)
