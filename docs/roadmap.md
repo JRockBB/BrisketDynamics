@@ -117,11 +117,19 @@ bark chemistry without calibration data.
    this exploration doubles as its foundation — benchmark both for
    gradient cost, NUTS wall-clock, and adjoint controllability (we needed
    surgical sensealg choices; symbolic layers add distance to those
-   knobs). Either way, keep what Tesseract is actually for post-hackathon
-   by wrapping the *whole* coupled model as a single Tesseract — a
-   language-agnostic, versioned deployment skin for the MPC/HeaterMeter
-   service — so the boundary sits around the physics, not through it.
-   Decides *where* the items below get built.
+   knobs). A third shape to benchmark: (c) **Reactant.jl + EnzymeMLIR** —
+   trace the smooth parts (pit ODE, orchestration, quality objective) to
+   StableHLO/XLA with Enzyme differentiating through the compiled graph.
+   Caveat measured 2026-08-21: the cost center is the stiff BDF *backward*
+   solve (adaptive stepping, Newton/LU, injection callbacks — the
+   XLA-hostile case, and the reason this project is polyglot at all), so
+   Reactant helps the edges, not the core; viable only paired with a
+   Julia-side stiff adjoint kernel, i.e. the same boundary redrawn with
+   MLIR tracing instead of Tesseract. Either way, keep what Tesseract is
+   actually for post-hackathon by wrapping the *whole* coupled model as a
+   single Tesseract — a language-agnostic, versioned deployment skin for
+   the MPC/HeaterMeter service — so the boundary sits around the physics,
+   not through it. Decides *where* the items below get built.
 3. **The ~$150 instrument package + data flywheel.** In value order: a
    two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
    meat, no controller — free, and the only way to identify the pit's fast
