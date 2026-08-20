@@ -59,6 +59,17 @@ class ControlConfig:
     #     ding black as burnt); uniformity/sheen/presentation: ABSENT.
     # Band normalizations are placeholders; the WEIGHTS are cited.
     judge_mode: bool = False
+    # --- food-safety constraint (docs/model_gaps.md Tier 1 #4) ---
+    # Smooth danger-zone dwell: hours the SURFACE spends between t_danger_lo
+    # and t_danger_hi (bacteria live on the surface of intact muscle; USDA
+    # guidance caps cumulative danger-zone time ~4 h). Applied in EVERY
+    # objective mode - safety is a constraint, not a preference. Typical
+    # smoker schedules clear the zone in 1-2 h and pay zero; the term exists
+    # to stop the optimizer from ever recommending a cold-smolder start.
+    t_danger_lo: float = 277.6   # 4.4 C
+    t_danger_hi: float = 333.15  # 60 C
+    danger_cap_h: float = 4.0
+    w_safety: float = 500.0
     l_mahogany_lo: float = 28.0  # blacker than this reads burnt
     l_mahogany_hi: float = 34.0  # paler than this reads underdeveloped
     s_smoke_lo: float = 0.55     # less smoke than this: shallow taste
@@ -91,6 +102,13 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
                        t_wrap=t_wrap, **tols)
     c_core = sim["c_field_final"][0]                     # center node
     surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)
+    # smooth indicator of the surface sitting in the bacterial danger zone
+    tk_h = jnp.asarray(grids.tknots) / 3600.0
+    in_zone = (jax.nn.sigmoid((sim["tsurf"] - cc.t_danger_lo) / 2.0)
+               * jax.nn.sigmoid((cc.t_danger_hi - sim["tsurf"]) / 2.0))
+    danger_h = jnp.trapezoid(in_zone, tk_h)
+    safety_pen = cc.w_safety * jax.nn.softplus(
+        (danger_h - cc.danger_cap_h) / 0.5) ** 2
     fuel_frac = (sim["m_fuel"][0] - sim["m_fuel"][-1]) / sim["m_fuel"][0]
     if cc.asymmetric_done:
         k = 20.0  # undershoot-only, smooth: ~(target-c)^2 under, ~0 over
@@ -120,13 +138,15 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
         j = (0.14 * appearance + 0.57 * taste + 0.29 * tenderness
              + cc.w_surf * jnp.mean(surf_over**2)
              + cc.w_fuel * fuel_frac
-             + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2))
+             + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
+             + safety_pen)
         return j
     j = (cc.w_done * done_term
          + cc.w_surf * jnp.mean(surf_over**2)
          + cc.w_fuel * fuel_frac
          + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
-         - cc.w_juicy * sim["w_retained"])
+         - cc.w_juicy * sim["w_retained"]
+         + safety_pen)
     if cc.l_star_target > 0.0:  # static config branch: jit-safe
         pale = (sim["l_star"][-1] - cc.l_star_target) / cc.dl_soft
         j = j + cc.w_bark * jax.nn.softplus(pale) ** 2

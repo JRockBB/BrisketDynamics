@@ -212,6 +212,14 @@ absent), appearance is color only. Absolute durations remain conditional
 on these placeholder normalizations; the weights, at least, are now cited
 rather than invented.
 
+Every objective mode also carries a **food-safety constraint**: a smooth
+integral of surface time in the bacterial danger zone (4.4–60 °C), capped
+at the USDA-guidance 4 hours — normal smoker schedules pay nothing; the
+term exists so no optimizer, ever, recommends a cold-smolder start. A
+model that tells people how to cook meat owes them this term
+(`docs/model_gaps.md` is the standing audit of what the quality layer
+does and does not yet model).
+
 ## 3. Why Tesseract is load-bearing
 
 The meat PDE is stiff with a moving evaporation front; the correct

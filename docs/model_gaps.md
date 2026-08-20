@@ -43,7 +43,10 @@ be calibrated/observed.
    nothing bounding danger-zone dwell or verifying pasteurization. The one
    gap with an ethics dimension for a tool that tells people how to cook
    meat. Cost: HOURS — integrate a standard lethality curve from the
-   existing T field; constrain in every planner. STATUS: immediate.
+   existing T field; constrain in every planner. STATUS: DONE (smooth
+   surface danger-zone dwell, capped at 4 h, w_safety=500, applied in
+   every objective mode; verified: normal cooks pay ~0, a cold smolder
+   start pays ~850).
 5. **Rest / carryover.** The deadline formulation leans on "the hold" while
    modeling nothing after the pull: carryover (core rises several °C),
    juice redistribution. The pull decision is biased without it. Cost:
