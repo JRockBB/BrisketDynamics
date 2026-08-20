@@ -127,8 +127,9 @@ def main():
         w_ret = W[:, i].mean() / W0
         f_ren = 1.0 - F[:, i].mean() / F0
         txt.set_text(f"t = {th[i]:5.1f} h   core {T[0, i]:5.1f} °C   "
-                     f"evap {j_evap[i]:6.0f} mg/m²/s   doneness {C[0, i]:.2f}\n"
-                     f"water retained {w_ret:4.0%}   fat rendered {f_ren:4.0%}\n"
+                     f"evap {j_evap[i]:6.0f} mg/m²/s\n"
+                     f"doneness {C[0, i]:.2f}   water retained {w_ret:4.0%}   "
+                     f"fat rendered {f_ren:4.0%}\n"
                      f"{stall}")
         return lnT, lnW, lnF, cursor, txt
 
