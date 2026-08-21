@@ -31,11 +31,28 @@ _cache: dict[str, Tesseract] = {}
 # executor; this extends the serialization to the Python packing layer.
 # Cost: none in practice (there is only one Julia thread anyway).
 _CALL_LOCK = threading.Lock()
-_WRAPPED_METHODS = ("apply", "vector_jacobian_product", "jacobian_vector_product",
-                    "jacobian", "abstract_eval")
+_WRAPPED_METHODS = (
+    "apply",
+    "vector_jacobian_product",
+    "jacobian_vector_product",
+    "jacobian",
+    "abstract_eval",
+)
 
 
 def _serialize_calls(t: Tesseract) -> Tesseract:
+    """Wrap every endpoint method of `t` with the process-wide call lock.
+
+    Parameters
+    ----------
+    t : Tesseract
+        Client whose endpoint methods get serialized in place.
+
+    Returns
+    -------
+    Tesseract
+        The same client, methods wrapped (see `_CALL_LOCK` comment).
+    """
     for name in _WRAPPED_METHODS:
         fn = getattr(t, name, None)
         if fn is None:
@@ -51,16 +68,34 @@ def _serialize_calls(t: Tesseract) -> Tesseract:
 
 
 def meat_client() -> Tesseract:
+    """Return the process-wide meat Tesseract client (created on first call).
+
+    Returns
+    -------
+    Tesseract
+        In-process client for the stiff meat-PDE endpoint (call-serialized).
+    """
     if "meat" not in _cache:
-        _cache["meat"] = _serialize_calls(Tesseract.from_tesseract_api(
-            REPO_ROOT / "tesseracts" / "meat" / "tesseract_api.py"
-        ))
+        _cache["meat"] = _serialize_calls(
+            Tesseract.from_tesseract_api(
+                REPO_ROOT / "tesseracts" / "meat" / "tesseract_api.py"
+            )
+        )
     return _cache["meat"]
 
 
 def pit_client() -> Tesseract:
+    """Return the process-wide pit Tesseract client (created on first call).
+
+    Returns
+    -------
+    Tesseract
+        In-process client for the lumped pit-ODE endpoint (call-serialized).
+    """
     if "pit" not in _cache:
-        _cache["pit"] = _serialize_calls(Tesseract.from_tesseract_api(
-            REPO_ROOT / "tesseracts" / "pit" / "tesseract_api.py"
-        ))
+        _cache["pit"] = _serialize_calls(
+            Tesseract.from_tesseract_api(
+                REPO_ROOT / "tesseracts" / "pit" / "tesseract_api.py"
+            )
+        )
     return _cache["pit"]

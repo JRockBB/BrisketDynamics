@@ -13,7 +13,9 @@ from pathlib import Path
 
 import numpy as np
 
-DATA = Path(__file__).resolve().parents[3] / "data" / "cook_log" / "mache_brisket_cook.csv"
+DATA = (
+    Path(__file__).resolve().parents[3] / "data" / "cook_log" / "mache_brisket_cook.csv"
+)
 
 F2K = lambda f: (np.asarray(f, dtype=np.float64) - 32.0) * 5.0 / 9.0 + 273.15
 
@@ -25,9 +27,11 @@ def load(dt_min: float = 10.0, t_end_min: float | None = 1140.0) -> dict:
     obs_core [K], mask_pit/mask_core (True = usable observation: finite and
     not within a lid event), amb [K, qualitative], meta.
     """
-    rows = list(csv.DictReader(open(DATA)))
-    g = lambda k: np.array([float(r[k]) if r[k] not in ("", "nan") else np.nan
-                            for r in rows])
+    with open(DATA) as f:
+        rows = list(csv.DictReader(f))
+    g = lambda k: np.array(
+        [float(r[k]) if r[k] not in ("", "nan") else np.nan for r in rows]
+    )
     t_min = g("t_min")
     pit = F2K(g("pit_F"))
     meat = F2K(g("meat_F"))
@@ -37,8 +41,9 @@ def load(dt_min: float = 10.0, t_end_min: float | None = 1140.0) -> dict:
 
     if t_end_min is not None:
         keep = t_min <= t_end_min
-        t_min, pit, meat, amb, fan, lid = (x[keep] for x in
-                                           (t_min, pit, meat, amb, fan, lid))
+        t_min, pit, meat, amb, fan, lid = (
+            x[keep] for x in (t_min, pit, meat, amb, fan, lid)
+        )
 
     # uniform target grid
     tg = np.arange(t_min[0], t_min[-1] + 1e-9, dt_min)
@@ -61,7 +66,7 @@ def load(dt_min: float = 10.0, t_end_min: float | None = 1140.0) -> dict:
     mask_core = ~lid_g & meat_has_data
 
     return {
-        "t": tg * 60.0,                    # [s]
+        "t": tg * 60.0,  # [s]
         "u": np.clip(fan_g, 0.0, 1.0),
         "obs_pit": pit_g,
         "obs_core": meat_g,

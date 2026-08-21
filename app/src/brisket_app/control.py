@@ -1,5 +1,7 @@
-"""Optimal cook control: Optax damper-schedule optimization through the
-coupled differentiable pipeline (the same `coupled_cook` used by calibration).
+"""Optimal cook control.
+
+Optax damper-schedule optimization through the coupled differentiable
+pipeline (the same `coupled_cook` used by calibration).
 
 Objective (defaults from the project plan, D4): hit target core doneness by
 the deadline, penalize bark-burning surface temperatures, fuel use, and
@@ -56,7 +58,7 @@ class ControlConfig:
     # tenderness band (collagen conversion at the center node)
     c_target: float = 0.90
     c_overdone: float = 0.95
-    over_rel: float = 0.5        # overshoot severity relative to undershoot
+    over_rel: float = 0.5  # overshoot severity relative to undershoot
     # appearance band (predicted surface CIELAB L*)
     l_mahogany_lo: float = 28.0  # blacker reads burnt
     l_mahogany_hi: float = 34.0  # paler reads underdeveloped
@@ -67,7 +69,7 @@ class ControlConfig:
     ds_soft: float = 0.08
     w_dry: float = 4.0
     # operational terms
-    t_surf_max: float = 368.15   # 95 C bark-burn limit [K]
+    t_surf_max: float = 368.15  # 95 C bark-burn limit [K]
     dT_soft: float = 2.0
     w_surf: float = 1.0
     w_fuel: float = 0.1
@@ -83,28 +85,60 @@ class ControlConfig:
     # danger-zone dwell cap separately guards the GROWTH phase before
     # lethal temperatures are reached. Both computed from the existing
     # surface-temperature output; applied unconditionally.
-    leth_t_ref: float = 333.15   # 60 C
-    leth_z: float = 6.0          # z-value [K]
-    leth_f_req: float = 720.0    # 60 C-equivalent seconds (~7-log)
+    leth_t_ref: float = 333.15  # 60 C
+    leth_z: float = 6.0  # z-value [K]
+    leth_f_req: float = 720.0  # 60 C-equivalent seconds (~7-log)
     w_lethality: float = 500.0
-    t_danger_lo: float = 277.6   # 4.4 C
+    t_danger_lo: float = 277.6  # 4.4 C
     t_danger_hi: float = 333.15  # 60 C
     danger_cap_h: float = 4.0
     w_dwell: float = 500.0
     # decision variables / optimizer
-    opt_wrap: bool = False       # optimize t_wrap jointly with the schedule
+    opt_wrap: bool = False  # optimize t_wrap jointly with the schedule
     lr: float = 0.05
     n_iter: int = 200
 
 
-def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
-              tols, ics=None):
+def objective(
+    z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig, tols, ics=None
+):
+    """Scalar quality objective of one simulated cook (lower is better).
+
+    KCBS-weighted appearance/taste/tenderness bands plus operational terms
+    and the unconditional food-safety constraints (lethality curve +
+    danger-zone dwell); see ControlConfig for every weight and band.
+
+    Parameters
+    ----------
+    z : jnp.ndarray
+        Unconstrained damper decision variables; u = sigmoid(z).
+    z_w : jnp.ndarray
+        Unconstrained wrap-time variable; t_wrap = t_end * sigmoid(z_w).
+    theta, phi : jnp.ndarray
+        Meat / pit parameter vectors.
+    meat_tx, pit_tx : Tesseract
+        Solver endpoints.
+    grids : CookGrids
+        Time discretization.
+    cc : ControlConfig
+        Weights, bands, and constraint constants.
+    tols : dict
+        Solver tolerances.
+    ics : dict, optional
+        Initial conditions (receding-horizon replans).
+
+    Returns
+    -------
+    jnp.ndarray
+        Scalar objective value.
+    """
     u = jax.nn.sigmoid(z)
     # bounded wrap time: t_end * sigmoid(z_w) in (0, t_end); wrapping at
     # ~t_end is physically a no-wrap, so that corner stays reachable
     t_wrap = grids.t_end * jax.nn.sigmoid(z_w)
-    sim = coupled_cook(theta, phi, u, meat_tx, pit_tx, grids, K=2, ics=ics,
-                      t_wrap=t_wrap, **tols)
+    sim = coupled_cook(
+        theta, phi, u, meat_tx, pit_tx, grids, K=2, ics=ics, t_wrap=t_wrap, **tols
+    )
 
     # tenderness: two-sided collagen band, each side normalized to O(1)
     # per its band width (undershoot 0.05; overshoot 1 - c_overdone)
@@ -118,13 +152,17 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
 
     # appearance: two-sided mahogany band on predicted final L*
     Lst = sim["l_star"][-1]
-    appearance = (jax.nn.softplus((Lst - cc.l_mahogany_hi) / cc.dl_soft) ** 2
-                  + jax.nn.softplus((cc.l_mahogany_lo - Lst) / cc.dl_soft) ** 2)
+    appearance = (
+        jax.nn.softplus((Lst - cc.l_mahogany_hi) / cc.dl_soft) ** 2
+        + jax.nn.softplus((cc.l_mahogany_lo - Lst) / cc.dl_soft) ** 2
+    )
 
     # taste: smoke-depth band + dryness (see taxonomy)
     S_end = sim["bark_s"][-1]
-    smoke_band = (jax.nn.softplus((cc.s_smoke_lo - S_end) / cc.ds_soft) ** 2
-                  + jax.nn.softplus((S_end - cc.s_smoke_hi) / cc.ds_soft) ** 2)
+    smoke_band = (
+        jax.nn.softplus((cc.s_smoke_lo - S_end) / cc.ds_soft) ** 2
+        + jax.nn.softplus((S_end - cc.s_smoke_hi) / cc.ds_soft) ** 2
+    )
     # dryness now uses perceptual juiciness (water + rendered fat) —
     # moisture_plan.md; w_retained remains available for the scale story
     taste = smoke_band + cc.w_dry * (1.0 - sim["juiciness"]) ** 2
@@ -137,36 +175,50 @@ def objective(z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig,
     Ts = sim["tsurf"]
     t_s = jnp.asarray(grids.tknots)
     F = jnp.trapezoid(10.0 ** ((Ts - cc.leth_t_ref) / cc.leth_z), t_s)
-    leth_pen = cc.w_lethality * jax.nn.softplus(
-        (jnp.log10(cc.leth_f_req) - jnp.log10(F + 1e-9)) / 0.2) ** 2
-    in_zone = (jax.nn.sigmoid((Ts - cc.t_danger_lo) / 2.0)
-               * jax.nn.sigmoid((cc.t_danger_hi - Ts) / 2.0))
+    leth_pen = (
+        cc.w_lethality
+        * jax.nn.softplus((jnp.log10(cc.leth_f_req) - jnp.log10(F + 1e-9)) / 0.2) ** 2
+    )
+    in_zone = jax.nn.sigmoid((Ts - cc.t_danger_lo) / 2.0) * jax.nn.sigmoid(
+        (cc.t_danger_hi - Ts) / 2.0
+    )
     danger_h = jnp.trapezoid(in_zone, t_s / 3600.0)
-    dwell_pen = cc.w_dwell * jax.nn.softplus(
-        (danger_h - cc.danger_cap_h) / 0.5) ** 2
+    dwell_pen = cc.w_dwell * jax.nn.softplus((danger_h - cc.danger_cap_h) / 0.5) ** 2
 
-    return (cc.w_appearance * appearance
-            + cc.w_taste * taste
-            + cc.w_tenderness * tenderness
-            + cc.w_surf * jnp.mean(surf_over**2)
-            + cc.w_fuel * fuel_frac
-            + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
-            + leth_pen + dwell_pen)
+    return (
+        cc.w_appearance * appearance
+        + cc.w_taste * taste
+        + cc.w_tenderness * tenderness
+        + cc.w_surf * jnp.mean(surf_over**2)
+        + cc.w_fuel * fuel_frac
+        + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
+        + leth_pen
+        + dwell_pen
+    )
 
 
-def optimize_schedule_expected(thetas, phis, meat_tx, pit_tx,
-                               grids: CookGrids | None = None,
-                               cc: ControlConfig = ControlConfig(),
-                               tols: dict | None = None,
-                               u_init=0.5,
-                               log_every: int = 10,
-                               callback=None):
-    """Adam on the damper schedule against the EXPECTED objective over N
-    posterior draws (thetas, phis: arrays of shape (N, 5)) — control under
-    calibrated uncertainty. Sequential loop over draws inside the objective
-    (vmap over Tesseract calls needs an explicit vmap_method and buys nothing
-    at N=8); cost is N x the single-draw gradient. `u_init` may be a scalar
-    or a schedule array (warm start)."""
+def optimize_schedule_expected(
+    thetas,
+    phis,
+    meat_tx,
+    pit_tx,
+    grids: CookGrids | None = None,
+    cc: ControlConfig | None = None,
+    tols: dict | None = None,
+    u_init=0.5,
+    log_every: int = 10,
+    callback=None,
+):
+    """Optimize the damper schedule against the EXPECTED objective.
+
+    Adam over N posterior draws (thetas/phis: arrays of shape
+    (N, len(THETA_SITES)) / (N, 7)) — control under calibrated uncertainty.
+    Sequential loop over draws inside the objective (vmap over Tesseract
+    calls needs an explicit vmap_method and buys nothing at N=8); cost is
+    N x the single-draw gradient. `u_init` may be a scalar or a schedule
+    array (warm start).
+    """
+    cc = cc or ControlConfig()
     grids = grids or CookGrids(dt_exchange=600.0, n_u=16)
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
     thetas = jnp.asarray(thetas)
@@ -175,13 +227,17 @@ def optimize_schedule_expected(thetas, phis, meat_tx, pit_tx,
 
     def expected_obj(z, z_w, ths, phs):
         # differentiate w.r.t. ALL differentiable inputs (see optimize_schedule)
-        return sum(objective(z, z_w, ths[i], phs[i], meat_tx, pit_tx, grids,
-                             cc, tols)
-                   for i in range(n)) / n
+        return (
+            sum(
+                objective(z, z_w, ths[i], phs[i], meat_tx, pit_tx, grids, cc, tols)
+                for i in range(n)
+            )
+            / n
+        )
 
     u0 = jnp.broadcast_to(jnp.asarray(u_init), (grids.n_u,))
     z = jnp.log(u0 / (1 - u0))
-    z_w = jnp.asarray(8.0)   # pinned no-wrap; tangent still flows (see above)
+    z_w = jnp.asarray(8.0)  # pinned no-wrap; tangent still flows (see above)
     opt = optax.adam(cc.lr)
     state = opt.init(z)
     val_grad = jax.jit(jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3)))
@@ -202,17 +258,27 @@ def optimize_schedule_expected(thetas, phis, meat_tx, pit_tx,
     }
 
 
-def optimize_schedule(theta, phi, meat_tx, pit_tx,
-                      grids: CookGrids | None = None,
-                      cc: ControlConfig = ControlConfig(),
-                      tols: dict | None = None,
-                      u_init=0.5,
-                      log_every: int = 20,
-                      callback=None,
-                      ics: dict | None = None,
-                      z_w_init: float = 0.0):
-    """Adam on the damper schedule at fixed (theta, phi). Returns
-    (u_opt, history dict). `callback(i, loss, u)` fires every `log_every`."""
+def optimize_schedule(
+    theta,
+    phi,
+    meat_tx,
+    pit_tx,
+    grids: CookGrids | None = None,
+    cc: ControlConfig | None = None,
+    tols: dict | None = None,
+    u_init=0.5,
+    log_every: int = 20,
+    callback=None,
+    ics: dict | None = None,
+    z_w_init: float = 0.0,
+):
+    """Optimize the damper schedule at fixed (theta, phi) with Adam.
+
+    Returns (u_opt, history dict); the history carries losses, wall time,
+    the grids, and the final t_wrap. `callback(i, loss, u)` fires every
+    `log_every` iterations.
+    """
+    cc = cc or ControlConfig()
     grids = grids or CookGrids(dt_exchange=600.0, n_u=16)
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
     theta = jnp.asarray(theta)
@@ -239,10 +305,14 @@ def optimize_schedule(theta, phi, meat_tx, pit_tx,
     #    sticky once triggered). Under jit the graph is traced once and
     #    replayed with fixed shapes — the jitted SVI/MAP path has never
     #    exhibited the race across thousands of calls.
-    val_grad = jax.jit(jax.value_and_grad(
-        lambda zz, zw, th, ph: objective(zz, zw, th, ph, meat_tx, pit_tx,
-                                         grids, cc, tols, ics=ics),
-        argnums=(0, 1, 2, 3)))
+    val_grad = jax.jit(
+        jax.value_and_grad(
+            lambda zz, zw, th, ph: objective(
+                zz, zw, th, ph, meat_tx, pit_tx, grids, cc, tols, ics=ics
+            ),
+            argnums=(0, 1, 2, 3),
+        )
+    )
 
     losses, schedules = [], []
     t0 = time.perf_counter()
@@ -256,8 +326,7 @@ def optimize_schedule(theta, phi, meat_tx, pit_tx,
         except RuntimeError as e:
             if "DEGENERATE" not in str(e) and "BoundsError" not in str(e):
                 raise
-            print(f"  iter {i}: degenerate-input race, retrying once ({e})",
-                  flush=True)
+            print(f"  iter {i}: degenerate-input race, retrying once ({e})", flush=True)
             loss, (g, g_w, _g_theta, _g_phi) = val_grad(z, z_w, theta, phi)
         if not cc.opt_wrap:
             g_w = jnp.zeros_like(g_w)

@@ -23,17 +23,34 @@ import sys
 
 import numpy as np
 
-RTOL = 0.1        # the tool's default
+RTOL = 0.1  # the tool's default
 ATOL_FRAC = 1e-3  # "near zero" = below this fraction of the row max
 
 
 def parse_blocks(text):
+    """Extract the detailed failure blocks from a check-gradients log.
+
+    Parameters
+    ----------
+    text : str
+        Full contents of a saved ``tesseract-runtime check-gradients`` log,
+        run with a high ``--max-failures`` so every failure is detailed.
+
+    Yields
+    ------
+    tuple of (str, str, str, numpy.ndarray, numpy.ndarray)
+        ``(input_path, output_path, index, vjp, fd)`` per failure block:
+        the input/output endpoint paths and index string as they appear in
+        the log, plus the vector_jacobian_product row and the central
+        finite-difference row parsed as float arrays.
+    """
     pat = re.compile(
         r"Input path: '(?P<inp>[^']+)', Output path: '(?P<out>[^']+)', "
         r"Index: \((?P<idx>[^)]*)\)\s*\n"
         r"\s*vector_jacobian_product value: \[(?P<vjp>[^\]]*)\]\s*\n"
         r"\s*Finite difference value: \[(?P<fd>[^\]]*)\]",
-        re.S)
+        re.DOTALL,
+    )
     for m in pat.finditer(text):
         vjp = np.fromstring(m["vjp"].replace("\n", " "), sep=" ")
         fd = np.fromstring(m["fd"].replace("\n", " "), sep=" ")
@@ -41,15 +58,31 @@ def parse_blocks(text):
 
 
 ONSET_VJP_FRAC = 1e-4  # "adjoint says (essentially) exactly zero"
-ONSET_FD_FRAC = 2e-2   # FD artifact bound observed at eps=1e-4
+ONSET_FD_FRAC = 2e-2  # FD artifact bound observed at eps=1e-4
 
 
 def main(argv):
-    # --exclude-inputs a,b : drop failure blocks for input directions that
-    # are excluded from the container sweep by the absolute-eps doctrine
-    # (t_wrap, smoke_knots — verified at the Julia level with relative
-    # steps); classifying them here would misreport doctrine violations
-    # as gradient errors.
+    """Classify every failure block in the given logs and print a summary.
+
+    Each block's rtol-violating elements are tested against the benign
+    categories (near-zero kink, causality-onset FD artifact, or an entirely
+    FD-unresolvable weak row); anything else is printed as a REAL mismatch
+    with its worst elements.
+
+    Parameters
+    ----------
+    argv : list of str
+        Log file paths, optionally preceded by ``--exclude-inputs a,b`` to
+        drop failure blocks for input directions that are excluded from the
+        container sweep by the absolute-eps doctrine (t_wrap, smoke_knots —
+        verified at the Julia level with relative steps); classifying them
+        here would misreport doctrine violations as gradient errors.
+
+    Returns
+    -------
+    int
+        Process exit code: 1 if any REAL mismatch was found, else 0.
+    """
     exclude = set()
     paths = []
     it = iter(argv)
@@ -60,7 +93,8 @@ def main(argv):
             paths.append(a)
     total = kink = onset = weak = real = excl = 0
     for path in paths:
-        text = open(path, encoding="utf-8", errors="replace").read()
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
         for inp, out, idx, vjp, fd in parse_blocks(text):
             if vjp.shape != fd.shape or vjp.size == 0:
                 continue
@@ -79,15 +113,17 @@ def main(argv):
                 continue
             viol = np.abs(vjp - fd) > RTOL * np.maximum(np.abs(fd), 1e-300)
             viol &= np.abs(vjp - fd) > 1e-12  # ignore exact agreement
-            small = (np.abs(vjp) <= ATOL_FRAC * scale) & \
-                    (np.abs(fd) <= ATOL_FRAC * scale)
+            small = (np.abs(vjp) <= ATOL_FRAC * scale) & (
+                np.abs(fd) <= ATOL_FRAC * scale
+            )
             # Onset artifact: the adjoint's (correct-by-causality) exact zero
             # vs an FD value that is pure perturbed-solve noise / eps. The
             # eps-dependence experiment (docs/verification.md) shows the FD
             # side shrinks ~100x when eps grows 10x — a real slope would be
             # eps-independent.
-            onset_ok = (np.abs(vjp) <= ONSET_VJP_FRAC * scale) & \
-                       (np.abs(fd) <= ONSET_FD_FRAC * scale)
+            onset_ok = (np.abs(vjp) <= ONSET_VJP_FRAC * scale) & (
+                np.abs(fd) <= ONSET_FD_FRAC * scale
+            )
             if np.all(~viol | small):
                 kink += 1
             elif np.all(~viol | small | onset_ok):
@@ -95,17 +131,22 @@ def main(argv):
             else:
                 real += 1
                 bad = np.where(viol & ~small & ~onset_ok)[0]
-                print(f"REAL MISMATCH {path} {inp}->{out} idx {idx}: "
-                      f"elements {bad.tolist()}")
+                print(
+                    f"REAL MISMATCH {path} {inp}->{out} idx {idx}: "
+                    f"elements {bad.tolist()}"
+                )
                 for b in bad[:5]:
-                    print(f"    [{b}] vjp={vjp[b]:.6e} fd={fd[b]:.6e} "
-                          f"(row scale {scale:.3e})")
-    print(f"\n{total} failure blocks parsed: "
-          f"{kink} near-zero kink elements, "
-          f"{onset} causality-onset FD artifacts (adjoint zero correct), "
-          f"{weak} FD-unresolvable weak rows (verified at Julia level), "
-          f"{real} REAL"
-          + (f"; {excl} excluded-direction blocks skipped" if excl else ""))
+                    print(
+                        f"    [{b}] vjp={vjp[b]:.6e} fd={fd[b]:.6e} "
+                        f"(row scale {scale:.3e})"
+                    )
+    print(
+        f"\n{total} failure blocks parsed: "
+        f"{kink} near-zero kink elements, "
+        f"{onset} causality-onset FD artifacts (adjoint zero correct), "
+        f"{weak} FD-unresolvable weak rows (verified at Julia level), "
+        f"{real} REAL" + (f"; {excl} excluded-direction blocks skipped" if excl else "")
+    )
     return 1 if real else 0
 
 

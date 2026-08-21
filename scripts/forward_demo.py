@@ -6,7 +6,6 @@ stall, evaporative flux, fuel) and prints the Picard convergence residual.
 Run:  uv run --project app python scripts/forward_demo.py
 """
 
-import sys
 import time
 from pathlib import Path
 
@@ -19,12 +18,20 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
 from brisket_app.clients import meat_client, pit_client
 from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids, coupled_cook
 
 
 def main():
+    """Run the 12-h coupled cook at default parameters and render the demo figure.
+
+    Runs ``coupled_cook`` (K=2 Picard) at THETA_DEFAULT/PHI_DEFAULT with a
+    flat damper of 0.4, prints the wall time and the Picard convergence
+    residual max|dT_pit|, and writes figures/forward_cook.png: three stacked
+    panels of pit/surface/core temperature (showing the stall), evaporative
+    mass flux, and remaining fuel versus time. Also prints the final core
+    temperature and core collagen conversion.
+    """
     grids = CookGrids()
     meat_tx, pit_tx = meat_client(), pit_client()
 
@@ -70,8 +77,10 @@ def main():
     print(f"wrote {figdir / 'forward_cook.png'}")
 
     core_c = to_c(out["tcore"])
-    print(f"final core: {core_c[-1]:.1f} °C; final collagen (core): "
-          f"{float(np.asarray(out['c_field_final'])[0]):.3f}")
+    print(
+        f"final core: {core_c[-1]:.1f} °C; final collagen (core): "
+        f"{float(np.asarray(out['c_field_final'])[0]):.3f}"
+    )
 
 
 if __name__ == "__main__":

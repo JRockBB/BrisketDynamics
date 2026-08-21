@@ -20,9 +20,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 import jax.numpy as jnp
-
-from brisket_app.clients import meat_client, pit_client
 from brisket_app.calibrate import THETA_SITES, phi_full
+from brisket_app.clients import meat_client, pit_client
 from brisket_app.control import ControlConfig
 from brisket_app.coupled import HR, coupled_cook
 from brisket_app.timeplan import optimal_duration, plan_duration
@@ -31,23 +30,38 @@ REPO = Path(__file__).resolve().parents[1]
 # CLI: run_fullplan.py [durations...]. The objective is the default
 # ControlConfig (KCBS-weighted quality + safety); override weights there.
 _args = sys.argv[1:]
-DURATIONS_H = ([float(a) for a in _args] if _args else
-               [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0])
-RESULT_NAME = ("fullplan_result_ext.json" if _args else
-               "fullplan_result.json")
+DURATIONS_H = (
+    [float(a) for a in _args] if _args else [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0]
+)
+RESULT_NAME = "fullplan_result_ext.json" if _args else "fullplan_result.json"
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 CC = ControlConfig(opt_wrap=True, n_iter=60)
 
 
 def main():
+    """Scan planned durations, jointly optimizing damper schedule and wrap time.
+
+    Runs ``plan_duration`` over DURATIONS_H at the MAP-real parameters
+    (extension runs warm-start from the base scan's converged optimum),
+    picks the best duration with ``optimal_duration``, and writes
+    data/control/<RESULT_NAME> plus figures/fullplan.png: the quality
+    objective versus duration (each point annotated with its own optimal
+    wrap moment) and the chosen cook's core/surface trajectories with the
+    wrap time marked.
+    """
     # startup self-check: prove the RUNNING process imports the band we
     # think it does (stale-import debugging cost us a scan once)
     import jax
+
     _k = 4.0 / (1.0 - CC.c_overdone)
-    _ov = float((jax.nn.softplus(_k * (0.9995 - CC.c_overdone)) / _k)
-                / (1.0 - CC.c_overdone))
-    print(f"band self-check: penalty at c=0.9995 -> "
-          f"{CC.w_overdone * _ov**2:.1f} (expect ~24)", flush=True)
+    _ov = float(
+        (jax.nn.softplus(_k * (0.9995 - CC.c_overdone)) / _k) / (1.0 - CC.c_overdone)
+    )
+    print(
+        f"band self-check: penalty at c=0.9995 -> "
+        f"{CC.w_overdone * _ov**2:.1f} (expect ~24)",
+        flush=True,
+    )
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
@@ -60,43 +74,63 @@ def main():
         # saturation (J = 27.9 vs the warm chain's -0.163) and would have
         # poisoned every duration above it.
         base = json.loads(
-            (REPO / "data" / "control" / "fullplan_result.json").read_text())
-        seed = {"u": base["best_u"], "t_f_h": base["best_t_f_h"],
-                "t_wrap_frac": base["best_t_wrap_h"] / base["best_t_f_h"]}
+            (REPO / "data" / "control" / "fullplan_result.json").read_text()
+        )
+        seed = {
+            "u": base["best_u"],
+            "t_f_h": base["best_t_f_h"],
+            "t_wrap_frac": base["best_t_wrap_h"] / base["best_t_f_h"],
+        }
         print(f"extension seeded from base optimum at {base['best_t_f_h']} h")
     print("full composition scan: duration x wrap x schedule")
-    records = plan_duration(theta, phi, meat_tx, pit_tx, DURATIONS_H,
-                            cc=CC, ics=ICS, seed=seed)
+    records = plan_duration(
+        theta, phi, meat_tx, pit_tx, DURATIONS_H, cc=CC, ics=ICS, seed=seed
+    )
     best = optimal_duration(records)
-    print(f"THE COOK: {best['t_f_h']:.0f} h total, wrap at "
-          f"{best['t_wrap_h']:.2f} h — doneness {best['doneness']:.3f}, "
-          f"juiciness {best['w_retained']:.3f}, bark L* {best['l_star_end']:.1f}")
+    print(
+        f"THE COOK: {best['t_f_h']:.0f} h total, wrap at "
+        f"{best['t_wrap_h']:.2f} h — doneness {best['doneness']:.3f}, "
+        f"juiciness {best['w_retained']:.3f}, bark L* {best['l_star_end']:.1f}"
+    )
 
     (REPO / "data" / "control").mkdir(parents=True, exist_ok=True)
-    (REPO / "data" / "control" / RESULT_NAME).write_text(json.dumps({
-        "durations_h": [r["t_f_h"] for r in records],
-        "j_quality": [r["j_quality"] for r in records],
-        "t_wrap_h": [r["t_wrap_h"] for r in records],
-        "doneness": [r["doneness"] for r in records],
-        "w_retained": [r["w_retained"] for r in records],
-        "l_star_end": [r["l_star_end"] for r in records],
-        "best_t_f_h": best["t_f_h"],
-        "best_t_wrap_h": best["t_wrap_h"],
-        "best_u": best["u_opt"].tolist(),
-    }, indent=2))
+    (REPO / "data" / "control" / RESULT_NAME).write_text(
+        json.dumps(
+            {
+                "durations_h": [r["t_f_h"] for r in records],
+                "j_quality": [r["j_quality"] for r in records],
+                "t_wrap_h": [r["t_wrap_h"] for r in records],
+                "doneness": [r["doneness"] for r in records],
+                "w_retained": [r["w_retained"] for r in records],
+                "l_star_end": [r["l_star_end"] for r in records],
+                "best_t_f_h": best["t_f_h"],
+                "best_t_wrap_h": best["t_wrap_h"],
+                "best_u": best["u_opt"].tolist(),
+            },
+            indent=2,
+        )
+    )
 
-    sim = coupled_cook(jnp.asarray(theta), jnp.asarray(phi),
-                       jnp.asarray(best["u_opt"]), meat_tx, pit_tx,
-                       best["grids"], K=2, ics=ICS,
-                       t_wrap=best["t_wrap_h"] * HR)
+    sim = coupled_cook(
+        jnp.asarray(theta),
+        jnp.asarray(phi),
+        jnp.asarray(best["u_opt"]),
+        meat_tx,
+        pit_tx,
+        best["grids"],
+        K=2,
+        ics=ICS,
+        t_wrap=best["t_wrap_h"] * HR,
+    )
     sim = {k: np.asarray(v) for k, v in sim.items()}
     th = np.asarray(best["grids"].tknots) / HR
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    BLUE, ORANGE, INK, MUTED = "#256abf", "#eb6834", "#0b0b0b", "#52514e"
+    BLUE, ORANGE, MUTED = "#256abf", "#eb6834", "#52514e"
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6))
 
     ax = axes[0]
@@ -104,39 +138,62 @@ def main():
     js = np.array([r["j_quality"] for r in records])
     ax.plot(t_fs, js, "o-", color=BLUE, lw=2)
     for r in records:
-        ax.annotate(f"wrap\n{r['t_wrap_h']:.1f}h", (r["t_f_h"], r["j_quality"]),
-                    textcoords="offset points", xytext=(0, -22),
-                    color=MUTED, fontsize=7, ha="center")
+        ax.annotate(
+            f"wrap\n{r['t_wrap_h']:.1f}h",
+            (r["t_f_h"], r["j_quality"]),
+            textcoords="offset points",
+            xytext=(0, -22),
+            color=MUTED,
+            fontsize=7,
+            ha="center",
+        )
     ax.axvline(best["t_f_h"], color=ORANGE, lw=1.5, ls=":")
-    ax.annotate(f"the cook: {best['t_f_h']:.0f} h",
-                (best["t_f_h"] + 0.12, float(js.max()) * 0.85),
-                color=ORANGE, fontsize=10)
-    ax.set(xlabel="planned duration t_f [h]", ylabel="quality objective J",
-           ylim=(float(js.min()) - abs(float(js.min())) * 0.35 - 0.2,
-                 float(js.max()) + 0.3),
-           title="duration and wrap time chosen together\n"
-                 "(gray: each duration's own optimal wrap moment)")
+    ax.annotate(
+        f"the cook: {best['t_f_h']:.0f} h",
+        (best["t_f_h"] + 0.12, float(js.max()) * 0.85),
+        color=ORANGE,
+        fontsize=10,
+    )
+    ax.set(
+        xlabel="planned duration t_f [h]",
+        ylabel="quality objective J",
+        ylim=(
+            float(js.min()) - abs(float(js.min())) * 0.35 - 0.2,
+            float(js.max()) + 0.3,
+        ),
+        title="duration and wrap time chosen together\n"
+        "(gray: each duration's own optimal wrap moment)",
+    )
 
     ax = axes[1]
     ax.plot(th, sim["tcore"] - 273.15, "-", color=BLUE, lw=2, label="core")
-    ax.plot(th, sim["tsurf"] - 273.15, "-", color=BLUE, lw=1, alpha=0.5,
-            label="surface")
-    ax2c = MUTED
+    ax.plot(
+        th, sim["tsurf"] - 273.15, "-", color=BLUE, lw=1, alpha=0.5, label="surface"
+    )
     ax.axvline(best["t_wrap_h"], color=ORANGE, lw=1.5, ls=":")
-    ax.annotate(f"wrap at {best['t_wrap_h']:.1f} h",
-                (best["t_wrap_h"] - 0.15, 25), color=ORANGE, fontsize=10,
-                ha="right")
-    ax.set(xlabel="time [h]", ylabel="temperature [°C]",
-           title=f"the chosen cook: {best['t_f_h']:.0f} h · "
-                 f"doneness {best['doneness']:.3f} · juiciness "
-                 f"{best['w_retained']:.2f} · bark L* {best['l_star_end']:.0f}")
+    ax.annotate(
+        f"wrap at {best['t_wrap_h']:.1f} h",
+        (best["t_wrap_h"] - 0.15, 25),
+        color=ORANGE,
+        fontsize=10,
+        ha="right",
+    )
+    ax.set(
+        xlabel="time [h]",
+        ylabel="temperature [°C]",
+        title=f"the chosen cook: {best['t_f_h']:.0f} h · "
+        f"doneness {best['doneness']:.3f} · juiciness "
+        f"{best['w_retained']:.2f} · bark L* {best['l_star_end']:.0f}",
+    )
     ax.legend(fontsize=9, loc="lower right")
 
-    fig.suptitle("The perfect brisket picks its own duration and wrap moment "
-                 "(MAP smoker; bark constants uncalibrated)", y=1.0)
+    fig.suptitle(
+        "The perfect brisket picks its own duration and wrap moment "
+        "(MAP smoker; bark constants uncalibrated)",
+        y=1.0,
+    )
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / "fullplan.png", dpi=140,
-                bbox_inches="tight")
+    fig.savefig(REPO / "figures" / "fullplan.png", dpi=140, bbox_inches="tight")
     print("wrote figures/fullplan.png")
 
 
