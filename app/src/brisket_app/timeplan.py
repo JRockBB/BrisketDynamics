@@ -100,6 +100,7 @@ def plan_duration(
         )
         c_end = float(np.asarray(sim["c_field_final"])[0])
         w_ret = float(np.asarray(sim["w_retained"]))
+        juicy = float(np.asarray(sim["juiciness"]))
         l_end = float(np.asarray(sim["l_star"])[-1])
         records.append(
             {
@@ -109,13 +110,15 @@ def plan_duration(
                 "j_quality": float(hist["losses"][-1]),
                 "doneness": c_end,
                 "w_retained": w_ret,
+                "juiciness": juicy,
                 "t_wrap_h": (t_wrap / HR) if cc.opt_wrap else None,
                 "l_star_end": l_end,
             }
         )
         log(
             f"  t_f={th_f:5.1f} h  J={records[-1]['j_quality']:7.3f}  "
-            f"doneness={c_end:.3f}  juiciness={w_ret:.3f}  L*={l_end:.1f}"
+            f"doneness={c_end:.3f}  juiciness={juicy:.3f}  "
+            f"(water {w_ret:.3f})  L*={l_end:.1f}"
             + (f"  wrap@{t_wrap / HR:.2f} h" if cc.opt_wrap else "")
         )
     return records

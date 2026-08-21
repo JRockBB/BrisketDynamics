@@ -92,7 +92,8 @@ def main():
     print(
         f"THE COOK: {best['t_f_h']:.0f} h total, wrap at "
         f"{best['t_wrap_h']:.2f} h — doneness {best['doneness']:.3f}, "
-        f"juiciness {best['w_retained']:.3f}, bark L* {best['l_star_end']:.1f}"
+        f"juiciness {best.get('juiciness', best['w_retained']):.3f}, "
+        f"bark L* {best['l_star_end']:.1f}"
     )
 
     (REPO / "data" / "control").mkdir(parents=True, exist_ok=True)
@@ -136,10 +137,41 @@ def main():
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6))
 
     ax = axes[0]
-    t_fs = np.array([r["t_f_h"] for r in records])
-    js = np.array([r["j_quality"] for r in records])
+    # extension runs plot the FULL merged duration axis (base + extension)
+    # so the figure tells the whole rising-then-plateau story, and persist
+    # the merged scan for the writeup
+    plot_recs = [
+        {k: r[k] for k in ("t_f_h", "j_quality", "t_wrap_h")} for r in records
+    ]
+    if RESULT_NAME.endswith("_ext.json"):
+        base_r = json.loads(
+            (REPO / "data" / "control" / "fullplan_result.json").read_text()
+        )
+        plot_recs = [
+            {"t_f_h": t, "j_quality": j, "t_wrap_h": w}
+            for t, j, w in zip(
+                base_r["durations_h"],
+                base_r["j_quality"],
+                base_r["t_wrap_h"],
+                strict=True,
+            )
+        ] + plot_recs
+        (REPO / "data" / "control" / "fullplan_merged.json").write_text(
+            json.dumps(
+                {
+                    "durations_h": [r["t_f_h"] for r in plot_recs],
+                    "j_quality": [r["j_quality"] for r in plot_recs],
+                    "t_wrap_h": [r["t_wrap_h"] for r in plot_recs],
+                    "best_t_f_h": best["t_f_h"],
+                    "best_t_wrap_h": best["t_wrap_h"],
+                },
+                indent=2,
+            )
+        )
+    t_fs = np.array([r["t_f_h"] for r in plot_recs])
+    js = np.array([r["j_quality"] for r in plot_recs])
     ax.plot(t_fs, js, "o-", color=BLUE, lw=2)
-    for r in records:
+    for r in plot_recs:
         ax.annotate(
             f"wrap\n{r['t_wrap_h']:.1f}h",
             (r["t_f_h"], r["j_quality"]),
