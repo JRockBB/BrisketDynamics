@@ -35,6 +35,12 @@ THETA_SITES = [
     ("h_c", dist.LogNormal(np.log(10.0), 0.4)),
     ("L", dist.LogNormal(np.log(0.03), 0.25)),
     ("k_mult", dist.LogNormal(0.0, 0.3)),
+    # expulsion kinetics joined theta 2026-08-21: frozen literature values
+    # left the real-cook refit at loss 495 vs 245 (they shape the stall
+    # entry, which the core probe sees). a_myosin prior kept sub-0.5 at 2
+    # sigma so W_eq stays positive with the fixed actin amplitude.
+    ("k_e", dist.LogNormal(np.log(5.6e-4), 0.5)),
+    ("a_myosin", dist.LogNormal(np.log(0.20), 0.4)),
 ]
 PHI_SITES = [
     ("C_th", dist.LogNormal(np.log(15e3), 0.5)),
@@ -54,82 +60,161 @@ PHI_IGNITION_INERT = np.array([3e-4, 1.0])  # k_spread (inert at a0=1), a0
 
 
 def phi_full(params: dict) -> np.ndarray:
-    """Assemble the 7-vector phi from a params dict (MAP json, posterior
-    draw), filling ignition entries with inert defaults when absent —
-    backward-compatible with pre-ignition-state result files."""
+    """Assemble the 7-vector phi from a params dict.
+
+    Accepts a MAP json or a posterior draw; ignition entries fall back to
+    inert defaults when absent, keeping pre-ignition-state result files
+    loadable.
+
+    Parameters
+    ----------
+    params : dict
+        Parameter values keyed by site name (PHI_SITES at minimum).
+
+    Returns
+    -------
+    np.ndarray
+        The full pit parameter vector [C_th, UA, r_max, dH_eff, u_leak,
+        k_spread, a0].
+    """
     base = [params[n] for n, _ in PHI_SITES]
-    ign = [params.get(n, d) for (n, _), d in
-           zip(PHI_SITES_IGNITION, PHI_IGNITION_INERT)]
+    ign = [
+        params.get(n, d)
+        for (n, _), d in zip(PHI_SITES_IGNITION, PHI_IGNITION_INERT, strict=True)
+    ]
     return np.array(base + ign)
 
 
 def model(obs_pit, obs_core, u_knots, meat_tx, pit_tx, grids, tols):
+    """NumPyro model for the synthetic cook (fully lit, unmasked Gaussian).
+
+    Samples theta/phi/noise scales from the priors, runs the coupled
+    differentiable cook, and conditions Gaussian likelihoods on both probe
+    traces. The ignition entries stay inert (a0 = 1) because the synthetic
+    data was generated fully lit.
+
+    Parameters
+    ----------
+    obs_pit, obs_core : jnp.ndarray
+        Observed pit / core temperature traces [K] on the exchange grid.
+    u_knots : array-like
+        Damper schedule (control input, replayed open-loop).
+    meat_tx, pit_tx : Tesseract
+        The two solver endpoints.
+    grids : CookGrids
+        Time discretization of the coupled cook.
+    tols : dict
+        Solver tolerances forwarded to the Tesseracts.
+    """
     theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
     # synthetic data was generated fully lit: ignition entries stay inert
-    phi = jnp.concatenate([
-        jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES]),
-        jnp.asarray(PHI_IGNITION_INERT),
-    ])
+    phi = jnp.concatenate(
+        [
+            jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES]),
+            jnp.asarray(PHI_IGNITION_INERT),
+        ]
+    )
     sigma_pit = numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
     sigma_core = numpyro.sample("sigma_core", dist.HalfNormal(2.0))
 
-    sim = coupled_cook(theta, phi, jnp.asarray(u_knots), meat_tx, pit_tx,
-                       grids, K=2, **tols)
+    sim = coupled_cook(
+        theta, phi, jnp.asarray(u_knots), meat_tx, pit_tx, grids, K=2, **tols
+    )
     numpyro.sample("pit", dist.Normal(sim["tpit"], sigma_pit), obs=obs_pit)
     numpyro.sample("core", dist.Normal(sim["tcore"], sigma_core), obs=obs_core)
 
 
-def _bound_model(data: dict, meat_tx, pit_tx, grids: CookGrids | None = None,
-                 tols: dict | None = None):
-    grids = grids or CookGrids(t_end=float(data["t"][-1]),
-                               dt_exchange=float(data["t"][1] - data["t"][0]),
-                               n_u=len(data["u_knots"]))
+def _bound_model(
+    data: dict,
+    meat_tx,
+    pit_tx,
+    grids: CookGrids | None = None,
+    tols: dict | None = None,
+):
+    grids = grids or CookGrids(
+        t_end=float(data["t"][-1]),
+        dt_exchange=float(data["t"][1] - data["t"][0]),
+        n_u=len(data["u_knots"]),
+    )
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
-    return partial(model,
-                   jnp.asarray(data["obs_pit"]), jnp.asarray(data["obs_core"]),
-                   data["u_knots"], meat_tx, pit_tx, grids, tols)
+    return partial(
+        model,
+        jnp.asarray(data["obs_pit"]),
+        jnp.asarray(data["obs_core"]),
+        data["u_knots"],
+        meat_tx,
+        pit_tx,
+        grids,
+        tols,
+    )
 
 
 SIGMA_FLOOR_K = 1.2  # >= 2 F digitization noise floor (PROVENANCE.md)
 
 
-def model_real(obs_pit, obs_core, mask_pit, mask_core, u_knots, ics,
-               meat_tx, pit_tx, grids, tols):
-    """Calibration model for the real cook log: masked Gaussian likelihood
-    (lid events + probe-settling excluded) with the digitization noise floor,
-    initial conditions fixed from the log."""
+def model_real(
+    obs_pit, obs_core, mask_pit, mask_core, u_knots, ics, meat_tx, pit_tx, grids, tols
+):
+    """Calibration model for the real cook log.
+
+    Masked Gaussian likelihood (lid events + probe-settling excluded) with
+    the digitization noise floor added to both scales, initial conditions
+    fixed from the log, and the ignition dynamics sampled (real cooks start
+    Minion-style).
+    """
     theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
     # real cooks start Minion-style: sample the ignition dynamics too
-    phi = jnp.stack([numpyro.sample(n, d)
-                     for n, d in PHI_SITES + PHI_SITES_IGNITION])
+    phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES + PHI_SITES_IGNITION])
     sigma_pit = SIGMA_FLOOR_K + numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
     sigma_core = SIGMA_FLOOR_K + numpyro.sample("sigma_core", dist.HalfNormal(2.0))
 
-    sim = coupled_cook(theta, phi, jnp.asarray(u_knots), meat_tx, pit_tx,
-                       grids, K=2, ics=ics, **tols)
-    numpyro.sample("pit", dist.Normal(sim["tpit"][mask_pit], sigma_pit),
-                   obs=obs_pit[mask_pit])
-    numpyro.sample("core", dist.Normal(sim["tcore"][mask_core], sigma_core),
-                   obs=obs_core[mask_core])
+    sim = coupled_cook(
+        theta, phi, jnp.asarray(u_knots), meat_tx, pit_tx, grids, K=2, ics=ics, **tols
+    )
+    numpyro.sample(
+        "pit", dist.Normal(sim["tpit"][mask_pit], sigma_pit), obs=obs_pit[mask_pit]
+    )
+    numpyro.sample(
+        "core",
+        dist.Normal(sim["tcore"][mask_core], sigma_core),
+        obs=obs_core[mask_core],
+    )
 
 
 def bound_model_real(log: dict, meat_tx, pit_tx, tols: dict | None = None):
     """Bind model_real to a loaded cook log (see cooklog.load)."""
-    grids = CookGrids(t_end=float(log["t"][-1]),
-                      dt_exchange=float(log["t"][1] - log["t"][0]),
-                      n_u=len(log["t"]))
-    ics = {"tpit0": log["meta"]["tpit0_K"], "t_amb": 300.0,
-           "t0_meat": log["meta"]["tcore0_K"]}
+    grids = CookGrids(
+        t_end=float(log["t"][-1]),
+        dt_exchange=float(log["t"][1] - log["t"][0]),
+        n_u=len(log["t"]),
+    )
+    ics = {
+        "tpit0": log["meta"]["tpit0_K"],
+        "t_amb": 300.0,
+        "t0_meat": log["meta"]["tcore0_K"],
+    }
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
-    return partial(model_real,
-                   jnp.asarray(log["obs_pit"]), jnp.asarray(log["obs_core"]),
-                   np.asarray(log["mask_pit"]), np.asarray(log["mask_core"]),
-                   log["u"], ics, meat_tx, pit_tx, grids, tols)
+    return partial(
+        model_real,
+        jnp.asarray(log["obs_pit"]),
+        jnp.asarray(log["obs_core"]),
+        np.asarray(log["mask_pit"]),
+        np.asarray(log["mask_core"]),
+        log["u"],
+        ics,
+        meat_tx,
+        pit_tx,
+        grids,
+        tols,
+    )
 
 
 def time_gradient(data, meat_tx, pit_tx, **kw) -> float:
-    """Seconds per log-density gradient at calibration settings — the number
-    the Aug-16 NUTS go/no-go checkpoint runs on (ladder in the plan)."""
+    """Time one log-density gradient at calibration settings.
+
+    Seconds per `jax.value_and_grad` of the potential — the number the
+    NUTS go/no-go checkpoint runs on (ladder in the plan).
+    """
     m = _bound_model(data, meat_tx, pit_tx, **kw)
     from numpyro.infer.util import initialize_model
 
@@ -139,13 +224,14 @@ def time_gradient(data, meat_tx, pit_tx, **kw) -> float:
     t0 = time.perf_counter()
     n = 3
     for _ in range(n):
-        v, g = f(info.param_info.z)
+        v, _g = f(info.param_info.z)
         jax.block_until_ready(v)
     return (time.perf_counter() - t0) / n
 
 
-def run_map(data, meat_tx, pit_tx, num_steps: int = 300, lr: float = 2e-2,
-            seed: int = 0, **kw):
+def run_map(
+    data, meat_tx, pit_tx, num_steps: int = 300, lr: float = 2e-2, seed: int = 0, **kw
+):
     """MAP via SVI + AutoDelta. Returns (params_dict, losses)."""
     m = _bound_model(data, meat_tx, pit_tx, **kw)
     guide = AutoDelta(m)
@@ -155,25 +241,78 @@ def run_map(data, meat_tx, pit_tx, num_steps: int = 300, lr: float = 2e-2,
     return {k: np.asarray(v) for k, v in params.items()}, np.asarray(result.losses)
 
 
-def run_nuts(data, meat_tx, pit_tx, num_warmup: int = 300, num_samples: int = 300,
-             max_tree_depth: int = 6, init_params: dict | None = None,
-             seed: int = 0, **kw) -> MCMC:
+def run_nuts(
+    data,
+    meat_tx,
+    pit_tx,
+    num_warmup: int = 300,
+    num_samples: int = 300,
+    max_tree_depth: int = 6,
+    init_params: dict | None = None,
+    seed: int = 0,
+    **kw,
+) -> MCMC:
+    """Run full NUTS on the synthetic-cook model.
+
+    Every leapfrog step pulls adjoint gradients across the Julia/JAX
+    boundary. Initializes at `init_params` (typically the MAP) when given,
+    else at the prior median.
+
+    Parameters
+    ----------
+    data : dict
+        Synthetic cook data (see synth.load).
+    meat_tx, pit_tx : Tesseract
+        Solver endpoints.
+    num_warmup, num_samples : int
+        NUTS phase lengths.
+    max_tree_depth : int
+        NUTS tree-depth cap (each doubling doubles gradient count).
+    init_params : dict or None
+        Site values to initialize from (e.g. the MAP).
+    seed : int
+        PRNG seed.
+    **kw
+        Forwarded to the model binding (grids, tols).
+
+    Returns
+    -------
+    numpyro.infer.MCMC
+        The completed sampler (samples via `.get_samples()`).
+    """
     m = _bound_model(data, meat_tx, pit_tx, **kw)
-    kernel = NUTS(m, max_tree_depth=max_tree_depth, init_strategy=(
-        numpyro.infer.init_to_value(values=init_params) if init_params
-        else numpyro.infer.init_to_median()))
-    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples,
-                progress_bar=True)
+    kernel = NUTS(
+        m,
+        max_tree_depth=max_tree_depth,
+        init_strategy=(
+            numpyro.infer.init_to_value(values=init_params)
+            if init_params
+            else numpyro.infer.init_to_median()
+        ),
+    )
+    mcmc = MCMC(
+        kernel, num_warmup=num_warmup, num_samples=num_samples, progress_bar=True
+    )
     mcmc.run(jax.random.PRNGKey(seed))
     return mcmc
 
 
 def recovery_table(map_params: dict, data: dict) -> str:
     """Human-readable MAP-vs-truth comparison (Milestone B1: within ~10-20%)."""
-    names = [n for n, _ in THETA_SITES] + [n for n, _ in PHI_SITES]
+    # include ignition names so the zip stays aligned whichever era the
+    # stored npz comes from (theta_true grew 5->7 in 2026-08-21; phi_true
+    # carries inert ignition entries); sites absent from the MAP (ignition
+    # on synthetic fits) are skipped rather than misaligned
+    names = (
+        [n for n, _ in THETA_SITES]
+        + [n for n, _ in PHI_SITES]
+        + [n for n, _ in PHI_SITES_IGNITION]
+    )
     truths = np.concatenate([data["theta_true"], data["phi_true"]])
     lines = [f"{'param':>10} {'truth':>12} {'MAP':>12} {'err %':>8}"]
-    for n, t in zip(names, truths):
+    for n, t in zip(names, truths, strict=False):
+        if n not in map_params:
+            continue
         m = float(map_params[n])
         lines.append(f"{n:>10} {t:>12.4g} {m:>12.4g} {100 * (m - t) / t:>7.1f}%")
     return "\n".join(lines)

@@ -16,22 +16,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 import jax
 import jax.numpy as jnp
 import numpyro
+from brisket_app import calibrate, cooklog
+from brisket_app.clients import meat_client, pit_client
+from brisket_app.coupled import HR, CookGrids, coupled_cook
 from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDelta
-
-from brisket_app.clients import meat_client, pit_client
-from brisket_app import calibrate, cooklog
-from brisket_app.coupled import HR, CookGrids, coupled_cook
 
 REPO = Path(__file__).resolve().parents[1]
 
 
 def main():
+    """MAP-fit the coupled model to the real cook log and plot the fit.
+
+    Runs SVI (AutoDelta, Adam) on the real-cook model, optionally
+    warm-starting the guide from a --init JSON of parameter values, and
+    writes the fitted parameters to data/calibration/map_real.json. Then
+    re-simulates the cook at the MAP with the measured fan schedule and
+    writes figures/cooklog_fit_map.png overlaying the model pit and core
+    temperatures on the observations.
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=300)
     ap.add_argument("--lr", type=float, default=2e-2)
-    ap.add_argument("--init", type=str, default=None,
-                    help="JSON of parameter values to warm-start the guide")
+    ap.add_argument(
+        "--init",
+        type=str,
+        default=None,
+        help="JSON of parameter values to warm-start the guide",
+    )
     args = ap.parse_args()
 
     log = cooklog.load(dt_min=10.0)
@@ -39,8 +51,9 @@ def main():
     m = calibrate.bound_model_real(log, meat_tx, pit_tx)
 
     if args.init:
-        init_vals = {k: float(v) for k, v in
-                     json.loads(Path(args.init).read_text()).items()}
+        init_vals = {
+            k: float(v) for k, v in json.loads(Path(args.init).read_text()).items()
+        }
         guide = AutoDelta(m, init_loc_fn=numpyro.infer.init_to_value(values=init_vals))
     else:
         guide = AutoDelta(m)
@@ -57,15 +70,29 @@ def main():
     # fit overlay figure
     theta = np.array([params[n] for n, _ in calibrate.THETA_SITES])
     phi = calibrate.phi_full(params)
-    grids = CookGrids(t_end=float(log["t"][-1]),
-                      dt_exchange=float(log["t"][1] - log["t"][0]),
-                      n_u=len(log["t"]))
-    ics = {"tpit0": log["meta"]["tpit0_K"], "t_amb": 300.0,
-           "t0_meat": log["meta"]["tcore0_K"]}
-    sim = coupled_cook(jnp.asarray(theta), jnp.asarray(phi), jnp.asarray(log["u"]),
-                       meat_tx, pit_tx, grids, K=2, ics=ics)
+    grids = CookGrids(
+        t_end=float(log["t"][-1]),
+        dt_exchange=float(log["t"][1] - log["t"][0]),
+        n_u=len(log["t"]),
+    )
+    ics = {
+        "tpit0": log["meta"]["tpit0_K"],
+        "t_amb": 300.0,
+        "t0_meat": log["meta"]["tcore0_K"],
+    }
+    sim = coupled_cook(
+        jnp.asarray(theta),
+        jnp.asarray(phi),
+        jnp.asarray(log["u"]),
+        meat_tx,
+        pit_tx,
+        grids,
+        K=2,
+        ics=ics,
+    )
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -75,8 +102,15 @@ def main():
         (axes[0], np.asarray(sim["tpit"]), log["obs_pit"], log["mask_pit"], "pit"),
         (axes[1], np.asarray(sim["tcore"]), log["obs_core"], log["mask_core"], "core"),
     ]:
-        ax.plot(th[mk], o[mk] - 273.15, ".", ms=2.5, color="k", alpha=0.5,
-                label="observed (Mache/TVWBB)")
+        ax.plot(
+            th[mk],
+            o[mk] - 273.15,
+            ".",
+            ms=2.5,
+            color="k",
+            alpha=0.5,
+            label="observed (Mache/TVWBB)",
+        )
         ax.plot(th, s - 273.15, color="tab:orange", label="model @ MAP")
         ax.set(xlabel="time [h]", ylabel="temperature [C]", title=name)
         ax.legend(fontsize=8)

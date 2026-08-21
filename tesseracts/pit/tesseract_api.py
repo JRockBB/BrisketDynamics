@@ -16,7 +16,6 @@ from pathlib import Path
 
 import numpy as np
 from pydantic import BaseModel, Field
-
 from tesseract_core.runtime import Array, Differentiable, Float64, ShapeDType
 
 try:
@@ -37,8 +36,9 @@ if not os.environ.get("JULIA_PYTHONCALL_LIB") and sys.platform == "linux":
     import sysconfig as _sysconfig
 
     _libdir = _sysconfig.get_config_var("LIBDIR") or ""
-    _libs = _glob.glob(os.path.join(_libdir, "libpython*.so.1.0")) or \
-        _glob.glob(os.path.join(_libdir, "libpython*.so"))
+    _libs = _glob.glob(os.path.join(_libdir, "libpython*.so.1.0")) or _glob.glob(
+        os.path.join(_libdir, "libpython*.so")
+    )
     if _libs:
         os.environ["JULIA_PYTHONCALL_LIB"] = _libs[0]
 
@@ -50,7 +50,11 @@ import filelock
 # tesseract_api.py docstring for the full story.
 _EXEC_ATTR = "_brisket_julia_executor"
 if getattr(sys, _EXEC_ATTR, None) is None:
-    setattr(sys, _EXEC_ATTR, ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall"))
+    setattr(
+        sys,
+        _EXEC_ATTR,
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall"),
+    )
 _JL_THREAD: ThreadPoolExecutor = getattr(sys, _EXEC_ATTR)
 
 
@@ -62,7 +66,9 @@ def _on_julia_thread(fn, *args):
     def _guarded():
         try:
             return fn(*args)
-        except Exception as e:
+        # Blind catch is intentional: ANY exception object originating on
+        # the Julia thread must be stringified here, not propagated.
+        except Exception as e:  # noqa: BLE001
             # Stringify HERE, on the Julia thread: a JuliaError crossing to
             # another thread deadlocks the moment traceback formatting calls
             # str() on it (juliacall off its init thread hangs). `from None`
@@ -106,19 +112,31 @@ def _init():
     )
 
 
-with filelock.FileLock(Path(tempfile.gettempdir()) / "brisket_julia_init.lock", timeout=600):
+with filelock.FileLock(
+    Path(tempfile.gettempdir()) / "brisket_julia_init.lock", timeout=600
+):
     _on_julia_thread(_init)
 
 
 def _jvec(x) -> "juliacall.VectorValue":
-    return juliacall.convert(jl.Vector, np.ascontiguousarray(np.asarray(x, dtype=np.float64)))
+    return juliacall.convert(
+        jl.Vector, np.ascontiguousarray(np.asarray(x, dtype=np.float64))
+    )
 
 
 class InputSchema(BaseModel):
+    """Inputs to the pit solve.
+
+    Differentiable: the pit parameter vector ``phi``, the damper schedule,
+    and the meat heat-load forcing. Non-differentiable: the knot grids,
+    save times, solver tolerances, and the scalar initial conditions
+    (initial pit temperature, ambient temperature, fuel load).
+    """
+
     phi: Differentiable[Array[(7,), Float64]] = Field(
         description="Pit parameters [C_th J/K, UA W/K, r_max kg/s, dH_eff J/kg, "
-                    "u_leak, k_spread 1/s, a0] (a0 = initial ignited bed fraction; "
-                    "a0=1 disables ignition dynamics)"
+        "u_leak, k_spread 1/s, a0] (a0 = initial ignited bed fraction; "
+        "a0=1 disables ignition dynamics)"
     )
     u_knots: Differentiable[Array[(None,), Float64]] = Field(
         description="Damper schedule in [0,1] on the uniform grid `u_tknots`"
@@ -137,6 +155,13 @@ class InputSchema(BaseModel):
 
 
 class OutputSchema(BaseModel):
+    """Outputs of the pit solve, all evaluated at ``tsave``.
+
+    Pit temperature, remaining fuel mass, and the burn rate (the smoke-flux
+    proxy) are differentiable; the ignited bed fraction is a
+    diagnostic/state-handoff output outside the VJP.
+    """
+
     tpit: Differentiable[Array[(None,), Float64]] = Field(
         description="Pit gas temperature [K] at tsave"
     )
@@ -144,15 +169,20 @@ class OutputSchema(BaseModel):
         description="Remaining fuel mass [kg] at tsave"
     )
     ignited: Array[(None,), Float64] = Field(
-        description="Ignited bed fraction at tsave (diagnostic/state handoff)")
+        description="Ignited bed fraction at tsave (diagnostic/state handoff)"
+    )
     mdot: Differentiable[Array[(None,), Float64]] = Field(
         description="Exact instantaneous fuel burn rate [kg/s] at tsave "
-                    "(smoke-flux proxy for the bark model)")
+        "(smoke-flux proxy for the bark model)"
+    )
 
 
 def _own(x) -> np.ndarray:
-    """Eager owned copy made ON THE CALLBACK THREAD — XLA only guarantees
-    callback input buffers during the invocation; see meat tesseract_api.py."""
+    """Eager owned copy of an input array, made ON THE CALLBACK THREAD.
+
+    XLA only guarantees callback input buffers during the invocation; see
+    meat tesseract_api.py.
+    """
     return np.array(x, dtype=np.float64, copy=True)
 
 
@@ -167,9 +197,41 @@ _SENTINEL_T = 1.0e4  # [K]
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
-    phi, u, utk, q, qtk, tsave = (_own(inputs.phi), _own(inputs.u_knots),
-                                  _own(inputs.u_tknots), _own(inputs.qmeat_knots),
-                                  _own(inputs.q_tknots), _own(inputs.tsave))
+    """Solve the lumped-parameter smoker ODE (Tesseract apply endpoint).
+
+    Copies every input buffer on the callback thread (XLA only guarantees
+    them for the duration of the invocation) and runs ``pit_solve`` on the
+    dedicated Julia thread.
+
+    Parameters
+    ----------
+    inputs : InputSchema
+        Pit parameters, damper and heat-load forcings with their knot
+        grids, save times, tolerances, and initial conditions.
+
+    Returns
+    -------
+    OutputSchema
+        Pit temperature, remaining fuel, ignited bed fraction, and burn
+        rate at ``tsave``. With BRISKET_SOFT_FAIL=1 a failed solve returns
+        sentinel outputs (1e4 K temperatures -> astronomically bad
+        likelihood) instead of raising, so MCMC treats pathological
+        proposals as rejections.
+
+    Raises
+    ------
+    RuntimeError
+        If the Julia solve fails and soft-fail mode is off.
+    """
+    phi, u, utk, q, qtk, tsave = (
+        _own(inputs.phi),
+        _own(inputs.u_knots),
+        _own(inputs.u_tknots),
+        _own(inputs.qmeat_knots),
+        _own(inputs.q_tknots),
+        _own(inputs.tsave),
+    )
+
     def _run():
         T, m, a, md = jl._pit_apply(
             _jvec(phi),
@@ -187,8 +249,12 @@ def apply(inputs: InputSchema) -> OutputSchema:
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory; releasing it from another thread
         # can deadlock the whole process (see meat tesseract_api.py).
-        return (np.asarray(T).copy(), np.asarray(m).copy(),
-                np.asarray(a).copy(), np.asarray(md).copy())
+        return (
+            np.asarray(T).copy(),
+            np.asarray(m).copy(),
+            np.asarray(a).copy(),
+            np.asarray(md).copy(),
+        )
 
     try:
         T, m, a, md = _on_julia_thread(_run)
@@ -196,12 +262,29 @@ def apply(inputs: InputSchema) -> OutputSchema:
         if not SOFT_FAIL:
             raise
         nt = len(tsave)
-        T, m, a, md = (np.full(nt, _SENTINEL_T), np.zeros(nt), np.zeros(nt),
-                       np.zeros(nt))
+        T, m, a, md = (
+            np.full(nt, _SENTINEL_T),
+            np.zeros(nt),
+            np.zeros(nt),
+            np.zeros(nt),
+        )
     return OutputSchema(tpit=T, m_fuel=m, ignited=a, mdot=md)
 
 
 def abstract_eval(abstract_inputs):
+    """Report output shapes/dtypes without solving (abstract_eval endpoint).
+
+    Parameters
+    ----------
+    abstract_inputs
+        Abstract input pytree; only ``tsave.shape[0]`` is consulted.
+
+    Returns
+    -------
+    dict of str to ShapeDType
+        Four float64 vectors of length ``len(tsave)``: tpit, m_fuel,
+        ignited, mdot.
+    """
     nt = abstract_inputs.tsave.shape[0]
     return {
         "tpit": ShapeDType(shape=(nt,), dtype="float64"),
@@ -217,13 +300,55 @@ def vector_jacobian_product(
     vjp_outputs: set[str],
     cotangent_vector: dict,
 ):
-    phi, u, utk, q, qtk, tsave = (_own(inputs.phi), _own(inputs.u_knots),
-                                  _own(inputs.u_tknots), _own(inputs.qmeat_knots),
-                                  _own(inputs.q_tknots), _own(inputs.tsave))
+    """Vector-Jacobian product of the pit solve (Tesseract VJP endpoint).
+
+    Computes a chunked ForwardDiff dense Jacobian in Julia and returns
+    Jᵀv̄ — cheap and exact for the small non-stiff system, and deliberately
+    a different differentiation strategy from the meat Tesseract's
+    continuous adjoint. Missing cotangents are treated as zeros.
+
+    Parameters
+    ----------
+    inputs : InputSchema
+        The primal inputs of the corresponding apply call.
+    vjp_inputs : set of str
+        Differentiable input names to return gradients for (subset of
+        {"phi", "u_knots", "qmeat_knots"}).
+    vjp_outputs : set of str
+        Output names whose cotangents in ``cotangent_vector`` are live
+        (subset of {"tpit", "m_fuel", "mdot"}).
+    cotangent_vector : dict
+        Cotangent arrays keyed by differentiable output name.
+
+    Returns
+    -------
+    dict of str to numpy.ndarray
+        Gradients for the requested inputs. With BRISKET_SOFT_FAIL=1 a
+        failed solve returns zeros: the sampler is rejecting the proposal
+        anyway (sentinel likelihood), and zeros keep HMC finite.
+
+    Raises
+    ------
+    RuntimeError
+        If the Julia call fails and soft-fail mode is off.
+    """
+    phi, u, utk, q, qtk, tsave = (
+        _own(inputs.phi),
+        _own(inputs.u_knots),
+        _own(inputs.u_tknots),
+        _own(inputs.qmeat_knots),
+        _own(inputs.q_tknots),
+        _own(inputs.tsave),
+    )
     nt = len(tsave)
-    cots = {name: (_own(cotangent_vector[name])
-                   if name in cotangent_vector and name in vjp_outputs else None)
-            for name in ("tpit", "m_fuel", "mdot")}
+    cots = {
+        name: (
+            _own(cotangent_vector[name])
+            if name in cotangent_vector and name in vjp_outputs
+            else None
+        )
+        for name in ("tpit", "m_fuel", "mdot")
+    }
 
     def _run():
         def cot(name):
@@ -247,8 +372,7 @@ def vector_jacobian_product(
             cot("mdot"),
         )
         # .copy(): no zero-copy views of Julia memory may cross threads
-        return (np.asarray(dphi).copy(), np.asarray(du).copy(),
-                np.asarray(dq).copy())
+        return (np.asarray(dphi).copy(), np.asarray(du).copy(), np.asarray(dq).copy())
 
     try:
         dphi, du, dq = _on_julia_thread(_run)

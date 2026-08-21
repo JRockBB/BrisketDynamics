@@ -16,8 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .calibrate import (PHI_IGNITION_INERT, PHI_SITES,
-                        PHI_SITES_IGNITION, THETA_SITES)
+from .calibrate import PHI_IGNITION_INERT, PHI_SITES, PHI_SITES_IGNITION, THETA_SITES
 from .coupled import HR, coupled_cook
 
 PARAM_NAMES = [n for n, _ in THETA_SITES] + [n for n, _ in PHI_SITES]
@@ -27,15 +26,16 @@ _LINEAR = {"u_leak", "a0"}
 LOG_PARAMS = {n for n in PARAM_NAMES if n not in _LINEAR}
 
 
-def corner_plot(samples: dict, out_path: Path, truths: dict | None = None,
-                names: list | None = None):
+def corner_plot(
+    samples: dict, out_path: Path, truths: dict | None = None, names: list | None = None
+):
     """Corner plot over the 10 physical parameters (log10 axes where apt)."""
     import corner as corner_mod
 
     cols = []
     labels = []
     truth_vals = [] if truths is not None else None
-    for n in (names or PARAM_NAMES):
+    for n in names or PARAM_NAMES:
         x = np.asarray(samples[n]).reshape(-1)
         if n not in _LINEAR:
             cols.append(np.log10(x))
@@ -53,15 +53,25 @@ def corner_plot(samples: dict, out_path: Path, truths: dict | None = None,
     BLUE, BLUE_DARK, BLUE_LIGHT, ORANGE = "#256abf", "#1c5cab", "#9ec5f4", "#eb6834"
     INK, MUTED, BASELINE, SURFACE = "#0b0b0b", "#52514e", "#c3c2b7", "#fcfcfb"
     fig = corner_mod.corner(
-        data, labels=labels, truths=truth_vals, truth_color=ORANGE,
-        color=BLUE, fill_contours=True, smooth=1.0,
+        data,
+        labels=labels,
+        truths=truth_vals,
+        truth_color=ORANGE,
+        color=BLUE,
+        fill_contours=True,
+        smooth=1.0,
         plot_datapoints=True,
         data_kwargs={"color": BLUE_LIGHT, "alpha": 0.4, "ms": 1.5},
         contour_kwargs={"linewidths": 0.8},
-        hist_kwargs={"histtype": "stepfilled", "facecolor": BLUE_LIGHT,
-                     "edgecolor": BLUE_DARK, "linewidth": 1.1},
+        hist_kwargs={
+            "histtype": "stepfilled",
+            "facecolor": BLUE_LIGHT,
+            "edgecolor": BLUE_DARK,
+            "linewidth": 1.1,
+        },
         quantiles=[0.16, 0.5, 0.84],
-        show_titles=True, title_fmt=".2f",
+        show_titles=True,
+        title_fmt=".2f",
         title_kwargs={"fontsize": 11, "color": INK},
         label_kwargs={"fontsize": 14, "color": INK},
         max_n_ticks=4,
@@ -75,25 +85,39 @@ def corner_plot(samples: dict, out_path: Path, truths: dict | None = None,
         ax.tick_params(colors=MUTED, labelsize=9)
         for spine in ax.spines.values():
             spine.set_color(BASELINE)
-    fig.suptitle("Posterior over pit + meat parameters (stall-informed)",
-                 y=1.01, color=INK, fontsize=18)
-    fig.savefig(out_path, dpi=130, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
+    fig.suptitle(
+        "Posterior over pit + meat parameters (stall-informed)",
+        y=1.01,
+        color=INK,
+        fontsize=18,
+    )
+    fig.savefig(out_path, dpi=130, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     return out_path
 
 
-def posterior_predictive_plot(samples: dict, data: dict, meat_tx, pit_tx, grids,
-                              out_path: Path, n_draws: int = 30, seed: int = 0,
-                              ics: dict | None = None, masks: dict | None = None):
-    """Simulate n_draws posterior samples through the coupled pipeline and
-    plot the predictive band over the observed pit/core trajectories.
+def posterior_predictive_plot(
+    samples: dict,
+    data: dict,
+    meat_tx,
+    pit_tx,
+    grids,
+    out_path: Path,
+    n_draws: int = 30,
+    seed: int = 0,
+    ics: dict | None = None,
+    masks: dict | None = None,
+):
+    """Plot the posterior-predictive band over the observed trajectories.
+
+    Simulates n_draws posterior samples through the coupled pipeline.
     Sequential loop over draws — vmap over Tesseract calls needs an explicit
     vmap_method and buys nothing here.
 
     `data` needs u_knots/obs_pit/obs_core (synthetic dict or cooklog dict with
     u renamed); `ics`/`masks` are for real logs (initial conditions and
-    observation masks)."""
+    observation masks).
+    """
     rng = np.random.default_rng(seed)
     n_total = len(np.asarray(samples[PARAM_NAMES[0]]).reshape(-1))
     idx = rng.choice(n_total, size=min(n_draws, n_total), replace=False)
@@ -101,18 +125,36 @@ def posterior_predictive_plot(samples: dict, data: dict, meat_tx, pit_tx, grids,
     th = np.asarray(grids.tknots) / HR
     cores, pits = [], []
     for i in idx:
-        theta = jnp.asarray([float(np.asarray(samples[n]).reshape(-1)[i])
-                             for n, _ in THETA_SITES])
-        def _s(n, default=None):
+        theta = jnp.asarray(
+            [float(np.asarray(samples[n]).reshape(-1)[i]) for n, _ in THETA_SITES]
+        )
+
+        # bind i per-iteration: _s is only called inside this iteration, but
+        # a late-bound closure over a loop variable is a bug magnet (B023)
+        def _s(n, default=None, i=i):
             if n in samples:
                 return float(np.asarray(samples[n]).reshape(-1)[i])
             return float(default)
 
-        phi = jnp.asarray([_s(n) for n, _ in PHI_SITES]
-                          + [_s(n, d) for (n, _), d in
-                             zip(PHI_SITES_IGNITION, PHI_IGNITION_INERT)])
-        sim = coupled_cook(theta, phi, jnp.asarray(data["u_knots"]),
-                           meat_tx, pit_tx, grids, K=2, ics=ics)
+        phi = jnp.asarray(
+            [_s(n) for n, _ in PHI_SITES]
+            + [
+                _s(n, d)
+                for (n, _), d in zip(
+                    PHI_SITES_IGNITION, PHI_IGNITION_INERT, strict=True
+                )
+            ]
+        )
+        sim = coupled_cook(
+            theta,
+            phi,
+            jnp.asarray(data["u_knots"]),
+            meat_tx,
+            pit_tx,
+            grids,
+            K=2,
+            ics=ics,
+        )
         cores.append(np.asarray(sim["tcore"]))
         pits.append(np.asarray(sim["tpit"]))
     cores = np.array(cores) - 273.15

@@ -17,29 +17,50 @@ const CP_MEAT = 3400.0        # specific heat capacity [J kg⁻¹ K⁻¹]
 const RHO_DRY = 320.0         # dry-matter density [kg m⁻³] (ρ/(1+W₀) at W₀ ≈ 2.33 dry basis)
 
 """
-    p_sat(T)
+    p_sat(T::Number)
 
-Saturation vapor pressure of water [Pa] at temperature `T` [K], Magnus formula.
-Smooth in `T` (valid range ≈ 273–373 K, more than covers cooking temperatures).
+Saturation vapor pressure of water at temperature `T`, Magnus formula.
+Smooth in `T` (valid range ≈ 273–373 K, more than covers cooking
+temperatures).
+
+# Arguments
+- `T::Number`: Temperature [K].
+
+# Returns
+- `p::Number`: Saturation vapor pressure [Pa].
 """
 p_sat(T) = 610.94 * exp(17.625 * (T - 273.15) / (T - 30.11))
 
 """
-    logistic(x)
+    logistic(x::Number)
 
-Logistic sigmoid, written as `tanh` for numerical stability at large |x|.
+Logistic sigmoid `1 / (1 + e⁻ˣ)`, written via `tanh` for numerical stability
+at large |x| (saturates cleanly to exactly 0.0 / 1.0 instead of overflowing).
+
+# Arguments
+- `x::Number`: Input.
+
+# Returns
+- `y::Number`: Sigmoid value in [0, 1].
 """
 logistic(x) = (1 + tanh(x / 2)) / 2
 
 """
-    softclamp(x, scale)
+    softclamp(x::Number, scale::Number)
 
 Smooth non-negative clamp `scale·softplus(x/scale)`: ≈ `max(0, x)` for
 |x| ≫ scale, smooth near 0. Overflow-safe and free of Julia-level branching
 (`max`/`abs` are scalar AD primitives), so it is safe inside a ReverseDiff
-compiled tape.
+compiled tape and under Enzyme.
+
+# Arguments
+- `x::Number`: Value to clamp.
+- `scale::Number`: Smoothing scale; sets the width of the soft corner at 0.
+
+# Returns
+- `y::Number`: Smoothly clamped value, ≥ 0.
 """
 function softclamp(x, scale)
     z = x / scale
-    scale * (max(z, zero(z)) + log1p(exp(-abs(z))))
+    return scale * (max(z, zero(z)) + log1p(exp(-abs(z))))
 end

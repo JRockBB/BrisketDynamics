@@ -11,14 +11,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
 
 from .coupled import HR, CookGrids, coupled_cook
 
 # Offset from THETA_DEFAULT / PHI_DEFAULT (the prior centers) by 20-40%:
 # calibration has to *move* to find these, not just sit at the prior mode.
-THETA_TRUE = np.array([2.1e-8, 0.0014, 12.5, 0.026, 1.15])
+# (k_e/a_myosin truths offset likewise since joining theta 2026-08-21;
+# regenerating synthetic data + recovery study is a post-merge task.)
+THETA_TRUE = np.array([2.1e-8, 0.0014, 12.5, 0.026, 1.15, 7.3e-4, 0.26])
 # ignition entries inert (a0 = 1): synthetic cooks start fully lit
 PHI_TRUE = np.array([18e3, 24.0, 2.5e-4, 1.35e7, 0.25, 3e-4, 1.0])
 
@@ -32,12 +34,36 @@ U_COOK = np.array([0.8, 0.5, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.55, 0.55]
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "synthetic"
 
 
-def generate(meat_tx, pit_tx, grids: CookGrids | None = None, seed: int = 20260810,
-             tols: dict | None = None) -> dict:
+def generate(
+    meat_tx,
+    pit_tx,
+    grids: CookGrids | None = None,
+    seed: int = 20260810,
+    tols: dict | None = None,
+) -> dict:
+    """Generate one noisy synthetic cook at the known truths.
+
+    Runs the coupled model at THETA_TRUE/PHI_TRUE under U_COOK (tight
+    tolerances) and adds iid Gaussian probe noise.
+
+    Returns
+    -------
+    dict
+        t, u_knots, noisy obs_pit/obs_core, clean traces, the truths, the
+        seed, and the grids.
+    """
     grids = grids or CookGrids(t_end=12 * HR, dt_exchange=600.0, n_u=len(U_COOK))
     tols = tols or {"abstol": 1e-8, "reltol": 1e-8}  # data from a tighter solve
-    out = coupled_cook(jnp.asarray(THETA_TRUE), jnp.asarray(PHI_TRUE),
-                       jnp.asarray(U_COOK), meat_tx, pit_tx, grids, K=2, **tols)
+    out = coupled_cook(
+        jnp.asarray(THETA_TRUE),
+        jnp.asarray(PHI_TRUE),
+        jnp.asarray(U_COOK),
+        meat_tx,
+        pit_tx,
+        grids,
+        K=2,
+        **tols,
+    )
     rng = np.random.default_rng(seed)
     tpit_clean = np.asarray(out["tpit"])
     tcore_clean = np.asarray(out["tcore"])
@@ -56,6 +82,7 @@ def generate(meat_tx, pit_tx, grids: CookGrids | None = None, seed: int = 202608
 
 
 def save(data: dict, name: str = "cook01") -> Path:
+    """Write the array fields to data/synthetic/<name>.npz + a meta json."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     npz_path = DATA_DIR / f"{name}.npz"
     np.savez(
@@ -69,12 +96,13 @@ def save(data: dict, name: str = "cook01") -> Path:
         "t_end_h": float(data["t"][-1] / HR),
         "dt_exchange_s": float(data["t"][1] - data["t"][0]),
         "note": "Synthetic cook log from coupled_cook at THETA_TRUE/PHI_TRUE "
-                "(K=2, tol 1e-8) + iid Gaussian noise. Generating code: synth.py.",
+        "(K=2, tol 1e-8) + iid Gaussian noise. Generating code: synth.py.",
     }
     (DATA_DIR / f"{name}.json").write_text(json.dumps(meta, indent=2))
     return npz_path
 
 
 def load(name: str = "cook01") -> dict:
+    """Load a saved synthetic cook as a plain dict of arrays."""
     with np.load(DATA_DIR / f"{name}.npz") as f:
         return dict(f)

@@ -25,7 +25,7 @@ strategies**, composed in JAX via tesseract-jax:
 
 | Component | Physics | Differentiation |
 |---|---|---|
-| `brisket-meat` | 1D slab heat+moisture PDE + surface bark states (Maillard, smoke deposition), 122 stiff ODEs (method of lines, FBDF), smoothed evaporative surface BC, collagen kinetics | **SciMLSensitivity continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`), exposed as the Tesseract `vector_jacobian_product` |
+| `brisket-meat` | 1D slab heat+moisture PDE (denaturation expulsion, fat rendering) + surface bark states (Maillard, smoke deposition), 162 stiff ODEs (method of lines, FBDF), smoothed evaporative surface BC, collagen kinetics | **SciMLSensitivity continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`), exposed as the Tesseract `vector_jacobian_product` |
 | `brisket-pit` | lumped charcoal pit, 3 ODEs (energy balance, fuel burn with smooth burnout taper, Minion-method ignition spread) | **exact dense ForwardDiff Jacobian**, transposed to a VJP |
 
 ![Composition diagram](../figures/composition_diagram.png)
@@ -70,7 +70,12 @@ over non-lid-event observations (likewise for the core probe).
 A three-level gradient verification gate backs this: Julia adjoints vs central
 finite differences (rel. err ≤1e-3, most components ≤1e-5), per-endpoint
 `tesseract-runtime check-gradients`, and a composed FD check of
-`jax.grad(loss ∘ coupled_cook)` — **17/17 directions pass at 1e-10 tolerances** (every meat parameter, all 7 pit parameters incl. the ignition dynamics, damper directions, the wrap time, and the damper→burn-rate→smoke→bark-color chain through both components; the Julia-level suite runs 68 tests incl. 27 adjoint-vs-FD checks)
+`jax.grad(loss ∘ coupled_cook)` — the composed gate covers every input
+class (all 7 meat latents incl. the expulsion kinetics, all 7 pit
+parameters incl. the ignition dynamics, damper directions, the wrap time,
+and the damper→burn-rate→smoke→bark-color chain through both components);
+the Julia-level suite runs 92 tests incl. 33 adjoint-vs-FD checks, the
+app suite 21
 (`docs/verification.md` documents the methodology, including why the
 compiled-ReverseDiff-tape variant is *silently wrong* for time-interpolated
 forcings, and the FD conditioning required to verify a parameter that spans
@@ -104,13 +109,20 @@ uncertainty budget and provenance in `data/cook_log/PROVENANCE.md`). The
 measured blower duty replays open-loop as the control input; initial
 conditions come from the log; lid events are masked. The calibrated model
 tracks the 19-hour pit hold within ~3 °C and reproduces the core's full arc —
-rise, multi-hour stall at ~70 °C, **stall break at ~14 h**, climb to 90 °C.
-The poster described his door as leaky; the calibration put the leak
-parameter at u_leak = 0.21, and the Minion-start ignition state landed at
-a0 = 0.73 with an hours-scale spread constant — both physical. Core noise
-calibrates to the digitization floor (σ_core = 0.88 K). Honest residual:
-±3 °C pit wobble at sub-hour timescales — a real model deficiency (see
-Limitations).
+rise, multi-hour plateau at ~70 °C, **stall break at ~14 h**, climb to 90 °C.
+The poster described his door as leaky; the calibration puts the leak
+parameter at u_leak = 0.22, and the Minion-start ignition state lands at
+a0 = 0.86 with an hours-scale spread constant — both physical. The fit is
+under the FINAL physics, calibrating the expulsion kinetics jointly with
+the transport/thermal latents (θ grew 5 → 7 when frozen literature
+expulsion constants left a 2x loss floor — the stall entry carries
+water-holding information a thermometer can see). Honest residuals:
+σ_core = 1.30 K against a ±0.8 K digitization floor — the constrained
+moisture physics fits the temperature record *worse* than the old
+water-blind model did (245 → 470 in loss), and we keep it anyway: the old
+model bought its fit with an invisible, wrong water budget, while this
+one is accountable to a kitchen scale. Plus the standing ±3 °C pit wobble
+at sub-hour timescales (see Limitations).
 
 **The real-cook posterior** (`figures/corner_real.png`,
 `figures/posterior_predictive_real.png`): full NUTS over all 12 physical
@@ -123,15 +135,25 @@ told in Limitations: the meat side is pinned (D_eff to ±13%, k_m and L to
 information), while the pit side is identified only in *combinations* — the
 posterior slides along two clean ridges (UA ∝ ΔH_eff, heat loss vs heat
 release; r_max vs u_leak, burn rate vs leak dilution), the fingerprint of
-closed-loop data. Instructively, the MAP's u_leak = 0.21 and the
+closed-loop data. Instructively, the MAP's u_leak and the
 posterior's 0.70–0.79 band produce near-identical trajectories: the "leaky
 door" is a property of the burn ridge, not an individually pinned number
 (`figures/corner_real_widerange.png` widens the axes to overlay the MAP
 point — point estimate and posterior bulk sit far apart along the flat
 ridge directions while fitting the data equally well).
-Diagnostics quoted as-is: single chain, ESS 4–17, split-r̂ up to 2.6 — the
-chain explores the ridges but has not equilibrated; it remains extendable
-from its checkpoint.
+
+**Three chains make the ridge story rigorous**
+(`data/calibration/multichain_diagnostics.json`): two additional 200+200
+chains from dispersed initializations reproduce the ridge GEOMETRY almost
+exactly (per-chain correlations +0.98 to +0.998 on UA–ΔH_eff, −0.98 to
+−0.99 on r_max–u_leak) while cross-chain split-r̂ runs 1.13–4.6 on every
+parameter: independent chains agree on the identified *combinations* and
+park at different positions *along* them. That pair of facts — ridges
+reproduce, positions don't — is the cleanest statement of the closed-loop
+identifiability limit this data permits, quoted as-is. (These chains
+sample the pre-moisture physics; the posterior under the final
+7-latent-θ model is sampling now, resumable from checkpoints, and slots
+into this section when it lands.)
 
 **Optimal control** (`figures/control_before_after.png`): Optax Adam on 16
 sigmoid-bounded damper knots through the full coupled pipeline. Objective
@@ -163,9 +185,10 @@ brisket defines its own time — an outer scan over planned durations with an
 inner schedule optimization per duration. Instructively, the answer moved
 as the quality objective completed: with doneness + juiciness alone the
 optimizer chose a **9 h hot-and-fast** cook (`timeplan.png`, left panel);
-adding bark color flipped it to the **~17 h low-and-slow** of the full
-composition below — the clearest demonstration in this project that *what
-you optimize is part of the model*. The chance layer then asks the
+adding bark color flipped it to ~17 h, and completing the moisture physics
+kept the 17 h duration while pulling the wrap into the plan — the clearest
+demonstration in this project that *what you optimize (and what physics
+backs it) is part of the model*. The chance layer then asks the
 NUTS-real posterior to certify a start time and receives **an honest
 refusal**:
 P(serveably done) = 0 at every duration, because the closed-loop cook log
@@ -193,25 +216,37 @@ designed calibration experiment (hourly photos with a color card; a
 wrapped/unwrapped cook pair to separate smoke color from Maillard) is
 specified in `docs/bark_plan.md`. Forward validation reproduces pitmaster
 lore mechanistically: hot-and-fast Maillard-saturates, low-and-slow is
-smoke-dominated, wrapping freezes bark. With color completing the quality
-vector, the full composition — duration × wrap × schedule jointly optimized
-— **rediscovers traditional practice**: a ~17 h low-and-slow cook, wrap
-never chosen at any duration (the reference real cook: 19 h, unwrapped).
-The Texas crutch drops out of the leisure-optimal plan and re-emerges as
-what it actually is — a closed-loop contingency tool for cooks under
-deadline pressure (the MPC-with-wrap demo is roadmapped). The **default
+smoke-dominated, wrapping freezes bark. With the full quality
+vector in place — color, smoke, tenderness, and mechanistic juiciness —
+the composition (duration × wrap × schedule jointly optimized) lands on a
+**17 h cook that wraps at 3.5 h**: smoke bare while the bark and
+smoke-band develop, then crutch and hold near 90 °C, ending at full
+doneness with 51% perceptual juiciness. Instructively, the wrap's role
+moved as the physics completed: under the pre-moisture placeholder
+objective the optimizer never wrapped; with denaturation-driven expulsion
+modeled, the crutch becomes *how the plan protects juiciness*, and its
+moment scales with horizon (a 10 h cook wraps at ~7 h, the 17 h optimum
+at 3.5 h — the longer you can cook, the sooner you stop paying
+evaporative losses). The optimum is duration-flat past ~16 h (gains halve
+per added hour; 17 h is the 2%-plateau's left edge). The **default
 quality objective** is KCBS-weighted: appearance 0.14 / taste 0.57 /
 tenderness 0.29 — the multipliers real judges' scores carry — applied to
 the subset of each category the simulation observes: a two-sided
 *mahogany* color band (judges ding black bark as burnt-looking), a
 smoke-deposition band (phenolic mass as a smoke-depth correlate with an
-over-deposition/bitterness ceiling), moisture, and the two-sided collagen
-tenderness band. Every weight and band is an overridable config field — a
-different preference is a different config, not a different mode. Stated
-plainly: tenderness is a mechanistic proxy, taste is two correlates
-(smoke mass, water-only moisture — seasoning and smoke *quality* are
-absent), appearance is color only. Absolute durations remain conditional
-on the placeholder band normalizations; the weights are cited.
+over-deposition/bitterness ceiling), perceptual juiciness, and the
+two-sided collagen tenderness band. Every weight and band is an
+overridable config field — a different preference is a different config,
+not a different mode. Juiciness is now mechanistic on both channels:
+retained water under denaturation-driven expulsion (myosin/actin
+water-holding-capacity steps) plus retained rendered fat (the
+fat-rendering state), with the cook-loss budget — evaporation, purge,
+drained tallow — closed algebraically and testable against a kitchen
+scale. Stated plainly: tenderness is a mechanistic proxy, taste is two
+correlates (smoke mass, juiciness — seasoning and smoke *quality* are
+absent; the fat/water sensory weighting β_fat is a placeholder),
+appearance is color only. Absolute durations remain conditional on the
+placeholder band normalizations; the weights are cited.
 
 The objective also carries **food-safety constraints, curve-faithful**:
 pasteurization is a time–temperature curve, so the binding constraint is

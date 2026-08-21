@@ -3,9 +3,8 @@ and the stall reproduced through Python."""
 
 import numpy as np
 import pytest
-
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.coupled import HR, THETA_DEFAULT, PHI_DEFAULT, CookGrids
+from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids
 
 
 @pytest.fixture(scope="module")
@@ -65,7 +64,10 @@ def test_meat_vjp_endpoint_runs(grids):
     }
     cot = {"tcore": np.ones(grids.nt)}
     out = meat_client().vector_jacobian_product(
-        inputs, vjp_inputs={"theta", "tpit_knots"}, vjp_outputs={"tcore"}, cotangent_vector=cot
+        inputs,
+        vjp_inputs={"theta", "tpit_knots"},
+        vjp_outputs={"tcore"},
+        cotangent_vector=cot,
     )
     assert set(out) == {"theta", "tpit_knots"}
     assert np.all(np.isfinite(out["theta"]))

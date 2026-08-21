@@ -71,7 +71,7 @@ microscopically; test baselines recompute).
     dB/dt = k_B(T_s, a_w) · (1 − B)
     k_B = k₀ · exp(−E_a/R · (1/T_s − 1/T_ref)) · g(a_w)
     g(a_w) = exp(−((a_w − a_pk)² / (2 σ_aw²)))        # bell, a_pk ≈ 0.65
-Integrated as ODE state 3nx+1 of the meat system (linear in B given the
+Integrated as ODE state 3nx+1 of the meat system (4nx+1 since the moisture build added the fat block F) (linear in B given the
 surface trajectory; FBDF handles it incidentally).
 
 **Smoke deposition state** S (accumulated phenolics):

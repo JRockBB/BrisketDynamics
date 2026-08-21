@@ -4,7 +4,7 @@
 @testset "pit forward physics" begin
     hr = 3600.0
     tsave = collect(0.0:300.0:12hr)
-    u_tknots = collect(range(0, 12hr, length = 16))
+    u_tknots = collect(range(0, 12hr, length=16))
     φ = PIT_φ_DEFAULT
 
     # moderate fixed damper, no meat load
@@ -13,7 +13,7 @@
     dt_h = 300.0 / hr
 
     @test count(f -> 225 <= f <= 275, TpitF) * dt_h > 8.0     # WSM hold
-    @test issorted(pit.m_fuel, rev = true)                     # fuel only burns
+    @test issorted(pit.m_fuel, rev=true)                     # fuel only burns
     @test pit.m_fuel[end] > 0.0                                # doesn't run dry at u=0.4
 
     # damper authority: wide-open runs hotter than nearly-closed

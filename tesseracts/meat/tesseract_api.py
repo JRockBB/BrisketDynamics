@@ -25,8 +25,7 @@ from pathlib import Path
 
 import numpy as np
 from pydantic import BaseModel, Field
-
-from tesseract_core.runtime import Array, Differentiable, Float64, Int32, ShapeDType
+from tesseract_core.runtime import Array, Differentiable, Float64, ShapeDType
 
 try:
     REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -46,8 +45,9 @@ if not os.environ.get("JULIA_PYTHONCALL_LIB") and sys.platform == "linux":
     import sysconfig as _sysconfig
 
     _libdir = _sysconfig.get_config_var("LIBDIR") or ""
-    _libs = _glob.glob(os.path.join(_libdir, "libpython*.so.1.0")) or \
-        _glob.glob(os.path.join(_libdir, "libpython*.so"))
+    _libs = _glob.glob(os.path.join(_libdir, "libpython*.so.1.0")) or _glob.glob(
+        os.path.join(_libdir, "libpython*.so")
+    )
     if _libs:
         os.environ["JULIA_PYTHONCALL_LIB"] = _libs[0]
 
@@ -55,7 +55,11 @@ import filelock
 
 _EXEC_ATTR = "_brisket_julia_executor"
 if getattr(sys, _EXEC_ATTR, None) is None:
-    setattr(sys, _EXEC_ATTR, ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall"))
+    setattr(
+        sys,
+        _EXEC_ATTR,
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall"),
+    )
 _JL_THREAD: ThreadPoolExecutor = getattr(sys, _EXEC_ATTR)
 
 
@@ -71,7 +75,9 @@ def _on_julia_thread(fn, *args):
     def _guarded():
         try:
             return fn(*args)
-        except Exception as e:
+        # Blind catch is intentional: ANY exception object originating on
+        # the Julia thread must be stringified here, not propagated.
+        except Exception as e:  # noqa: BLE001
             # Stringify HERE, on the Julia thread: a JuliaError crossing to
             # another thread deadlocks the moment traceback formatting calls
             # str() on it (juliacall off its init thread hangs). `from None`
@@ -103,7 +109,8 @@ def _init():
                            t_wrap=t_wrap, smoke_knots=smoke)
             return (o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final,
                     o.w_retained, o.T_field[:, end], o.W_field[:, end],
-                    o.bark_b, o.bark_s, o.l_star)
+                    o.bark_b, o.bark_s, o.l_star,
+                    o.juiciness, o.fat_rendered, o.evap_w, o.drip_w, o.drip_f)
         end
         # KNOWN GAP (documented, not fixed here): the VJP path builds its
         # initial state from cfg only — the field ICs T0f/W0f/C0f are NOT
@@ -111,10 +118,12 @@ def _init():
         # (receding-horizon MPC) silently use uniform ICs. Whole-horizon
         # optimization and calibration are unaffected. t_wrap IS threaded.
         function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol, t0,
-                           t_wrap, smoke, cTs, cTc, cj, cq, cC, cW, cB, cS, cL)
+                           t_wrap, smoke, cTs, cTc, cj, cq, cC, cW, cB, cS, cL,
+                           cJu, cFr)
             cfg = MeatConfig(T0=t0)
             cot = (Tsurf=cTs, Tcore=cTc, j_evap=cj, q_meat=cq, C_field_final=cC,
-                   w_retained=cW, bark_b=cB, bark_s=cS, l_star=cL)
+                   w_retained=cW, bark_b=cB, bark_s=cS, l_star=cL,
+                   juiciness=cJu, fat_rendered=cFr)
             g = meat_vjp(θ, knots, tknots, tsave, cot; cfg=cfg, abstol=abstol,
                          reltol=reltol, t_wrap=t_wrap, smoke_knots=smoke)
             return g.dθ, g.dTpit_knots, g.dsmoke_knots, g.dt_wrap
@@ -123,19 +132,33 @@ def _init():
     )
 
 
-with filelock.FileLock(Path(tempfile.gettempdir()) / "brisket_julia_init.lock", timeout=600):
+with filelock.FileLock(
+    Path(tempfile.gettempdir()) / "brisket_julia_init.lock", timeout=600
+):
     _on_julia_thread(_init)
 
 NX = 40  # spatial nodes (MeatConfig default; c_field_final length)
 
 
 def _jvec(x) -> "juliacall.VectorValue":
-    return juliacall.convert(jl.Vector, np.ascontiguousarray(np.asarray(x, dtype=np.float64)))
+    return juliacall.convert(
+        jl.Vector, np.ascontiguousarray(np.asarray(x, dtype=np.float64))
+    )
 
 
 class InputSchema(BaseModel):
-    theta: Differentiable[Array[(5,), Float64]] = Field(
-        description="Meat parameters [D_eff m²/s, k_m m/s, h_c W/m²K, L m, k_mult]"
+    """Inputs to the meat solve.
+
+    Differentiable: the meat parameter vector ``theta``, the pit-temperature
+    and smoke forcings on the ``tknots`` grid, and the wrap time ``t_wrap``.
+    Non-differentiable: time grids, solver tolerances, the scalar initial
+    temperature, and the optional full-field initial state used for
+    receding-horizon state handoff.
+    """
+
+    theta: Differentiable[Array[(7,), Float64]] = Field(
+        description="Meat parameters [D_eff m²/s, k_m m/s, h_c W/m²K, L m, "
+        "k_mult, k_e 1/s, a_myosin]"
     )
     tpit_knots: Differentiable[Array[(None,), Float64]] = Field(
         description="Pit temperature trajectory [K] on the uniform knot grid `tknots`"
@@ -150,24 +173,38 @@ class InputSchema(BaseModel):
     t_wrap: Differentiable[Array[(), Float64]] = Field(
         default=1.0e9,
         description="Texas-crutch wrap time [s]; default (1e9) = never wrap. "
-                    "Smooth blend of width MeatConfig.δ_wrap; differentiable.")
+        "Smooth blend of width MeatConfig.δ_wrap; differentiable.",
+    )
     smoke_knots: Differentiable[Array[(None,), Float64]] = Field(
         default_factory=list,
         description="Smoke-flux forcing (pit burn rate, kg/s) on the tknots "
-                    "grid; empty = no smoke. Drives the bark deposition state; "
-                    "differentiable so gradients flow damper -> burn rate -> "
-                    "smoke -> bark.")
+        "grid; empty = no smoke. Drives the bark deposition state; "
+        "differentiable so gradients flow damper -> burn rate -> "
+        "smoke -> bark.",
+    )
     # Optional full-field initial state (receding-horizon state handoff);
     # empty arrays fall back to uniform ICs. Non-differentiable by design.
     t_field0: Array[(None,), Float64] = Field(
-        default_factory=list, description="Initial T field (len nx) or empty")
+        default_factory=list, description="Initial T field (len nx) or empty"
+    )
     w_field0: Array[(None,), Float64] = Field(
-        default_factory=list, description="Initial W field (len nx) or empty")
+        default_factory=list, description="Initial W field (len nx) or empty"
+    )
     c_field0: Array[(None,), Float64] = Field(
-        default_factory=list, description="Initial C field (len nx) or empty")
+        default_factory=list, description="Initial C field (len nx) or empty"
+    )
 
 
 class OutputSchema(BaseModel):
+    """Outputs of the meat solve.
+
+    Time series at ``tsave`` (temperatures, evaporative flux, pit heat
+    load, bark states, L*), scalar quality summaries, mass-budget
+    diagnostics, and the final T/W fields for receding-horizon state
+    handoff. Only the fields typed ``Differentiable`` participate in the
+    VJP endpoint; the diagnostics and final fields do not.
+    """
+
     tsurf: Differentiable[Array[(None,), Float64]] = Field(
         description="Surface temperature [K] at tsave"
     )
@@ -187,15 +224,36 @@ class OutputSchema(BaseModel):
         description="Juiciness proxy: mean retained moisture at pull / W0"
     )
     bark_b: Differentiable[Array[(None,), Float64]] = Field(
-        description="Bark Maillard browning state B in [0,1) at tsave")
+        description="Bark Maillard browning state B in [0,1) at tsave"
+    )
     bark_s: Differentiable[Array[(None,), Float64]] = Field(
-        description="Bark smoke-deposition state S in [0,1) at tsave")
+        description="Bark smoke-deposition state S in [0,1) at tsave"
+    )
     l_star: Differentiable[Array[(None,), Float64]] = Field(
-        description="Predicted surface lightness L* (CIELAB) at tsave")
+        description="Predicted surface lightness L* (CIELAB) at tsave"
+    )
+    juiciness: Differentiable[Array[(), Float64]] = Field(
+        description="Perceptual juiciness: retained water + β·retained "
+        "rendered fat, as water-equivalent fraction of W0"
+    )
+    fat_rendered: Differentiable[Array[(), Float64]] = Field(
+        description="Mean rendered fat fraction at pull (0-1)"
+    )
+    evap_w: Array[(), Float64] = Field(
+        description="Evaporated water, dry-basis mean units (scale calib)"
+    )
+    drip_w: Array[(), Float64] = Field(
+        description="Dripped (purged) water, dry-basis mean units"
+    )
+    drip_f: Array[(), Float64] = Field(
+        description="Drained rendered fat (tallow catch), dry-basis mean units"
+    )
     t_field_final: Array[(NX,), Float64] = Field(
-        description="Final temperature field (state handoff; non-differentiable)")
+        description="Final temperature field (state handoff; non-differentiable)"
+    )
     w_field_final: Array[(NX,), Float64] = Field(
-        description="Final moisture field (state handoff; non-differentiable)")
+        description="Final moisture field (state handoff; non-differentiable)"
+    )
 
 
 # Soft-fail mode for MCMC: failed solves return sentinel outputs / zero
@@ -218,17 +276,55 @@ def _own(x) -> np.ndarray:
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
-    theta, tpit, tknots, tsave = (_own(inputs.theta), _own(inputs.tpit_knots),
-                                  _own(inputs.tknots), _own(inputs.tsave))
-    t0f, w0f, c0f = (_own(inputs.t_field0), _own(inputs.w_field0),
-                     _own(inputs.c_field0))
+    """Solve the 1D heat-moisture brisket PDE (Tesseract apply endpoint).
+
+    Copies every input buffer on the callback thread (XLA only guarantees
+    them for the duration of the invocation), validates that the pit
+    trajectory matches its knot grid, and runs ``meat_solve`` on the
+    dedicated Julia thread.
+
+    Parameters
+    ----------
+    inputs : InputSchema
+        Meat parameters, pit/smoke forcings with their knot grid, save
+        times, tolerances, wrap time, and optional initial fields.
+
+    Returns
+    -------
+    OutputSchema
+        Surface/core temperatures, evaporative flux, pit heat load, bark
+        states and L*, quality scalars, mass-budget diagnostics, and the
+        final T/W fields. With BRISKET_SOFT_FAIL=1 a failed solve returns
+        sentinel outputs (1e4 K temperatures, zeroed states) instead of
+        raising, so MCMC treats pathological proposals as rejections.
+
+    Raises
+    ------
+    ValueError
+        If ``tpit_knots`` and ``tknots`` have different shapes (degenerate
+        input).
+    RuntimeError
+        If the Julia solve fails and soft-fail mode is off.
+    """
+    theta, tpit, tknots, tsave = (
+        _own(inputs.theta),
+        _own(inputs.tpit_knots),
+        _own(inputs.tknots),
+        _own(inputs.tsave),
+    )
+    t0f, w0f, c0f = (
+        _own(inputs.t_field0),
+        _own(inputs.w_field0),
+        _own(inputs.c_field0),
+    )
     smoke = _own(inputs.smoke_knots)
     if tpit.shape != tknots.shape:
         raise ValueError(
-            f"DEGENERATE MEAT INPUT: tpit_knots {tpit.shape} vs tknots {tknots.shape}")
+            f"DEGENERATE MEAT INPUT: tpit_knots {tpit.shape} vs tknots {tknots.shape}"
+        )
 
     def _run():
-        ts, tc, j, q, c, wr, tf, wf, bb, bs, ls = jl._meat_apply(
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df) = jl._meat_apply(
             _jvec(theta),
             _jvec(tpit),
             _jvec(tknots),
@@ -247,15 +343,29 @@ def apply(inputs: InputSchema) -> OutputSchema:
         # its eventual PyBuffer_Release calls back into Julia from the wrong
         # thread and can trigger a GC that waits forever for this (parked)
         # thread — a timing-dependent process-wide deadlock.
-        return (np.asarray(ts).copy(), np.asarray(tc).copy(),
-                np.asarray(j).copy(), np.asarray(q).copy(),
-                np.asarray(c).copy(), np.float64(wr),
-                np.asarray(tf).copy(), np.asarray(wf).copy(),
-                np.asarray(bb).copy(), np.asarray(bs).copy(),
-                np.asarray(ls).copy())
+        return (
+            np.asarray(ts).copy(),
+            np.asarray(tc).copy(),
+            np.asarray(j).copy(),
+            np.asarray(q).copy(),
+            np.asarray(c).copy(),
+            np.float64(wr),
+            np.asarray(tf).copy(),
+            np.asarray(wf).copy(),
+            np.asarray(bb).copy(),
+            np.asarray(bs).copy(),
+            np.asarray(ls).copy(),
+            np.float64(ju),
+            np.float64(fr),
+            np.float64(ew),
+            np.float64(dw),
+            np.float64(df),
+        )
 
     try:
-        ts, tc, j, q, c, wr, tf, wf, bb, bs, ls = _on_julia_thread(_run)
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df) = (
+            _on_julia_thread(_run)
+        )
     except RuntimeError:
         if not SOFT_FAIL:
             raise
@@ -268,12 +378,41 @@ def apply(inputs: InputSchema) -> OutputSchema:
         wf = np.zeros(NX)
         bb = bs = np.zeros(nt)
         ls = np.full(nt, 52.0)
-    return OutputSchema(tsurf=ts, tcore=tc, j_evap=j, q_meat=q, c_field_final=c,
-                        w_retained=wr, t_field_final=tf, w_field_final=wf,
-                        bark_b=bb, bark_s=bs, l_star=ls)
+        ju = fr = ew = dw = df = np.float64(0.0)
+    return OutputSchema(
+        tsurf=ts,
+        tcore=tc,
+        j_evap=j,
+        q_meat=q,
+        c_field_final=c,
+        w_retained=wr,
+        t_field_final=tf,
+        w_field_final=wf,
+        bark_b=bb,
+        bark_s=bs,
+        l_star=ls,
+        juiciness=ju,
+        fat_rendered=fr,
+        evap_w=ew,
+        drip_w=dw,
+        drip_f=df,
+    )
 
 
 def abstract_eval(abstract_inputs):
+    """Report output shapes/dtypes without solving (abstract_eval endpoint).
+
+    Parameters
+    ----------
+    abstract_inputs
+        Abstract input pytree; only ``tsave.shape[0]`` is consulted.
+
+    Returns
+    -------
+    dict of str to ShapeDType
+        One entry per OutputSchema field: float64 time series of length
+        ``len(tsave)``, fields of length NX, and float64 scalars.
+    """
     nt = abstract_inputs.tsave.shape[0]
     vec = lambda n: ShapeDType(shape=(n,), dtype="float64")
     return {
@@ -288,6 +427,11 @@ def abstract_eval(abstract_inputs):
         "bark_b": vec(nt),
         "bark_s": vec(nt),
         "l_star": vec(nt),
+        "juiciness": ShapeDType(shape=(), dtype="float64"),
+        "fat_rendered": ShapeDType(shape=(), dtype="float64"),
+        "evap_w": ShapeDType(shape=(), dtype="float64"),
+        "drip_w": ShapeDType(shape=(), dtype="float64"),
+        "drip_f": ShapeDType(shape=(), dtype="float64"),
     }
 
 
@@ -297,14 +441,73 @@ def vector_jacobian_product(
     vjp_outputs: set[str],
     cotangent_vector: dict,
 ):
-    theta, tpit, tknots, tsave = (_own(inputs.theta), _own(inputs.tpit_knots),
-                                  _own(inputs.tknots), _own(inputs.tsave))
+    """Vector-Jacobian product of the meat solve (Tesseract VJP endpoint).
+
+    Backed by the SciMLSensitivity continuous adjoint of the stiff
+    method-of-lines solve, run on the dedicated Julia thread. Missing
+    cotangents are treated as zeros. Known gap (documented in the Julia
+    bridge): the VJP path rebuilds its initial state from the config only,
+    so the optional field ICs (t_field0/w_field0/c_field0) are NOT threaded
+    through — gradients taken from a mid-cook state silently use uniform
+    ICs; whole-horizon optimization and calibration are unaffected.
+
+    Parameters
+    ----------
+    inputs : InputSchema
+        The primal inputs of the corresponding apply call.
+    vjp_inputs : set of str
+        Differentiable input names to return gradients for (subset of
+        {"theta", "tpit_knots", "t_wrap", "smoke_knots"}).
+    vjp_outputs : set of str
+        Output names whose cotangents in ``cotangent_vector`` are live.
+    cotangent_vector : dict
+        Cotangent arrays keyed by differentiable output name.
+
+    Returns
+    -------
+    dict of str to numpy.ndarray
+        Gradients for the requested inputs. With BRISKET_SOFT_FAIL=1 a
+        failed adjoint solve returns zeros (the proposal is being rejected
+        anyway; zeros keep HMC finite).
+
+    Raises
+    ------
+    FloatingPointError
+        If any returned gradient contains NaN: the exact failing call is
+        captured to ``meat_vjp_nan_capture.npz`` in the temp dir for
+        offline replay in Julia, then the endpoint fails loudly rather
+        than let NaNs propagate silently into the optimizer.
+    RuntimeError
+        If the Julia adjoint solve fails and soft-fail mode is off.
+    """
+    theta, tpit, tknots, tsave = (
+        _own(inputs.theta),
+        _own(inputs.tpit_knots),
+        _own(inputs.tknots),
+        _own(inputs.tsave),
+    )
     nt = len(tsave)
     smoke = _own(inputs.smoke_knots)
-    cots = {name: (_own(cotangent_vector[name])
-                   if name in cotangent_vector and name in vjp_outputs else None)
-            for name in ("tsurf", "tcore", "j_evap", "q_meat", "c_field_final",
-                         "w_retained", "bark_b", "bark_s", "l_star")}
+    cots = {
+        name: (
+            _own(cotangent_vector[name])
+            if name in cotangent_vector and name in vjp_outputs
+            else None
+        )
+        for name in (
+            "tsurf",
+            "tcore",
+            "j_evap",
+            "q_meat",
+            "c_field_final",
+            "w_retained",
+            "bark_b",
+            "bark_s",
+            "l_star",
+            "juiciness",
+            "fat_rendered",
+        )
+    }
 
     def _run():
         def cot(name, n):
@@ -330,30 +533,51 @@ def vector_jacobian_product(
             cot("bark_b", nt),
             cot("bark_s", nt),
             cot("l_star", nt),
+            float(cots["juiciness"]) if cots["juiciness"] is not None else 0.0,
+            float(cots["fat_rendered"]) if cots["fat_rendered"] is not None else 0.0,
         )
         # .copy(): no zero-copy views of Julia memory may cross threads
-        return (np.asarray(dtheta).copy(), np.asarray(dknots).copy(),
-                np.asarray(dsmoke).copy(), float(dtwrap))
+        return (
+            np.asarray(dtheta).copy(),
+            np.asarray(dknots).copy(),
+            np.asarray(dsmoke).copy(),
+            float(dtwrap),
+        )
 
     try:
         dtheta, dknots, dsmoke, dtwrap = _on_julia_thread(_run)
     except RuntimeError:
         if not SOFT_FAIL:
             raise
-        dtheta, dknots, dsmoke, dtwrap = (np.zeros(len(theta)),
-                                          np.zeros(len(tpit)),
-                                          np.zeros(len(smoke)), 0.0)
-    if (np.isnan(dtheta).any() or np.isnan(dknots).any()
-            or np.isnan(dsmoke).any() or np.isnan(dtwrap)):
+        dtheta, dknots, dsmoke, dtwrap = (
+            np.zeros(len(theta)),
+            np.zeros(len(tpit)),
+            np.zeros(len(smoke)),
+            0.0,
+        )
+    if (
+        np.isnan(dtheta).any()
+        or np.isnan(dknots).any()
+        or np.isnan(dsmoke).any()
+        or np.isnan(dtwrap)
+    ):
         # NaN gradients propagate silently through the whole pipeline (they
         # reached the optimizer state once and cost us an evening) — capture
         # the exact call for offline replay in Julia, then fail loudly.
         cap = Path(tempfile.gettempdir()) / "meat_vjp_nan_capture.npz"
-        np.savez(cap, theta=theta, tpit=tpit, tknots=tknots, tsave=tsave,
-                 abstol=inputs.abstol, reltol=inputs.reltol,
-                 **{f"cot_{k}": v for k, v in cots.items() if v is not None})
+        np.savez(
+            cap,
+            theta=theta,
+            tpit=tpit,
+            tknots=tknots,
+            tsave=tsave,
+            abstol=inputs.abstol,
+            reltol=inputs.reltol,
+            **{f"cot_{k}": v for k, v in cots.items() if v is not None},
+        )
         raise FloatingPointError(
-            f"meat VJP produced NaN gradients; failing call captured to {cap}")
+            f"meat VJP produced NaN gradients; failing call captured to {cap}"
+        )
     out = {}
     if "theta" in vjp_inputs:
         out["theta"] = dtheta

@@ -5,11 +5,21 @@
 # branch taken at tape-compile time and produce silently wrong adjoints.
 
 """
-    lininterp(t, t0, dt, vals)
+    lininterp(t::Number, t0::Number, dt::Number, vals::AbstractVector)
 
 Linear interpolation of knot values `vals` on the uniform grid
-`t0 + (i-1)*dt`, evaluated at time `t`. Constant extrapolation outside the
-grid. O(length(vals)) per call, branch-free.
+`t0 + (i-1)·dt`, evaluated at time `t`. Constant extrapolation outside the
+grid. O(length(vals)) per call and branch-free: the full hat-basis sum runs
+every call so the operation sequence never depends on `t`.
+
+# Arguments
+- `t::Number`: Evaluation time [s].
+- `t0::Number`: First knot time [s].
+- `dt::Number`: Uniform knot spacing [s].
+- `vals::AbstractVector`: Knot values.
+
+# Returns
+- `s::Number`: Interpolated value at `t`.
 """
 function lininterp(t, t0, dt, vals::AbstractVector)
     n = length(vals)
@@ -19,16 +29,25 @@ function lininterp(t, t0, dt, vals::AbstractVector)
         w = clamp(1 - abs(τ - (t0 + (i - 1) * dt)) / dt, 0, 1)
         s += w * vals[i]
     end
-    s
+    return s
 end
 
 """
-    hat_matrix(ts, t0, dt, n)
+    hat_matrix(ts::AbstractVector, t0::Number, dt::Number, n::Int)
 
-Dense interpolation matrix `M` (length(ts) × n) with plain `Float64` entries
-such that `M * vals` interpolates the knots at all times `ts` at once. Used on
-the output/observable path where a matrix–vector product is far friendlier to
+Dense hat-basis interpolation matrix with plain `Float64` entries such that
+`M * vals` interpolates the knots at all times `ts` at once. Used on the
+output/observable path where a matrix–vector product is far friendlier to
 Zygote than a scalar loop.
+
+# Arguments
+- `ts::AbstractVector`: Evaluation times [s].
+- `t0::Number`: First knot time [s].
+- `dt::Number`: Uniform knot spacing [s].
+- `n::Int`: Number of knots.
+
+# Returns
+- `M::Matrix{Float64}`: Interpolation matrix, size `(length(ts), n)`.
 """
 function hat_matrix(ts::AbstractVector, t0, dt, n::Int)
     M = zeros(length(ts), n)
@@ -38,5 +57,5 @@ function hat_matrix(ts::AbstractVector, t0, dt, n::Int)
             M[j, i] = clamp(1 - abs(τ - (t0 + (i - 1) * dt)) / dt, 0, 1)
         end
     end
-    M
+    return M
 end

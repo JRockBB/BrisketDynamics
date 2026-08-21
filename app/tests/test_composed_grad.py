@@ -10,9 +10,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.coupled import HR, THETA_DEFAULT, PHI_DEFAULT, CookGrids, coupled_cook
+from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids, coupled_cook
 
 GATE_TOL = 5e-3
 # D_eff exception: its composed-loss response to sub-percent steps sits near the
@@ -83,7 +82,7 @@ def central_fd(f, args, argnum, i, hrel=1e-3):
 @pytest.fixture(scope="module")
 def grad_and_args_lit(loss_fn):
     theta = jnp.asarray(THETA_DEFAULT)
-    phi = jnp.asarray(PHI_DEFAULT)          # a0 = 1: ignition inert
+    phi = jnp.asarray(PHI_DEFAULT)  # a0 = 1: ignition inert
     u = jnp.asarray(np.linspace(0.3, 0.6, GRIDS.n_u))
     g = jax.grad(loss_fn, argnums=(0, 1, 2))(theta, phi, u)
     return g, (theta, phi, u)
@@ -112,14 +111,18 @@ def test_grad_theta(loss_fn, grad_and_args_lit, i):
 def test_grad_phi(loss_fn, grad_and_args, i):
     g, args = grad_and_args
     fd = central_fd(loss_fn, args, 1, i)
-    assert rel_err(float(g[1][i]), fd) < GATE_TOL, f"phi[{i}]: ad={float(g[1][i])} fd={fd}"
+    assert rel_err(float(g[1][i]), fd) < GATE_TOL, (
+        f"phi[{i}]: ad={float(g[1][i])} fd={fd}"
+    )
 
 
 @pytest.mark.parametrize("i", [0, 2, 5])
 def test_grad_u(loss_fn, grad_and_args, i):
     g, args = grad_and_args
     fd = central_fd(loss_fn, args, 2, i)
-    assert rel_err(float(g[2][i]), fd) < GATE_TOL, f"u[{i}]: ad={float(g[2][i])} fd={fd}"
+    assert rel_err(float(g[2][i]), fd) < GATE_TOL, (
+        f"u[{i}]: ad={float(g[2][i])} fd={fd}"
+    )
 
 
 # --- Texas-crutch wrap time: composed gradient + backward compatibility ---
@@ -133,8 +136,9 @@ def wrap_loss_fn():
     meat_tx, pit_tx = meat_client(), pit_client()
 
     def loss(theta, phi, u_knots, t_wrap):
-        out = coupled_cook(theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2,
-                           t_wrap=t_wrap, **TOLS)
+        out = coupled_cook(
+            theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2, t_wrap=t_wrap, **TOLS
+        )
         return (
             1e-3 * jnp.sum((out["tcore"] - 340.0) ** 2)
             + 1e-3 * jnp.sum((out["tpit"] - 390.0) ** 2)
@@ -182,8 +186,7 @@ def test_bark_smoke_path():
     meat_tx, pit_tx = meat_client(), pit_client()
 
     def loss(theta, phi, u_knots):
-        out = coupled_cook(theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2,
-                           **TOLS)
+        out = coupled_cook(theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2, **TOLS)
         return jnp.sum(out["l_star"])
 
     theta = jnp.asarray(THETA_DEFAULT)

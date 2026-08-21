@@ -23,8 +23,13 @@ be calibrated/observed.
    evaporation biases D_eff/k_m high), bark texture. Cost: ~bark-sized
    (per-node fat fraction, smooth melt/drainage kinetics). Calibration:
    excellent — beef fat melting curves are literature; drippings (tallow
-   catch) + trim weights are direct observables. STATUS: approved for the
-   hackathon window (joint build with #2).
+   catch) + trim weights are direct observables. STATUS: DONE (joint
+   build with #2, branch `moisture-physics`): per-node fat state F with
+   smooth melt/drainage kinetics (T_render ≈ 55 °C, η_drain split),
+   `juiciness` = retained water + β_fat-weighted retained rendered fat,
+   and the full cook-loss decomposition evap_w/drip_w/drip_f with exact
+   algebraic mass closure (tested to 1e-8). β_fat and the split remain
+   literature/sensory placeholders pending the scale experiment.
 2. **Denaturation-driven moisture expulsion.** The dominant juice-loss
    mechanism in cooked meat is protein shrinkage squeezing water out
    (myosin ~40–60 °C; actin ~66–73 °C drives the major cook-loss step) —
@@ -33,8 +38,15 @@ be calibrated/observed.
    while the physics mis-attributes), schedule sensitivity of juiciness.
    Cost: source term with Arrhenius-like kinetics per node; ~bark-sized.
    Calibration: cook-loss-vs-temperature literature is strong; the scale
-   experiment separates channels once fat is also modeled. STATUS:
-   approved (joint build with #1).
+   experiment separates channels once fat is also modeled. STATUS: DONE
+   (joint build with #1): relaxation sink toward a temperature-dependent
+   equilibrium water-holding capacity W_eq(T) with myosin (~58 °C) and
+   actin (~72 °C) denaturation steps; endpoint wet-basis cook loss lands
+   in the published 30–60% band and the wrapped-cook stall now
+   self-attenuates late (the crutch's advantage is mid-cook, ~14 K near
+   9 h). Consequence measured: the real-cook replay loss at the frozen
+   pre-physics MAP moved +922 — the calibration was refit under the new
+   physics (see writeup).
 3. **Shrinkage.** Meat loses 20–30% volume; L is fixed. Couples to #2
    (shrinkage IS the expulsion mechanism) and shortens conduction paths
    late. Cost: moderate (effective L(t) or moving mesh). STATUS: confess
