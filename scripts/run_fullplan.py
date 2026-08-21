@@ -57,9 +57,11 @@ def main():
     _ov = float(
         (jax.nn.softplus(_k * (0.9995 - CC.c_overdone)) / _k) / (1.0 - CC.c_overdone)
     )
+    # current objective: overshoot enters as w_tenderness * over_rel * over^2
+    # (the pre-KCBS w_overdone field no longer exists)
     print(
-        f"band self-check: penalty at c=0.9995 -> "
-        f"{CC.w_overdone * _ov**2:.1f} (expect ~24)",
+        f"band self-check: tenderness overshoot at c=0.9995 -> "
+        f"{CC.w_tenderness * CC.over_rel * _ov**2:.3f} (expect ~0.14)",
         flush=True,
     )
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
