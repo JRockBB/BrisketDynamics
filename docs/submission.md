@@ -58,7 +58,7 @@ unmodeled −15 K cold front, MPC lands doneness 0.92 vs open-loop's 0.68.
 
 A three-tier gradient verification gate (Julia adjoint vs FD,
 per-endpoint check-gradients, composed FD through the full pipeline —
-17/17 directions) backs every result, and the writeup names the model's deficiencies
+92 Julia + 21 app tests, 33 adjoint-vs-FD checks) backs every result, and the writeup names the model's deficiencies
 honestly, including why closed-loop cook logs provably cannot identify the
 pit's fast dynamics. To our knowledge — based on a survey of the mosaic
 suite, the official examples, and the forum — no public example existed of

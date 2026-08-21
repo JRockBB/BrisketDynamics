@@ -49,8 +49,8 @@ dependency ordering that matters.
    1. ✅ **Cook time as a decision variable** — implemented as the
       outer-scan planner (`timeplan.py`, `figures/timeplan.png`): the
       pre-color quality objective found 9 h hot-and-fast, superseded by
-      the bark-complete full composition (17 h low-and-slow,
-      `figures/fullplan.png`), and the chance layer's honest refusal —
+      the bark-complete full composition (17 h; with final moisture
+      physics the plan wraps at 3.5 h, `figures/fullplan.png`), and the chance layer's honest refusal —
       P(done) = 0 on all durations, 84 °C pit disagreement between MAP and
       posterior under the same damper — demonstrates the closed-loop
       identifiability limit in decision space. Differentiable-duration
@@ -96,9 +96,10 @@ bark chemistry without calibration data.
    receding-horizon re-planner; integrate with HeaterMeter (open-source fan
    controller — our planner can sit above its PID as the planning layer).
    The library stops advising and starts piloting. Includes
-   **MPC-with-wrap**: the crutch as a closed-loop contingency (the full
-   composition showed it never enters the leisure-optimal plan; it exists
-   to rescue cooks under deadline pressure). Prerequisites: fix the meat
+   **MPC-with-wrap**: closed-loop replanning of the wrap moment (under
+   final moisture physics the crutch is IN the leisure-optimal plan at
+   3.5 h/17 h — the closed-loop question becomes re-timing it under
+   disturbances, plus irreversibility once executed). Prerequisites: fix the meat
    VJP field-IC gap (documented at `_meat_vjp`) and bark-state continuity
    across the receding-horizon handoff; wrap irreversibility (t_wrap
    frozen once executed).

@@ -32,7 +32,7 @@ of a SciMLSensitivity continuous adjoint exposed as a Tesseract
 
 | | |
 |---|---|
-| **Gradient correctness** | 3-level FD verification; composed `jax.grad` gate **17/17 directions** at 1e-10, incl. the cross-component bark chain ([docs/verification.md](docs/verification.md)) |
+| **Gradient correctness** | 3-level FD verification: Julia suite 92 tests (33 adjoint-vs-FD), app suite 21 incl. the composed `jax.grad` gate over every input class and the cross-component bark chain ([docs/verification.md](docs/verification.md)) |
 | **Synthetic calibration** | MAP recovers 7/10 params ≤10%; NUTS posterior with truths inside everywhere; the k_m–h_c ridge is the stall's cooling/heating trade-off ([corner](figures/corner.png), [predictive band](figures/posterior_predictive.png)) |
 | **Real-cook capstone** | 19-h WSM cook (digitized with provenance): pit hold tracked ±3 °C, core stall **and** stall break reproduced ([fit](figures/cooklog_fit_map.png), [data](data/cook_log/PROVENANCE.md)) |
 | **Optimal control** | doneness 0.26 → **0.900** on target, surface under bark limit ([before/after](figures/control_before_after.png)) |
