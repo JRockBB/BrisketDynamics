@@ -29,18 +29,32 @@ end
 const PIT_NP = 7
 
 """
-    make_pit_rhs(cfg, u_t0, u_dt, u_nk, q_t0, q_dt, q_nk)
+    make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::Int)
 
-Pit RHS with parameter vector `p = vcat(φ, u_knots, qmeat_knots)`:
-damper schedule (u_nk knots) and meat heat-load trajectory (q_nk knots) both
-live in `p`, exposing VJPs w.r.t. the control and the coupling input.
+Build the in-place pit RHS closure. The parameter vector is
+`p = vcat(φ, u_knots, qmeat_knots)`: the damper schedule (`u_nk` knots) and
+the meat heat-load trajectory (`q_nk` knots) both live in `p`, exposing VJPs
+w.r.t. the control and the coupling input.
+
+# Arguments
+- `cfg::PitConfig`: Fixed pit configuration (ambient, initial load, taper).
+- `u_t0::Number`: First damper knot time [s].
+- `u_dt::Number`: Damper knot spacing [s].
+- `u_nk::Int`: Number of damper knots.
+- `q_t0::Number`: First heat-load knot time [s].
+- `q_dt::Number`: Heat-load knot spacing [s].
+- `q_nk::Int`: Number of heat-load knots.
+
+# Returns
+- `pit_rhs!::Function`: In-place RHS `pit_rhs!(dx, x, p, t)` over states
+  `x = [T_pit K, m_fuel kg, ignited fraction]`.
 """
 function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::Int)
-    function pit_rhs!(dx, x, p, t)
+    return function pit_rhs!(dx, x, p, t)
         C_th, UA, r_max, ΔH_eff, u_leak = p[1], p[2], p[3], p[4], p[5]
         k_spread = p[6]
-        u_knots = @view p[PIT_NP+1:PIT_NP+u_nk]
-        q_knots = @view p[PIT_NP+u_nk+1:PIT_NP+u_nk+q_nk]
+        u_knots = @view p[(PIT_NP + 1):(PIT_NP + u_nk)]
+        q_knots = @view p[(PIT_NP + u_nk + 1):(PIT_NP + u_nk + q_nk)]
 
         u = clamp(lininterp(t, u_t0, u_dt, u_knots), 0, 1)
         q_meat = lininterp(t, q_t0, q_dt, q_knots)
@@ -52,95 +66,216 @@ function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::I
         dx[1] = (ΔH_eff * ṁ - UA * (Tp - cfg.T_amb) - q_meat) / C_th
         dx[2] = -ṁ
         dx[3] = k_spread * a * (1 - a) * airflow
-        nothing
+        return nothing
     end
 end
 
-function _pit_solve_arr(p, cfg::PitConfig, u_tknots, q_tknots, tsave;
-                        abstol = 1e-8, reltol = 1e-8)
+"""
+    _pit_solve_arr(p, cfg::PitConfig, u_tknots, q_tknots, tsave; abstol, reltol)
+
+Solve the pit ODE and return the raw state array. Fails loudly on an
+unsuccessful retcode or a truncated save — a silently short array would
+propagate wrong-shaped outputs through the composed pipeline.
+
+# Arguments
+- `p::AbstractVector`: Full parameter vector `vcat(φ, u_knots, qmeat_knots)`
+  (may be ForwardDiff-dual-valued).
+- `cfg::PitConfig`: Pit configuration.
+- `u_tknots::AbstractVector`: Damper knot times [s] (uniform grid).
+- `q_tknots::AbstractVector`: Heat-load knot times [s] (uniform grid).
+- `tsave::AbstractVector`: Output save times [s].
+
+# Keyword Arguments
+- `abstol::Float64`: ODE absolute tolerance. [Default=1e-8]
+- `reltol::Float64`: ODE relative tolerance. [Default=1e-8]
+
+# Returns
+- `A::Matrix`: States at `tsave`, size 3 × nt (rows: T_pit, m_fuel, ignited).
+"""
+function _pit_solve_arr(
+    p, cfg::PitConfig, u_tknots, q_tknots, tsave; abstol=1e-8, reltol=1e-8
+)
     u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
     q_t0, q_dt = float(q_tknots[1]), float(q_tknots[2] - q_tknots[1])
     rhs! = make_pit_rhs(cfg, u_t0, u_dt, length(u_tknots), q_t0, q_dt, length(q_tknots))
     # a0 = p[7] participates in x0 so ForwardDiff carries its sensitivity
     x0 = [convert(eltype(p), cfg.Tpit0), convert(eltype(p), cfg.m0), p[7]]
-    any(isnan, p) && throw(ArgumentError(
-        "pit solve got NaN inputs at indices $(findall(isnan, p)) of p (φ|u|q)"))
+    any(isnan, p) && throw(
+        ArgumentError(
+            "pit solve got NaN inputs at indices $(findall(isnan, p)) of p (φ|u|q)"
+        ),
+    )
     prob = ODEProblem(rhs!, x0, (float(tsave[1]), float(tsave[end])), p)
-    sol = solve(prob, Tsit5(); saveat = tsave, abstol = abstol, reltol = reltol)
+    sol = solve(prob, Tsit5(); saveat=tsave, abstol=abstol, reltol=reltol)
     A = Array(sol)                            # 3 × nt
     # A failed solve must fail LOUDLY: a truncated solution array silently
     # propagates wrong-shaped outputs through the composed pipeline.
-    (SciMLBase.successful_retcode(sol) && size(A, 2) == length(tsave)) ||
-        throw(ErrorException(
+    (SciMLBase.successful_retcode(sol) && size(A, 2) == length(tsave)) || throw(
+        ErrorException(
             "pit solve failed: retcode=$(sol.retcode), " *
-            "saved $(size(A, 2))/$(length(tsave)) points"))
-    A
+            "saved $(size(A, 2))/$(length(tsave)) points",
+        ),
+    )
+    return A
 end
 
-# Exact burn rate at the save times, recomputed algebraically from the
-# saved states and the damper interpolant — the same expression as the RHS,
-# so it is exact (no numerical differencing of m_fuel) and ForwardDiff
-# carries its sensitivity when called with dual-valued p.
+"""
+    _pit_mdot_row(A, p, cfg::PitConfig, u_tknots, tsave, nu::Int)
+
+Exact burn rate at the save times, recomputed algebraically from the saved
+states and the damper interpolant — the same expression as the RHS, so it is
+exact (no numerical differencing of `m_fuel`) and ForwardDiff carries its
+sensitivity when called with dual-valued `p`.
+
+# Arguments
+- `A::AbstractMatrix`: Saved state array (3 × nt) from [`_pit_solve_arr`](@ref).
+- `p::AbstractVector`: Full parameter vector (φ | u_knots | qmeat_knots).
+- `cfg::PitConfig`: Pit configuration.
+- `u_tknots::AbstractVector`: Damper knot times [s].
+- `tsave::AbstractVector`: Save times [s].
+- `nu::Int`: Number of damper knots.
+
+# Returns
+- `mdot::Vector`: Instantaneous fuel burn rate at each save time [kg/s].
+"""
 function _pit_mdot_row(A, p, cfg::PitConfig, u_tknots, tsave, nu::Int)
     u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
     r_max, u_leak = p[3], p[5]
-    uk = @view p[PIT_NP+1:PIT_NP+nu]
-    [begin
-         u = clamp(lininterp(float(tsave[i]), u_t0, u_dt, uk), 0, 1)
-         airflow = u_leak + (1 - u_leak) * u
-         m = A[2, i]
-         a = clamp(A[3, i], zero(A[3, i]), one(A[3, i]))
-         r_max * airflow * a * tanh(max(m, zero(m)) / cfg.m_taper)
-     end for i in eachindex(tsave)]
+    uk = @view p[(PIT_NP + 1):(PIT_NP + nu)]
+    return [
+        begin
+            u = clamp(lininterp(float(tsave[i]), u_t0, u_dt, uk), 0, 1)
+            airflow = u_leak + (1 - u_leak) * u
+            m = A[2, i]
+            a = clamp(A[3, i], zero(A[3, i]), one(A[3, i]))
+            r_max * airflow * a * tanh(max(m, zero(m)) / cfg.m_taper)
+        end for i in eachindex(tsave)
+    ]
 end
 
-# States + mdot as one 4×nt array, for the ForwardDiff Jacobian path.
-function _pit_outputs_arr(p, cfg::PitConfig, u_tknots, q_tknots, tsave, nu::Int;
-                          abstol = 1e-8, reltol = 1e-8)
+"""
+    _pit_outputs_arr(p, cfg::PitConfig, u_tknots, q_tknots, tsave, nu::Int;
+                     abstol, reltol)
+
+States plus burn rate as one 4 × nt array — the single vector-valued function
+the ForwardDiff Jacobian path differentiates.
+
+# Arguments
+- `p::AbstractVector`: Full parameter vector (φ | u_knots | qmeat_knots).
+- `cfg::PitConfig`: Pit configuration.
+- `u_tknots::AbstractVector`: Damper knot times [s].
+- `q_tknots::AbstractVector`: Heat-load knot times [s].
+- `tsave::AbstractVector`: Save times [s].
+- `nu::Int`: Number of damper knots.
+
+# Keyword Arguments
+- `abstol::Float64`: ODE absolute tolerance. [Default=1e-8]
+- `reltol::Float64`: ODE relative tolerance. [Default=1e-8]
+
+# Returns
+- `B::Matrix`: 4 × nt array (rows: T_pit, m_fuel, ignited, mdot).
+"""
+function _pit_outputs_arr(
+    p, cfg::PitConfig, u_tknots, q_tknots, tsave, nu::Int; abstol=1e-8, reltol=1e-8
+)
     A = _pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol)
-    vcat(A, transpose(_pit_mdot_row(A, p, cfg, u_tknots, tsave, nu)))
+    return vcat(A, transpose(_pit_mdot_row(A, p, cfg, u_tknots, tsave, nu)))
 end
 
 """
-    pit_solve(φ, u_knots, u_tknots, qmeat_knots, q_tknots, tsave; cfg)
+    pit_solve(φ, u_knots, u_tknots, qmeat_knots, q_tknots, tsave; cfg, abstol, reltol)
 
-Forward solve. Returns `(; Tpit, m_fuel, ignited, mdot)` trajectories at
-`tsave` (`mdot` = exact instantaneous burn rate, the smoke-flux proxy for
-the bark model).
+Forward pit solve over the damper schedule and meat heat-load forcing.
+
+# Arguments
+- `φ::AbstractVector`: Pit latents `[C_th, UA, r_max, ΔH_eff, u_leak, k_spread, a0]`.
+- `u_knots::AbstractVector`: Damper schedule values ∈ [0, 1] on `u_tknots`.
+- `u_tknots::AbstractVector`: Damper knot times [s] (uniform grid).
+- `qmeat_knots::AbstractVector`: Meat heat-load trajectory [W] on `q_tknots`.
+- `q_tknots::AbstractVector`: Heat-load knot times [s] (uniform grid).
+- `tsave::AbstractVector`: Output save times [s].
+
+# Keyword Arguments
+- `cfg::PitConfig`: Pit configuration. [Default=PitConfig()]
+- `abstol::Float64`: ODE absolute tolerance. [Default=1e-8]
+- `reltol::Float64`: ODE relative tolerance. [Default=1e-8]
+
+# Returns
+- `out::NamedTuple`: `(; Tpit [K], m_fuel [kg], ignited, mdot [kg/s], t [s])`
+  trajectories at `tsave` (`mdot` = exact instantaneous burn rate, the
+  smoke-flux proxy for the bark model).
 """
-function pit_solve(φ::AbstractVector, u_knots::AbstractVector, u_tknots::AbstractVector,
-                   qmeat_knots::AbstractVector, q_tknots::AbstractVector,
-                   tsave::AbstractVector; cfg::PitConfig = PitConfig(),
-                   abstol = 1e-8, reltol = 1e-8)
+function pit_solve(
+    φ::AbstractVector,
+    u_knots::AbstractVector,
+    u_tknots::AbstractVector,
+    qmeat_knots::AbstractVector,
+    q_tknots::AbstractVector,
+    tsave::AbstractVector;
+    cfg::PitConfig=PitConfig(),
+    abstol=1e-8,
+    reltol=1e-8,
+)
     p = vcat(φ, u_knots, qmeat_knots)
     A = _pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol)
     mdot = _pit_mdot_row(A, p, cfg, u_tknots, tsave, length(u_knots))
-    (Tpit = A[1, :], m_fuel = A[2, :], ignited = A[3, :], mdot = mdot,
-     t = collect(float.(tsave)))
+    return (
+        Tpit=A[1, :], m_fuel=A[2, :], ignited=A[3, :], mdot=mdot, t=collect(float.(tsave))
+    )
 end
 
 """
-    pit_vjp(φ, u_knots, u_tknots, qmeat_knots, q_tknots, tsave, cot; cfg)
+    pit_vjp(φ, u_knots, u_tknots, qmeat_knots, q_tknots, tsave, cot; cfg, abstol, reltol)
 
-VJP of (Tpit, m_fuel) w.r.t. (φ, u_knots, qmeat_knots) via the full
-ForwardDiff Jacobian: Jᵀv̄. `cot` is a NamedTuple with any subset of keys
-(:Tpit, :m_fuel).
+Vector–Jacobian product of the pit outputs w.r.t. `(φ, u_knots, qmeat_knots)`
+via the full ForwardDiff Jacobian: `Jᵀv̄`. Exact to solver tolerance — no
+adjoint ODE is involved (see the module header for why forward mode is the
+right differentiation strategy for this component).
+
+# Arguments
+- `φ::AbstractVector`: Pit latents (length `PIT_NP`).
+- `u_knots::AbstractVector`: Damper schedule values on `u_tknots`.
+- `u_tknots::AbstractVector`: Damper knot times [s].
+- `qmeat_knots::AbstractVector`: Meat heat-load trajectory [W] on `q_tknots`.
+- `q_tknots::AbstractVector`: Heat-load knot times [s].
+- `tsave::AbstractVector`: Save times [s].
+- `cot`: NamedTuple of output cotangents with any subset of the keys
+  `:Tpit`, `:m_fuel`, `:mdot` (each length nt); missing keys are zero.
+
+# Keyword Arguments
+- `cfg::PitConfig`: Pit configuration. [Default=PitConfig()]
+- `abstol::Float64`: ODE absolute tolerance. [Default=1e-8]
+- `reltol::Float64`: ODE relative tolerance. [Default=1e-8]
+
+# Returns
+- `g::NamedTuple`: `(; dφ, du_knots, dqmeat_knots)` gradients.
 """
-function pit_vjp(φ::AbstractVector, u_knots::AbstractVector, u_tknots::AbstractVector,
-                 qmeat_knots::AbstractVector, q_tknots::AbstractVector,
-                 tsave::AbstractVector, cot; cfg::PitConfig = PitConfig(),
-                 abstol = 1e-8, reltol = 1e-8)
+function pit_vjp(
+    φ::AbstractVector,
+    u_knots::AbstractVector,
+    u_tknots::AbstractVector,
+    qmeat_knots::AbstractVector,
+    q_tknots::AbstractVector,
+    tsave::AbstractVector,
+    cot;
+    cfg::PitConfig=PitConfig(),
+    abstol=1e-8,
+    reltol=1e-8,
+)
     nu, nq, nt = length(u_knots), length(qmeat_knots), length(tsave)
     v = vcat(φ, u_knots, qmeat_knots)
-    f = p -> vec(_pit_outputs_arr(p, cfg, u_tknots, q_tknots, tsave, nu;
-                                  abstol, reltol))
+    f = p -> vec(_pit_outputs_arr(p, cfg, u_tknots, q_tknots, tsave, nu; abstol, reltol))
     J = ForwardDiff.jacobian(f, v)            # (4nt) × (PIT_NP+nu+nq)
     z = zeros(nt)
     # column order matches vec(4×nt): [T₁,m₁,a₁,ṁ₁, T₂,m₂,a₂,ṁ₂, ...]; the
     # ignited fraction is a diagnostic with no external cotangent.
-    v̄ = vec(transpose(hcat(get(cot, :Tpit, z), get(cot, :m_fuel, z), z,
-                            get(cot, :mdot, z))))
+    v̄ = vec(
+        transpose(hcat(get(cot, :Tpit, z), get(cot, :m_fuel, z), z, get(cot, :mdot, z)))
+    )
     g = transpose(J) * v̄
-    (dφ = g[1:PIT_NP], du_knots = g[PIT_NP+1:PIT_NP+nu],
-     dqmeat_knots = g[PIT_NP+nu+1:PIT_NP+nu+nq])
+    return (
+        dφ=g[1:PIT_NP],
+        du_knots=g[(PIT_NP + 1):(PIT_NP + nu)],
+        dqmeat_knots=g[(PIT_NP + nu + 1):(PIT_NP + nu + nq)],
+    )
 end
