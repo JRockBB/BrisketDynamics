@@ -123,6 +123,14 @@ bark chemistry without calibration data.
    doctrine. Week-class; the single highest-leverage performance item
    on this list. Composes with the monolith item below (one stepper,
    one discrete adjoint for the whole 165-state coupled system).
+   Measured dead end (2026-08-22, prototyped before the theta-7 NUTS
+   rerun): routing through the direct `adjoint_sensitivities` API is
+   NOT a shortcut — its infrastructure overhead (26.2 s FBDF-backward
+   vs the rrule path's 11.2 s on the 19 h fixture) swamps the genuine
+   one-step-backward win (KenCarp47 backward: 17.6 s, confirming
+   restarts cost ~1.5x). The production Zygote-rrule path is the
+   fastest continuous-adjoint configuration for this model; only the
+   full discrete adjoint beats it.
 3. **Monolith / Dyad exploration: move the Tesseract boundary to the
    edge.** The K=2 Picard split exists only because the pit/meat boundary
    bisects the physics; a monolithic Julia core (one ~123-state DAE, one
