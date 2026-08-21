@@ -228,14 +228,15 @@ def main():
         color=ORANGE,
         fontsize=10,
     )
-    ax.set(
-        xlabel="time [h]",
-        ylabel="temperature [°C]",
-        title=f"the model decides when to wrap "
-        f"(doneness {m_w['doneness']:.3f}, juiciness "
-        f"{m_w['w_retained']:.2f} vs {m0['w_retained']:.2f}, "
-        f"bark L* {m_w['l_star_end']:.0f} vs {m0['l_star_end']:.0f})",
+    # short title + explicit fontsize: the long f-string collided with the
+    # right panel's title; w_retained is WATER-only (not juiciness)
+    ax.set_title(
+        f"when to wrap: doneness {m_w['doneness']:.2f} · water "
+        f"{m_w['w_retained']:.2f}/{m0['w_retained']:.2f} · "
+        f"L* {m_w['l_star_end']:.0f}/{m0['l_star_end']:.0f} (wrap/no)",
+        fontsize=10,
     )
+    ax.set(xlabel="time [h]", ylabel="temperature [°C]")
     ax.legend(fontsize=9, loc="lower right")
 
     ax = axes[1]
@@ -250,11 +251,8 @@ def main():
         color=ORANGE,
         fontsize=10,
     )
-    ax.set(
-        xlabel="wrap time [h]",
-        ylabel="objective J",
-        title="objective vs wrap time (fixed optimal schedule)",
-    )
+    ax.set_title("objective vs wrap time (fixed optimal schedule)", fontsize=10)
+    ax.set(xlabel="wrap time [h]", ylabel="objective J")
 
     fig.suptitle(
         "Differentiable Texas crutch: wrap time optimized jointly "
