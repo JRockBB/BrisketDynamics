@@ -1,5 +1,7 @@
 # The model, mathematically
 
+![The coupled equations](../figures/math_diagram.png)
+
 Every equation the code integrates, in one place. Notation follows the
 source (`src/meat.jl`, `src/pit.jl`, `app/src/brisket_app/control.py`);
 calibrated latents are marked **θ** (meat) or **φ** (pit); everything else
