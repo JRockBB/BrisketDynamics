@@ -152,6 +152,7 @@ def coupled_cook(
         "w_retained": meat["w_retained"],
         "t_field_final": meat["t_field_final"],
         "w_field_final": meat["w_field_final"],
+        "f_field_final": meat["f_field_final"],
         "ignited": pit["ignited"],
         "mdot": pit["mdot"],
         "bark_b": meat["bark_b"],
