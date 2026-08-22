@@ -111,11 +111,14 @@ def main():
         )
 
     for name, r in [("reference", ref), ("open-loop", ol), ("MPC", mp)]:
+        jj = mpc.executed_objective(r, cc, T_F)
+        r["J_executed"] = jj
         print(
-            f"  {name}: doneness {r['doneness']:.3f} (band "
+            f"  {name}: J={jj['J']:.3f}  doneness {r['doneness']:.3f} (band "
             f"{cc.c_target}-{cc.c_overdone})  juiciness {r['juiciness']:.3f}  "
             f"L* {r['l_star_end']:.1f}  smoke {r['smoke_end']:.2f}"
         )
+        print(f"    components: {jj}")
 
     out = REPO / "data" / "control"
     out.mkdir(parents=True, exist_ok=True)
@@ -130,6 +133,14 @@ def main():
                         ("mpc", mp),
                     ]
                     for k in ("doneness", "juiciness", "l_star_end", "smoke_end")
+                },
+                **{
+                    f"J_{tag}": r["J_executed"]
+                    for tag, r in [
+                        ("reference", ref),
+                        ("openloop", ol),
+                        ("mpc", mp),
+                    ]
                 },
                 "t_disturbance_h": T_DIST / HR,
                 "dT_amb": T_AMB_BASE - T_AMB_COLD,
@@ -188,7 +199,8 @@ def main():
         f"{ref['l_star_end']:.0f} · OL {ol['doneness']:.2f}/"
         f"{ol['juiciness']:.2f}/{ol['l_star_end']:.0f} · MPC "
         f"{mp['doneness']:.2f}/{mp['juiciness']:.2f}/{mp['l_star_end']:.0f} "
-        f"(doneness band {cc.c_target}-{cc.c_overdone})",
+        f"· J: {ref['J_executed']['J']:.2f}/{ol['J_executed']['J']:.2f}/"
+        f"{mp['J_executed']['J']:.2f}",
         fontsize=10,
     )
     axes[0].set(xlabel="time [h]", ylabel="core [°C]")

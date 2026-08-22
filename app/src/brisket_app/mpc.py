@@ -125,6 +125,72 @@ def advance_plant(
 _CLIENTS = None  # set by set_clients()
 
 
+def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
+    """Evaluate the quality objective J on an EXECUTED cook.
+
+    Works from run_cook's trajectories + terminal quality (no re-simulation,
+    so it is exact for the disturbed plant the cook actually experienced).
+    Mirrors control.objective term by term; the smoothness term uses the
+    executed per-segment damper means.
+
+    Returns
+    -------
+    dict
+        J plus its named components.
+    """
+    sp = lambda x: np.log1p(np.exp(-np.abs(x))) + np.maximum(x, 0.0)  # softplus
+    t = np.asarray(out["t"])
+    tsurf = np.asarray(out["tsurf"])
+    u = np.asarray(out["u"])
+
+    c0 = out["doneness"]
+    under = (sp(20.0 * (cc.c_target - c0)) / 20.0) / 0.05
+    band_o = 1.0 - cc.c_overdone
+    k_ov = 4.0 / band_o
+    over = (sp(k_ov * (c0 - cc.c_overdone)) / k_ov) / band_o
+    tenderness = under**2 + cc.over_rel * over**2
+
+    lst = out["l_star_end"]
+    appearance = (
+        sp((lst - cc.l_mahogany_hi) / cc.dl_soft) ** 2
+        + sp((cc.l_mahogany_lo - lst) / cc.dl_soft) ** 2
+    )
+    s_end = out["smoke_end"]
+    smoke_band = (
+        sp((cc.s_smoke_lo - s_end) / cc.ds_soft) ** 2
+        + sp((s_end - cc.s_smoke_hi) / cc.ds_soft) ** 2
+    )
+    taste = smoke_band + cc.w_dry * (1.0 - out["juiciness"]) ** 2
+
+    surf_over = sp((tsurf - cc.t_surf_max) / cc.dT_soft)
+    fuel_frac = out.get("fuel_frac", 0.0)
+
+    F = np.trapezoid(10.0 ** ((tsurf - cc.leth_t_ref) / cc.leth_z), t)
+    leth = (
+        cc.w_lethality * sp((np.log10(cc.leth_f_req) - np.log10(F + 1e-9)) / 0.2) ** 2
+    )
+    in_zone = 1.0 / (1.0 + np.exp(-(tsurf - cc.t_danger_lo) / 2.0))
+    in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - tsurf) / 2.0))
+    danger_h = np.trapezoid(in_zone, t / 3600.0)
+    dwell = cc.w_dwell * sp((danger_h - cc.danger_cap_h) / 0.5) ** 2
+
+    # smoothness over the executed per-segment means (hourly steps)
+    u_steps = u[np.r_[0, np.nonzero(np.diff(u))[0] + 1]]
+    smooth = cc.w_smooth * float(np.sum(np.diff(u_steps) ** 2))
+
+    comp = {
+        "appearance": cc.w_appearance * float(appearance),
+        "taste": cc.w_taste * float(taste),
+        "tenderness": cc.w_tenderness * float(tenderness),
+        "surf": cc.w_surf * float(np.mean(surf_over**2)),
+        "fuel": cc.w_fuel * float(fuel_frac),
+        "smooth": smooth,
+        "safety": float(leth + dwell),
+    }
+    comp["J"] = sum(comp.values())
+    return comp
+
+
 def set_clients(meat_tx, pit_tx):
     """Install the module-level Tesseract clients used by plan/advance."""
     global _CLIENTS
@@ -209,6 +275,7 @@ def run_cook(
     cc = cc or ControlConfig()
     phi_model = phi_plant if phi_model is None else phi_model
     state = CookState.fresh(t0_meat=281.15)
+    m0_start = state.m0
     traj = {k: [] for k in ("t", "tpit", "tcore", "tsurf", "u")}
     n_seg = round(t_f / dt_replan)
     # incumbent plan (if given) is "a plan made at t = 0": the standard
@@ -304,6 +371,7 @@ def run_cook(
         )
 
     doneness = float(state.c_field0[0])
+    fuel_frac = (m0_start - state.m0) / m0_start
     # terminal quality vector from the final plant state (constants mirror
     # MeatConfig: W0/F0/beta_fat/eta_drain and the L* map)
     W0, F0, BETA_FAT, ETA_DRAIN = 2.33, 0.22, 1.8, 0.5
@@ -321,6 +389,7 @@ def run_cook(
         "fat_rendered": fat_rendered,
         "l_star_end": l_star,
         "smoke_end": s_end,
+        "fuel_frac": fuel_frac,
     }
     if cc.opt_wrap or t_wrap_init_abs is not None:
         out["wrapped"] = wrapped
