@@ -205,7 +205,7 @@ def plan(
     cc: ControlConfig,
     model_t_amb: float,
     u_init=0.5,
-    iters=60,
+    iters=150,
     z_w_init: float = 0.0,
     z_w_pin: float = 8.0,
 ):
@@ -227,6 +227,8 @@ def plan(
         meat_tx,
         pit_tx,
         grids=grids,
+        # iters is a CAP; the plateau rule in optimize_schedule stops the
+        # warm-started replan when converged (usually well before the cap)
         cc=replace(cc, n_iter=iters),
         u_init=u_init,
         ics=_ics(state, model_t_amb),
