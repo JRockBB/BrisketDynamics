@@ -88,10 +88,10 @@ box(0.35, 4.4, 5.0, 2.9, PIT_FC, PIT_EC, "PIT — lumped ODEs (3 states)", [
 ])
 
 # ---- meat (right) ---------------------------------------------------------
-box(6.6, 2.55, 7.55, 6.55, MEAT_FC, MEAT_EC,
+box(6.6, 2.45, 7.55, 6.65, MEAT_FC, MEAT_EC,
     "MEAT — 1-D PDE + kinetics ($x\\in[0,L]$, 162 ODEs after MOL)", [])
 # interior transport
-box(6.85, 6.6, 7.05, 1.85, SUB_FC, MEAT_EC, "interior fields", [
+box(6.85, 6.65, 7.05, 1.80, SUB_FC, MEAT_EC, "interior fields", [
     r"$\partial_t T = \alpha\,\partial_x^2 T\qquad\quad \partial_t C = k_C(T)\,(1-C)$",
     r"$\partial_t W = D_{e\!f\!f}\,\partial_x^2 W \,-\, k_e\,\mathrm{sp}_{\delta}\!\left(W - W_{eq}(T)\right)$",
     r"$\partial_t F = -\,k_f(T)\,F\qquad$ ($W_{eq}(T)$: myosin + actin steps)",
@@ -104,7 +104,7 @@ box(6.85, 4.35, 7.05, 2.0, SUB_FC, MEAT_EC,
     r"$\varepsilon(s) = \varepsilon\,(1-s) + \varepsilon_{wrap}\,s\qquad q_{surf} = -k\,\partial_x T|_s + \lambda\,j$",
 ], size=10, lw=1.2)
 # bark states
-box(6.85, 2.75, 7.05, 1.45, SUB_FC, MEAT_EC, "bark states (surface)", [
+box(6.85, 2.60, 7.05, 1.45, SUB_FC, MEAT_EC, "bark states (surface)", [
     r"$\dot B = k_B(T_s)\,g(a_w)\,(1-B)\qquad\quad L^* = L_0^* - \Delta_B B - \Delta_S S$",
     r"$\dot S = k_{dep}\,\mathrm{wet}(a_w)\;\dot m_b\;(1-s)\,(1-S)$",
 ], size=10, lw=1.2)
@@ -133,8 +133,8 @@ arrow((5.0, 4.35), (6.8, 3.45), ARR_F, label=r"$\dot m_b(t)$",
       lpos=(5.62, 3.72))
 # states -> objective
 arrow((2.85, 4.35), (2.85, 2.05), ARR_O, label=r"fuel $m$", lpos=(3.38, 3.15))
-arrow((9.0, 2.5), (9.0, 2.05), ARR_O)
-ax.text(9.45, 2.28, r"$C_0,\,W,\,F,\,B,\,S,\,T_s$", ha="left", va="center",
+arrow((9.0, 2.32), (9.0, 2.08), ARR_O)
+ax.text(9.45, 2.22, r"$C_0,\,W,\,F,\,B,\,S,\,T_s$", ha="left", va="center",
         fontsize=9.5, color=ARR_O,
         bbox={"boxstyle": "round,pad=0.15", "fc": "white", "ec": "none",
               "alpha": 0.95})
