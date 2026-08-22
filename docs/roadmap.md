@@ -12,7 +12,9 @@ dependency ordering that matters.
    back-compat; k_spread/a0 sampled for the real cook. Julia 34/34,
    composed gate 15/15.
 2. ✅ **Juiciness output** — retained moisture at pull as a differentiable
-   output (`w_retained`) + optional control-objective term (`w_juicy`).
+   output (`w_retained`) + optional control-objective term (`w_juicy`;
+   field since absorbed into the KCBS default objective as `w_dry` over
+   mechanistic juiciness).
    Julia 36/36, app suite 18/18; docs/diagram/README updated.
 3. ✅ **Re-run MAP-real** — warm-started 600-step refinement: loss 551 → 516,
    σ_pit 2.6 → 2.1, σ_core 1.4 → 0.88 (at the digitization floor); early-cook
@@ -78,10 +80,11 @@ dependency ordering that matters.
       foil constants in MeatConfig), t_wrap as the first differentiable
       SCALAR Tesseract input, jointly optimized with the schedule against a
       bark proxy (∫ j_evap dt shortfall penalty). Demo (`run_wraptime.py`,
-      `figures/wraptime.png`): optimal wrap at 6.0 h — doneness 0.82 → 0.96,
-      juiciness 0.40 → 0.62, ~10% bark trade. dt_wrap adjoint matches FD to
-      5.5e-6; Julia 46/46, app 20/20. The adjoint took the new physics
-      without a fallback.
+      `figures/wraptime.png`): era result — optimal wrap at 6.0 h,
+      doneness 0.82 → 0.96 (pre-moisture physics; under the final model
+      the 10 h demo wraps at 7.1 h and the 17 h optimal cook at 3.5 h).
+      dt_wrap adjoint matches FD to 5.5e-6; the adjoint took the new
+      physics without a fallback, twice.
    4. **Extend synthetic NUTS chain** for better ESS (currently 7–82) from
       its checkpoint.
    5. **≤5-min demo video.**

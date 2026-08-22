@@ -6,16 +6,20 @@ conditioning pitfalls we hit (which are themselves informative).
 
 ## Level 1 — Julia solver adjoints vs FD (`test/test_gradients.jl`)
 
-- **Meat** (`meat_vjp`, SciMLSensitivity `GaussAdjoint(autojacvec = EnzymeVJP())` —
-  switched from `InterpolatingAdjoint(ReverseDiffVJP(false))` on Aug 10 after
-  profiling showed 27x speedup with gradients agreeing to ~2e-5; the full
-  suite below re-passed 32/32 after the switch):
-  8 h horizon, tol 1e-9, mixed loss over all five outputs. All five physical
-  parameters and four forcing-trajectory knots agree with central FD:
+- **Meat** (`meat_vjp`, SciMLSensitivity
+  `InterpolatingAdjoint(autojacvec = EnzymeVJP())` — the survivor of two
+  documented sensealg incidents: the Aug-10 Gauss NaN hunt and the Aug-20
+  silent-zero hunt, both below): 8 h horizon, tol 1e-9, mixed loss over
+  the output heads. All seven θ parameters (incl. the expulsion latents
+  k_e/a_myosin via juiciness AND coupled-Tcore paths), forcing-trajectory
+  knots, the wrap time, smoke knots, and the bark/moisture output
+  cotangents agree with central FD — 33 adjoint-vs-FD checks across five
+  testsets:
   - `D_eff` ≤ 2e-2 (1% FD step; see "FD conditioning" below)
-  - all other parameters and knots ≤ 1e-3 (typically 1e-5 to 1e-6)
+  - all other parameters and knots ≤ 1e-3–5e-3 (typically 1e-5 to 1e-6)
 - **Pit** (`pit_vjp`, exact dense ForwardDiff Jacobian, transposed):
-  all five parameters, damper knots, and heat-load knots ≤ 1e-3
+  all seven φ parameters (incl. the ignition dynamics k_spread/a0),
+  damper knots, and heat-load knots ≤ 1e-3
   (heat-load knots ≤ 1e-3 rather than 1e-4 purely because the per-knot FD signal
   is tiny; the Jacobian itself is exact to machine precision).
 
@@ -45,9 +49,12 @@ those are covered by Level 1's relative-step tests):
 
 `jax.grad` through the full K=2 Picard composition
 (pit → meat → pit → meat, gradients crossing the Tesseract VJP boundary
-4 times) vs central FD on a scalar loss: **13/13 pass** —
-5 meat parameters, 5 pit parameters (5e-3 gate; D_eff 2e-2 with a 1% step),
-and damper-knot directions. 6 h horizon, tolerances 1e-10, float64 end-to-end.
+4 times) vs central FD on a scalar loss. The gate has grown with the
+model and covers every input class: all 7 meat parameters, all 7 pit
+parameters (5e-3 gate; D_eff 2e-2 with a 1% step), damper directions, the
+wrap time, and the damper→burn-rate→smoke→bark-color chain through both
+components (app suite 21 tests total). 6 h horizon, tolerances 1e-10,
+float64 end-to-end.
 
 ## The NaN-gradient hunt (Phase C) — symptoms vs root cause
 
@@ -69,6 +76,23 @@ the tesseract_api.py files): all juliacall work on one dedicated thread;
 stringify Julia exceptions on that thread; never let zero-copy views of
 Julia or XLA memory cross threads (copy on entry AND exit); solvers fail
 loudly on bad retcodes rather than returning truncated arrays.
+
+## The silent-zero hunt (moisture era, 2026-08-20)
+
+The moisture build's enlarged output set exposed a second sensealg failure
+mode, nastier than NaN because nothing raises: with large cotangent seeds
+(||cot|| ~ 1e3), the backward adjoint solve can abort its FIRST step
+(dt < machine epsilon) and SciMLSensitivity returns **identically zero
+gradients**. Both Enzyme and ReverseDiff backends returned the same wrong
+value — the tell that the defect sat above the VJP backend. Bisection
+localized it to seed magnitude: the identical cotangent at unit norm was
+exact to 2e-6. Fix, both permanent: `meat_vjp` normalizes cotangents to
+unit magnitude on entry and rescales the gradient on exit (exact by
+linearity of the VJP), and a loud guard throws if the adjoint ever
+returns all-zero gradients against nonzero seeds. The lesson generalizes:
+an adjoint that agrees with an independent backend can still be wrong —
+backends share the backward *solve*, so cross-backend agreement only
+exonerates the VJP layer.
 
 ## FD conditioning lessons (worth knowing before touching these tests)
 
@@ -152,6 +176,12 @@ are the two established benign patterns plus a third documented here:
 *FD-unresolvable weak rows* (entire row response < 1e-5 — e.g.
 `tpit_knots → bark_s`, where a single forcing knot moves smoke deposition
 at the 1e-6 level and VJP/FD agree in sign and order inside solver noise).
+
+**Pending:** the moisture-era model (162 meat states, θ = 7 with the
+expulsion latents, fat/bark state handoff inputs) supersedes the images
+this sweep ran on; a rebuild + re-sweep with the updated payload
+(`meat_payload.json` already carries θ = 7) is queued as a submission
+artifact.
 
 Known issue: the in-container meat runtime intermittently hangs at
 initialization (worker frozen at 0.29 s CPU; observed 2 of 3 launches on

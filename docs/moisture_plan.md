@@ -1,5 +1,12 @@
 # Moisture Physics: Fat Rendering + Denaturation Expulsion
 
+> **Status: SHIPPED** (merged to master; gap audit #1/#2 DONE). Built as
+> planned below, with two findings the plan did not predict: the frozen
+> literature expulsion constants left a 2x calibration-loss floor, so k_e
+> and a_myosin joined θ as calibrated latents (5 → 7); and the crutch
+> entered the optimal plan (17 h cook, wrap at 3.5 h). Equations:
+> `docs/model.md`.
+
 Gap audit Tier 1 #1 and #2 (docs/model_gaps.md), built as one unit because
 they share the moisture story: perceived juiciness = retained water AND
 retained rendered fat; total cook loss = evaporated water + dripped water

@@ -26,8 +26,10 @@ calibration (synthetic and a real 19-hour cook log), damper-schedule
 optimization, robust control in expectation over the posterior,
 receding-horizon MPC that absorbs an unmodeled cold front, cook-time
 planning, and a mechanistic bark-color model whose gradients cross both
-components — the full composition (duration × wrap × vents) rediscovers
-the traditional ~17 h unwrapped low-and-slow cook.
+components — the full composition (duration × wrap × vents) lands on a
+17 h cook that wraps at 3.5 h: with the moisture physics complete, the
+Texas crutch enters the optimal plan as the mechanism that protects
+juiciness.
 
 **Longer description (if the form has a field for it):**
 Real barbecue is a coupled multi-physics control problem: a charcoal pit
@@ -105,7 +107,8 @@ won — nobody programmed that.
 🔥 A mechanistic bark model (Maillard + smoke deposition, smoke flux =
 the pit's own burn rate — gradients cross both physics components). Given
 tenderness + juiciness + color as the objective, the optimizer
-rediscovered the traditional ~17-hour unwrapped low-and-slow brisket —
+landed on a 17-hour cook that wraps at 3.5 h — smoke for bark, then
+crutch to protect juiciness —
 and the Texas crutch dropped out of the optimal plan, re-emerging as what
 it really is: a rescue tool for cooks under deadline pressure.
 
