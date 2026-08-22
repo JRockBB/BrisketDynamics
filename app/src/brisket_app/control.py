@@ -237,17 +237,25 @@ def optimize_schedule_expected(
 
     u0 = jnp.broadcast_to(jnp.asarray(u_init), (grids.n_u,))
     z = jnp.log(u0 / (1 - u0))
-    z_w = jnp.asarray(8.0)  # pinned no-wrap; tangent still flows (see above)
+    # wrap decision under uncertainty: with cc.opt_wrap the POSTERIOR-
+    # EXPECTED wrap moment is optimized jointly with the schedule (one
+    # t_wrap for all draws — you only get to wrap the real brisket once);
+    # otherwise pinned near-never-wrap, tangent still flowing (see
+    # optimize_schedule for the all-inputs-tangent invariant).
+    z_w = jnp.asarray(0.0 if cc.opt_wrap else 8.0)
     opt = optax.adam(cc.lr)
-    state = opt.init(z)
+    state = opt.init((z, z_w))
     val_grad = jax.jit(jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3)))
 
     losses = []
     t0 = time.perf_counter()
     for i in range(cc.n_iter):
-        loss, (g, _gw, _, _) = val_grad(z, z_w, thetas, phis)
-        updates, state = opt.update(g, state, z)
-        z = optax.apply_updates(z, updates)
+        loss, (g, g_w, _, _) = val_grad(z, z_w, thetas, phis)
+        updates, state = opt.update((g, g_w), state, (z, z_w))
+        z_new, z_w_new = optax.apply_updates((z, z_w), updates)
+        z = z_new
+        if cc.opt_wrap:
+            z_w = z_w_new
         losses.append(float(loss))
         if callback and (i % log_every == 0 or i == cc.n_iter - 1):
             callback(i, float(loss), np.asarray(jax.nn.sigmoid(z)))
@@ -255,6 +263,7 @@ def optimize_schedule_expected(
         "losses": np.asarray(losses),
         "wall_s": time.perf_counter() - t0,
         "grids": grids,
+        "t_wrap": float(grids.t_end * jax.nn.sigmoid(z_w)),
     }
 
 

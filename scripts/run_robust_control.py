@@ -97,7 +97,10 @@ def main():
 
     meat_tx, pit_tx = meat_client(), pit_client()
     grids = CookGrids(dt_exchange=600.0, n_u=len(u_map))
-    cc = ControlConfig(n_iter=args.iters)
+    # opt_wrap: the posterior-EXPECTED wrap moment is a decision variable
+    # too — the interesting question is whether parameter uncertainty
+    # hedges the crutch earlier or later than the MAP's choice
+    cc = ControlConfig(n_iter=args.iters, opt_wrap=True)
 
     print(f"optimizing E[J] over {N_OPT} posterior draws, warm start from MAP schedule")
     u_rob, hist = optimize_schedule_expected(
