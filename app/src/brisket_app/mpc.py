@@ -183,13 +183,17 @@ def run_cook(
     model_t_amb=300.0,
     phi_model=None,
     log=print,
+    t_wrap_init_abs: float | None = None,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
     mode='mpc' replans each dt_replan interval from the advanced plant
     state (full-field handoff); mode='openloop' executes u_openloop
     blindly. plant_t_amb_fn(t) is the ambient-temperature disturbance the
-    controller's model does NOT know.
+    controller's model does NOT know. ``t_wrap_init_abs`` seeds the
+    planned wrap moment (absolute [s]): open-loop executes it verbatim;
+    MPC (with cc.opt_wrap) treats it as the incumbent plan and re-times
+    it each replan until executed.
 
     Returns
     -------
@@ -207,7 +211,7 @@ def run_cook(
     # executes past the planned moment the cook IS wrapped and the
     # decision becomes irreversible -- later replans model s=1 (z_w pinned
     # at -8) and the plant runs saturated (t_wrap_seg < 0).
-    t_wrap_abs: float | None = None  # planned wrap time, absolute [s]
+    t_wrap_abs: float | None = t_wrap_init_abs  # planned wrap, absolute [s]
     wrapped = False
     wrap_history: list[tuple[float, float]] = []  # (replan t, planned abs wrap)
 
@@ -265,9 +269,7 @@ def run_cook(
         t_amb = plant_t_amb_fn(state.t + dt_replan / 2)
         if wrapped:
             tw_seg = -6.0 * 600.0  # arrived wrapped: blend saturated on
-        elif (
-            cc.opt_wrap and t_wrap_abs is not None and t_wrap_abs < state.t + dt_replan
-        ):
+        elif t_wrap_abs is not None and t_wrap_abs < state.t + dt_replan:
             tw_seg = max(0.0, t_wrap_abs - state.t)  # crutch executes NOW
         else:
             tw_seg = 1.0e9
@@ -292,7 +294,7 @@ def run_cook(
 
     doneness = float(state.c_field0[0])
     out = {k: np.asarray(v) for k, v in traj.items()} | {"doneness": doneness}
-    if cc.opt_wrap:
+    if cc.opt_wrap or t_wrap_init_abs is not None:
         out["wrapped"] = wrapped
         out["t_wrap_abs"] = t_wrap_abs
         out["wrap_history"] = wrap_history

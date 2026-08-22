@@ -208,6 +208,7 @@ def optimize_schedule_expected(
     u_init=0.5,
     log_every: int = 10,
     callback=None,
+    z_w_init: float | None = None,
 ):
     """Optimize the damper schedule against the EXPECTED objective.
 
@@ -242,7 +243,9 @@ def optimize_schedule_expected(
     # t_wrap for all draws — you only get to wrap the real brisket once);
     # otherwise pinned near-never-wrap, tangent still flowing (see
     # optimize_schedule for the all-inputs-tangent invariant).
-    z_w = jnp.asarray(0.0 if cc.opt_wrap else 8.0)
+    if z_w_init is None:
+        z_w_init = 0.0 if cc.opt_wrap else 8.0
+    z_w = jnp.asarray(z_w_init)
     opt = optax.adam(cc.lr)
     state = opt.init((z, z_w))
     val_grad = jax.jit(jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3)))
