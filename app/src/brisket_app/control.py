@@ -96,7 +96,24 @@ class ControlConfig:
     # decision variables / optimizer
     opt_wrap: bool = False  # optimize t_wrap jointly with the schedule
     lr: float = 0.05
-    n_iter: int = 200
+    n_iter: int = 200  # iteration CAP; convergence stop below usually binds
+    # plateau stop: quit when the best loss has not improved by more than
+    # tol_rel * |best| for `patience` consecutive iterations (0 disables)
+    tol_rel: float = 1e-4
+    patience: int = 20
+
+
+def _plateau_stop(losses, cc: ControlConfig) -> bool:
+    """Convergence check: no improvement beyond tol_rel for `patience` iters.
+
+    Compares the best loss inside the trailing window against the best
+    before it; disabled when cc.patience == 0.
+    """
+    if cc.patience <= 0 or len(losses) <= cc.patience:
+        return False
+    best_before = min(losses[: -cc.patience])
+    best_recent = min(losses[-cc.patience :])
+    return best_recent > best_before - cc.tol_rel * abs(best_before)
 
 
 def objective(
@@ -262,11 +279,15 @@ def optimize_schedule_expected(
         losses.append(float(loss))
         if callback and (i % log_every == 0 or i == cc.n_iter - 1):
             callback(i, float(loss), np.asarray(jax.nn.sigmoid(z)))
+        if _plateau_stop(losses, cc):
+            break
     return np.asarray(jax.nn.sigmoid(z)), {
         "losses": np.asarray(losses),
         "wall_s": time.perf_counter() - t0,
         "grids": grids,
         "t_wrap": float(grids.t_end * jax.nn.sigmoid(z_w)),
+        "converged": _plateau_stop(losses, cc),
+        "n_iter_run": len(losses),
     }
 
 
@@ -354,10 +375,14 @@ def optimize_schedule(
             schedules.append(np.asarray(jax.nn.sigmoid(z)))
             if callback:
                 callback(i, float(loss), np.asarray(jax.nn.sigmoid(z)))
+        if _plateau_stop(losses, cc):
+            break
     return np.asarray(jax.nn.sigmoid(z)), {
         "losses": np.asarray(losses),
         "schedules": np.asarray(schedules),
         "t_wrap": float(grids.t_end * jax.nn.sigmoid(z_w)),
         "wall_s": time.perf_counter() - t0,
         "grids": grids,
+        "converged": _plateau_stop(losses, cc),
+        "n_iter_run": len(losses),
     }
