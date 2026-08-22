@@ -91,6 +91,19 @@ def main():
         u_openloop_grids=grids0,
         t_wrap_init_abs=t_wrap_star,
     )
+    print("MPC, NO disturbance (discriminator: plan-refinement vs weather):")
+    mp0 = mpc.run_cook(
+        theta,
+        phi,
+        no_dist,
+        t_f=T_F,
+        mode="mpc",
+        model_t_amb=T_AMB_BASE,
+        cc=cc,
+        t_wrap_init_abs=t_wrap_star,
+        u_incumbent=u0_plan,
+        u_incumbent_grids=grids0,
+    )
     print("MPC through the cold front:")
     mp = mpc.run_cook(
         theta,
@@ -110,7 +123,12 @@ def main():
             f"(replanned {len(mp['wrap_history'])}x)"
         )
 
-    for name, r in [("reference", ref), ("open-loop", ol), ("MPC", mp)]:
+    for name, r in [
+        ("reference", ref),
+        ("open-loop", ol),
+        ("MPC-nominal", mp0),
+        ("MPC", mp),
+    ]:
         jj = mpc.executed_objective(r, cc, T_F)
         r["J_executed"] = jj
         print(
@@ -130,6 +148,7 @@ def main():
                     for tag, r in [
                         ("reference", ref),
                         ("openloop", ol),
+                        ("mpc_nominal", mp0),
                         ("mpc", mp),
                     ]
                     for k in ("doneness", "juiciness", "l_star_end", "smoke_end")
@@ -139,6 +158,7 @@ def main():
                     for tag, r in [
                         ("reference", ref),
                         ("openloop", ol),
+                        ("mpc_nominal", mp0),
                         ("mpc", mp),
                     ]
                 },
@@ -173,6 +193,7 @@ def main():
     for r, name, ls in [
         (ref, "reference (no cold front)", ":"),
         (ol, "open-loop", "--"),
+        (mp0, "MPC (no front)", "-."),
         (mp, "MPC", "-"),
     ]:
         axes[0].plot(r["t"] / HR, r["tcore"] - 273.15, ls, label=name)
@@ -180,6 +201,8 @@ def main():
         axes[2].step(r["t"] / HR, r["u"], ls, where="post", label=name)
     for ax in axes[:2]:
         ax.axvline(T_DIST / HR, color="steelblue", lw=1, ls="-.")
+    if mp0.get("t_wrap_abs") is not None and mp0.get("wrapped"):
+        axes[0].axvline(mp0["t_wrap_abs"] / HR, color="#52514e", lw=1.2, ls=":")
     if wrap_mode and mp.get("t_wrap_abs") is not None:
         axes[0].axvline(mp["t_wrap_abs"] / HR, color="#eb6834", lw=1.5, ls=":")
         axes[0].annotate(
