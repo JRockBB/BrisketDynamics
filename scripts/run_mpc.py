@@ -110,21 +110,27 @@ def main():
             f"(replanned {len(mp['wrap_history'])}x)"
         )
 
-    print(
-        f"doneness: reference {ref['doneness']:.3f}  "
-        f"open-loop {ol['doneness']:.3f}  MPC {mp['doneness']:.3f} "
-        f"(target {cc.c_target})"
-    )
+    for name, r in [("reference", ref), ("open-loop", ol), ("MPC", mp)]:
+        print(
+            f"  {name}: doneness {r['doneness']:.3f} (band "
+            f"{cc.c_target}-{cc.c_overdone})  juiciness {r['juiciness']:.3f}  "
+            f"L* {r['l_star_end']:.1f}  smoke {r['smoke_end']:.2f}"
+        )
 
     out = REPO / "data" / "control"
     out.mkdir(parents=True, exist_ok=True)
-    result_name = "mpc_wrap_result.json" if wrap_mode else "mpc_result.json"
-    (out / result_name).write_text(
+    (out / "mpc_result.json").write_text(
         json.dumps(
             {
-                "doneness_reference": ref["doneness"],
-                "doneness_openloop": ol["doneness"],
-                "doneness_mpc": mp["doneness"],
+                **{
+                    f"{k}_{tag}": r[k]
+                    for tag, r in [
+                        ("reference", ref),
+                        ("openloop", ol),
+                        ("mpc", mp),
+                    ]
+                    for k in ("doneness", "juiciness", "l_star_end", "smoke_end")
+                },
                 "t_disturbance_h": T_DIST / HR,
                 "dT_amb": T_AMB_BASE - T_AMB_COLD,
                 **(
@@ -177,13 +183,15 @@ def main():
         fontsize=8,
         color="steelblue",
     )
-    axes[0].set(
-        xlabel="time [h]",
-        ylabel="core [°C]",
-        title=f"doneness: ref {ref['doneness']:.2f} · "
-        f"open-loop {ol['doneness']:.2f} · MPC {mp['doneness']:.2f} "
-        f"(target {cc.c_target})",
+    axes[0].set_title(
+        f"done/juicy/L*:  ref {ref['doneness']:.2f}/{ref['juiciness']:.2f}/"
+        f"{ref['l_star_end']:.0f} · OL {ol['doneness']:.2f}/"
+        f"{ol['juiciness']:.2f}/{ol['l_star_end']:.0f} · MPC "
+        f"{mp['doneness']:.2f}/{mp['juiciness']:.2f}/{mp['l_star_end']:.0f} "
+        f"(doneness band {cc.c_target}-{cc.c_overdone})",
+        fontsize=10,
     )
+    axes[0].set(xlabel="time [h]", ylabel="core [°C]")
     axes[1].set(xlabel="time [h]", ylabel="pit [°C]", title="pit temperature")
     axes[2].set(
         xlabel="time [h]",
@@ -198,9 +206,8 @@ def main():
         + (" — and re-times the crutch" if wrap_mode else "")
     )
     fig.tight_layout()
-    fig_name = "mpc_wrap.png" if wrap_mode else "mpc_demo.png"
-    fig.savefig(REPO / "figures" / fig_name, dpi=140)
-    print(f"wrote figures/{fig_name}")
+    fig.savefig(REPO / "figures" / "mpc_demo.png", dpi=140)
+    print("wrote figures/mpc_demo.png")
 
 
 if __name__ == "__main__":

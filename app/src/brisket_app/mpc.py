@@ -304,7 +304,24 @@ def run_cook(
         )
 
     doneness = float(state.c_field0[0])
-    out = {k: np.asarray(v) for k, v in traj.items()} | {"doneness": doneness}
+    # terminal quality vector from the final plant state (constants mirror
+    # MeatConfig: W0/F0/beta_fat/eta_drain and the L* map)
+    W0, F0, BETA_FAT, ETA_DRAIN = 2.33, 0.22, 1.8, 0.5
+    L0_BARK, DL_B, DL_S = 52.0, 20.0, 10.0
+    w_ret = float(np.mean(state.w_field0)) / W0 if state.w_field0.size else float("nan")
+    f_mean = float(np.mean(state.f_field0)) if state.f_field0.size else float("nan")
+    fat_rendered = (F0 - f_mean) / F0
+    juiciness = w_ret + BETA_FAT * (1 - ETA_DRAIN) * (F0 - f_mean) / W0
+    b_end = 0.0 if np.isnan(state.bark_b0) else float(state.bark_b0)
+    s_end = 0.0 if np.isnan(state.bark_s0) else float(state.bark_s0)
+    l_star = L0_BARK - DL_B * b_end - DL_S * s_end
+    out = {k: np.asarray(v) for k, v in traj.items()} | {
+        "doneness": doneness,
+        "juiciness": juiciness,
+        "fat_rendered": fat_rendered,
+        "l_star_end": l_star,
+        "smoke_end": s_end,
+    }
     if cc.opt_wrap or t_wrap_init_abs is not None:
         out["wrapped"] = wrapped
         out["t_wrap_abs"] = t_wrap_abs
