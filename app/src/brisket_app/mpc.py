@@ -37,12 +37,15 @@ class CookState:
     t_field0: np.ndarray  # empty array = uniform default ICs
     w_field0: np.ndarray
     c_field0: np.ndarray
+    f_field0: np.ndarray
+    bark_b0: float = float("nan")  # NaN = fresh (0)
+    bark_s0: float = float("nan")
 
     @classmethod
     def fresh(cls, tpit0=293.15, m0=7.0, a0=1.0, t0_meat=281.15):
         """Cold-start state: ambient pit, full fuel ring, fridge meat."""
         z = np.zeros(0)
-        s = cls(0.0, tpit0, m0, a0, z, z, z)
+        s = cls(0.0, tpit0, m0, a0, z, z, z, z)
         s.t0_meat = t0_meat
         return s
 
@@ -56,6 +59,9 @@ def _ics(state: CookState, t_amb: float) -> dict:
         "t_field0": state.t_field0,
         "w_field0": state.w_field0,
         "c_field0": state.c_field0,
+        "f_field0": state.f_field0,
+        "bark_b0": state.bark_b0,
+        "bark_s0": state.bark_s0,
     }
     if state.t_field0.size == 0 and hasattr(state, "t0_meat"):
         ics["t0_meat"] = state.t0_meat
@@ -70,9 +76,22 @@ def _with_a0(phi: np.ndarray, a0: float) -> np.ndarray:
 
 
 def advance_plant(
-    state: CookState, u_seg: np.ndarray, dt: float, theta, phi, t_amb: float, tols=None
+    state: CookState,
+    u_seg: np.ndarray,
+    dt: float,
+    theta,
+    phi,
+    t_amb: float,
+    tols=None,
+    t_wrap_seg: float = 1.0e9,
 ) -> tuple[CookState, dict]:
-    """Run the plant one interval; return (new state, trajectories)."""
+    """Run the plant one interval; return (new state, trajectories).
+
+    ``t_wrap_seg`` is the wrap moment in SEGMENT-relative time: 1e9 = no
+    wrap this segment, a value inside [0, dt) executes the crutch here,
+    and a negative value (~-3600) means the cook arrived already wrapped
+    (blend saturated on from the segment start).
+    """
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
     grids = CookGrids(t_end=dt, dt_exchange=min(600.0, dt / 2), n_u=len(u_seg))
     sim = coupled_cook(
@@ -83,6 +102,7 @@ def advance_plant(
         grids,
         K=2,
         ics=_ics(state, t_amb),
+        t_wrap=t_wrap_seg,
         **tols,
     )
     new = CookState(
@@ -93,6 +113,9 @@ def advance_plant(
         t_field0=np.asarray(sim["t_field_final"]),
         w_field0=np.asarray(sim["w_field_final"]),
         c_field0=np.asarray(sim["c_field_final"]),
+        f_field0=np.asarray(sim["f_field_final"]),
+        bark_b0=float(sim["bark_b"][-1]),
+        bark_s0=float(sim["bark_s"][-1]),
     )
     return new, {
         k: np.asarray(sim[k]) for k in ("tpit", "tcore", "tsurf", "m_fuel", "ignited")
@@ -117,14 +140,22 @@ def plan(
     model_t_amb: float,
     u_init=0.5,
     iters=60,
+    z_w_init: float = 0.0,
+    z_w_pin: float = 8.0,
 ):
-    """Re-optimize the remaining-horizon schedule from the current state."""
+    """Re-optimize the remaining-horizon plan from the current state.
+
+    Returns (u_opt, grids, t_wrap_rel): the schedule, its grids, and the
+    planned wrap moment relative to NOW (t_end*sigmoid(z_w); meaningful
+    only when ``cc.opt_wrap``). With opt_wrap off, z_w stays pinned at
+    ``z_w_pin`` (8 = never; -8 = already wrapped).
+    """
     n_u = max(2, round(t_remaining / (0.75 * HR)))
     grids = CookGrids(
         t_end=t_remaining, dt_exchange=min(600.0, t_remaining / 4), n_u=n_u
     )
     meat_tx, pit_tx = _CLIENTS
-    u_opt, _hist = optimize_schedule(
+    u_opt, hist = optimize_schedule(
         theta,
         _with_a0(phi, state.a0),
         meat_tx,
@@ -133,8 +164,10 @@ def plan(
         cc=replace(cc, n_iter=iters),
         u_init=u_init,
         ics=_ics(state, model_t_amb),
+        z_w_init=z_w_init,
+        z_w_pin=z_w_pin,
     )
-    return u_opt, grids
+    return u_opt, grids, hist["t_wrap"]
 
 
 def run_cook(
@@ -169,11 +202,18 @@ def run_cook(
     traj = {k: [] for k in ("t", "tpit", "tcore", "tsurf", "u")}
     n_seg = round(t_f / dt_replan)
     u_prev_plan, _prev_grids = None, None
+    # Texas-crutch state machine (active when cc.opt_wrap): each replan
+    # re-times the wrap over the remaining horizon; once a plant segment
+    # executes past the planned moment the cook IS wrapped and the
+    # decision becomes irreversible -- later replans model s=1 (z_w pinned
+    # at -8) and the plant runs saturated (t_wrap_seg < 0).
+    t_wrap_abs: float | None = None  # planned wrap time, absolute [s]
+    wrapped = False
+    wrap_history: list[tuple[float, float]] = []  # (replan t, planned abs wrap)
 
     for _seg in range(n_seg):
         t_remaining = t_f - state.t
         if mode == "mpc":
-            cc_mpc = cc  # the default objective already carries the band
             if u_prev_plan is None:
                 u_init = 0.5
             else:
@@ -184,9 +224,36 @@ def run_cook(
                 n_u_new = max(2, round(t_remaining / (0.75 * HR)))
                 new_t = state.t + np.linspace(0, t_remaining, n_u_new)
                 u_init = np.clip(np.interp(new_t, prev_t, u_prev_plan), 1e-3, 1 - 1e-3)
-            u_plan, plan_grids = plan(
-                theta, phi_model, state, t_remaining, cc_mpc, model_t_amb, u_init=u_init
+            if cc.opt_wrap and not wrapped:
+                # warm-start z_w from the previous ABSOLUTE plan, mapped to
+                # the new remaining horizon (logit of the horizon fraction)
+                if t_wrap_abs is None:
+                    zw0 = 0.0
+                else:
+                    frac = np.clip((t_wrap_abs - state.t) / t_remaining, 1e-3, 1 - 1e-3)
+                    zw0 = float(np.log(frac / (1 - frac)))
+                cc_seg = cc
+                zw_pin = 8.0
+            else:
+                # wrapped (or wrap disabled): plan the schedule only; model
+                # the executed wrap as saturated-on when applicable
+                cc_seg = replace(cc, opt_wrap=False)
+                zw0 = 0.0
+                zw_pin = -8.0 if wrapped else 8.0
+            u_plan, plan_grids, t_wrap_rel = plan(
+                theta,
+                phi_model,
+                state,
+                t_remaining,
+                cc_seg,
+                model_t_amb,
+                u_init=u_init,
+                z_w_init=zw0,
+                z_w_pin=zw_pin,
             )
+            if cc.opt_wrap and not wrapped:
+                t_wrap_abs = state.t + float(t_wrap_rel)
+                wrap_history.append((state.t, t_wrap_abs))
             u_prev_plan, _prev_grids = u_plan, plan_grids
             # execute the first dt_replan of the plan
             tt = np.linspace(0, dt_replan, 2)
@@ -196,9 +263,19 @@ def run_cook(
             u_seg = np.interp(tt, u_openloop_grids.u_tknots, u_openloop)
 
         t_amb = plant_t_amb_fn(state.t + dt_replan / 2)
+        if wrapped:
+            tw_seg = -6.0 * 600.0  # arrived wrapped: blend saturated on
+        elif (
+            cc.opt_wrap and t_wrap_abs is not None and t_wrap_abs < state.t + dt_replan
+        ):
+            tw_seg = max(0.0, t_wrap_abs - state.t)  # crutch executes NOW
+        else:
+            tw_seg = 1.0e9
         state, seg_traj = advance_plant(
-            state, u_seg, dt_replan, theta, phi_plant, t_amb
+            state, u_seg, dt_replan, theta, phi_plant, t_amb, t_wrap_seg=tw_seg
         )
+        if tw_seg < 1.0e8 and not wrapped:
+            wrapped = True  # irreversible from here on
         nseg_t = len(seg_traj["tpit"])
         traj["t"].extend(
             (state.t - dt_replan + np.linspace(0, dt_replan, nseg_t)).tolist()
@@ -214,4 +291,9 @@ def run_cook(
         )
 
     doneness = float(state.c_field0[0])
-    return {k: np.asarray(v) for k, v in traj.items()} | {"doneness": doneness}
+    out = {k: np.asarray(v) for k, v in traj.items()} | {"doneness": doneness}
+    if cc.opt_wrap:
+        out["wrapped"] = wrapped
+        out["t_wrap_abs"] = t_wrap_abs
+        out["wrap_history"] = wrap_history
+    return out

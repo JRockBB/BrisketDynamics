@@ -271,12 +271,15 @@ def optimize_schedule(
     callback=None,
     ics: dict | None = None,
     z_w_init: float = 0.0,
+    z_w_pin: float = 8.0,
 ):
     """Optimize the damper schedule at fixed (theta, phi) with Adam.
 
     Returns (u_opt, history dict); the history carries losses, wall time,
     the grids, and the final t_wrap. `callback(i, loss, u)` fires every
-    `log_every` iterations.
+    `log_every` iterations. With ``cc.opt_wrap`` off, ``z_w`` is pinned at
+    ``z_w_pin`` (8 = never wrap; -8 = wrapped from the start, used by MPC
+    replans after the crutch is executed).
     """
     cc = cc or ControlConfig()
     grids = grids or CookGrids(dt_exchange=600.0, n_u=16)
@@ -287,11 +290,13 @@ def optimize_schedule(
     u0 = jnp.broadcast_to(jnp.asarray(u_init), (grids.n_u,))
     z = jnp.log(u0 / (1 - u0))
     # wrap decision variable: t_wrap = t_end*sigmoid(z_w). When opt_wrap is
-    # off, z_w is pinned near-never-wrap (sigmoid(8) = 0.9997 -> t_wrap at
-    # the horizon end, physically no wrap) and its updates are discarded --
-    # but it ALWAYS carries a tangent, keeping one traced graph and the
-    # all-inputs-tangent invariant (see below).
-    z_w = jnp.asarray(z_w_init if cc.opt_wrap else 8.0)
+    # off, z_w is PINNED at z_w_pin and its updates are discarded -- but it
+    # ALWAYS carries a tangent, keeping one traced graph and the
+    # all-inputs-tangent invariant (see below). z_w_pin defaults to
+    # near-never-wrap (sigmoid(8) = 0.9997 -> wrap at the horizon end);
+    # MPC replans of an ALREADY-WRAPPED cook pin at -8 instead
+    # (wrap at ~t=0, i.e. the blend is on from the segment start).
+    z_w = jnp.asarray(z_w_init if cc.opt_wrap else z_w_pin)
     opt = optax.adam(cc.lr)
     state = opt.init((z, z_w))
     # Two deliberate choices here:

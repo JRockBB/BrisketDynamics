@@ -62,7 +62,10 @@ $$
 
 so the plateau emerges (and breaks) smoothly: no branch ever enters the
 adjoint, and NUTS's likelihood surface stays differentiable through the very
-feature that carries the information. Calibration uses a masked Gaussian
+feature that carries the information. (The complete equation set — all four
+meat fields with their kinetics, the bark states, the pit ODEs, the coupling
+map, the KCBS objective, and the likelihood — is written out in
+`docs/model.md`.) Calibration uses a masked Gaussian
 likelihood with a digitization noise floor,
 $y^{pit}_i \sim \mathcal N\big(T_{pit}(t_i;\theta,\varphi),\, (\sigma_0+\sigma_{pit})^2\big)$
 over non-lid-event observations (likewise for the core probe).

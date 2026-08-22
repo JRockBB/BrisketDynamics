@@ -102,15 +102,17 @@ def _init():
     jl.seval(
         """
         function _meat_apply(θ, knots, tknots, tsave, abstol, reltol, t0,
-                             T0f, W0f, C0f, t_wrap, smoke)
+                             T0f, W0f, C0f, F0f, b0, s0, t_wrap, smoke)
             cfg = MeatConfig(T0=t0)
             o = meat_solve(θ, knots, tknots, tsave; cfg=cfg, abstol=abstol,
                            reltol=reltol, T0f=T0f, W0f=W0f, C0f=C0f,
+                           F0f=F0f, B0=b0, S0=s0,
                            t_wrap=t_wrap, smoke_knots=smoke)
             return (o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final,
                     o.w_retained, o.T_field[:, end], o.W_field[:, end],
                     o.bark_b, o.bark_s, o.l_star,
-                    o.juiciness, o.fat_rendered, o.evap_w, o.drip_w, o.drip_f)
+                    o.juiciness, o.fat_rendered, o.evap_w, o.drip_w, o.drip_f,
+                    o.F_field[:, end])
         end
         # KNOWN GAP (documented, not fixed here): the VJP path builds its
         # initial state from cfg only — the field ICs T0f/W0f/C0f are NOT
@@ -193,6 +195,20 @@ class InputSchema(BaseModel):
     c_field0: Array[(None,), Float64] = Field(
         default_factory=list, description="Initial C field (len nx) or empty"
     )
+    f_field0: Array[(None,), Float64] = Field(
+        default_factory=list,
+        description="Initial un-rendered fat field (len nx) or empty. Part "
+        "of the full state handoff: without it a replanned segment "
+        "re-renders fat from scratch and mis-scores juiciness.",
+    )
+    bark_b0: Float64 = Field(
+        default=float("nan"),
+        description="Initial Maillard bark state (NaN = 0; state handoff)",
+    )
+    bark_s0: Float64 = Field(
+        default=float("nan"),
+        description="Initial smoke-deposition state (NaN = 0; state handoff)",
+    )
 
 
 class OutputSchema(BaseModel):
@@ -254,6 +270,10 @@ class OutputSchema(BaseModel):
     w_field_final: Array[(NX,), Float64] = Field(
         description="Final moisture field (state handoff; non-differentiable)"
     )
+    f_field_final: Array[(NX,), Float64] = Field(
+        description="Final un-rendered fat field (state handoff; "
+        "non-differentiable)"
+    )
 
 
 # Soft-fail mode for MCMC: failed solves return sentinel outputs / zero
@@ -312,10 +332,11 @@ def apply(inputs: InputSchema) -> OutputSchema:
         _own(inputs.tknots),
         _own(inputs.tsave),
     )
-    t0f, w0f, c0f = (
+    t0f, w0f, c0f, f0f = (
         _own(inputs.t_field0),
         _own(inputs.w_field0),
         _own(inputs.c_field0),
+        _own(inputs.f_field0),
     )
     smoke = _own(inputs.smoke_knots)
     if tpit.shape != tknots.shape:
@@ -324,19 +345,24 @@ def apply(inputs: InputSchema) -> OutputSchema:
         )
 
     def _run():
-        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df) = jl._meat_apply(
-            _jvec(theta),
-            _jvec(tpit),
-            _jvec(tknots),
-            _jvec(tsave),
-            float(inputs.abstol),
-            float(inputs.reltol),
-            float(inputs.t0_meat),
-            _jvec(t0f),
-            _jvec(w0f),
-            _jvec(c0f),
-            float(np.asarray(inputs.t_wrap)),
-            _jvec(smoke),
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df, ff) = (
+            jl._meat_apply(
+                _jvec(theta),
+                _jvec(tpit),
+                _jvec(tknots),
+                _jvec(tsave),
+                float(inputs.abstol),
+                float(inputs.reltol),
+                float(inputs.t0_meat),
+                _jvec(t0f),
+                _jvec(w0f),
+                _jvec(c0f),
+                _jvec(f0f),
+                float(inputs.bark_b0),
+                float(inputs.bark_s0),
+                float(np.asarray(inputs.t_wrap)),
+                _jvec(smoke),
+            )
         )
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory. If that view escapes this thread,
@@ -360,10 +386,11 @@ def apply(inputs: InputSchema) -> OutputSchema:
             np.float64(ew),
             np.float64(dw),
             np.float64(df),
+            np.asarray(ff).copy(),
         )
 
     try:
-        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df) = (
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df, ff) = (
             _on_julia_thread(_run)
         )
     except RuntimeError:
@@ -379,6 +406,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
         bb = bs = np.zeros(nt)
         ls = np.full(nt, 52.0)
         ju = fr = ew = dw = df = np.float64(0.0)
+        ff = np.zeros(NX)
     return OutputSchema(
         tsurf=ts,
         tcore=tc,
@@ -388,6 +416,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
         w_retained=wr,
         t_field_final=tf,
         w_field_final=wf,
+        f_field_final=ff,
         bark_b=bb,
         bark_s=bs,
         l_star=ls,
@@ -424,6 +453,7 @@ def abstract_eval(abstract_inputs):
         "w_retained": ShapeDType(shape=(), dtype="float64"),
         "t_field_final": vec(NX),
         "w_field_final": vec(NX),
+        "f_field_final": vec(NX),
         "bark_b": vec(nt),
         "bark_s": vec(nt),
         "l_star": vec(nt),

@@ -437,23 +437,42 @@ function _meat_u0(cfg::MeatConfig)
 end
 
 """
-    _meat_u0(cfg, T0f, W0f, C0f)
+    _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0)
 
 Initial state from full fields (receding-horizon state handoff). Empty
-vectors fall back to the uniform defaults.
+vectors / NaN scalars fall back to the uniform defaults.
+
+Since the juiciness build, the fat field and bark states MUST hand off
+too: F restarting at full marbling would re-render fat every replanned
+segment and mis-score the juiciness term the default objective carries;
+bark restarting at zero would zero the appearance/smoke terms mid-cook.
+
+# Arguments
+- `cfg::MeatConfig`: Physical configuration.
+- `T0f, W0f, C0f::AbstractVector`: Field ICs (length nx) or empty for the
+  uniform defaults.
+
+# Keyword Arguments
+- `F0f::AbstractVector`: Un-rendered fat field IC. [Default=empty ⇒ F0]
+- `B0::Real`: Maillard bark state IC. [Default=NaN ⇒ 0]
+- `S0::Real`: Smoke deposition state IC. [Default=NaN ⇒ 0]
+
+# Returns
+- `u0::Vector{Float64}`: Initial state vector (length 4·nx + 2).
 """
 function _meat_u0(
-    cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector, C0f::AbstractVector
+    cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector, C0f::AbstractVector;
+    F0f::AbstractVector = Float64[], B0::Real = NaN, S0::Real = NaN,
 )
     T = isempty(T0f) ? fill(cfg.T0, cfg.nx) : collect(float.(T0f))
     W = isempty(W0f) ? fill(cfg.W0, cfg.nx) : collect(float.(W0f))
     C = isempty(C0f) ? zeros(cfg.nx) : collect(float.(C0f))
-    (length(T) == cfg.nx && length(W) == cfg.nx && length(C) == cfg.nx) ||
-        throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
-    # bark states restart at 0 and fat restarts full on a state handoff —
-    # mid-cook re-plans do not need their continuity (observable-only in
-    # v1); documented limitation
-    return vcat(T, W, C, fill(cfg.F0, cfg.nx), zeros(2))
+    F = isempty(F0f) ? fill(cfg.F0, cfg.nx) : collect(float.(F0f))
+    (
+        length(T) == cfg.nx && length(W) == cfg.nx && length(C) == cfg.nx &&
+        length(F) == cfg.nx
+    ) || throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
+    return vcat(T, W, C, F, [isnan(B0) ? 0.0 : float(B0), isnan(S0) ? 0.0 : float(S0)])
 end
 
 # InterpolatingAdjoint + EnzymeVJP. Both choices are load-bearing:
@@ -570,8 +589,10 @@ Forward solve of the meat PDE under a pit-temperature forcing trajectory.
 - `cfg::MeatConfig`: Fixed physical configuration. [Default=MeatConfig()]
 - `abstol::Float64`: ODE absolute tolerance. [Default=1e-6]
 - `reltol::Float64`: ODE relative tolerance. [Default=1e-6]
-- `T0f, W0f, C0f::AbstractVector`: Optional full-field initial conditions
-  (receding-horizon handoff); empty ⇒ uniform defaults. [Default=empty]
+- `T0f, W0f, C0f, F0f::AbstractVector`: Optional full-field initial
+  conditions (receding-horizon handoff); empty ⇒ uniform defaults.
+  [Default=empty]
+- `B0, S0::Real`: Bark-state ICs for the handoff; NaN ⇒ 0. [Default=NaN]
 - `t_wrap::Real`: Texas-crutch wrap time [s]; `WRAP_NEVER` ⇒ bitwise
   unwrapped. [Default=WRAP_NEVER]
 - `smoke_knots::AbstractVector`: Smoke-flux forcing [kg/s] on the `tknots`
@@ -595,6 +616,9 @@ function meat_solve(
     T0f::AbstractVector=Float64[],
     W0f::AbstractVector=Float64[],
     C0f::AbstractVector=Float64[],
+    F0f::AbstractVector=Float64[],
+    B0::Real=NaN,
+    S0::Real=NaN,
     t_wrap::Real=WRAP_NEVER,
     smoke_knots::AbstractVector=Float64[],
 )
@@ -622,7 +646,10 @@ function meat_solve(
     # FullSpecialize: 3.6x faster forward solve (measured 0.23 -> 0.06 s,
     # 8 h/49-knot fixture); backward unaffected
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
-        rhs!, _meat_u0(cfg, T0f, W0f, C0f), (float(tsave[1]), float(tsave[end])), p
+        rhs!,
+        _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0),
+        (float(tsave[1]), float(tsave[end])),
+        p,
     )
     sol = solve(prob, FBDF(); saveat=tsave, abstol=abstol, reltol=reltol)
     A = Array(sol)

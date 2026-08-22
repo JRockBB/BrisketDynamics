@@ -78,7 +78,17 @@ def coupled_cook(
     ics = ics or {}
     pit_ics = {k: ics[k] for k in ("tpit0", "t_amb", "m0") if k in ics}
     meat_ics = {
-        k: ics[k] for k in ("t0_meat", "t_field0", "w_field0", "c_field0") if k in ics
+        k: ics[k]
+        for k in (
+            "t0_meat",
+            "t_field0",
+            "w_field0",
+            "c_field0",
+            "f_field0",
+            "bark_b0",
+            "bark_s0",
+        )
+        if k in ics
     }
     tk = jnp.asarray(grids.tknots)
     utk = jnp.asarray(grids.u_tknots)
