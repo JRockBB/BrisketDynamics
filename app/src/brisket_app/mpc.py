@@ -184,6 +184,8 @@ def run_cook(
     phi_model=None,
     log=print,
     t_wrap_init_abs: float | None = None,
+    u_incumbent=None,
+    u_incumbent_grids=None,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
@@ -193,7 +195,11 @@ def run_cook(
     controller's model does NOT know. ``t_wrap_init_abs`` seeds the
     planned wrap moment (absolute [s]): open-loop executes it verbatim;
     MPC (with cc.opt_wrap) treats it as the incumbent plan and re-times
-    it each replan until executed.
+    it each replan until executed. ``u_incumbent`` (+ its grids) is the
+    incumbent SCHEDULE: the first replan warm-starts from it instead of
+    a flat 0.5, so absent disturbances MPC refines the assessed plan
+    rather than re-deriving one (principle-of-optimality fidelity up to
+    optimizer convergence and knot re-gridding).
 
     Returns
     -------
@@ -205,7 +211,11 @@ def run_cook(
     state = CookState.fresh(t0_meat=281.15)
     traj = {k: [] for k in ("t", "tpit", "tcore", "tsurf", "u")}
     n_seg = round(t_f / dt_replan)
-    u_prev_plan, _prev_grids = None, None
+    # incumbent plan (if given) is "a plan made at t = 0": the standard
+    # shift-and-interpolate warm start then applies from the first replan
+    u_prev_plan = None if u_incumbent is None else np.asarray(u_incumbent)
+    _prev_grids = u_incumbent_grids
+    prev_plan_t0 = 0.0
     # Texas-crutch state machine (active when cc.opt_wrap): each replan
     # re-times the wrap over the remaining horizon; once a plant segment
     # executes past the planned moment the cook IS wrapped and the
@@ -224,7 +234,7 @@ def run_cook(
                 # shift-and-interpolate the previous plan onto the new
                 # remaining-horizon knots (standard MPC warm start): each
                 # replan refines the last instead of restarting.
-                prev_t = _prev_grids.u_tknots + (state.t - dt_replan)
+                prev_t = _prev_grids.u_tknots + prev_plan_t0
                 n_u_new = max(2, round(t_remaining / (0.75 * HR)))
                 new_t = state.t + np.linspace(0, t_remaining, n_u_new)
                 u_init = np.clip(np.interp(new_t, prev_t, u_prev_plan), 1e-3, 1 - 1e-3)
@@ -259,6 +269,7 @@ def run_cook(
                 t_wrap_abs = state.t + float(t_wrap_rel)
                 wrap_history.append((state.t, t_wrap_abs))
             u_prev_plan, _prev_grids = u_plan, plan_grids
+            prev_plan_t0 = state.t
             # execute the first dt_replan of the plan
             tt = np.linspace(0, dt_replan, 2)
             u_seg = np.interp(tt, plan_grids.u_tknots, u_plan)

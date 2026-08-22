@@ -101,6 +101,8 @@ def main():
         model_t_amb=T_AMB_BASE,
         cc=cc,
         t_wrap_init_abs=t_wrap_star,
+        u_incumbent=u0_plan,
+        u_incumbent_grids=grids0,
     )
     if wrap_mode and mp.get("wrapped"):
         print(
