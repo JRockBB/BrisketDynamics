@@ -229,8 +229,7 @@ def main():
     axes[0].set_title(
         f"J:  ref {ref['J_executed']['J']:.2f} · OL {ol['J_executed']['J']:.2f}"
         f" · MPC₀ {mp0['J_executed']['J']:.2f}"
-        f" · MPC {mp['J_executed']['J']:.2f}
-"
+        f" · MPC {mp['J_executed']['J']:.2f}\n"
         f"done/juicy:  {ref['doneness']:.2f}/{ref['juiciness']:.2f} · "
         f"{ol['doneness']:.2f}/{ol['juiciness']:.2f} · "
         f"{mp0['doneness']:.2f}/{mp0['juiciness']:.2f} · "
