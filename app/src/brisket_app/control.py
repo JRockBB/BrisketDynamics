@@ -93,6 +93,14 @@ class ControlConfig:
     t_danger_hi: float = 333.15  # 60 C
     danger_cap_h: float = 4.0
     w_dwell: float = 500.0
+    # ambient Kalman filter (MPC state estimation; see mpc.AmbientKF).
+    # R: variance of the segment-end pit innovation — from the CALIBRATED
+    # pit noise (sigma_0 + sigma_pit ~ 1.84 K at the real-cook MAP).
+    # Q: ambient random-walk intensity — weather drifts a few K per hour.
+    # P0: prior variance of the initial ambient belief.
+    amb_r: float = 3.4  # [K^2]
+    amb_q: float = 0.0025  # [K^2 / s]
+    amb_p0: float = 25.0  # [K^2]
     # receding-horizon consistency: fuel is normalized by a FIXED reference
     # load and banked lethality carries across replans, so the remaining-
     # horizon objective sums to the whole-cook objective (a replan that

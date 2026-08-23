@@ -131,6 +131,38 @@ def advance_plant(
 _CLIENTS = None  # set by set_clients()
 
 
+@dataclass
+class AmbientKF:
+    """Scalar Kalman filter for the unmodeled ambient temperature.
+
+    State: T_amb as a random walk (process intensity ``q`` [K^2/s]).
+    Measurement: the segment-end pit temperature; the innovation is
+    measured-minus-predicted, where the prediction is one forward solve of
+    the controller model under the current belief. The measurement
+    sensitivity is the pit's first-order-lag response to a constant
+    ambient offset over the segment,
+
+        H = 1 - exp(-UA * dt / C_th),
+
+    linearized from the model phi each update — no hand-tuned gain: the
+    Kalman gain K = P H / (H^2 P + R) weighs prior confidence against the
+    calibrated pit-noise variance R.
+    """
+
+    x: float  # ambient belief [K]
+    p: float  # belief variance [K^2]
+    q: float  # process intensity [K^2/s]
+    r: float  # measurement variance [K^2]
+
+    def update(self, innovation: float, ua: float, c_th: float, dt: float) -> None:
+        """One predict-correct cycle over an executed segment."""
+        self.p += self.q * dt  # random-walk predict
+        h = 1.0 - np.exp(-ua * dt / c_th)
+        k = self.p * h / (h * h * self.p + self.r)
+        self.x = float(np.clip(self.x + k * innovation, 250.0, 330.0))
+        self.p *= 1.0 - k * h
+
+
 def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
     """Evaluate the quality objective J on an EXECUTED cook.
 
@@ -266,13 +298,23 @@ def run_cook(
     t_wrap_init_abs: float | None = None,
     u_incumbent=None,
     u_incumbent_grids=None,
+    wrap_deadband: float = 0.5 * HR,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
     mode='mpc' replans each dt_replan interval from the advanced plant
     state (full-field handoff); mode='openloop' executes u_openloop
     blindly. plant_t_amb_fn(t) is the ambient-temperature disturbance the
-    controller's model does NOT know. ``t_wrap_init_abs`` seeds the
+    controller's model does NOT know. MPC mode carries an integral
+    ambient Kalman filter (AmbientKF; tuning in ControlConfig): after each
+    executed segment, one forward solve of the controller model predicts
+    the segment-end pit temperature under the current belief, and the
+    filter assimilates the innovation. Open-loop mode is blind by
+    definition — it executes a fixed plan and estimates nothing.
+    ``wrap_deadband`` suppresses wrap-decision drift along the flat
+    J-vs-t_wrap ridge: a replan moves the planned wrap only when it
+    differs from the incumbent plan by more than the dead-band.
+    ``t_wrap_init_abs`` seeds the
     planned wrap moment (absolute [s]): open-loop executes it verbatim;
     MPC (with cc.opt_wrap) treats it as the incumbent plan and re-times
     it each replan until executed. ``u_incumbent`` (+ its grids) is the
@@ -301,6 +343,8 @@ def run_cook(
     # executes past the planned moment the cook IS wrapped and irreversible
     # -- both plant and replans then model the blend CONTINUOUSLY from the
     # true execution moment (t_wrap_exec_abs).
+    kf = AmbientKF(x=float(model_t_amb), p=cc.amb_p0, q=cc.amb_q, r=cc.amb_r)
+    t_amb_hat_hist: list[tuple[float, float, float]] = []  # (t, belief, var)
     t_wrap_abs: float | None = t_wrap_init_abs  # planned wrap, absolute [s]
     wrapped = False
     t_wrap_exec_abs: float | None = None  # when the crutch ACTUALLY fired
@@ -350,22 +394,32 @@ def run_cook(
                 state,
                 t_remaining,
                 cc_seg,
-                model_t_amb,
+                kf.x,
                 u_init=u_init,
                 z_w_init=zw0,
                 z_w_pin=zw_pin,
                 t_wrap_override=tw_override,
             )
             if cc.opt_wrap and not wrapped:
-                t_wrap_abs = state.t + float(t_wrap_rel)
+                cand = state.t + float(t_wrap_rel)
+                # dead-band: J vs t_wrap is a flat ridge in forecast, so
+                # plateau-stopped replans wander it; only adopt a move that
+                # exceeds the dead-band (drift is noise, retiming is signal)
+                if t_wrap_abs is None or abs(cand - t_wrap_abs) > wrap_deadband:
+                    t_wrap_abs = cand
                 wrap_history.append((state.t, t_wrap_abs))
             u_prev_plan, _prev_grids = u_plan, plan_grids
             prev_plan_t0 = state.t
-            # execute the first dt_seg of the plan
-            tt = np.linspace(0, dt_seg, 2)
+            # execute the first dt_seg of the plan, sampled at exchange
+            # resolution — a 2-point interp coarsened every plan into pit
+            # overshoot (reference executed-J 1.162 vs its model-J 1.005,
+            # mostly a surface-cap violation the plan never had)
+            n_exec = max(2, round(dt_seg / 600.0) + 1)
+            tt = np.linspace(0, dt_seg, n_exec)
             u_seg = np.interp(tt, plan_grids.u_tknots, u_plan)
         else:
-            tt = state.t + np.linspace(0, dt_seg, 2)
+            n_exec = max(2, round(dt_seg / 600.0) + 1)
+            tt = state.t + np.linspace(0, dt_seg, n_exec)
             u_seg = np.interp(tt, u_openloop_grids.u_tknots, u_openloop)
 
         t_amb = plant_t_amb_fn(state.t + dt_seg / 2)
@@ -380,9 +434,33 @@ def run_cook(
         else:
             tw_seg = 1.0e9
         t_seg_start = state.t
+        state_before = state
         state, seg_traj = advance_plant(
             state, u_seg, dt_seg, theta, phi_plant, t_amb, t_wrap_seg=tw_seg
         )
+        if mode == "mpc":
+            # one forward solve: what the controller EXPECTED this segment's
+            # pit end to be under its current ambient belief
+            pred_grids = CookGrids(
+                t_end=dt_seg, dt_exchange=min(600.0, dt_seg / 2), n_u=len(u_seg)
+            )
+            pred = coupled_cook(
+                jnp.asarray(theta),
+                jnp.asarray(_with_a0(phi_model, state_before.a0)),
+                jnp.asarray(u_seg),
+                *_CLIENTS,
+                pred_grids,
+                K=2,
+                ics=_ics(state_before, kf.x),
+                t_wrap=tw_seg,
+            )
+            innov = float(seg_traj["tpit"][-1]) - float(np.asarray(pred["tpit"])[-1])
+            # phi = [C_th, UA, ...]: the lag linearization uses the model's
+            # own thermal mass and loss coefficient
+            kf.update(
+                innov, ua=float(phi_model[1]), c_th=float(phi_model[0]), dt=dt_seg
+            )
+            t_amb_hat_hist.append((state.t, kf.x, kf.p))
         if tw_seg < 1.0e8 and not wrapped:
             wrapped = True  # irreversible from here on
         # safety banking with the CONFIGURED constants (hard-coded 60C/6K
@@ -404,7 +482,8 @@ def run_cook(
             f"  [{mode}] t={state.t / HR:4.1f} h  Tpit={state.tpit0 - 273.15:5.1f} C  "
             f"core={seg_traj['tcore'][-1] - 273.15:5.1f} C  "
             f"C={state.c_field0[0]:.3f}  u~{np.mean(u_seg):.2f}  "
-            f"T_amb={t_amb - 273.15:.0f} C"
+            f"T_amb={t_amb - 273.15:.0f} C  "
+            f"T_amb_hat={kf.x - 273.15:.1f}±{np.sqrt(kf.p):.1f} C"
         )
 
     doneness = float(state.c_field0[0])
@@ -433,4 +512,5 @@ def run_cook(
         out["wrapped"] = wrapped
         out["t_wrap_abs"] = t_wrap_abs
         out["wrap_history"] = wrap_history
+    out["t_amb_hat_hist"] = t_amb_hat_hist
     return out

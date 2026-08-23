@@ -227,13 +227,15 @@ def main():
         color="steelblue",
     )
     axes[0].set_title(
-        f"done/juicy/L*:  ref {ref['doneness']:.2f}/{ref['juiciness']:.2f}/"
-        f"{ref['l_star_end']:.0f} · OL {ol['doneness']:.2f}/"
-        f"{ol['juiciness']:.2f}/{ol['l_star_end']:.0f} · MPC "
-        f"{mp['doneness']:.2f}/{mp['juiciness']:.2f}/{mp['l_star_end']:.0f} "
-        f"· J: {ref['J_executed']['J']:.2f}/{ol['J_executed']['J']:.2f}/"
-        f"{mp['J_executed']['J']:.2f}",
-        fontsize=10,
+        f"J:  ref {ref['J_executed']['J']:.2f} · OL {ol['J_executed']['J']:.2f}"
+        f" · MPC₀ {mp0['J_executed']['J']:.2f}"
+        f" · MPC {mp['J_executed']['J']:.2f}
+"
+        f"done/juicy:  {ref['doneness']:.2f}/{ref['juiciness']:.2f} · "
+        f"{ol['doneness']:.2f}/{ol['juiciness']:.2f} · "
+        f"{mp0['doneness']:.2f}/{mp0['juiciness']:.2f} · "
+        f"{mp['doneness']:.2f}/{mp['juiciness']:.2f}",
+        fontsize=9,
     )
     axes[0].set(xlabel="time [h]", ylabel="core [°C]")
     axes[1].set(xlabel="time [h]", ylabel="pit [°C]", title="pit temperature")
