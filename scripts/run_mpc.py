@@ -55,17 +55,26 @@ def main():
     no_dist = lambda t: T_AMB_BASE
     cc = ControlConfig(opt_wrap=True)
 
-    # THE plan under defense: the fullplan optimum, not a fresh derivation
-    best = json.loads(
-        (REPO / "data" / "control" / "fullplan_result_ext.json").read_text()
-    )
-    T_F = best["best_t_f_h"] * HR
-    t_wrap_star = best["best_t_wrap_h"] * HR
-    u0_plan = np.asarray(best["best_u"])
+    # THE plan under defense: the CONVERGED optimum when present (see
+    # run_fullplan_converge.py), else the scan incumbent
+    conv = REPO / "data" / "control" / "fullplan17_converged.json"
+    if conv.exists():
+        b = json.loads(conv.read_text())
+        T_F = b["t_f_h"] * HR
+        t_wrap_star = b["t_wrap_h"] * HR
+        u0_plan = np.asarray(b["u_opt"])
+        print("using CONVERGED incumbent (fullplan17_converged.json)")
+    else:
+        best = json.loads(
+            (REPO / "data" / "control" / "fullplan_result_ext.json").read_text()
+        )
+        T_F = best["best_t_f_h"] * HR
+        t_wrap_star = best["best_t_wrap_h"] * HR
+        u0_plan = np.asarray(best["best_u"])
     grids0 = CookGrids(t_end=T_F, dt_exchange=600.0, n_u=len(u0_plan))
     print(
-        f"plan under defense: {best['best_t_f_h']:.0f} h cook, "
-        f"wrap at {best['best_t_wrap_h']:.2f} h, "
+        f"plan under defense: {T_F / HR:.0f} h cook, "
+        f"wrap at {t_wrap_star / HR:.2f} h, "
         f"u in [{u0_plan.min():.2f}, {u0_plan.max():.2f}]"
     )
 

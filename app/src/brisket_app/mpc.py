@@ -40,6 +40,7 @@ class CookState:
     f_field0: np.ndarray
     bark_b0: float = float("nan")  # NaN = fresh (0)
     bark_s0: float = float("nan")
+    leth_f: float = 0.0  # banked lethality [60C-equivalent s] of executed cook
 
     @classmethod
     def fresh(cls, tpit0=293.15, m0=7.0, a0=1.0, t0_meat=281.15):
@@ -105,6 +106,12 @@ def advance_plant(
         t_wrap=t_wrap_seg,
         **tols,
     )
+    # accumulate banked lethality over this executed segment (constants
+    # mirror ControlConfig leth_t_ref/leth_z)
+    tseg = np.asarray(grids.tknots)
+    leth_seg = float(
+        np.trapezoid(10.0 ** ((np.asarray(sim["tsurf"]) - 333.15) / 6.0), tseg)
+    )
     new = CookState(
         t=state.t + dt,
         tpit0=float(sim["tpit"][-1]),
@@ -116,6 +123,7 @@ def advance_plant(
         f_field0=np.asarray(sim["f_field_final"]),
         bark_b0=float(sim["bark_b"][-1]),
         bark_s0=float(sim["bark_s"][-1]),
+        leth_f=state.leth_f + leth_seg,
     )
     return new, {
         k: np.asarray(sim[k]) for k in ("tpit", "tcore", "tsurf", "m_fuel", "ignited")
@@ -234,6 +242,7 @@ def plan(
         ics=_ics(state, model_t_amb),
         z_w_init=z_w_init,
         z_w_pin=z_w_pin,
+        leth_banked=state.leth_f,
     )
     return u_opt, grids, hist["t_wrap"]
 

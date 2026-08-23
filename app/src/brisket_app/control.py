@@ -93,6 +93,12 @@ class ControlConfig:
     t_danger_hi: float = 333.15  # 60 C
     danger_cap_h: float = 4.0
     w_dwell: float = 500.0
+    # receding-horizon consistency: fuel is normalized by a FIXED reference
+    # load and banked lethality carries across replans, so the remaining-
+    # horizon objective sums to the whole-cook objective (a replan that
+    # re-baselines fuel fractions taxes late burning ever harder and coasts
+    # the cook as an artifact — observed before this fix)
+    m0_ref: float = 7.0  # [kg] PitConfig default load
     # decision variables / optimizer
     opt_wrap: bool = False  # optimize t_wrap jointly with the schedule
     lr: float = 0.05
@@ -117,7 +123,17 @@ def _plateau_stop(losses, cc: ControlConfig) -> bool:
 
 
 def objective(
-    z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig, tols, ics=None
+    z,
+    z_w,
+    theta,
+    phi,
+    meat_tx,
+    pit_tx,
+    grids,
+    cc: ControlConfig,
+    tols,
+    ics=None,
+    leth_banked: float = 0.0,
 ):
     """Scalar quality objective of one simulated cook (lower is better).
 
@@ -143,6 +159,10 @@ def objective(
         Solver tolerances.
     ics : dict, optional
         Initial conditions (receding-horizon replans).
+    leth_banked : float, optional
+        Lethality already accumulated by the executed cook [60C-equivalent
+        seconds]; replans pass it so the safety constraint sees the whole
+        cook, not just the remaining horizon.
 
     Returns
     -------
@@ -184,14 +204,15 @@ def objective(
     # moisture_plan.md; w_retained remains available for the scale story
     taste = smoke_band + cc.w_dry * (1.0 - sim["juiciness"]) ** 2
 
-    # operational terms
+    # operational terms; fuel normalized by the FIXED reference load so
+    # replans price burning identically to the whole-cook objective
     surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)
-    fuel_frac = (sim["m_fuel"][0] - sim["m_fuel"][-1]) / sim["m_fuel"][0]
+    fuel_frac = (sim["m_fuel"][0] - sim["m_fuel"][-1]) / cc.m0_ref
 
     # food safety (unconditional): lethality curve + growth-phase dwell
     Ts = sim["tsurf"]
     t_s = jnp.asarray(grids.tknots)
-    F = jnp.trapezoid(10.0 ** ((Ts - cc.leth_t_ref) / cc.leth_z), t_s)
+    F = leth_banked + jnp.trapezoid(10.0 ** ((Ts - cc.leth_t_ref) / cc.leth_z), t_s)
     leth_pen = (
         cc.w_lethality
         * jax.nn.softplus((jnp.log10(cc.leth_f_req) - jnp.log10(F + 1e-9)) / 0.2) ** 2
@@ -305,6 +326,7 @@ def optimize_schedule(
     ics: dict | None = None,
     z_w_init: float = 0.0,
     z_w_pin: float = 8.0,
+    leth_banked: float = 0.0,
 ):
     """Optimize the damper schedule at fixed (theta, phi) with Adam.
 
@@ -346,7 +368,17 @@ def optimize_schedule(
     val_grad = jax.jit(
         jax.value_and_grad(
             lambda zz, zw, th, ph: objective(
-                zz, zw, th, ph, meat_tx, pit_tx, grids, cc, tols, ics=ics
+                zz,
+                zw,
+                th,
+                ph,
+                meat_tx,
+                pit_tx,
+                grids,
+                cc,
+                tols,
+                ics=ics,
+                leth_banked=leth_banked,
             ),
             argnums=(0, 1, 2, 3),
         )
