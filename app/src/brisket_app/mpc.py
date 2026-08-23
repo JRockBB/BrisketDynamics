@@ -41,6 +41,7 @@ class CookState:
     bark_b0: float = float("nan")  # NaN = fresh (0)
     bark_s0: float = float("nan")
     leth_f: float = 0.0  # banked lethality [60C-equivalent s] of executed cook
+    danger_h: float = 0.0  # banked danger-zone dwell [h] of executed cook
 
     @classmethod
     def fresh(cls, tpit0=293.15, m0=7.0, a0=1.0, t0_meat=281.15):
@@ -106,12 +107,6 @@ def advance_plant(
         t_wrap=t_wrap_seg,
         **tols,
     )
-    # accumulate banked lethality over this executed segment (constants
-    # mirror ControlConfig leth_t_ref/leth_z)
-    tseg = np.asarray(grids.tknots)
-    leth_seg = float(
-        np.trapezoid(10.0 ** ((np.asarray(sim["tsurf"]) - 333.15) / 6.0), tseg)
-    )
     new = CookState(
         t=state.t + dt,
         tpit0=float(sim["tpit"][-1]),
@@ -123,7 +118,10 @@ def advance_plant(
         f_field0=np.asarray(sim["f_field_final"]),
         bark_b0=float(sim["bark_b"][-1]),
         bark_s0=float(sim["bark_s"][-1]),
-        leth_f=state.leth_f + leth_seg,
+        # safety banking (leth_f / danger_h) is applied by run_cook, which
+        # owns the ControlConfig and therefore the correct constants
+        leth_f=state.leth_f,
+        danger_h=state.danger_h,
     )
     return new, {
         k: np.asarray(sim[k]) for k in ("tpit", "tcore", "tsurf", "m_fuel", "ignited")
@@ -137,9 +135,11 @@ def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
     """Evaluate the quality objective J on an EXECUTED cook.
 
     Works from run_cook's trajectories + terminal quality (no re-simulation,
-    so it is exact for the disturbed plant the cook actually experienced).
-    Mirrors control.objective term by term; the smoothness term uses the
-    executed per-segment damper means.
+    so it is exact for the disturbed plant the cook actually experienced) —
+    with ONE approximation: the smoothness term penalizes changes between
+    executed per-segment damper MEANS, whereas the optimizer penalizes
+    differences between schedule knots. All other terms mirror
+    control.objective exactly.
 
     Returns
     -------
@@ -216,6 +216,7 @@ def plan(
     iters=150,
     z_w_init: float = 0.0,
     z_w_pin: float = 8.0,
+    t_wrap_override: float | None = None,
 ):
     """Re-optimize the remaining-horizon plan from the current state.
 
@@ -243,6 +244,8 @@ def plan(
         z_w_init=z_w_init,
         z_w_pin=z_w_pin,
         leth_banked=state.leth_f,
+        danger_banked_h=state.danger_h,
+        t_wrap_override=t_wrap_override,
     )
     return u_opt, grids, hist["t_wrap"]
 
@@ -288,7 +291,6 @@ def run_cook(
     state = CookState.fresh(t0_meat=281.15)
     m0_start = state.m0
     traj = {k: [] for k in ("t", "tpit", "tcore", "tsurf", "u")}
-    n_seg = round(t_f / dt_replan)
     # incumbent plan (if given) is "a plan made at t = 0": the standard
     # shift-and-interpolate warm start then applies from the first replan
     u_prev_plan = None if u_incumbent is None else np.asarray(u_incumbent)
@@ -296,14 +298,18 @@ def run_cook(
     prev_plan_t0 = 0.0
     # Texas-crutch state machine (active when cc.opt_wrap): each replan
     # re-times the wrap over the remaining horizon; once a plant segment
-    # executes past the planned moment the cook IS wrapped and the
-    # decision becomes irreversible -- later replans model s=1 (z_w pinned
-    # at -8) and the plant runs saturated (t_wrap_seg < 0).
+    # executes past the planned moment the cook IS wrapped and irreversible
+    # -- both plant and replans then model the blend CONTINUOUSLY from the
+    # true execution moment (t_wrap_exec_abs).
     t_wrap_abs: float | None = t_wrap_init_abs  # planned wrap, absolute [s]
     wrapped = False
+    t_wrap_exec_abs: float | None = None  # when the crutch ACTUALLY fired
     wrap_history: list[tuple[float, float]] = []  # (replan t, planned abs wrap)
 
-    for _seg in range(n_seg):
+    # final segment shrinks to the remainder, so arbitrary horizons execute
+    # exactly t_f (round(t_f/dt) previously over/under-shot)
+    while state.t < t_f - 1e-6:
+        dt_seg = min(dt_replan, t_f - state.t)
         t_remaining = t_f - state.t
         if mode == "mpc":
             if u_prev_plan is None:
@@ -316,6 +322,7 @@ def run_cook(
                 n_u_new = max(2, round(t_remaining / (0.75 * HR)))
                 new_t = state.t + np.linspace(0, t_remaining, n_u_new)
                 u_init = np.clip(np.interp(new_t, prev_t, u_prev_plan), 1e-3, 1 - 1e-3)
+            tw_override = None
             if cc.opt_wrap and not wrapped:
                 # warm-start z_w from the previous ABSOLUTE plan, mapped to
                 # the new remaining horizon (logit of the horizon fraction)
@@ -327,11 +334,16 @@ def run_cook(
                 cc_seg = cc
                 zw_pin = 8.0
             else:
-                # wrapped (or wrap disabled): plan the schedule only; model
-                # the executed wrap as saturated-on when applicable
+                # wrapped (or wrap disabled): plan the schedule only. An
+                # executed wrap is modeled CONTINUOUSLY: the replan gets the
+                # true (negative) wrap time relative to now, so its blend
+                # state matches the plant exactly (a z_w pin cannot express
+                # a wrap in the past — sigmoid maps to (0, t_end)).
                 cc_seg = replace(cc, opt_wrap=False)
                 zw0 = 0.0
-                zw_pin = -8.0 if wrapped else 8.0
+                zw_pin = 8.0
+                if wrapped:
+                    tw_override = t_wrap_exec_abs - state.t
             u_plan, plan_grids, t_wrap_rel = plan(
                 theta,
                 phi_model,
@@ -342,35 +354,49 @@ def run_cook(
                 u_init=u_init,
                 z_w_init=zw0,
                 z_w_pin=zw_pin,
+                t_wrap_override=tw_override,
             )
             if cc.opt_wrap and not wrapped:
                 t_wrap_abs = state.t + float(t_wrap_rel)
                 wrap_history.append((state.t, t_wrap_abs))
             u_prev_plan, _prev_grids = u_plan, plan_grids
             prev_plan_t0 = state.t
-            # execute the first dt_replan of the plan
-            tt = np.linspace(0, dt_replan, 2)
+            # execute the first dt_seg of the plan
+            tt = np.linspace(0, dt_seg, 2)
             u_seg = np.interp(tt, plan_grids.u_tknots, u_plan)
         else:
-            tt = state.t + np.linspace(0, dt_replan, 2)
+            tt = state.t + np.linspace(0, dt_seg, 2)
             u_seg = np.interp(tt, u_openloop_grids.u_tknots, u_openloop)
 
-        t_amb = plant_t_amb_fn(state.t + dt_replan / 2)
+        t_amb = plant_t_amb_fn(state.t + dt_seg / 2)
         if wrapped:
-            tw_seg = -6.0 * 600.0  # arrived wrapped: blend saturated on
-        elif t_wrap_abs is not None and t_wrap_abs < state.t + dt_replan:
+            # blend continues from the TRUE wrap moment (negative relative
+            # time), bitwise-continuous across segment boundaries — a fixed
+            # saturated constant would jump a partial blend at the joint
+            tw_seg = t_wrap_exec_abs - state.t
+        elif t_wrap_abs is not None and t_wrap_abs < state.t + dt_seg:
             tw_seg = max(0.0, t_wrap_abs - state.t)  # crutch executes NOW
+            t_wrap_exec_abs = state.t + tw_seg
         else:
             tw_seg = 1.0e9
+        t_seg_start = state.t
         state, seg_traj = advance_plant(
-            state, u_seg, dt_replan, theta, phi_plant, t_amb, t_wrap_seg=tw_seg
+            state, u_seg, dt_seg, theta, phi_plant, t_amb, t_wrap_seg=tw_seg
         )
         if tw_seg < 1.0e8 and not wrapped:
             wrapped = True  # irreversible from here on
+        # safety banking with the CONFIGURED constants (hard-coded 60C/6K
+        # here would silently disagree with a customized ControlConfig)
         nseg_t = len(seg_traj["tpit"])
-        traj["t"].extend(
-            (state.t - dt_replan + np.linspace(0, dt_replan, nseg_t)).tolist()
+        tseg = np.linspace(0.0, dt_seg, nseg_t)
+        ts_seg = np.asarray(seg_traj["tsurf"])
+        state.leth_f += float(
+            np.trapezoid(10.0 ** ((ts_seg - cc.leth_t_ref) / cc.leth_z), tseg)
         )
+        in_zone = 1.0 / (1.0 + np.exp(-(ts_seg - cc.t_danger_lo) / 2.0))
+        in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - ts_seg) / 2.0))
+        state.danger_h += float(np.trapezoid(in_zone, tseg / 3600.0))
+        traj["t"].extend((t_seg_start + np.linspace(0, dt_seg, nseg_t)).tolist())
         for k in ("tpit", "tcore", "tsurf"):
             traj[k].extend(seg_traj[k].tolist())
         traj["u"].extend([float(np.mean(u_seg))] * nseg_t)
@@ -395,6 +421,7 @@ def run_cook(
     s_end = 0.0 if np.isnan(state.bark_s0) else float(state.bark_s0)
     l_star = L0_BARK - DL_B * b_end - DL_S * s_end
     out = {k: np.asarray(v) for k, v in traj.items()} | {
+        "final_state": state,
         "doneness": doneness,
         "juiciness": juiciness,
         "fat_rendered": fat_rendered,

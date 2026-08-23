@@ -134,6 +134,8 @@ def objective(
     tols,
     ics=None,
     leth_banked: float = 0.0,
+    danger_banked_h: float = 0.0,
+    t_wrap_override: float | None = None,
 ):
     """Scalar quality objective of one simulated cook (lower is better).
 
@@ -163,6 +165,16 @@ def objective(
         Lethality already accumulated by the executed cook [60C-equivalent
         seconds]; replans pass it so the safety constraint sees the whole
         cook, not just the remaining horizon.
+    danger_banked_h : float, optional
+        Danger-zone dwell already spent by the executed cook [h]; same
+        whole-cook accounting as leth_banked (the 4 h cap is cumulative,
+        not per-replan).
+    t_wrap_override : float, optional
+        Bypass the z_w mapping with an explicit wrap time [s], possibly
+        negative (wrap in the past). Used by post-wrap MPC replans: the
+        sigmoid map cannot represent an already-executed wrap, and pinning
+        z_w merely puts the wrap shortly after segment start (a half-open
+        blend for ~δ_wrap), not saturated-on.
 
     Returns
     -------
@@ -171,8 +183,14 @@ def objective(
     """
     u = jax.nn.sigmoid(z)
     # bounded wrap time: t_end * sigmoid(z_w) in (0, t_end); wrapping at
-    # ~t_end is physically a no-wrap, so that corner stays reachable
-    t_wrap = grids.t_end * jax.nn.sigmoid(z_w)
+    # ~t_end is physically a no-wrap, so that corner stays reachable.
+    # t_wrap_override (possibly negative = already wrapped) bypasses the
+    # map for post-wrap replans.
+    t_wrap = (
+        t_wrap_override
+        if t_wrap_override is not None
+        else grids.t_end * jax.nn.sigmoid(z_w)
+    )
     sim = coupled_cook(
         theta, phi, u, meat_tx, pit_tx, grids, K=2, ics=ics, t_wrap=t_wrap, **tols
     )
@@ -220,7 +238,7 @@ def objective(
     in_zone = jax.nn.sigmoid((Ts - cc.t_danger_lo) / 2.0) * jax.nn.sigmoid(
         (cc.t_danger_hi - Ts) / 2.0
     )
-    danger_h = jnp.trapezoid(in_zone, t_s / 3600.0)
+    danger_h = danger_banked_h + jnp.trapezoid(in_zone, t_s / 3600.0)
     dwell_pen = cc.w_dwell * jax.nn.softplus((danger_h - cc.danger_cap_h) / 0.5) ** 2
 
     return (
@@ -327,6 +345,8 @@ def optimize_schedule(
     z_w_init: float = 0.0,
     z_w_pin: float = 8.0,
     leth_banked: float = 0.0,
+    danger_banked_h: float = 0.0,
+    t_wrap_override: float | None = None,
 ):
     """Optimize the damper schedule at fixed (theta, phi) with Adam.
 
@@ -379,6 +399,8 @@ def optimize_schedule(
                 tols,
                 ics=ics,
                 leth_banked=leth_banked,
+                danger_banked_h=danger_banked_h,
+                t_wrap_override=t_wrap_override,
             ),
             argnums=(0, 1, 2, 3),
         )
