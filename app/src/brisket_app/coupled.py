@@ -32,10 +32,11 @@ class CookGrids:
 
     def __post_init__(self):
         """Materialize the derived exchange and damper-knot grids."""
+        n = max(2, int(round(self.t_end / self.dt_exchange)) + 1)
         object.__setattr__(
             self,
             "tknots",
-            np.arange(0.0, self.t_end + self.dt_exchange / 2, self.dt_exchange),
+            np.linspace(0.0, self.t_end, n),
         )
         object.__setattr__(self, "u_tknots", np.linspace(0.0, self.t_end, self.n_u))
 
@@ -177,3 +178,16 @@ THETA_DEFAULT = np.array(
 # C_th, UA, r_max, dH_eff, u_leak, k_spread, a0 — a0=1 makes the ignition
 # dynamics inert (exactly the pre-ignition-state model)
 PHI_DEFAULT = np.array([15e3, 20.0, 3e-4, 1.2e7, 0.2, 3e-4, 1.0])
+
+PICARD_WARN_K = 2.0
+
+
+def check_picard(sim, log=print, threshold: float = PICARD_WARN_K):
+    """Log the K-pass residual; warn when coupling truncation exceeds `threshold`."""
+    d = float(np.asarray(sim.get("picard_dT", np.nan)))
+    msg = f"Picard residual max|dT_pit| = {d:.3f} K"
+    if np.isfinite(d) and d > threshold:
+        log(f"WARNING: {msg} exceeds {threshold} K (K=2 coupling not converged)")
+    else:
+        log(msg)
+    return d

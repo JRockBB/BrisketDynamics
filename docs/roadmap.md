@@ -1,97 +1,45 @@
 # Roadmap
 
-Two horizons: what ships for the Tesseract Hackathon (due Aug 31, 2026 AoE),
-and where the project goes as a long-lived "computational pitmastery" tool.
-Within each list, items are in priority order; hackathon items also carry the
-dependency ordering that matters.
+What is left. Hackathon due Aug 31, 2026 AoE; everything else is
+post-hackathon. Equations of what already exists: `docs/model.md`.
+Gaps: `docs/model_gaps.md`.
 
-## Hackathon (by priority; ⚑ = ordering constraint)
+## Hackathon
 
-1. ✅ **Fuel-bed ignition state** (`937e6b0`) — third pit state (airflow-assisted
-   logistic ignition spread), a0=1 provably inert for synthetic
-   back-compat; k_spread/a0 sampled for the real cook. Julia 34/34,
-   composed gate 15/15.
-2. ✅ **Juiciness output** — retained moisture at pull as a differentiable
-   output (`w_retained`) + optional control-objective term (`w_juicy`;
-   field since absorbed into the KCBS default objective as `w_dry` over
-   mechanistic juiciness).
-   Julia 36/36, app suite 18/18; docs/diagram/README updated.
-3. ✅ **Re-run MAP-real** — warm-started 600-step refinement: loss 551 → 516,
-   σ_pit 2.6 → 2.1, σ_core 1.4 → 0.88 (at the digitization floor); early-cook
-   overshoot resolved; a0 = 0.73, k_spread ≈ 4e-4 (physical). Cold-start
-   lesson: 12-latent SVI needs the warm start (`run_map_real.py --init`).
-4. ✅ **NUTS on the real cook** — 300+300 over all 12 latents, 34 h
-   wall-clock, checkpointed through every power loss. Predictive band holds
-   both 19-h traces; meat side pinned (D_eff ±13%, k_m/L ±3%), pit side
-   identified only along two ridges (UA∝ΔH_eff, r_max vs u_leak) — the
-   closed-loop identifiability limit, quantified. ESS 4–17, split-r̂ ≤ 2.6
-   quoted as-is; extendable from checkpoint (multi-chain in stretch).
-5. ✅ **MPC re-planning demo** — hourly receding-horizon re-planning with
-   full-field state handoff through the Tesseracts; a −15 K cold front the
-   controller's model does not know is absorbed: doneness 0.92 (MPC) vs 0.68
-   (open-loop), target 0.90. Emergent insurance: the asymmetric deadline
-   objective front-loads heat before the unforeseen disturbance, and the
-   cook "finishes early and lets go" — pull-when-done behavior arising from
-   the asymmetry. figures/mpc_demo.png.
-6. ✅ **In-container `checkgradients` sweep** (`58ea01b`) — 523 checks over
-   every trajectory input inside the shipped containers, zero real
-   mismatches; all 264 tool-flagged failures classified as benign FD
-   artifacts at measure-zero kink/onset elements, with an eps-dependence
-   experiment proving the adjoint right (`analyze_failures.py`, logs in
-   `data/verification/`). Writeup's last TODO flipped.
-7. **Repo public + push + CI green** — user creates the GitHub repo; fix
-   remote, push all commits, shepherd the first CI runs.
-   ⚑ Blocks submission; user-owned start.
-8. **Submission mechanics** — drafts written (`docs/submission.md`: form
-   text, LinkedIn post, forum showcase — two placeholders: NUTS-real
-   sentence + repo URL confirm). Remaining: final writeup pass, actual
-   posting. User-owned: hackathon registration (required for prize
-   eligibility).
-9. *Stretch, only if 1–8 are done — in this order:*
-   1. ✅ **Cook time as a decision variable** — implemented as the
-      outer-scan planner (`timeplan.py`, `figures/timeplan.png`): the
-      pre-color quality objective found 9 h hot-and-fast, superseded by
-      the bark-complete full composition (17 h; with final moisture
-      physics the plan wraps at 3.5 h, `figures/fullplan.png`), and the chance layer's honest refusal —
-      P(done) = 0 on all durations, 84 °C pit disagreement between MAP and
-      posterior under the same damper — demonstrates the closed-loop
-      identifiability limit in decision space. Differentiable-duration
-      (s = t/t_f) still open. Original formulation: the perfect brisket defines
-      its own time: duration is chosen by *pure cook quality* (target
-      doneness, bark constraint, maximum retained moisture), with no
-      external costs bending it. The serving deadline never changes the
-      cook; it positions the *start*: light the fire (planned duration)
-      before serving, where planned ≥ quality-optimal duration is the
-      shortest with P(serveably done) ≥ 95% under the posterior — the
-      safety margin is one-sided because finishing early is nearly free
-      (the resting hold exists for this). Mid-cook this reduces to
-      pull-when-done (elapsed time is sunk; the live time-decision is the
-      pull), whose t_done = differentiable crossing of the doneness
-      target. Fixes the fixed-horizon formulation error exposed by the MPC
-      demo (a losing cook should extend, not surrender). Cheap first
-      implementation: outer scan over candidate durations with inner
-      schedule optimization; differentiable duration via s = t/t_f
-      time-scaling later.
+1. **Current-model real-cook NUTS** — `uv run python ../scripts/run_nuts.py --real`
+   (checkpointed; 300 warmup + 300 samples, kernel-level `HMCState` pickle
+   every 5 steps). Fill `figures/corner_real.png` and
+   `figures/posterior_predictive_real.png`. Quote ESS, split-r̂, divergences
+   as-is. The identifiability claim to check: meat side pinned, pit side
+   only along ridges (UA ∝ ΔH_eff, r_max vs u_leak).
+2. **Submission** — post the form / LinkedIn / forum drafts in
+   `docs/submission.md`. User-owned: hackathon registration
+   (tally.so/r/kdx2ej, required for prize eligibility).
+3. *Stretch, only if 1–2 are done — in this order:*
+   1. **Differentiable duration** via \(s = t/t_f\) time-scaling. The
+      outer-scan planner (`timeplan.py`, `fullplan.py`) already chooses
+      duration by cook quality. Remaining: duration as a differentiable
+      decision jointly with the schedule. Formulation: the perfect brisket
+      defines its own time — duration by *pure cook quality* (target
+      doneness, bark, juiciness), no external costs bending it. The serving
+      deadline never changes the cook; it positions the *start*: light the
+      fire (planned duration) before serving, where planned ≥ quality-optimal
+      duration is the shortest with an empirical done-fraction over N
+      posterior draws. The safety margin is one-sided because finishing
+      early is nearly free (the resting hold exists for this). Mid-cook this
+      reduces to pull-when-done (elapsed time is sunk; the live
+      time-decision is the pull), whose t_done = differentiable crossing of
+      the doneness target. A losing cook should extend, not surrender.
    2. **Multi-chain NUTS-real** — 2–3 short chains from dispersed inits
       (separate processes); real split-r̂ across chains and a test of
       whether the pit-ridge mass location is reproducible.
-   3. ✅ **Differentiable wrap-time** — smooth Texas-crutch blend on the
-      surface BC (evaporation suppression + emissivity/convection changes,
-      foil constants in MeatConfig), t_wrap as the first differentiable
-      SCALAR Tesseract input, jointly optimized with the schedule against a
-      bark proxy (∫ j_evap dt shortfall penalty). Demo (`run_wraptime.py`,
-      `figures/wraptime.png`): era result — optimal wrap at 6.0 h,
-      doneness 0.82 → 0.96 (pre-moisture physics; under the final model
-      the 10 h demo wraps at 7.1 h and the 17 h optimal cook at 3.5 h).
-      dt_wrap adjoint matches FD to 5.5e-6; the adjoint took the new
-      physics without a fallback, twice.
-   4. **Extend synthetic NUTS chain** for better ESS (currently 7–82) from
+   3. **Extend synthetic NUTS chain** for better ESS (currently 7–82) from
       its checkpoint.
-   5. **≤5-min demo video.**
+   4. **≤5-min demo video.**
 
-Explicitly out of scope for the hackathon (identifiability-first ethos):
-CFD smoke, 2D/3D meat, humidity dynamics without an RH/wet-bulb sensor,
-bark chemistry without calibration data.
+Out of scope for the hackathon (identifiability-first ethos): CFD smoke,
+2D/3D meat, humidity dynamics without an RH/wet-bulb sensor, bark chemistry
+without calibration data.
 
 ## Post-hackathon (by priority)
 
@@ -99,13 +47,11 @@ bark chemistry without calibration data.
    receding-horizon re-planner; integrate with HeaterMeter (open-source fan
    controller — our planner can sit above its PID as the planning layer).
    The library stops advising and starts piloting. Includes
-   **MPC-with-wrap**: closed-loop replanning of the wrap moment (under
-   final moisture physics the crutch is IN the leisure-optimal plan at
-   3.5 h/17 h — the closed-loop question becomes re-timing it under
-   disturbances, plus irreversibility once executed). Prerequisites: fix the meat
-   VJP field-IC gap (documented at `_meat_vjp`) and bark-state continuity
-   across the receding-horizon handoff; wrap irreversibility (t_wrap
-   frozen once executed).
+   **MPC-with-wrap**: closed-loop replanning of the wrap moment (the crutch
+   is in the leisure-optimal plan at 3.5 h / 17 h — the closed-loop question
+   is re-timing it under disturbances, plus irreversibility once executed).
+   Remaining: wrap irreversibility (`t_wrap` frozen once executed) and
+   pointing the re-planner at a real pit.
 2. **Discrete adjoint via Enzyme-through-the-stepper: kill the backward
    pass properly.** Measured 2026-08-21: the meat VJP costs ~1.9 s base
    + 66 ms per cotangent save point (~9 s at 49 points, ~80% of gradient
@@ -126,18 +72,17 @@ bark chemistry without calibration data.
    adaptive reference, and a full re-run of the gradient-verification
    doctrine. Week-class; the single highest-leverage performance item
    on this list. Composes with the monolith item below (one stepper,
-   one discrete adjoint for the whole 165-state coupled system).
-   Measured dead end (2026-08-22, prototyped before the theta-7 NUTS
-   rerun): routing through the direct `adjoint_sensitivities` API is
-   NOT a shortcut — its infrastructure overhead (26.2 s FBDF-backward
-   vs the rrule path's 11.2 s on the 19 h fixture) swamps the genuine
-   one-step-backward win (KenCarp47 backward: 17.6 s, confirming
-   restarts cost ~1.5x). The production Zygote-rrule path is the
-   fastest continuous-adjoint configuration for this model; only the
-   full discrete adjoint beats it.
+   one discrete adjoint for the whole coupled system).
+   Measured dead end (2026-08-22): routing through the direct
+   `adjoint_sensitivities` API is NOT a shortcut — its infrastructure
+   overhead (26.2 s FBDF-backward vs the rrule path's 11.2 s on the 19 h
+   fixture) swamps the genuine one-step-backward win (KenCarp47 backward:
+   17.6 s, confirming restarts cost ~1.5x). The production Zygote-rrule
+   path is the fastest continuous-adjoint configuration for this model;
+   only the full discrete adjoint beats it.
 3. **Monolith / Dyad exploration: move the Tesseract boundary to the
    edge.** The K=2 Picard split exists only because the pit/meat boundary
-   bisects the physics; a monolithic Julia core (one ~123-state DAE, one
+   bisects the physics; a monolithic Julia core (one coupled DAE, one
    adjoint, Turing/AdvancedHMC calibration, MCMCThreads parallel chains)
    is worth ~2x per gradient, trivial multi-chain, and retires the
    juliacall threading zoo entirely. Two candidate shapes to prototype
@@ -180,14 +125,13 @@ bark chemistry without calibration data.
    cook tightens the twin. Designed experiment worth running early: water
    pan in vs. out, two otherwise-identical cooks, to identify the humidity
    pathway.
-6. **Wrap-constant calibration.** The wrap physics + differentiable
-   wrap-time landed during the hackathon (stretch item 3); what remains is
-   calibrating η_evap/ε_wrap against a wrapped cook log — posts document
-   the wrap moment, making the wrap event a known-input step-response
-   experiment — via the two-cook joint fit (pooling, above). Log
-   acquisition is user-owned, like the 2013 log. A state-triggered wrap
-   ("wrap at 165 °F internal") needs event sensitivities — natural in the
-   Dyad/monolith exploration where events are first-class.
+6. **Wrap-constant calibration.** Calibrate η_evap / ε_wrap against a
+   wrapped cook log — posts document the wrap moment, making the wrap event
+   a known-input step-response experiment — via the two-cook joint fit
+   (pooling, above). Log acquisition is user-owned, like the 2013 log. A
+   state-triggered wrap ("wrap at 165 °F internal") needs event
+   sensitivities — natural in the Dyad/monolith exploration where events
+   are first-class.
 7. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
    diffusion (D_salt ~1e-10 m²/s, well-pinned in the ham-curing literature —
    take it as a constant, don't calibrate): an isothermal fridge-temperature
@@ -201,43 +145,39 @@ bark chemistry without calibration data.
    "when to light the fire" and joins the same chance-constrained planning
    problem; d(juiciness)/d(t_salt) flows through the pre-cook horizon for
    free. Identifiability discipline: temperature logs are nearly blind to
-   salt, so this ships only with the *scale* (item 2) and a designed
+   salt, so this ships only with the *scale* (item 4) and a designed
    experiment — identical cuts salted at −24 h / −1 h / unsalted, weighed
    before and after; mass loss vs salting time is the curve the WHC
    coupling fits. Non-salt rub effects (sugar browning, emissivity, surface
    mass transfer) belong to the bark item below, not here.
-8. **Bark model calibration.** The mechanistic bark model LANDED during
-   the hackathon (branch `bark-model`, merged: Maillard + smoke-deposition
-   states, smoke flux = pit burn rate, full composition demo). Remaining:
-   calibrate against standardized-photo colorimetry (hourly lid-open photos
-   + color card; wrapped/unwrapped pair separates ΔL_S from ΔL_B — plan in
-   `docs/bark_plan.md`), replace the one-sided paleness penalty with a
-   two-sided mahogany band (the softplus tail currently encodes
-   darker-is-better — DONE for the objective via judge mode's two-sided
-   mahogany band), and optionally penetration-force texture. Add **smoke
-   quality** (the "thin blue smoke" variable): clean vs smoldering
-   combustion changes deposition chemistry at the same mass — plausibly a
-   differentiable function of airflow/burn state, making bitterness a
-   controllable output. To our knowledge unpublished territory.
+8. **Bark model calibration.** Calibrate against standardized-photo
+   colorimetry (hourly lid-open photos + color card; wrapped/unwrapped pair
+   separates ΔL_S from ΔL_B — plan in `docs/bark_plan.md`). Optionally
+   penetration-force texture. Add **smoke quality** (the "thin blue smoke"
+   variable): clean vs smoldering combustion changes deposition chemistry at
+   the same mass — plausibly a differentiable function of airflow/burn
+   state, making bitterness a controllable output. To our knowledge
+   unpublished territory. (The two-sided mahogany band is already in the
+   objective.)
 9. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
    center-line correction (~3× cost, differentiable, cheap taste of 3D);
    full 2D axisymmetric surface model *only* once thermal-camera surface
    fields exist to calibrate it (also feeds bark distribution / burnt ends).
    Sensors first, dimensions second.
 10. **Community/product shape.** Publish as a usable open-source stack
-   (calibrate-from-your-log CLI, schedule/MPC frontend); write up the bark
-   and pooling work properly if the data supports it.
+    (calibrate-from-your-log CLI, schedule/MPC frontend); write up the bark
+    and pooling work properly if the data supports it.
 11. **Generalize across meats and cookers.** The architecture already is the
-   generalization — heat source ⇄ meat through (T_source, q_load), i.e. swap
-   one Tesseract, keep the other. The model family is small: geometry mode
-   (slab/cylinder/sphere — one curvature term), surface-BC mode (evaporative
-   / skin-barrier for poultry / saturated-steam / wrapped), source model
-   (charcoal / pellet-auger / two-zone offset / rock reservoir / electric),
-   and doneness kinetics (collagen, myosin, pasteurization — all Arrhenius).
-   Notable cases: pulled pork ≈ free transfer (geometry switch); ribs make
-   wrap physics mandatory; a combi oven identifies meat parameters under
-   controlled T+RH for transfer to any smoker; sous vide validates against
-   Baldwin's tables; and the sealed earth pit (pibil/imu) is the jewel —
-   saturated steam kills the stall entirely, the source is an uncontrolled
-   thermal discharge, and "control" becomes design (rock mass, seal time) in
-   an uninstrumented cooking tradition.
+    generalization — heat source ⇄ meat through (T_source, q_load), i.e. swap
+    one Tesseract, keep the other. The model family is small: geometry mode
+    (slab/cylinder/sphere — one curvature term), surface-BC mode (evaporative
+    / skin-barrier for poultry / saturated-steam / wrapped), source model
+    (charcoal / pellet-auger / two-zone offset / rock reservoir / electric),
+    and doneness kinetics (collagen, myosin, pasteurization — all Arrhenius).
+    Notable cases: pulled pork ≈ free transfer (geometry switch); ribs make
+    wrap physics mandatory; a combi oven identifies meat parameters under
+    controlled T+RH for transfer to any smoker; sous vide validates against
+    Baldwin's tables; and the sealed earth pit (pibil/imu) is the jewel —
+    saturated steam kills the stall entirely, the source is an uncontrolled
+    thermal discharge, and "control" becomes design (rock mass, seal time) in
+    an uninstrumented cooking tradition.

@@ -22,8 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.control import ControlConfig
-from brisket_app.coupled import HR, coupled_cook
+from brisket_app.control import ControlConfig, safety_report
+from brisket_app.coupled import HR, check_picard, coupled_cook
 from brisket_app.timeplan import optimal_duration, plan_duration
 
 REPO = Path(__file__).resolve().parents[1]
@@ -126,6 +126,13 @@ def main():
         t_wrap=best["t_wrap_h"] * HR,
     )
     sim = {k: np.asarray(v) for k, v in sim.items()}
+    check_picard(sim)
+    sr = safety_report(sim["tsurf"], best["grids"].tknots, CC)
+    print(
+        f"safety (surface, intact-muscle assumption): "
+        f"F={sr['F_s']:.1f}s (ok={sr['lethality_ok']})  "
+        f"dwell={sr['danger_h']:.2f}h (ok={sr['dwell_ok']})"
+    )
     th = np.asarray(best["grids"].tknots) / HR
 
     import matplotlib

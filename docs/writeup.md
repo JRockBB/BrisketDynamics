@@ -9,14 +9,14 @@ heat conduction and moisture transport with surface evaporation — produce the
 famous **stall**: a multi-hour plateau in internal temperature caused by
 evaporative cooling. We built both solvers in Julia, composed them through
 Tesseract into a single end-to-end differentiable function under JAX, and used
-the gradients seven ways: MAP and full NUTS Bayesian calibration (synthetic
+the gradients seven ways: MAP and NUTS Bayesian calibration (synthetic
 recovery study **and** a real 19-hour cook log), damper-schedule optimization,
 schedule optimization *in expectation over the posterior*, receding-horizon
-MPC with disturbance rejection, cook-time planning — duration chosen by cook
-quality, start time interrogated against the posterior — and a mechanistic
-**bark model** (Maillard + smoke deposition) whose color gradients flow
-through both components and complete the quality objective. This document follows the six judging criteria in
-order.
+MPC with full-field state handoff, cook-time planning —
+duration chosen by cook quality, start time interrogated against the
+posterior — and a mechanistic **bark model** (Maillard + smoke deposition)
+whose color gradients flow through both components and complete the quality
+objective. This document follows the six judging criteria in order.
 
 ## 1. Composition across a real boundary
 
@@ -57,7 +57,7 @@ $$
 j_{evap} \;=\; k_m \,\underbrace{\sigma\!\Big(\tfrac{W_s - W_{crit}}{\delta_W}\Big)}_{\text{availability}}\,
 \frac{\operatorname{softplus}_{\delta_p}\!\big(p_{sat}(T_s) - p_{pit}\big)}{R_v\, T_s},
 \qquad
--k\,\partial_x T\big|_{s} \;=\; h_c\,(T_{pit}-T_s) + \varepsilon\sigma_{SB}\,(T_{pit}^4-T_s^4) - \lambda_{vap}\, j_{evap},
+k\,\partial_x T\big|_{s} \;=\; h_c\,(T_{pit}-T_s) + \varepsilon\sigma_{SB}\,(T_{pit}^4-T_s^4) - \lambda_{vap}\, j_{evap},
 $$
 
 so the plateau emerges (and breaks) smoothly: no branch ever enters the
@@ -73,16 +73,13 @@ over non-lid-event observations (likewise for the core probe).
 A three-level gradient verification gate backs this: Julia adjoints vs central
 finite differences (rel. err ≤1e-3, most components ≤1e-5), per-endpoint
 `tesseract-runtime check-gradients`, and a composed FD check of
-`jax.grad(loss ∘ coupled_cook)` — the composed gate covers every input
-class (all 7 meat latents incl. the expulsion kinetics, all 7 pit
-parameters incl. the ignition dynamics, damper directions, the wrap time,
-and the damper→burn-rate→smoke→bark-color chain through both components);
-the Julia-level suite runs 92 tests incl. 33 adjoint-vs-FD checks, the
-app suite 21
-(`docs/verification.md` documents the methodology, including why the
-compiled-ReverseDiff-tape variant is *silently wrong* for time-interpolated
-forcings, and the FD conditioning required to verify a parameter that spans
-twelve orders of magnitude).
+`jax.grad(loss ∘ coupled_cook)`. Meat adjoints cover all seven θ latents
+(including expulsion \(k_e\), \(a_{\mathrm{myosin}}\)) and a mid-cook
+nonuniform-IC VJP; the composed Python gate covers the five
+transport/thermal meat latents, all seven pit parameters, damper
+directions, wrap time, and the damper→burn-rate→smoke→bark-color chain.
+Methodology, including why a compiled ReverseDiff tape is *silently wrong*
+for time-interpolated forcings, is in `docs/verification.md`.
 
 To our knowledge — based on a survey of the pasteurlabs `mosaic` suite, the
 official examples, and the si-tesseract forum — no public example existed of a
@@ -96,9 +93,9 @@ is solvable component-by-component because the observable (core temperature,
 doneness) depends on the two-way coupling.
 
 **Bayesian calibration, synthetic recovery** (`figures/corner.png`,
-`figures/posterior_predictive.png`): 10 physical latents + 2 noise scales,
-literature-centered priors. MAP (300 SVI steps, 5.4 min) recovers 7/10
-parameters within 10%. Full NUTS (300+300, initialized at MAP): every true
+`figures/posterior_predictive.png`): 7 meat + pit latents + 2 noise scales,
+literature-centered priors. MAP (300 SVI steps) recovers most parameters
+within 10%. Full NUTS (300+300, initialized at MAP): every true
 parameter inside the posterior, and the geometry is the physics — the
 **k_m–h_c ridge** *is* the stall's evaporative-cooling/convective-heating
 trade-off; D_eff stays broad ("the stall informs but does not pin moisture
@@ -115,22 +112,20 @@ tracks the 19-hour pit hold within ~3 °C and reproduces the core's full arc —
 rise, multi-hour plateau at ~70 °C, **stall break at ~14 h**, climb to 90 °C.
 The poster described his door as leaky; the calibration puts the leak
 parameter at u_leak = 0.22, and the Minion-start ignition state lands at
-a0 = 0.86 with an hours-scale spread constant — both physical. The fit is
-under the FINAL physics, calibrating the expulsion kinetics jointly with
-the transport/thermal latents (θ grew 5 → 7 when frozen literature
-expulsion constants left a 2x loss floor — the stall entry carries
-water-holding information a thermometer can see). Honest residuals:
-σ_core = 1.30 K against a ±0.8 K digitization floor — the constrained
-moisture physics fits the temperature record *worse* than the old
-water-blind model did (245 → 470 in loss), and we keep it anyway: the old
-model bought its fit with an invisible, wrong water budget, while this
-one is accountable to a kitchen scale. Plus the standing ±3 °C pit wobble
+a0 = 0.86 with an hours-scale spread constant — both physical. Expulsion
+kinetics (\(k_e\), \(a_{\mathrm{myosin}}\)) are calibrated jointly with the
+transport/thermal latents — the stall entry carries water-holding
+information a thermometer can see. Honest residuals:
+σ_core = 1.30 K against a ±0.8 K digitization floor. A temperature-only
+fit that ignores the water budget can score better on the probes while
+hiding an unphysical moisture state; this model stays accountable to a
+kitchen scale. Plus the standing ±3 °C pit wobble
 at sub-hour timescales (see Limitations).
 
 **The real-cook posterior** (`figures/corner_real.png`,
-`figures/posterior_predictive_real.png`): full NUTS over all 12 physical
-latents + 2 noise scales — 300 warmup + 300 samples, 34 h wall-clock on two
-throttled laptop threads, kernel-checkpointed through the power losses. The
+`figures/posterior_predictive_real.png`):
+NUTS over the physical latents plus 2 noise scales — 300 warmup + 300
+samples, kernel-checkpointed through the power losses. The
 posterior-predictive band holds the entire 19-hour pit trace and the core's
 rise–stall–break arc. Parameter space quantifies the identifiability story
 told in Limitations: the meat side is pinned (D_eff to ±13%, k_m and L to
@@ -153,10 +148,7 @@ exactly (per-chain correlations +0.98 to +0.998 on UA–ΔH_eff, −0.98 to
 parameter: independent chains agree on the identified *combinations* and
 park at different positions *along* them. That pair of facts — ridges
 reproduce, positions don't — is the cleanest statement of the closed-loop
-identifiability limit this data permits, quoted as-is. (These chains
-sample the pre-moisture physics; the posterior under the final
-7-latent-θ model is sampling now, resumable from checkpoints, and slots
-into this section when it lands.)
+identifiability limit this data permits.
 
 **Optimal control** (`figures/control_before_after.png`): Optax Adam on 16
 sigmoid-bounded damper knots through the full coupled pipeline. Objective
@@ -164,44 +156,37 @@ falls 40.9 → 0.10 in 200 iterations; core doneness 0.26 → **0.900 on a 0.90
 target** with the surface under the bark limit.
 
 **Control under calibrated uncertainty** (`figures/control_robust.png`):
-re-optimizing the expected objective over 8 posterior draws (sequential
-pipeline evaluations inside one jitted graph). Evaluated on 30 held-out draws,
+re-optimizing the expected objective over 8 posterior draws
+(sequential pipeline evaluations inside one jitted graph).
+Evaluated on 30 held-out draws,
 the MAP-optimal schedule yields doneness 0.780 ± 0.123 (worst case 0.582); the
 robust schedule 0.863 ± 0.069 (worst 0.727) — **half the spread** — and the
 schedule is interpretable: burn hard while fuel is plentiful, coast through
 the stall, reopen for the finish.
 
 **Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker as
-plant, hourly re-plans from the measured state (full T/W/C-field handoff
-through the Tesseracts' state IO), and a −15 K ambient cold front at t = 6 h
-that the controller's model does not know. Open-loop lands doneness 0.68;
-MPC lands **0.92** on a 0.90 target. Two emergent behaviors worth noting:
-the asymmetric deadline objective (undershoot ≫ overshoot; the resting hold
-makes early finishes cheap) front-loads heat as *insurance against
-disturbances the controller cannot foresee*, and once the target is banked
-the controller closes the damper and lets the cook coast — pull-when-done
-behavior arising from the objective's asymmetry rather than being
-programmed.
+plant, hourly re-plans from the measured state (full T/W/C/F/B/S-field
+handoff through the Tesseracts' state IO). A mid-cook finite-difference
+gate covers the adjoint through those handed-off fields. Food-safety terms
+in the objective are soft surface penalties under an intact-muscle
+assumption (`safety_report` prints the raw lethality/dwell residuals);
+they are not a certification.
 
 **Cook time as a decision variable** (`figures/timeplan.png`): the perfect
 brisket defines its own time — an outer scan over planned durations with an
-inner schedule optimization per duration. Instructively, the answer moved
-as the quality objective completed: with doneness + juiciness alone the
-optimizer chose a **9 h hot-and-fast** cook (`timeplan.png`, left panel);
-adding bark color flipped it to ~17 h, and completing the moisture physics
-kept the 17 h duration while pulling the wrap into the plan — the clearest
-demonstration in this project that *what you optimize (and what physics
-backs it) is part of the model*. The chance layer then asks the
-NUTS-real posterior to certify a start time and receives **an honest
-refusal**:
-P(serveably done) = 0 at every duration, because the closed-loop cook log
-never exercised the damper above ~0.35 and the control-relevant pit
+inner schedule optimization per duration. Doneness + juiciness alone prefer
+a **9 h hot-and-fast** cook (`timeplan.png`, left panel); adding bark color
+prefers ~17 h, and that 17 h plan wraps — *what you optimize (and what
+physics backs it) is part of the model*. The chance layer asks posterior
+draws for an **empirical done-fraction** (N=16; not a 95% certification).
+On this posterior P(serveably done) = 0 at every duration: the closed-loop
+cook log never exercised the damper above ~0.35 and the control-relevant pit
 response is unidentified — the *same* damper input yields a 202 °C pit at
 the MAP and 118 °C at a posterior draw, both fitting the 19-hour log
 equally well. The planner thus reproduces, in decision space, the
 identifiability limit named in Limitations: open-loop guarantees await the
-characterization burn; live guarantees come from closing the loop (the MPC
-above). Caveat: absolute hours inherit the uncalibrated doneness scale
+characterization burn; live guarantees come from closing the loop. Caveat:
+absolute hours inherit the uncalibrated doneness scale
 (fixed literature collagen kinetics; C = 0.90 as "probe tender" is not yet
 anchored by texture data).
 
@@ -224,12 +209,9 @@ vector in place — color, smoke, tenderness, and mechanistic juiciness —
 the composition (duration × wrap × schedule jointly optimized) lands on a
 **17 h cook that wraps at 3.5 h**: smoke bare while the bark and
 smoke-band develop, then crutch and hold near 90 °C, ending at full
-doneness with 51% perceptual juiciness. Instructively, the wrap's role
-moved as the physics completed: under the pre-moisture placeholder
-objective the optimizer never wrapped; with denaturation-driven expulsion
-modeled, the crutch becomes *how the plan protects juiciness*, and its
-moment scales with horizon (a 10 h cook wraps at ~7 h, the 17 h optimum
-at 3.5 h — the longer you can cook, the sooner you stop paying
+doneness with 51% perceptual juiciness. The wrap is how the plan protects
+juiciness; its moment scales with horizon (a 10 h cook wraps at ~7 h, the
+17 h optimum at 3.5 h — the longer you can cook, the sooner you stop paying
 evaporative losses). The optimum is duration-flat past ~16 h (gains halve
 per added hour; 17 h is the 2%-plateau's left edge). The **default
 quality objective** is KCBS-weighted: appearance 0.14 / taste 0.57 /
@@ -240,7 +222,7 @@ smoke-deposition band (phenolic mass as a smoke-depth correlate with an
 over-deposition/bitterness ceiling), perceptual juiciness, and the
 two-sided collagen tenderness band. Every weight and band is an
 overridable config field — a different preference is a different config,
-not a different mode. Juiciness is now mechanistic on both channels:
+not a different mode. Juiciness is mechanistic on both channels:
 retained water under denaturation-driven expulsion (myosin/actin
 water-holding-capacity steps) plus retained rendered fat (the
 fat-rendering state), with the cook-loss budget — evaporation, purge,
@@ -251,16 +233,17 @@ absent; the fat/water sensory weighting β_fat is a placeholder),
 appearance is color only. Absolute durations remain conditional on the
 placeholder band normalizations; the weights are cited.
 
-The objective also carries **food-safety constraints, curve-faithful**:
-pasteurization is a time–temperature curve, so the binding constraint is
-an integrated surface **lethality** F = ∫10^((T_s−T_ref)/z) dt required to
-reach the FSIS-guidance ~7-log equivalent (60 °C reference, z ≈ 6 °C) —
-any time-temperature path achieving it passes — plus a danger-zone dwell
-cap guarding the growth phase before lethal temperatures. Normal smoker
-schedules pay nothing; the terms exist so no optimizer, ever, recommends
-a cold-smolder start. A model that tells people how to cook meat owes
-them this (`docs/model_gaps.md` is the standing audit of what the quality
-layer does and does not yet model).
+The objective also carries **food-safety soft penalties** (not a
+certification): pasteurization is a time–temperature curve, so the terms
+integrate **surface** lethality F = ∫10^((T_s−T_ref)/z) dt toward the
+FSIS-guidance ~7-log equivalent (60 °C reference, z ≈ 6 °C) plus a
+danger-zone dwell cap. The model assumes **intact muscle** (surface
+pathogens); the cold-spot field is not evaluated, there is no hard
+feasibility constraint, and an optimizer can trade these penalties against
+quality. `safety_report` prints the raw residuals. Normal smoker
+schedules typically pay little; the terms exist so a cold-smolder start is
+expensive. `docs/model_gaps.md` lists what the quality layer still does
+not model.
 
 ## 3. Why Tesseract is load-bearing
 
@@ -303,7 +286,7 @@ The war stories are documented in `docs/verification.md`; highlights:
   and solver crashes. Root-caused by capturing the exact failing call at the
   endpoint and replaying it in Julia; fixed by switching to
   InterpolatingAdjoint (agrees with ReverseDiff to 6 digits, 4× faster there).
-  The capture-and-raise guard is now a permanent endpoint feature.
+  The capture-and-raise guard is a permanent endpoint feature.
 - **Cross-language threading, three deadlock modes:** jitted JAX executes
   callbacks on XLA worker threads; juliacall off its init thread hangs. All
   Julia work runs on one dedicated thread; Julia exceptions are stringified
@@ -322,16 +305,21 @@ The war stories are documented in `docs/verification.md`; highlights:
 
 The model is honest about its scope. Pit humidity is fixed (a water pan would
 invalidate the calibrated evaporation coefficient — the k_m confound named in
-§3); the Texas-crutch wrap and bark (Maillard + smoke deposition) are now
+§3); the Texas-crutch wrap and bark (Maillard + smoke deposition) are
 modeled — smooth blends and surface states with a *differentiable wrap
 time*, so "when to wrap" is optimized jointly with the vents — but their
 constants are literature-fixed pending calibration data (wrapped-cook log;
 bark photos): our calibration cook was unwrapped, and since wrapped logs document the
 wrap moment, the wrap event is a known-input step-response experiment
-waiting for the two-cook joint fit; "doneness" is
-collagen conversion — a good proxy for probe-tender, silent on bark and
-smoke ring (juiciness now has a first proxy: retained moisture at pull is a
-differentiable output); and the pit's **fast (sub-hour) dynamics are a known deficiency**: burn
+waiting for the two-cook joint fit. "Doneness" is collagen conversion at the
+center node — a good proxy for probe-tender; bark and smoke ring are *not*
+inside that scalar (bark *is* in the quality objective as \(L^*\) and
+deposition \(S\); smoke ring is unmodeled). Juiciness is mechanistic on both
+channels: finite-volume retained water under denaturation-driven expulsion
+plus retained rendered fat, with \(\beta_{\mathrm{fat}}\) still a sensory
+placeholder. Geometry is a fixed-\(L\) slab: 20–30% shrinkage is unmodeled,
+so late-cook conduction paths stay too long (`docs/model_gaps.md` shrinkage). The
+pit's **fast (sub-hour) dynamics are a known deficiency**: burn
 rate responds instantly to fan duty (no coal-bed thermal lag) and the pit is
 a single thermal node, so replaying the controller's fan moves open-loop
 produces ±3 °C wobble around a hold the real controller kept flat.
@@ -352,15 +340,15 @@ doneness at a *fixed* final time, but the practitioner's objective is
 pull-when-done — doneness as the constraint, pull time as the outcome, a
 deadline as an asymmetric lateness penalty (finishing early is nearly free;
 the resting hold exists for this). Fixed-horizon control cannot say "this
-brisket needs another 90 minutes," which is often the right answer. The
-general fix — cook time as a decision variable, chosen jointly with the
-schedule and chance-constrained under the posterior ("when should I light
-the fire so P(done by dinner) ≥ 95%?") — is the first control upgrade on
-the roadmap.
+brisket needs another 90 minutes," which is often the right answer. Cook
+time as a decision variable is already implemented as an outer duration
+scan with inner schedule optimization (`timeplan.py`, `fullplan.py`).
+What remains is differentiable duration (\(s = t/t_f\)); the chance layer
+is an empirical done-fraction over \(N\) draws, not a 95% certification.
 
 The natural next step is closing the loop on a physical smoker. The
 receding-horizon re-planner is demonstrated in simulation (§2); state — full
-temperature/moisture/doneness fields — is first-class Tesseract IO, so
+T/W/C/F/B/S fields — is first-class Tesseract IO, so
 pointing it at a real pit is an estimator plus a fan controller away
 (HeaterMeter integration is first on the post-hackathon roadmap). Pit
 parameters are

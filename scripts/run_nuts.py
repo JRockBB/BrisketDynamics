@@ -127,8 +127,10 @@ def main():
     state_file = CKPT / "state.pkl"
     meta_file = CKPT / "meta.json"
     samples_file = CKPT / "samples.npz"
+    diags_file = CKPT / "diagnostics.npz"
 
     samples: list[dict] = []
+    diags: list[dict] = []
     if state_file.exists() and meta_file.exists():
         meta = json.loads(meta_file.read_text())
         # Chain EXTENSION is a valid resume: raising --samples with every
@@ -149,6 +151,11 @@ def main():
                     keys = f.files
                     n = len(f[keys[0]])
                     samples = [{k: f[k][i] for k in keys} for i in range(n)]
+            if diags_file.exists():
+                with np.load(diags_file) as f:
+                    dkeys = f.files
+                    nd = len(f[dkeys[0]])
+                    diags = [{k: f[k][i] for k in dkeys} for i in range(nd)]
             print(
                 f"RESUMING at step {int(state.i)}/{total} "
                 f"({len(samples)} samples already collected)",
@@ -169,6 +176,11 @@ def main():
                 samples_file,
                 **{k: np.stack([s[k] for s in samples]) for k in samples[0]},
             )
+        if diags:
+            np.savez(
+                diags_file,
+                **{k: np.stack([d[k] for d in diags]) for k in diags[0]},
+            )
 
     t0 = time.perf_counter()
     i = int(state.i)
@@ -179,6 +191,15 @@ def main():
         phase = "warmup" if i <= args.warmup else "sample"
         if i > args.warmup:
             samples.append({k: np.asarray(v) for k, v in postprocess(state.z).items()})
+            diags.append(
+                {
+                    "diverging": np.asarray(state.diverging, dtype=np.int8),
+                    "accept_prob": np.asarray(state.accept_prob, dtype=np.float64),
+                    "potential_energy": np.asarray(
+                        state.potential_energy, dtype=np.float64
+                    ),
+                }
+            )
         if i % CKPT_EVERY == 0 or i == total:
             save(state)
         if i % 5 == 0 or i == total:
@@ -193,6 +214,17 @@ def main():
     out = REPO / "data" / "calibration"
     stacked = {k: np.stack([s[k] for s in samples]) for k in samples[0]}
     np.savez(out / f"nuts_samples{tag}.npz", **stacked)
+    if diags:
+        np.savez(
+            out / f"nuts_diagnostics{tag}.npz",
+            **{k: np.stack([d[k] for d in diags]) for k in diags[0]},
+        )
+        n_div = int(np.sum([d["diverging"] for d in diags]))
+        print(
+            f"NUTS diagnostics: {n_div}/{len(diags)} divergences, "
+            f"mean accept_prob={np.mean([float(d['accept_prob']) for d in diags]):.3f}",
+            flush=True,
+        )
     print(
         f"NUTS done in {(time.perf_counter() - t0) / 3600:.2f} h "
         f"({len(samples)} samples)",

@@ -12,9 +12,8 @@ conditioning pitfalls we hit (which are themselves informative).
   silent-zero hunt, both below): 8 h horizon, tol 1e-9, mixed loss over
   the output heads. All seven θ parameters (incl. the expulsion latents
   k_e/a_myosin via juiciness AND coupled-Tcore paths), forcing-trajectory
-  knots, the wrap time, smoke knots, and the bark/moisture output
-  cotangents agree with central FD — 33 adjoint-vs-FD checks across five
-  testsets:
+  knots, the wrap time, smoke knots, bark/moisture output
+  cotangents, and a **mid-cook (nonuniform IC) VJP** agree with central FD:
   - `D_eff` ≤ 2e-2 (1% FD step; see "FD conditioning" below)
   - all other parameters and knots ≤ 1e-3–5e-3 (typically 1e-5 to 1e-6)
 - **Pit** (`pit_vjp`, exact dense ForwardDiff Jacobian, transposed):
@@ -49,11 +48,14 @@ those are covered by Level 1's relative-step tests):
 
 `jax.grad` through the full K=2 Picard composition
 (pit → meat → pit → meat, gradients crossing the Tesseract VJP boundary
-4 times) vs central FD on a scalar loss. The gate has grown with the
-model and covers every input class: all 7 meat parameters, all 7 pit
-parameters (5e-3 gate; D_eff 2e-2 with a 1% step), damper directions, the
-wrap time, and the damper→burn-rate→smoke→bark-color chain through both
-components (app suite 21 tests total). 6 h horizon, tolerances 1e-10,
+4 times) vs central FD on a scalar loss. Coverage: the five meat
+transport/thermal latents (`theta[0:5]`; D_eff 2e-2 with a 1% step, others
+5e-3), all 7 pit parameters, three damper directions, wrap time, and the
+damper→burn-rate→smoke→bark-color chain. Expulsion latents `k_e` /
+`a_myosin` are not in this Python parametrize; they are held at Level 1
+(moisture adjoint + juiciness/Tcore paths). The full app suite is 27
+collected tests (`test_composed_grad` 18, `test_mpc` 6, `test_local_apply`
+3). CI runs `test_local_apply` only. 6 h horizon, tolerances 1e-10,
 float64 end-to-end.
 
 ## The NaN-gradient hunt (Phase C) — symptoms vs root cause
@@ -111,12 +113,12 @@ exonerates the VJP layer.
    The pit Tesseract originally had fixed 1e-8 tolerances; through the Picard
    feedback (θ → q_meat → pit → forcing) its adaptivity jitter entered every
    FD evaluation at ~1e-5, drowning small-parameter signals. Tolerances are
-   now explicit inputs of both Tesseracts, and the composed gate runs both at
+   Tolerances are explicit inputs of both Tesseracts, and the composed gate runs both at
    1e-10.
 
 ## In-container check-gradients sweep (submission artifact)
 
-The full trajectory-input sweep now also runs **inside the shipped
+The full trajectory-input sweep also runs **inside the shipped
 containers** (`scripts/checkgradients/run_container.sh`; the tesseract CLI's
 `run` command does not forward check-gradients flags, so the script invokes
 the containers' runtime entrypoint via `docker run` directly — launched
@@ -168,7 +170,7 @@ them produced exactly the predicted artifacts: an 83% relative kick on
 smoke measuring solver noise against the adjoint's correct zero, and a
 7e-9 relative step on t_wrap measuring nothing). Both directions are held
 at the Julia level with per-parameter relative steps (agreement 1e-5–2e-3)
-and in the composed 17-direction gate.
+and in the composed gate (5 meat + 7 pit + damper + wrap + bark chain).
 
 Classified by `analyze_failures.py --exclude-inputs smoke_knots,t_wrap`:
 pit 126 tool-flags and meat 39 tool-flags → **0 real mismatches**; classes
@@ -177,11 +179,9 @@ are the two established benign patterns plus a third documented here:
 `tpit_knots → bark_s`, where a single forcing knot moves smoke deposition
 at the 1e-6 level and VJP/FD agree in sign and order inside solver noise).
 
-**Pending:** the moisture-era model (162 meat states, θ = 7 with the
-expulsion latents, fat/bark state handoff inputs) supersedes the images
-this sweep ran on; a rebuild + re-sweep with the updated payload
-(`meat_payload.json` already carries θ = 7) is queued as a submission
-artifact.
+The in-container sweep logs live in `data/verification/`. Rebuild the
+images and re-sweep after changing the meat payload (162 states, θ = 7,
+fat/bark handoff). `meat_payload.json` already carries θ = 7.
 
 Known issue: the in-container meat runtime intermittently hangs at
 initialization (worker frozen at 0.29 s CPU; observed 2 of 3 launches on

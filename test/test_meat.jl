@@ -138,7 +138,8 @@ end
     lo = meat_solve(θ, fill(383.15, length(tk)), tk, tk)   # 110 C pit
     hi = meat_solve(θ, fill(408.15, length(tk)), tk, tk)   # 135 C pit
 
-    # mass closure: water lost = evaporated + dripped, algebraically exact
+    # mass closure is DEFINITIONAL (drip_w := water_lost - evap_w); this
+    # checks the algebra, not PDE conservation of the W field.
     for o in (lo, hi)
         water_lost = cfg.W0 * (1 - o.w_retained)
         @test isapprox(water_lost, o.evap_w + o.drip_w; atol=1e-8)

@@ -82,7 +82,7 @@ def main():
     ap.add_argument("--iters", type=int, default=100)
     ap.add_argument(
         "--samples",
-        default="nuts_samples_real_7a.npz",
+        default="nuts_samples_real.npz",
         help="posterior sample file(s) under data/calibration, "
         "comma-separated (chains are concatenated)",
     )

@@ -3,8 +3,8 @@
 > **Status note (Aug 2026):** this is the FOUNDING plan, kept verbatim as
 > provenance — the [DECIDE] markers and phase schedule document how the
 > project was scoped. What actually shipped (and how it grew beyond this
-> plan: bark and moisture physics, the KCBS objective with safety
-> constraints, the differentiable wrap decision, multi-chain diagnostics)
+> plan: bark and moisture physics, the KCBS objective with food-safety
+> soft penalties, the differentiable wrap decision, multi-chain diagnostics)
 > is in `docs/writeup.md`; the equations are in `docs/model.md`; the
 > living plan is `docs/roadmap.md`.
 

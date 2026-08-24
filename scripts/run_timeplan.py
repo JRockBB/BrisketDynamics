@@ -58,11 +58,18 @@ def main():
     print(
         f"perfection takes: {t_star:.0f} h "
         f"(J={best['j_quality']:.3f}, doneness={best['doneness']:.3f}, "
-        f"juiciness={best['w_retained']:.3f})"
+        f"juiciness={best['juiciness']:.3f})"
     )
 
-    print(f"start-time margin from {N_DRAWS} NUTS-real posterior draws")
-    post = dict(np.load(REPO / "data" / "calibration" / "nuts_samples_real.npz"))
+    print(f"empirical done-fraction from {N_DRAWS} NUTS-real posterior draws")
+    post_path = REPO / "data" / "calibration" / "nuts_samples_real.npz"
+    post = dict(np.load(post_path))
+    missing = [n for n, _ in THETA_SITES + PHI_SITES + PHI_SITES_IGNITION if n not in post]
+    if missing:
+        raise SystemExit(
+            f"{post_path.name} is missing sites {missing}; "
+            "regenerate NUTS under the current parameter schema"
+        )
     n_total = len(np.asarray(post[THETA_SITES[0][0]]).reshape(-1))
     rng = np.random.default_rng(0)
     idx = rng.choice(n_total, size=min(N_DRAWS, n_total), replace=False)
@@ -96,16 +103,15 @@ def main():
         i_plan = ok[0]
         t_plan = float(t_fs[i_plan])
         print(
-            f"chance-constrained start: light {t_plan:.0f} h before serving "
-            f"(P={ps[i_plan]:.2f}; margin {t_plan - t_star:.0f} h -> hold)"
+            f"shortest scanned duration at/above quality opt with empirical "
+            f"P(done)>={P_TARGET:.2f} over {len(idx)} draws: {t_plan:.0f} h "
+            f"(P={ps[i_plan]:.2f}; not a 95% certification)"
         )
     else:
         i_plan, t_plan = None, None
         print(
-            "chance layer REFUSES: no duration reaches P_target - the "
-            "closed-loop posterior cannot certify any open-loop start "
-            "time (control-relevant pit directions unidentified; see "
-            "characterization burn)"
+            "chance layer: no scanned duration reaches the empirical "
+            "P_target over these draws — not a certification of infeasibility"
         )
 
     (REPO / "data" / "control").mkdir(parents=True, exist_ok=True)

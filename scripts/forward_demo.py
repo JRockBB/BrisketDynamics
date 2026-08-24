@@ -19,7 +19,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids, coupled_cook
+from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids, check_picard, coupled_cook
 
 
 def main():
@@ -47,7 +47,7 @@ def main():
     )
     dt = time.perf_counter() - t0
     print(f"coupled forward (K=2): {dt:.1f} s wall")
-    print(f"Picard residual max|dT_pit| = {float(out['picard_dT']):.3f} K")
+    check_picard(out)
 
     th = np.asarray(grids.tknots) / HR
     to_c = lambda x: np.asarray(x) - 273.15

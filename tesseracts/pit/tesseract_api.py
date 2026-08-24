@@ -194,6 +194,31 @@ def _own(x) -> np.ndarray:
 # sampling keeps hard failures.
 SOFT_FAIL = os.environ.get("BRISKET_SOFT_FAIL", "0") == "1"
 _SENTINEL_T = 1.0e4  # [K]
+_SOFT_FAIL_COUNT = 0
+_SOLVER_FAIL_MARKERS = (
+    "solve failed",
+    "retcode",
+    "nan inputs",
+    "dt_epsilon",
+    "identically zero gradients",
+    "backward solve",
+    "dt < eps",
+)
+
+
+def _is_solver_failure(err: BaseException) -> bool:
+    msg = str(err).lower()
+    return any(m in msg for m in _SOLVER_FAIL_MARKERS)
+
+
+def _maybe_soft_fail(err: RuntimeError, what: str) -> None:
+    """Re-raise programming errors; swallow classified solver failures when enabled."""
+    global _SOFT_FAIL_COUNT
+    if not SOFT_FAIL or not _is_solver_failure(err):
+        raise
+    _SOFT_FAIL_COUNT += 1
+    if _SOFT_FAIL_COUNT == 1 or _SOFT_FAIL_COUNT % 10 == 0:
+        print(f"SOFT_FAIL {what} #{_SOFT_FAIL_COUNT}: {err}", flush=True)
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
@@ -231,6 +256,14 @@ def apply(inputs: InputSchema) -> OutputSchema:
         _own(inputs.q_tknots),
         _own(inputs.tsave),
     )
+    if u.shape != utk.shape:
+        raise ValueError(
+            f"DEGENERATE PIT INPUT: u_knots {u.shape} vs u_tknots {utk.shape}"
+        )
+    if q.shape != qtk.shape:
+        raise ValueError(
+            f"DEGENERATE PIT INPUT: qmeat_knots {q.shape} vs q_tknots {qtk.shape}"
+        )
 
     def _run():
         T, m, a, md = jl._pit_apply(
@@ -258,9 +291,8 @@ def apply(inputs: InputSchema) -> OutputSchema:
 
     try:
         T, m, a, md = _on_julia_thread(_run)
-    except RuntimeError:
-        if not SOFT_FAIL:
-            raise
+    except RuntimeError as e:
+        _maybe_soft_fail(e, "pit apply")
         nt = len(tsave)
         T, m, a, md = (
             np.full(nt, _SENTINEL_T),
@@ -340,6 +372,14 @@ def vector_jacobian_product(
         _own(inputs.q_tknots),
         _own(inputs.tsave),
     )
+    if u.shape != utk.shape:
+        raise ValueError(
+            f"DEGENERATE PIT INPUT: u_knots {u.shape} vs u_tknots {utk.shape}"
+        )
+    if q.shape != qtk.shape:
+        raise ValueError(
+            f"DEGENERATE PIT INPUT: qmeat_knots {q.shape} vs q_tknots {qtk.shape}"
+        )
     nt = len(tsave)
     cots = {
         name: (
@@ -376,9 +416,8 @@ def vector_jacobian_product(
 
     try:
         dphi, du, dq = _on_julia_thread(_run)
-    except RuntimeError:
-        if not SOFT_FAIL:
-            raise
+    except RuntimeError as e:
+        _maybe_soft_fail(e, "pit vjp")
         # Zero gradients at an unsolvable point: the sampler is rejecting
         # this proposal anyway (sentinel likelihood); zeros keep HMC finite.
         dphi, du, dq = (np.zeros(len(phi)), np.zeros(len(u)), np.zeros(len(q)))

@@ -1,10 +1,10 @@
 # Submission package (drafts)
 
-Status: READY except one item — confirm the repo URL once the public repo
-exists at github.com/JRock95/BrisketDynamics.
-
-User-owned prerequisites: hackathon registration (tally.so/r/kdx2ej,
-required for prize eligibility) and creating the public GitHub repo.
+Author notes (not posted): fill NUTS numbers after
+`uv run python ../scripts/run_nuts.py --real`; fill MPC numbers after
+`uv run python ../scripts/run_mpc.py`. Repo:
+https://github.com/JRock95/BrisketDynamics. User-owned: hackathon
+registration (tally.so/r/kdx2ej, required for prize eligibility).
 
 ---
 
@@ -21,15 +21,15 @@ Multi-physics & coupled systems)
 A charcoal smoker and a brisket as two Julia Tesseracts — a stiff
 heat–moisture PDE with a SciMLSensitivity continuous adjoint and a lumped
 pit ODE with a ForwardDiff Jacobian — composed into one end-to-end
-differentiable JAX function and used seven ways: MAP + NUTS Bayesian
+differentiable JAX function and used for MAP + NUTS Bayesian
 calibration (synthetic and a real 19-hour cook log), damper-schedule
-optimization, robust control in expectation over the posterior,
-receding-horizon MPC that absorbs an unmodeled cold front, cook-time
+optimization, robust control in expectation over posterior draws,
+receding-horizon MPC with full-field state handoff, cook-time
 planning, and a mechanistic bark-color model whose gradients cross both
-components — the full composition (duration × wrap × vents) lands on a
-17 h cook that wraps at 3.5 h: with the moisture physics complete, the
-Texas crutch enters the optimal plan as the mechanism that protects
-juiciness.
+components. Moisture physics puts a mid-cook wrap into the joint
+duration × wrap × vents plan to protect juiciness. Food-safety terms are
+soft surface penalties under an intact-muscle assumption, not a
+certification.
 
 **Longer description (if the form has a field for it):**
 Real barbecue is a coupled multi-physics control problem: a charcoal pit
@@ -37,7 +37,7 @@ with its own thermal and fuel dynamics drives a brisket whose internal
 heat conduction and moisture transport produce the famous "stall" — a
 multi-hour plateau caused by evaporative cooling. We built both solvers in
 Julia with deliberately different differentiation strategies (continuous
-adjoint for the 120-ODE stiff PDE; exact forward-mode Jacobian for the
+adjoint for the 162-ODE stiff PDE; exact forward-mode Jacobian for the
 3-state pit), exposed each through the Tesseract VJP interface, and coupled
 them two-way in JAX via tesseract-jax with an unrolled Picard iteration, so
 reverse-mode AD through the composed VJPs is the exact gradient of the
@@ -46,23 +46,24 @@ simulated system.
 The gradients then do real work. NUTS calibration recovers synthetic truth
 and — the capstone — fits a digitized real 19-hour overnight cook (18.5"
 WSM), tracking the pit hold within ~3 °C and reproducing the core's full
-arc: rise, multi-hour stall, break at ~14 h. The full NUTS posterior over all 12 physical
-parameters shows exactly which physics the data pins: meat-side parameters
-to within a few percent, pit-side parameters only in combinations — two
-clean ridges (heat loss vs heat release, burn rate vs leak) that are the
-fingerprint of closed-loop cook data — while the posterior-predictive band
-holds both 19-hour traces. The same coupled function
-drives Optax damper-schedule optimization (doneness 0.900 on a 0.90
-target), robust control over posterior draws (half the doneness spread of
-the MAP-optimal schedule on held-out draws), and a receding-horizon MPC
-demo with full-field state handoff through the Tesseracts: against an
-unmodeled −15 K cold front, MPC lands doneness 0.92 vs open-loop's 0.68.
+arc: rise, multi-hour stall, break at ~14 h. The posterior shows which
+physics the data pins: meat-side parameters to within a few percent,
+pit-side parameters only in combinations — two clean ridges (heat loss vs
+heat release, burn rate vs leak), the fingerprint of closed-loop cook data
+— while the posterior-predictive band holds both 19-hour traces.
+The same coupled function drives Optax damper-schedule optimization
+(doneness 0.900 on a 0.90 target), robust control over posterior draws,
+and receding-horizon MPC: hourly re-plans from the full meat field
+(temperature, moisture, collagen, fat, bark) handed through the
+Tesseracts. Food-safety terms are soft surface penalties (intact-muscle
+assumption), not a certification.
 
 A three-tier gradient verification gate (Julia adjoint vs FD,
-per-endpoint check-gradients, composed FD through the full pipeline —
-92 Julia + 21 app tests, 33 adjoint-vs-FD checks) backs every result, and the writeup names the model's deficiencies
-honestly, including why closed-loop cook logs provably cannot identify the
-pit's fast dynamics. To our knowledge — based on a survey of the mosaic
+per-endpoint check-gradients, composed FD through the full pipeline)
+backs the solvers, and the writeup names the model's deficiencies
+honestly, including why closed-loop cook logs cannot identify the
+pit's fast dynamics and why the iid likelihood overstates information in
+the real cook. To our knowledge — based on a survey of the mosaic
 suite, the official examples, and the forum — no public example existed of
 a SciMLSensitivity continuous adjoint exposed through the Tesseract VJP
 interface.
@@ -92,30 +93,28 @@ on every step:
 cook digitized from a 2013 forum post — the model reproduces the full arc:
 rise, five-hour stall, break at hour 14. And the posterior tells you
 exactly which physics a cook log can pin (the meat's) and which it only
-constrains in combinations (the pit's) - uncertainty quantification with
+constrains in combinations (the pit's) — uncertainty quantification with
 an interpretable shape.
 
 🔥 An optimized vent schedule that hits target doneness on deadline —
 and a robust version optimized in expectation over the posterior.
 
-🔥 Receding-horizon MPC: hit the simulated cook with a cold front the
-controller has never seen, and it re-plans hourly — doneness 0.92 vs 0.68
-for the open-loop schedule. The asymmetric deadline objective makes the
-controller bank heat early as insurance, then ease off once the cook is
-won — nobody programmed that.
+🔥 Receding-horizon MPC: hourly re-plans from the full meat field
+(temperature, moisture, doneness, fat, bark) handed through the
+Tesseracts. Hit the simulated cook with a cold front the controller has
+never seen, and it re-plans.
 
 🔥 A mechanistic bark model (Maillard + smoke deposition, smoke flux =
 the pit's own burn rate — gradients cross both physics components). Given
-tenderness + juiciness + color as the objective, the optimizer
-landed on a 17-hour cook that wraps at 3.5 h — smoke for bark, then
-crutch to protect juiciness —
-and the Texas crutch dropped out of the optimal plan, re-emerging as what
-it really is: a rescue tool for cooks under deadline pressure.
+tenderness + juiciness + color, the optimizer lands on a 17-hour cook that
+wraps at 3.5 h: smoke for bark, then crutch to protect juiciness.
 
 The interesting engineering: a SciMLSensitivity continuous adjoint exposed
 as a Tesseract VJP (to my knowledge a first in public code), two-way
 coupling by an unrolled Picard iteration so the composed gradient is exact,
-and a 17-direction finite-difference verification gate on every parameter and coupling path.
+and a three-level finite-difference verification gate on the Julia
+adjoints, the Tesseract endpoints, and `jax.grad` through the composed
+cook.
 
 Repo: https://github.com/JRock95/BrisketDynamics
 
@@ -149,19 +148,17 @@ energy balance) with a K=2 Picard iteration unrolled in the graph, so
 `jax.grad` through the composed VJPs is the exact gradient of the
 simulated system. One gradient crosses the Julia↔JAX boundary four times.
 
-**What the gradients do.** NumPyro NUTS calibration (12 latents) against a
-digitized real overnight WSM cook — pit hold tracked within ~3 °C, the
-stall and its break reproduced, and physically interpretable parameters
-(the poster mentioned his door leaked; the MAP put the leak parameter at
-0.21 - though see below on what the posterior says about pinning it
-individually). The full posterior pins the meat-side physics to a few percent but
+**What the gradients do.** NumPyro NUTS against a digitized real overnight
+WSM cook — pit hold tracked within ~3 °C, the stall and its break
+reproduced. The posterior pins the meat-side physics to a few percent but
 identifies the pit side only along two clean ridges (heat loss vs heat
 release, burn rate vs leak) — the identifiability fingerprint of
-closed-loop data, quantified. Optax damper-schedule
-optimization, a robust variant in expectation over posterior draws, and a
-receding-horizon MPC demo — full T/W/C-field state handoff through the
-Tesseracts' IO — that absorbs an unmodeled −15 K cold front (doneness 0.92
-vs 0.68 open-loop).
+closed-loop data. The cook's author mentioned a leaky door; that leak
+parameter sits on the burn ridge, not as an individually pinned number.
+Optax damper-schedule optimization, a robust variant in expectation over
+those draws, and receding-horizon MPC with full T/W/C/F/B/S-field state
+handoff through the Tesseracts. Food-safety terms are soft surface
+penalties (intact-muscle assumption), not a certification.
 
 **Notes that might be useful to others building Julia Tesseracts:**
 - To our knowledge there was no public SciMLSensitivity-adjoint-as-VJP

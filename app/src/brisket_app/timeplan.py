@@ -107,12 +107,14 @@ def plan_duration(
                 "t_f_h": float(th_f),
                 "u_opt": u_opt,
                 "grids": grids,
-                "j_quality": float(hist["losses"][-1]),
+                "j_quality": float(hist.get("best_loss", hist["losses"][-1])),
                 "doneness": c_end,
                 "w_retained": w_ret,
                 "juiciness": juicy,
+                "t_wrap": float(t_wrap) if cc.opt_wrap else 1.0e9,
                 "t_wrap_h": (t_wrap / HR) if cc.opt_wrap else None,
                 "l_star_end": l_end,
+                "picard_dT": float(np.asarray(sim["picard_dT"])),
             }
         )
         log(
@@ -120,6 +122,12 @@ def plan_duration(
             f"doneness={c_end:.3f}  juiciness={juicy:.3f}  "
             f"(water {w_ret:.3f})  L*={l_end:.1f}"
             + (f"  wrap@{t_wrap / HR:.2f} h" if cc.opt_wrap else "")
+            + (
+                f"  Picard {records[-1]['picard_dT']:.2f} K"
+                if np.isfinite(records[-1]["picard_dT"])
+                and records[-1]["picard_dT"] > 2.0
+                else ""
+            )
         )
     return records
 
@@ -150,12 +158,15 @@ def chance_of_done(
     ics: dict | None = None,
     log=print,
 ):
-    """P(serveably done at t_f) for one duration's optimized schedule.
+    """Empirical fraction of posterior draws that are serveably done at t_f.
 
-    Evaluated on posterior draws — the uncertainty side of the start-time
-    decision (start = serving deadline - planned duration).
+    This is a Monte Carlo frequency over N draws, not a 95% certification.
+    Replays the record's optimized wrap time with the schedule.
     """
     grids, u_opt = record["grids"], record["u_opt"]
+    t_wrap = record.get("t_wrap", 1.0e9)
+    if t_wrap is None:
+        t_wrap = 1.0e9
     done = []
     for i in range(len(thetas)):
         sim = coupled_cook(
@@ -167,12 +178,14 @@ def chance_of_done(
             grids,
             K=2,
             ics=ics,
+            t_wrap=t_wrap,
         )
         done.append(float(np.asarray(sim["c_field_final"])[0]))
     done = np.asarray(done)
     p = float(np.mean(done >= c_serveable))
     log(
-        f"  t_f={record['t_f_h']:5.1f} h  P(done)={p:.2f}  "
+        f"  t_f={record['t_f_h']:5.1f} h  empirical P(done)={p:.2f}  "
+        f"(n={len(done)} draws; not a 95% certification)  "
         f"doneness draws: {np.percentile(done, 5):.3f}..."
         f"{np.percentile(done, 95):.3f}"
     )

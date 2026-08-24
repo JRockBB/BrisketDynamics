@@ -136,3 +136,45 @@ def test_horizon_not_divisible_by_replan(clients, theta_phi):
     st = out["final_state"]
     assert st.t == pytest.approx(t_f, abs=1.0)
     assert float(np.asarray(out["t"])[-1]) == pytest.approx(t_f, rel=1e-6)
+
+
+def test_cookgrids_endpoint_aligned():
+    """Exchange grid includes t=0 and t=t_end exactly (arange previously drifted)."""
+    g = CookGrids(t_end=1.5 * HR, dt_exchange=600.0, n_u=4)
+    assert g.tknots[0] == 0.0
+    assert g.tknots[-1] == pytest.approx(1.5 * HR)
+    g2 = CookGrids(t_end=12 * HR, dt_exchange=600.0, n_u=16)
+    assert g2.tknots[-1] == pytest.approx(12 * HR)
+    assert np.allclose(np.diff(g2.tknots), g2.dt_exchange)
+
+
+def test_nowrap_objective_matches_wrap_never(clients, theta_phi):
+    """opt_wrap=False must be WRAP_NEVER, not a late-horizon sigmoid wrap."""
+    import jax.numpy as jnp
+    from brisket_app.control import ControlConfig, objective
+
+    theta, phi = theta_phi
+    meat_tx, pit_tx = clients
+    grids = CookGrids(t_end=2 * HR, dt_exchange=600.0, n_u=4)
+    z = jnp.zeros(grids.n_u)
+    z_w = jnp.asarray(8.0)
+    tols = {"abstol": 1e-6, "reltol": 1e-6}
+    cc = ControlConfig(opt_wrap=False)
+    j_off = float(
+        objective(z, z_w, jnp.asarray(theta), jnp.asarray(phi), meat_tx, pit_tx, grids, cc, tols)
+    )
+    j_never = float(
+        objective(
+            z,
+            z_w,
+            jnp.asarray(theta),
+            jnp.asarray(phi),
+            meat_tx,
+            pit_tx,
+            grids,
+            cc,
+            tols,
+            t_wrap_override=1.0e9,
+        )
+    )
+    assert j_off == pytest.approx(j_never, rel=0, abs=1e-9)

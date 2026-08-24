@@ -38,6 +38,7 @@ class CookState:
     w_field0: np.ndarray
     c_field0: np.ndarray
     f_field0: np.ndarray
+    t0_meat: float = 281.15
     bark_b0: float = float("nan")  # NaN = fresh (0)
     bark_s0: float = float("nan")
     leth_f: float = 0.0  # banked lethality [60C-equivalent s] of executed cook
@@ -47,9 +48,7 @@ class CookState:
     def fresh(cls, tpit0=293.15, m0=7.0, a0=1.0, t0_meat=281.15):
         """Cold-start state: ambient pit, full fuel ring, fridge meat."""
         z = np.zeros(0)
-        s = cls(0.0, tpit0, m0, a0, z, z, z, z)
-        s.t0_meat = t0_meat
-        return s
+        return cls(0.0, tpit0, m0, a0, z, z, z, z, t0_meat=t0_meat)
 
 
 def _ics(state: CookState, t_amb: float) -> dict:
@@ -65,7 +64,7 @@ def _ics(state: CookState, t_amb: float) -> dict:
         "bark_b0": state.bark_b0,
         "bark_s0": state.bark_s0,
     }
-    if state.t_field0.size == 0 and hasattr(state, "t0_meat"):
+    if state.t_field0.size == 0:
         ics["t0_meat"] = state.t0_meat
     return ics
 
@@ -492,8 +491,15 @@ def run_cook(
     # MeatConfig: W0/F0/beta_fat/eta_drain and the L* map)
     W0, F0, BETA_FAT, ETA_DRAIN = 2.33, 0.22, 1.8, 0.5
     L0_BARK, DL_B, DL_S = 52.0, 20.0, 10.0
-    w_ret = float(np.mean(state.w_field0)) / W0 if state.w_field0.size else float("nan")
-    f_mean = float(np.mean(state.f_field0)) if state.f_field0.size else float("nan")
+
+    def _fv_mean(v):
+        n = len(v)
+        return (v[0] + v[-1] + 2.0 * np.sum(v[1:-1])) / (2.0 * (n - 1))
+
+    w_ret = (
+        float(_fv_mean(state.w_field0)) / W0 if state.w_field0.size else float("nan")
+    )
+    f_mean = float(_fv_mean(state.f_field0)) if state.f_field0.size else float("nan")
     fat_rendered = (F0 - f_mean) / F0
     juiciness = w_ret + BETA_FAT * (1 - ETA_DRAIN) * (F0 - f_mean) / W0
     b_end = 0.0 if np.isnan(state.bark_b0) else float(state.bark_b0)

@@ -309,8 +309,13 @@ def recovery_table(map_params: dict, data: dict) -> str:
         + [n for n, _ in PHI_SITES_IGNITION]
     )
     truths = np.concatenate([data["theta_true"], data["phi_true"]])
+    if len(truths) != len(names):
+        raise ValueError(
+            f"truth vector length {len(truths)} != {len(names)} current sites; "
+            "regenerate synthetic data under the current parameter schema"
+        )
     lines = [f"{'param':>10} {'truth':>12} {'MAP':>12} {'err %':>8}"]
-    for n, t in zip(names, truths, strict=False):
+    for n, t in zip(names, truths, strict=True):
         if n not in map_params:
             continue
         m = float(map_params[n])

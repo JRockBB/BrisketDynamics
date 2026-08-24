@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 from brisket_app import mpc
 from brisket_app.calibrate import THETA_SITES, phi_full
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.control import ControlConfig
+from brisket_app.control import ControlConfig, safety_report
 from brisket_app.coupled import HR, CookGrids
 
 REPO = Path(__file__).resolve().parents[1]
@@ -146,6 +146,12 @@ def main():
             f"L* {r['l_star_end']:.1f}  smoke {r['smoke_end']:.2f}"
         )
         print(f"    components: {jj}")
+        sr = safety_report(r["tsurf"], r["t"], cc)
+        print(
+            f"    safety (surface, intact-muscle): "
+            f"F={sr['F_s']:.1f}s ok={sr['lethality_ok']}  "
+            f"dwell={sr['danger_h']:.2f}h ok={sr['dwell_ok']}"
+        )
 
     out = REPO / "data" / "control"
     out.mkdir(parents=True, exist_ok=True)

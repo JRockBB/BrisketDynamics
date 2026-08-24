@@ -131,7 +131,7 @@ $$
 $$
 
 $$
--k\,\partial_x T|_s
+k\,\partial_x T|_s
 = h_c\,(1 - \eta_h\, s)\,(T_p - T_s)
 + \varepsilon(s)\,\sigma_{SB}\,(T_p^4 - T_s^4)
 - \lambda\, j,
@@ -140,10 +140,11 @@ $$
 $$
 
 The heat drawn from the pit (the coupling output) is the
-convective + radiative part:
+convective + radiative part (the pit supplies surface heat; latent heat
+leaves with vapor):
 
 $$
-q_{\mathrm{surf}} = -k\,\partial_x T|_s + \lambda\, j .
+q_{\mathrm{surf}} = k\,\partial_x T|_s + \lambda\, j .
 $$
 
 **Texas crutch (wrap).** The smooth blend
@@ -152,8 +153,9 @@ wrap: it suppresses evaporation ($\eta_e$), reduces convection
 ($\eta_h$), swaps emissivity toward foil
 ($\varepsilon_{\mathrm{wrap}}$), and blocks smoke contact via $(1-s)$ in
 the deposition state. $t_{\mathrm{wrap}}$ is a differentiable decision
-variable; $t_{\mathrm{wrap}} = 10^9$ makes $s \equiv 0$ bitwise (the
-unwrapped model recovered exactly).
+variable; $t_{\mathrm{wrap}} = 10^9$ puts the logistic blend at numerical
+zero over any cook horizon (Python no-wrap is `WRAP_NEVER = 1e9 + 0\cdot z_w`
+so the unused wrap logit stays in the tape).
 
 **Bark states** (surface only), with the Oswin water activity
 $a_w(W_s) = \left(1 + (k_{ox}/W_s)^{n_{ox}}\right)^{-1}$:
@@ -181,8 +183,11 @@ split-cook continuity experiment separates the two channels'
 time-weighting empirically: $S$ is early-weighted (needs the wet
 surface), $B$ is late-weighted (hot dry surface).
 
-**Quality summaries** (dry-basis means; $\eta_{\mathrm{drain}}$ = rendered
-fat fraction that drips):
+**Quality summaries.** Endpoint cells have half volume on the uniform slab,
+so field means use the finite-volume weight
+\(\overline{v} = \bigl(\tfrac12 v_1 + \sum_{i=2}^{n-1} v_i + \tfrac12 v_n\bigr)/(n-1)\)
+(`fv_mean` in `src/meat.jl`). \(\eta_{\mathrm{drain}}\) is the rendered-fat
+fraction that drips:
 
 $$
 w_{\mathrm{ret}} = \frac{\overline W(t_f)}{W_0},\qquad
