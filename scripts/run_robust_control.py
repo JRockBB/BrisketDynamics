@@ -86,6 +86,21 @@ def main():
         help="posterior sample file(s) under data/calibration, "
         "comma-separated (chains are concatenated)",
     )
+    ap.add_argument(
+        "--plan",
+        default="fullplan_result_ext.json",
+        help="assessed cook json under data/control (u, t_f, t_wrap)",
+    )
+    ap.add_argument(
+        "--figure",
+        default="control_robust.png",
+        help="output figure name under figures/",
+    )
+    ap.add_argument(
+        "--out",
+        default="schedule_robust.json",
+        help="output json name under data/control/",
+    )
     args = ap.parse_args()
 
     parts = [
@@ -104,9 +119,8 @@ def main():
 
     # the plan under uncertainty-hedging: the ASSESSED fullplan optimum
     # (17 h, wrap ~3.5 h), not the legacy 12 h MAP schedule
-    best = json.loads(
-        (REPO / "data" / "control" / "fullplan_result_ext.json").read_text()
-    )
+    best = json.loads((REPO / "data" / "control" / args.plan).read_text())
+    print(f"plan: {args.plan}  samples: {args.samples}", flush=True)
     u_map = np.asarray(best["best_u"])
     t_wrap_map = best["best_t_wrap_h"] * HR
     t_f = best["best_t_f_h"] * HR
@@ -169,7 +183,7 @@ def main():
         )
 
     out_dir = REPO / "data" / "control"
-    (out_dir / "schedule_robust.json").write_text(
+    (out_dir / args.out).write_text(
         json.dumps(
             {
                 "u_robust": u_rob.tolist(),
@@ -183,6 +197,7 @@ def main():
                 "n_eval": N_EVAL,
                 "iters": args.iters,
                 "samples": args.samples,
+                "plan": args.plan,
             },
             indent=2,
         )
@@ -217,8 +232,8 @@ def main():
     )
     axes[1].legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / "control_robust.png", dpi=140)
-    print("wrote figures/control_robust.png")
+    fig.savefig(REPO / "figures" / args.figure, dpi=140)
+    print(f"wrote figures/{args.figure}")
 
 
 if __name__ == "__main__":

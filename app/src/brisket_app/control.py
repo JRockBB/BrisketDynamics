@@ -94,7 +94,7 @@ class ControlConfig:
     w_dwell: float = 500.0
     # ambient Kalman filter (MPC state estimation; see mpc.AmbientKF).
     # R: variance of the segment-end pit innovation — from the CALIBRATED
-    # pit noise (sigma_0 + sigma_pit ~ 1.84 K at the real-cook MAP).
+    # pit noise (sigma_0 + sigma_pit ~ 1.42 K at the real-cook AR(1) MAP).
     # Q: ambient random-walk intensity — weather drifts a few K per hour.
     # P0: prior variance of the initial ambient belief.
     amb_r: float = 3.4  # [K^2]

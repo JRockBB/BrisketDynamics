@@ -78,6 +78,7 @@ uv run python ../scripts/run_control.py         # damper-schedule optimization
 uv run python ../scripts/run_robust_control.py  # control under posterior uncertainty
 uv run python ../scripts/replay_cooklog.py      # real cook, uncalibrated replay
 uv run python ../scripts/run_map_real.py        # real cook MAP calibration
+uv run python ../scripts/run_vi.py --real       # real cook ADVI (evening-scale; checkpointed)
 uv run python ../scripts/run_nuts.py --real     # real cook NUTS (long; checkpointed)
 uv run python ../scripts/run_mpc.py             # receding-horizon MPC demo
 uv run python ../scripts/run_timeplan.py        # cook-time-as-decision-variable
@@ -89,7 +90,8 @@ uv run python ../scripts/render_animation.py    # animated calibrated cook
 
 NUTS runs checkpoint **every 5 steps including warmup** (power-loss-proof;
 survived four battery deaths during development) — re-run the same command to
-resume.
+resume. ADVI (`run_vi.py`) checkpoints the SVI state the same way; it is
+the overnight calibration path and does not replace NUTS.
 
 ## Containers (Linux/WSL2 + Docker)
 

@@ -6,12 +6,15 @@ Gaps: `docs/model_gaps.md`.
 
 ## Hackathon
 
-1. **Current-model real-cook NUTS** — `uv run python ../scripts/run_nuts.py --real`
-   (checkpointed; 300 warmup + 300 samples, kernel-level `HMCState` pickle
-   every 5 steps). Fill `figures/corner_real.png` and
-   `figures/posterior_predictive_real.png`. Quote ESS, split-r̂, divergences
-   as-is. The identifiability claim to check: meat side pinned, pit side
-   only along ridges (UA ∝ ΔH_eff, r_max vs u_leak).
+1. **Current-model real-cook NUTS** — first
+   `uv run python ../scripts/run_map_real.py --init ../data/calibration/map_real.json`
+   (AR(1) likelihood; writes a new MAP including \(\rho\)). Then
+   `uv run python ../scripts/run_nuts.py --real` from a **fresh**
+   checkpoint dir (do not resume `nuts_ckpt_real` or `7a`/`7b`). 300
+   warmup + 300 samples. Fill `figures/corner_real.png` and
+   `figures/posterior_predictive_real.png`. Quote ESS, split-r̂,
+   divergences as-is. The identifiability claim to check: meat side
+   pinned, pit side only along ridges (UA ∝ ΔH_eff, r_max vs u_leak).
 2. **Submission** — post the form / LinkedIn / forum drafts in
    `docs/submission.md`. User-owned: hackathon registration
    (tally.so/r/kdx2ej, required for prize eligibility).

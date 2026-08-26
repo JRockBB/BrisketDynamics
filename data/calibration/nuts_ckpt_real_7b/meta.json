@@ -1,1 +1,0 @@
-{"config": {"warmup": 200, "samples": 200, "max_tree_depth": 6, "real": true, "chain": "7b", "seed": 11, "init_json": "../data/calibration/init_chain_7b.json"}, "done": false}

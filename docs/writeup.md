@@ -65,10 +65,12 @@ adjoint, and NUTS's likelihood surface stays differentiable through the very
 feature that carries the information. (The complete equation set — all four
 meat fields with their kinetics, the bark states, the pit ODEs, the coupling
 map, the KCBS objective, and the likelihood — is written out in
-`docs/model.md`.) Calibration uses a masked Gaussian
-likelihood with a digitization noise floor,
-$y^{pit}_i \sim \mathcal N\big(T_{pit}(t_i;\theta,\varphi),\, (\sigma_0+\sigma_{pit})^2\big)$
-over non-lid-event observations (likewise for the core probe).
+`docs/model.md`.) Synthetic calibration is iid (the synthetic data is
+generated iid). Real-cook calibration is a masked AR(1) Gaussian:
+lid events break the chain, $\sigma_0 = 1.2$ K is the digitization
+floor on the *marginal* residual scale, and a Beta$(2,2)$ $\rho$ per
+probe absorbs the smooth discrepancy the iid model was counting as
+independent observations.
 
 A three-level gradient verification gate backs this: Julia adjoints vs central
 finite differences (rel. err ≤1e-3, most components ≤1e-5), per-endpoint
@@ -111,12 +113,13 @@ conditions come from the log; lid events are masked. The calibrated model
 tracks the 19-hour pit hold within ~3 °C and reproduces the core's full arc —
 rise, multi-hour plateau at ~70 °C, **stall break at ~14 h**, climb to 90 °C.
 The poster described his door as leaky; the calibration puts the leak
-parameter at u_leak = 0.22, and the Minion-start ignition state lands at
-a0 = 0.86 with an hours-scale spread constant — both physical. Expulsion
+parameter at u_leak = 0.26, and the Minion-start ignition state lands at
+a0 = 0.89 with an hours-scale spread constant — both physical. Expulsion
 kinetics (\(k_e\), \(a_{\mathrm{myosin}}\)) are calibrated jointly with the
 transport/thermal latents — the stall entry carries water-holding
-information a thermometer can see. Honest residuals:
-σ_core = 1.30 K against a ±0.8 K digitization floor. A temperature-only
+information a thermometer can see. Honest residuals: AR(1)
+\(\rho_{\mathrm{core}} = 0.92\), marginal \(\sigma_{\mathrm{core}} =
+1.69\) K (1.2 K floor + 0.49 K extra). A temperature-only
 fit that ignores the water budget can score better on the probes while
 hiding an unphysical moisture state; this model stays accountable to a
 kitchen scale. Plus the standing ±3 °C pit wobble

@@ -62,8 +62,8 @@ A three-tier gradient verification gate (Julia adjoint vs FD,
 per-endpoint check-gradients, composed FD through the full pipeline)
 backs the solvers, and the writeup names the model's deficiencies
 honestly, including why closed-loop cook logs cannot identify the
-pit's fast dynamics and why the iid likelihood overstates information in
-the real cook. To our knowledge — based on a survey of the mosaic
+pit's fast dynamics. Real-cook calibration uses an AR(1) likelihood so
+smooth discrepancy is not counted as independent observations. To our knowledge — based on a survey of the mosaic
 suite, the official examples, and the forum — no public example existed of
 a SciMLSensitivity continuous adjoint exposed through the Tesseract VJP
 interface.

@@ -315,19 +315,29 @@ $$
 
 ## 5. Calibration likelihood
 
-Masked Gaussian on both probes with the digitization noise floor
-$\sigma_0 = 1.2$ K (real-cook model; $\sigma_{\mathrm{pit}},
-\sigma_{\mathrm{core}}$ are sampled noise scales):
+**Synthetic** data is generated iid, so the synthetic model is iid
+Gaussian on both probes.
+
+**Real cook** — masked AR(1) Gaussian. Lid events and probe-settling
+holes break the chain (contiguous usable runs only). $\sigma_0 = 1.2$ K
+is the digitization floor; $\sigma_{\mathrm{pit}},\sigma_{\mathrm{core}}$
+are sampled extras on the *marginal* residual scale; $\rho$ is a
+per-probe lag-1 correlation (Beta$(2,2)$ prior, density $0$ at the
+unit root):
 
 $$
-y^{\mathrm{pit}}_i \sim \mathcal N\big(T_p(t_i;\theta,\varphi),\,
-(\sigma_0 + \sigma_{\mathrm{pit}})^2\big),
-\qquad
-y^{\mathrm{core}}_i \sim \mathcal N\big(T_{\mathrm{core}}(t_i;\theta,\varphi),\,
-(\sigma_0 + \sigma_{\mathrm{core}})^2\big),
+\sigma = \sigma_0 + \sigma_{\cdot},\qquad
+y_{t_0} \sim \mathcal N(\mu_{t_0},\,\sigma^2),\qquad
+y_t \mid y_{t-1}
+\sim \mathcal N\big(\mu_t + \rho\,(y_{t-1}-\mu_{t-1}),\,
+\sigma^2(1-\rho^2)\big)
 $$
 
-over non-lid-event observations; LogNormal priors centered on the model
-defaults (Beta for the (0,1)-bounded $u_{\mathrm{leak}}, a_0$). MAP by
-SVI/AutoDelta; posterior by NUTS, every leapfrog step pulling the composed
-VJPs across the Julia↔JAX boundary.
+with $\mu^{\mathrm{pit}} = T_p(t;\theta,\varphi)$ and
+$\mu^{\mathrm{core}} = T_{\mathrm{core}}(t;\theta,\varphi)$, independently
+for each probe. $\rho = 0$ recovers the iid model. LogNormal priors
+centered on the model defaults (Beta for the (0,1)-bounded
+$u_{\mathrm{leak}}, a_0, \rho$). MAP by SVI/AutoDelta. Evening-scale
+posterior by full-rank ADVI (`scripts/run_vi.py`). Optional exact
+posterior by NUTS (`scripts/run_nuts.py`), every leapfrog step pulling
+the composed VJPs across the Julia↔JAX boundary.

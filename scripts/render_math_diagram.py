@@ -100,8 +100,8 @@ box(6.85, 6.65, 7.05, 1.80, SUB_FC, MEAT_EC, "interior fields", [
 box(6.85, 4.35, 7.05, 2.0, SUB_FC, MEAT_EC,
     "surface boundary ($x = L$; wrap blend $s$)", [
     r"$j = (1-\eta_e\, s)\;k_m\,\varphi(W_s)\,\Delta\rho_v(T_s)\,,\qquad -\rho_d D_{e\!f\!f}\,\partial_x W|_s = j$",
-    r"$-k\,\partial_x T|_s = h_c\,(1-\eta_h\, s)\,(T_p - T_s) + \varepsilon(s)\,\sigma_{SB}\,(T_p^4 - T_s^4) - \lambda\,j$",
-    r"$\varepsilon(s) = \varepsilon\,(1-s) + \varepsilon_{wrap}\,s\qquad q_{surf} = -k\,\partial_x T|_s + \lambda\,j$",
+    r"$k\,\partial_x T|_s = h_c\,(1-\eta_h\, s)\,(T_p - T_s) + \varepsilon(s)\,\sigma_{SB}\,(T_p^4 - T_s^4) - \lambda\,j$",
+    r"$\varepsilon(s) = \varepsilon\,(1-s) + \varepsilon_{wrap}\,s\qquad q_{surf} = k\,\partial_x T|_s + \lambda\,j$",
 ], size=10, lw=1.2)
 # bark states
 box(6.85, 2.60, 7.05, 1.45, SUB_FC, MEAT_EC, "bark states (surface)", [

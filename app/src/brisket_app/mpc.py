@@ -251,10 +251,10 @@ def plan(
 ):
     """Re-optimize the remaining-horizon plan from the current state.
 
-    Returns (u_opt, grids, t_wrap_rel): the schedule, its grids, and the
-    planned wrap moment relative to NOW (t_end*sigmoid(z_w); meaningful
-    only when ``cc.opt_wrap``). With opt_wrap off, z_w stays pinned at
-    ``z_w_pin`` (8 = never; -8 = already wrapped).
+    Returns (u_opt, grids, hist): the schedule, its grids, and the
+    optimize_schedule history (``t_wrap`` is remaining-horizon relative;
+    ``best_loss`` / ``losses`` feed wrap_commit). With opt_wrap off, z_w
+    stays pinned at ``z_w_pin`` (8 = never; -8 = already wrapped).
     """
     n_u = max(2, round(t_remaining / (0.75 * HR)))
     grids = CookGrids(
@@ -278,7 +278,35 @@ def plan(
         danger_banked_h=state.danger_h,
         t_wrap_override=t_wrap_override,
     )
-    return u_opt, grids, hist["t_wrap"]
+    return u_opt, grids, hist
+
+
+def wrap_due(tw, t0, dt_seg) -> bool:
+    """Return True if a planned wrap falls in this segment (including overdue)."""
+    return tw is not None and np.isfinite(tw) and tw < t0 + dt_seg
+
+
+def wrap_commit(cand, incumbent, t0, dt_seg, j_best, j_start, tol_rel) -> bool:
+    """Whether to fire the crutch this segment.
+
+    The planned wrap always tracks the optimizer candidate. Execution is
+    gated: wrap this hour only if the candidate is due *and* either the
+    incumbent is also due (two consecutive 'wrap now' votes) or this
+    replan improved J from its warm start by more than ``tol_rel``.
+    Same-horizon ΔJ — not a |Δt| dead-band, and not J from last hour.
+    """
+    if not wrap_due(cand, t0, dt_seg):
+        return False
+    if wrap_due(incumbent, t0, dt_seg):
+        return True
+    if (
+        j_start is None
+        or j_best is None
+        or not np.isfinite(j_start)
+        or not np.isfinite(j_best)
+    ):
+        return False
+    return float(j_best) < float(j_start) - float(tol_rel) * abs(float(j_start))
 
 
 def run_cook(
@@ -297,7 +325,6 @@ def run_cook(
     t_wrap_init_abs: float | None = None,
     u_incumbent=None,
     u_incumbent_grids=None,
-    wrap_deadband: float = 0.5 * HR,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
@@ -310,9 +337,8 @@ def run_cook(
     the segment-end pit temperature under the current belief, and the
     filter assimilates the innovation. Open-loop mode is blind by
     definition — it executes a fixed plan and estimates nothing.
-    ``wrap_deadband`` suppresses wrap-decision drift along the flat
-    J-vs-t_wrap ridge: a replan moves the planned wrap only when it
-    differs from the incumbent plan by more than the dead-band.
+    Wrap *planning* follows each replan's candidate; wrap *execution*
+    uses ``wrap_commit`` so ridge wander cannot fire an early crutch.
     ``t_wrap_init_abs`` seeds the
     planned wrap moment (absolute [s]): open-loop executes it verbatim;
     MPC (with cc.opt_wrap) treats it as the incumbent plan and re-times
@@ -344,10 +370,12 @@ def run_cook(
     # true execution moment (t_wrap_exec_abs).
     kf = AmbientKF(x=float(model_t_amb), p=cc.amb_p0, q=cc.amb_q, r=cc.amb_r)
     t_amb_hat_hist: list[tuple[float, float, float]] = []  # (t, belief, var)
-    t_wrap_abs: float | None = t_wrap_init_abs  # planned wrap, absolute [s]
+    t_wrap_abs: float | None = t_wrap_init_abs  # execution wrap, absolute [s]
+    last_cand: float | None = t_wrap_init_abs  # last optimizer wrap (warm start)
     wrapped = False
     t_wrap_exec_abs: float | None = None  # when the crutch ACTUALLY fired
-    wrap_history: list[tuple[float, float]] = []  # (replan t, planned abs wrap)
+    wrap_history: list[tuple[float, float]] = []  # (replan t, adopted abs wrap)
+    wrap_candidates: list[tuple] = []  # (t, cand, incumbent, j_best, j_start, commit)
 
     # final segment shrinks to the remainder, so arbitrary horizons execute
     # exactly t_f (round(t_f/dt) previously over/under-shot)
@@ -367,12 +395,13 @@ def run_cook(
                 u_init = np.clip(np.interp(new_t, prev_t, u_prev_plan), 1e-3, 1 - 1e-3)
             tw_override = None
             if cc.opt_wrap and not wrapped:
-                # warm-start z_w from the previous ABSOLUTE plan, mapped to
-                # the new remaining horizon (logit of the horizon fraction)
-                if t_wrap_abs is None:
+                # warm-start z_w from the last CANDIDATE (not a deferred
+                # execution time, which would pin wrap at "now")
+                seed = last_cand if last_cand is not None else t_wrap_abs
+                if seed is None:
                     zw0 = 0.0
                 else:
-                    frac = np.clip((t_wrap_abs - state.t) / t_remaining, 1e-3, 1 - 1e-3)
+                    frac = np.clip((seed - state.t) / t_remaining, 1e-3, 1 - 1e-3)
                     zw0 = float(np.log(frac / (1 - frac)))
                 cc_seg = cc
                 zw_pin = 8.0
@@ -387,7 +416,7 @@ def run_cook(
                 zw_pin = 8.0
                 if wrapped:
                     tw_override = t_wrap_exec_abs - state.t
-            u_plan, plan_grids, t_wrap_rel = plan(
+            u_plan, plan_grids, hist = plan(
                 theta,
                 phi_model,
                 state,
@@ -400,11 +429,32 @@ def run_cook(
                 t_wrap_override=tw_override,
             )
             if cc.opt_wrap and not wrapped:
-                cand = state.t + float(t_wrap_rel)
-                # dead-band: J vs t_wrap is a flat ridge in forecast, so
-                # plateau-stopped replans wander it; only adopt a move that
-                # exceeds the dead-band (drift is noise, retiming is signal)
-                if t_wrap_abs is None or abs(cand - t_wrap_abs) > wrap_deadband:
+                incumbent = last_cand
+                cand = state.t + float(hist["t_wrap"])
+                losses = np.asarray(hist.get("losses", []), dtype=float)
+                j_best = hist.get("best_loss")
+                j_start = float(losses[0]) if losses.size else j_best
+                commit = wrap_commit(
+                    cand, incumbent, state.t, dt_seg, j_best, j_start, cc.tol_rel
+                )
+                wrap_candidates.append(
+                    (
+                        state.t,
+                        cand,
+                        np.nan if incumbent is None else float(incumbent),
+                        np.nan if j_best is None else float(j_best),
+                        np.nan if j_start is None else float(j_start),
+                        float(commit),
+                    )
+                )
+                last_cand = cand
+                if commit:
+                    t_wrap_abs = cand
+                elif wrap_due(cand, state.t, dt_seg):
+                    # candidate would fire this hour but did not commit:
+                    # defer so execution cannot wrap on ridge noise
+                    t_wrap_abs = state.t + dt_seg
+                else:
                     t_wrap_abs = cand
                 wrap_history.append((state.t, t_wrap_abs))
             u_prev_plan, _prev_grids = u_plan, plan_grids
@@ -517,6 +567,8 @@ def run_cook(
     if cc.opt_wrap or t_wrap_init_abs is not None:
         out["wrapped"] = wrapped
         out["t_wrap_abs"] = t_wrap_abs
+        out["t_wrap_exec_abs"] = t_wrap_exec_abs
         out["wrap_history"] = wrap_history
+        out["wrap_candidates"] = wrap_candidates
     out["t_amb_hat_hist"] = t_amb_hat_hist
     return out

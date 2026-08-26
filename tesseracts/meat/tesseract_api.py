@@ -306,7 +306,10 @@ def _maybe_soft_fail(err: RuntimeError, what: str) -> None:
         raise
     _SOFT_FAIL_COUNT += 1
     if _SOFT_FAIL_COUNT == 1 or _SOFT_FAIL_COUNT % 10 == 0:
-        print(f"SOFT_FAIL {what} #{_SOFT_FAIL_COUNT}: {err}", flush=True)
+        # Windows cp1252 consoles cannot print Julia's θ in the error text;
+        # a UnicodeEncodeError here would abort NUTS instead of rejecting.
+        msg = str(err).encode("ascii", "replace").decode("ascii")
+        print(f"SOFT_FAIL {what} #{_SOFT_FAIL_COUNT}: {msg}", flush=True)
 
 
 def _own(x) -> np.ndarray:

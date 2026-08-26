@@ -1,26 +1,21 @@
-"""Phase B stage 2: full NUTS posterior, initialized at the MAP.
+"""Checkpointed NUTS. Default is two chains; `--n-chains` sets the count.
 
-EVERY step — warmup included — is checkpointed, via NumPyro's kernel-level
-API (`kernel.init` / `kernel.sample`): the HMCState namedtuple carries the
-complete sampler + adaptation state and pickles cleanly, so an interruption
-at any point (including hour 8 of warmup) resumes from the last checkpoint.
-The MCMC convenience wrapper cannot do this; this runner deliberately avoids
-it.
+Every step — warmup included — is pickled via NumPyro's kernel API
+(`kernel.init` / `kernel.sample`). Re-running the same command resumes.
 
-Run from app/ (intended as a detached long run):
-    uv run python -u ../scripts/run_nuts.py [--warmup N] [--samples N]
+From app/:
+    uv run python -u ../scripts/run_nuts.py --real
+    uv run python -u ../scripts/run_nuts.py --real --n-chains 1
 
-Checkpoints in data/calibration/nuts_ckpt/:
-    state.pkl      HMCState at the last checkpointed step (resume point)
-    meta.json      run configuration
-    samples.npz    constrained samples collected so far (rewritten each save)
-Re-running the same command resumes automatically. On completion, samples are
-copied to data/calibration/nuts_samples.npz and the corner +
-posterior-predictive figures are rendered.
+Checkpoints in data/calibration/nuts_ckpt[_real]/<chain>/ :
+    state.pkl, meta.json, samples.npz, diagnostics.npz
+On completion, samples are concatenated to nuts_samples[_real].npz and
+the corner + posterior-predictive figures are rendered.
 """
 
 import argparse
 import json
+import multiprocessing as mp
 import os
 import pickle
 import sys
@@ -32,6 +27,8 @@ import numpy as np
 # Must be set BEFORE the tesseract api modules import: failed solves at
 # pathological NUTS proposals become rejections, not chain crashes.
 os.environ["BRISKET_SOFT_FAIL"] = "1"
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
@@ -42,108 +39,51 @@ from brisket_app.coupled import CookGrids
 from brisket_app.plots import corner_plot, posterior_predictive_plot
 
 REPO = Path(__file__).resolve().parents[1]
-CKPT_EVERY = 5  # steps between state checkpoints (~10 min of compute at risk)
+CKPT_EVERY = 5
 
 
-def main():
-    """Run (or resume) the checkpointed NUTS chain, then render the figures.
-
-    Builds the NUTS kernel initialized at the MAP (synthetic or, with
-    --real, the real-cook model) and advances it one step at a time via the
-    kernel-level API, pickling the full HMCState every CKPT_EVERY steps so
-    an interruption at any point — warmup included — resumes from the last
-    checkpoint. Raising --samples with every other option unchanged is a
-    valid chain extension. Post-warmup draws are postprocessed to the
-    constrained space and saved to data/calibration/nuts_samples<tag>.npz;
-    unless --chain is given (multi-chain runs), the corner and
-    posterior-predictive figures are rendered at the end.
-    """
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--warmup", type=int, default=300)
-    ap.add_argument("--samples", type=int, default=300)
-    ap.add_argument("--max-tree-depth", type=int, default=6)
-    ap.add_argument(
-        "--real",
-        action="store_true",
-        help="calibrate against the real cook log (data/cook_log/) "
-        "instead of the synthetic dataset",
-    )
-    ap.add_argument(
-        "--chain",
-        default="",
-        help="chain tag for multi-chain runs: suffixes the "
-        "checkpoint dir and samples file, skips figures",
-    )
-    ap.add_argument("--seed", type=int, default=0, help="PRNG seed")
-    ap.add_argument(
-        "--init-json",
-        default=None,
-        help="override init-value file (default: the MAP json)",
-    )
-    args = ap.parse_args()
-    total = args.warmup + args.samples
-    chain = f"_{args.chain}" if args.chain else ""
-    tag = ("_real" if args.real else "") + chain
-    CKPT = REPO / "data" / "calibration" / f"nuts_ckpt{tag}"
-
-    import numpyro
-    from numpyro.infer import NUTS
-
-    meat_tx, pit_tx = meat_client(), pit_client()
-    if args.real:
-        log = cooklog.load(dt_min=10.0)
-        model = calibrate.bound_model_real(log, meat_tx, pit_tx)
-        map_file = REPO / "data" / "calibration" / "map_real.json"
-    else:
-        data = synth.load("cook01")
-        model = calibrate._bound_model(data, meat_tx, pit_tx)
-        map_file = REPO / "data" / "calibration" / "map_result.json"
-    if args.init_json:
-        map_file = Path(args.init_json)
-    init = {
-        k: v
-        for k, v in json.loads(map_file.read_text()).items()
-        if not k.startswith("_")
+def _cfg(args):
+    return {
+        "warmup": args.warmup,
+        "samples": args.samples,
+        "max_tree_depth": args.max_tree_depth,
+        "real": args.real,
+        "n_chains": args.n_chains,
+        "seed": args.seed,
+        "init_json": args.init_json,
     }
 
-    kernel = NUTS(
-        model,
-        max_tree_depth=args.max_tree_depth,
-        init_strategy=numpyro.infer.init_to_value(values=init),
-    )
-    # kernel.init sets up the adaptation schedule and potential fn; it must
-    # run on every start INCLUDING resumes (the pickled state then replaces
-    # the fresh one).
+
+def _resume_ok(old, new):
+    """Return True if the checkpoint can be resumed (samples may increase)."""
+    skip = {"samples"}
+    return {k: v for k, v in old.items() if k not in skip} == {
+        k: v for k, v in new.items() if k not in skip
+    } and old.get("samples", -1) <= new["samples"]
+
+
+def _run_one_chain(kernel, postprocess, step, chain_dir, cfg, chain_id, total):
+    """Advance one chain from init or checkpoint. Returns sample list."""
+    chain_dir.mkdir(parents=True, exist_ok=True)
+    state_file = chain_dir / "state.pkl"
+    meta_file = chain_dir / "meta.json"
+    samples_file = chain_dir / "samples.npz"
+    diags_file = chain_dir / "diagnostics.npz"
+    warmup = cfg["warmup"]
+
     state = kernel.init(
-        jax.random.PRNGKey(args.seed),
-        args.warmup,
+        jax.random.PRNGKey(cfg["seed"] + chain_id),
+        warmup,
         init_params=None,
         model_args=(),
         model_kwargs={},
     )
-    postprocess = kernel.postprocess_fn((), {})
-
-    CKPT.mkdir(parents=True, exist_ok=True)
-    state_file = CKPT / "state.pkl"
-    meta_file = CKPT / "meta.json"
-    samples_file = CKPT / "samples.npz"
-    diags_file = CKPT / "diagnostics.npz"
-
     samples: list[dict] = []
     diags: list[dict] = []
     if state_file.exists() and meta_file.exists():
         meta = json.loads(meta_file.read_text())
-        # Chain EXTENSION is a valid resume: raising --samples with every
-        # other option unchanged keeps the kernel/adaptation identical, and
-        # the step loop simply continues past the old total. (Changing
-        # warmup would change the adaptation schedule — that stays a fresh
-        # start.)
         old_cfg = dict(meta.get("config") or {})
-        new_cfg = vars(args)
-        extension_ok = {k: v for k, v in old_cfg.items() if k != "samples"} == {
-            k: v for k, v in new_cfg.items() if k != "samples"
-        } and old_cfg.get("samples", -1) <= new_cfg["samples"]
-        if extension_ok:
+        if _resume_ok(old_cfg, cfg) and not meta.get("done"):
             with open(state_file, "rb") as f:
                 state = pickle.load(f)
             if samples_file.exists():
@@ -157,20 +97,28 @@ def main():
                     nd = len(f[dkeys[0]])
                     diags = [{k: f[k][i] for k in dkeys} for i in range(nd)]
             print(
-                f"RESUMING at step {int(state.i)}/{total} "
-                f"({len(samples)} samples already collected)",
+                f"chain {chain_id} RESUMING at step {int(state.i)}/{total} "
+                f"({len(samples)} samples)",
                 flush=True,
             )
+        elif meta.get("done") and _resume_ok(old_cfg, cfg):
+            if samples_file.exists():
+                with np.load(samples_file) as f:
+                    keys = f.files
+                    n = len(f[keys[0]])
+                    samples = [{k: f[k][i] for k in keys} for i in range(n)]
+            print(
+                f"chain {chain_id} already done ({len(samples)} samples)",
+                flush=True,
+            )
+            return samples
         else:
-            print("checkpoint config mismatch — starting fresh", flush=True)
-            state_file.unlink()
-
-    step = jax.jit(lambda s: kernel.sample(s, (), {}))
+            print(f"chain {chain_id} checkpoint mismatch — starting fresh", flush=True)
 
     def save(st, done: bool = False):
         with open(state_file, "wb") as f:
             pickle.dump(jax.device_get(st), f)
-        meta_file.write_text(json.dumps({"config": vars(args), "done": done}))
+        meta_file.write_text(json.dumps({"config": cfg, "done": done, "chain": chain_id}))
         if samples:
             np.savez(
                 samples_file,
@@ -188,8 +136,8 @@ def main():
         state = step(state)
         jax.block_until_ready(state.z)
         i = int(state.i)
-        phase = "warmup" if i <= args.warmup else "sample"
-        if i > args.warmup:
+        phase = "warmup" if i <= warmup else "sample"
+        if i > warmup:
             samples.append({k: np.asarray(v) for k, v in postprocess(state.z).items()})
             diags.append(
                 {
@@ -204,36 +152,174 @@ def main():
             save(state)
         if i % 5 == 0 or i == total:
             print(
-                f"{phase} {i}/{total}  "
-                f"({(time.perf_counter() - t0) / 60:.1f} min elapsed, "
+                f"chain {chain_id} {phase} {i}/{total}  "
+                f"({(time.perf_counter() - t0) / 60:.1f} min, "
                 f"{len(samples)} samples)",
                 flush=True,
             )
 
     save(state, done=True)
-    out = REPO / "data" / "calibration"
-    stacked = {k: np.stack([s[k] for s in samples]) for k in samples[0]}
-    np.savez(out / f"nuts_samples{tag}.npz", **stacked)
     if diags:
-        np.savez(
-            out / f"nuts_diagnostics{tag}.npz",
-            **{k: np.stack([d[k] for d in diags]) for k in diags[0]},
-        )
         n_div = int(np.sum([d["diverging"] for d in diags]))
         print(
-            f"NUTS diagnostics: {n_div}/{len(diags)} divergences, "
-            f"mean accept_prob={np.mean([float(d['accept_prob']) for d in diags]):.3f}",
+            f"chain {chain_id} done: {len(samples)} samples, "
+            f"{n_div}/{len(diags)} divergences, "
+            f"mean accept={np.mean([float(d['accept_prob']) for d in diags]):.3f}",
             flush=True,
         )
+    else:
+        print(f"chain {chain_id} done: {len(samples)} samples", flush=True)
+    return samples
+
+
+def _setup_kernel(cfg):
+    """Build the NUTS kernel and a jitted step for this process."""
+    import numpyro
+    from numpyro.infer import NUTS
+
+    meat_tx, pit_tx = meat_client(), pit_client()
+    if cfg["real"]:
+        log = cooklog.load(dt_min=10.0)
+        model = calibrate.bound_model_real(log, meat_tx, pit_tx)
+        map_file = REPO / "data" / "calibration" / "map_real.json"
+        data = None
+    else:
+        log = None
+        data = synth.load("cook01")
+        model = calibrate._bound_model(data, meat_tx, pit_tx)
+        map_file = REPO / "data" / "calibration" / "map_result.json"
+    if cfg["init_json"]:
+        map_file = Path(cfg["init_json"])
+    init = {
+        k: v
+        for k, v in json.loads(map_file.read_text()).items()
+        if not k.startswith("_")
+    }
+    kernel = NUTS(
+        model,
+        max_tree_depth=cfg["max_tree_depth"],
+        init_strategy=numpyro.infer.init_to_value(values=init),
+    )
+    kernel.init(
+        jax.random.PRNGKey(cfg["seed"]),
+        cfg["warmup"],
+        init_params=None,
+        model_args=(),
+        model_kwargs={},
+    )
+    return {
+        "kernel": kernel,
+        "postprocess": kernel.postprocess_fn((), {}),
+        "step": jax.jit(lambda s: kernel.sample(s, (), {})),
+        "meat_tx": meat_tx,
+        "pit_tx": pit_tx,
+        "log": log,
+        "data": data,
+    }
+
+
+def _chain_worker(chain_id, cfg, ckpt, total):
+    """Process entry: one chain, own Tesseract clients, own checkpoint dir."""
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    os.environ.setdefault("BRISKET_SOFT_FAIL", "1")
+    print(f"chain {chain_id} process start", flush=True)
+    s = _setup_kernel(cfg)
+    _run_one_chain(
+        s["kernel"],
+        s["postprocess"],
+        s["step"],
+        Path(ckpt) / str(chain_id),
+        cfg,
+        chain_id,
+        total,
+    )
+
+
+def _stack_chain_samples(ckpt, n_chains):
+    """Concatenate per-chain samples.npz files along the draw axis."""
+    chunks = []
+    for c in range(n_chains):
+        path = Path(ckpt) / str(c) / "samples.npz"
+        if not path.exists():
+            raise SystemExit(f"chain {c} wrote no samples at {path}")
+        with np.load(path) as f:
+            chunks.append({k: np.asarray(f[k]) for k in f.files})
+    keys = chunks[0].keys()
+    return {k: np.concatenate([ch[k] for ch in chunks], axis=0) for k in keys}
+
+
+def main():
+    """Run (or resume) NUTS for `--n-chains` chains, then render figures."""
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--warmup", type=int, default=300)
+    ap.add_argument("--samples", type=int, default=300)
+    ap.add_argument("--max-tree-depth", type=int, default=6)
+    ap.add_argument(
+        "--real",
+        action="store_true",
+        help="calibrate against the real cook log (data/cook_log/) "
+        "instead of the synthetic dataset",
+    )
+    ap.add_argument(
+        "--n-chains",
+        type=int,
+        default=2,
+        help="number of NUTS chains (default 2); seeds are --seed, --seed+1, ...",
+    )
+    ap.add_argument("--seed", type=int, default=0, help="PRNG seed of chain 0")
+    ap.add_argument(
+        "--init-json",
+        default=None,
+        help="override init-value file (default: the MAP json)",
+    )
+    args = ap.parse_args()
+    if args.n_chains < 1:
+        raise SystemExit("--n-chains must be >= 1")
+    total = args.warmup + args.samples
+    cfg = _cfg(args)
+    tag = "_real" if args.real else ""
+    ckpt = REPO / "data" / "calibration" / f"nuts_ckpt{tag}"
+    ckpt.mkdir(parents=True, exist_ok=True)
+    (ckpt / "meta.json").write_text(json.dumps({"config": cfg, "done": False}))
     print(
-        f"NUTS done in {(time.perf_counter() - t0) / 3600:.2f} h "
-        f"({len(samples)} samples)",
+        f"NUTS {args.n_chains} chain(s) in parallel, {args.warmup}+{args.samples} "
+        f"steps, seed {args.seed}",
         flush=True,
     )
 
-    if args.chain:
-        print(f"chain {args.chain}: samples saved; figures skipped", flush=True)
-        return
+    ctx = mp.get_context("spawn")
+    procs = [
+        ctx.Process(
+            target=_chain_worker,
+            args=(c, cfg, str(ckpt), total),
+            name=f"nuts-{c}",
+        )
+        for c in range(args.n_chains)
+    ]
+    for p in procs:
+        p.start()
+        print(f"started {p.name} pid={p.pid}", flush=True)
+    failed = []
+    for p in procs:
+        p.join()
+        if p.exitcode != 0:
+            failed.append((p.name, p.exitcode))
+    if failed:
+        raise SystemExit(f"chain worker(s) failed: {failed}")
+
+    stacked = _stack_chain_samples(ckpt, args.n_chains)
+    out = REPO / "data" / "calibration"
+    np.savez(out / f"nuts_samples{tag}.npz", **stacked)
+    (ckpt / "meta.json").write_text(json.dumps({"config": cfg, "done": True}))
+    print(
+        f"NUTS done ({args.n_chains} chains, {stacked[next(iter(stacked))].shape[0]} draws)",
+        flush=True,
+    )
+
+    s = _setup_kernel(cfg)
+    meat_tx, pit_tx, log, data = s["meat_tx"], s["pit_tx"], s["log"], s["data"]
+
     if args.real:
         grids = CookGrids(
             t_end=float(log["t"][-1]),
@@ -254,10 +340,11 @@ def main():
             [n for n, _ in calibrate.THETA_SITES]
             + [n for n, _ in calibrate.PHI_SITES]
             + [n for n, _ in calibrate.PHI_SITES_IGNITION]
+            + [n for n, _ in calibrate.RHO_SITES]
         )
         corner_plot(
             stacked, REPO / "figures" / "corner_real.png", names=real_names
-        )  # no truths: real data
+        )
         posterior_predictive_plot(
             stacked,
             pp_data,
@@ -278,9 +365,6 @@ def main():
         truths.update(
             {
                 n: t
-                # strict=False: phi_true carries 7 entries but only the 5
-                # PHI_SITES are sampled synthetically (the trailing ignition
-                # entries are inert constants) — truncation is intended.
                 for n, t in zip(
                     [n for n, _ in calibrate.PHI_SITES], data["phi_true"], strict=False
                 )
@@ -307,4 +391,5 @@ def main():
 
 
 if __name__ == "__main__":
+    mp.freeze_support()
     main()

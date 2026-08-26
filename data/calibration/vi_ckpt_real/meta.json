@@ -1,0 +1,1 @@
+{"config": {"steps": 200, "lr": 0.01, "guide": "full", "rank": 8, "draws": 400, "real": true, "seed": 0, "init_json": null}, "step": 200, "done": true}

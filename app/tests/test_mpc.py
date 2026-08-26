@@ -178,3 +178,25 @@ def test_nowrap_objective_matches_wrap_never(clients, theta_phi):
         )
     )
     assert j_off == pytest.approx(j_never, rel=0, abs=1e-9)
+
+
+def test_wrap_commit_agreement_or_dj():
+    """Fire this hour only if the candidate is due and (incumbent is also
+    due or same-horizon J improved past tol_rel)."""
+    t0, dt = 4 * HR, 1 * HR
+    due = 4.2 * HR
+    later = 6.0 * HR
+    # both due → commit even with a flat J
+    assert mpc.wrap_commit(due, 4.1 * HR, t0, dt, j_best=1.0, j_start=1.0, tol_rel=1e-4)
+    # candidate due, incumbent later, no improvement → hold
+    assert not mpc.wrap_commit(due, later, t0, dt, j_best=1.0, j_start=1.0, tol_rel=1e-4)
+    # candidate due, incumbent later, real same-horizon ΔJ → commit
+    assert mpc.wrap_commit(due, later, t0, dt, j_best=0.8, j_start=1.0, tol_rel=1e-4)
+    # candidate still in the future → never fire this hour
+    assert not mpc.wrap_commit(
+        5.5 * HR, 4.1 * HR, t0, dt, j_best=0.8, j_start=1.0, tol_rel=1e-4
+    )
+    # overdue incumbent still counts as due
+    assert mpc.wrap_commit(due, 3.9 * HR, t0, dt, j_best=1.0, j_start=1.0, tol_rel=1e-4)
+    assert mpc.wrap_due(3.9 * HR, t0, dt)
+    assert not mpc.wrap_due(5.5 * HR, t0, dt)
