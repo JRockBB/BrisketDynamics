@@ -205,6 +205,20 @@ Forward pit solve over the damper schedule and meat heat-load forcing.
   trajectories at `tsave` (`mdot` = exact instantaneous burn rate, the
   smoke-flux proxy for the bark model).
 """
+function _pit_check_lengths(u_knots, u_tknots, qmeat_knots, q_tknots)
+    length(u_knots) == length(u_tknots) || throw(
+        ArgumentError(
+            "u_knots length $(length(u_knots)) != u_tknots length $(length(u_tknots))",
+        ),
+    )
+    length(qmeat_knots) == length(q_tknots) || throw(
+        ArgumentError(
+            "qmeat_knots length $(length(qmeat_knots)) != q_tknots length $(length(q_tknots))",
+        ),
+    )
+    return nothing
+end
+
 function pit_solve(
     φ::AbstractVector,
     u_knots::AbstractVector,
@@ -216,6 +230,7 @@ function pit_solve(
     abstol=1e-8,
     reltol=1e-8,
 )
+    _pit_check_lengths(u_knots, u_tknots, qmeat_knots, q_tknots)
     p = vcat(φ, u_knots, qmeat_knots)
     A = _pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol)
     mdot = _pit_mdot_row(A, p, cfg, u_tknots, tsave, length(u_knots))
@@ -262,6 +277,7 @@ function pit_vjp(
     abstol=1e-8,
     reltol=1e-8,
 )
+    _pit_check_lengths(u_knots, u_tknots, qmeat_knots, q_tknots)
     nu, nq, nt = length(u_knots), length(qmeat_knots), length(tsave)
     v = vcat(φ, u_knots, qmeat_knots)
     f = p -> vec(_pit_outputs_arr(p, cfg, u_tknots, q_tknots, tsave, nu; abstol, reltol))

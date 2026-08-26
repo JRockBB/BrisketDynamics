@@ -437,23 +437,42 @@ function _meat_u0(cfg::MeatConfig)
 end
 
 """
-    _meat_u0(cfg, T0f, W0f, C0f)
+    _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0)
 
 Initial state from full fields (receding-horizon state handoff). Empty
-vectors fall back to the uniform defaults.
+vectors / NaN scalars fall back to the uniform defaults.
+
+Since the juiciness build, the fat field and bark states MUST hand off
+too: F restarting at full marbling would re-render fat every replanned
+segment and mis-score the juiciness term the default objective carries;
+bark restarting at zero would zero the appearance/smoke terms mid-cook.
+
+# Arguments
+- `cfg::MeatConfig`: Physical configuration.
+- `T0f, W0f, C0f::AbstractVector`: Field ICs (length nx) or empty for the
+  uniform defaults.
+
+# Keyword Arguments
+- `F0f::AbstractVector`: Un-rendered fat field IC. [Default=empty ⇒ F0]
+- `B0::Real`: Maillard bark state IC. [Default=NaN ⇒ 0]
+- `S0::Real`: Smoke deposition state IC. [Default=NaN ⇒ 0]
+
+# Returns
+- `u0::Vector{Float64}`: Initial state vector (length 4·nx + 2).
 """
 function _meat_u0(
-    cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector, C0f::AbstractVector
+    cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector, C0f::AbstractVector;
+    F0f::AbstractVector = Float64[], B0::Real = NaN, S0::Real = NaN,
 )
     T = isempty(T0f) ? fill(cfg.T0, cfg.nx) : collect(float.(T0f))
     W = isempty(W0f) ? fill(cfg.W0, cfg.nx) : collect(float.(W0f))
     C = isempty(C0f) ? zeros(cfg.nx) : collect(float.(C0f))
-    (length(T) == cfg.nx && length(W) == cfg.nx && length(C) == cfg.nx) ||
-        throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
-    # bark states restart at 0 and fat restarts full on a state handoff —
-    # mid-cook re-plans do not need their continuity (observable-only in
-    # v1); documented limitation
-    return vcat(T, W, C, fill(cfg.F0, cfg.nx), zeros(2))
+    F = isempty(F0f) ? fill(cfg.F0, cfg.nx) : collect(float.(F0f))
+    (
+        length(T) == cfg.nx && length(W) == cfg.nx && length(C) == cfg.nx &&
+        length(F) == cfg.nx
+    ) || throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
+    return vcat(T, W, C, F, [isnan(B0) ? 0.0 : float(B0), isnan(S0) ? 0.0 : float(S0)])
 end
 
 # InterpolatingAdjoint + EnzymeVJP. Both choices are load-bearing:
@@ -475,6 +494,14 @@ end
 # there anyway. Symptoms of Gauss NaN: dt_NaN warnings mid-optimization, NaN
 # damper schedules, truncated pit solves.
 const MEAT_SENSEALG = InterpolatingAdjoint(; autojacvec=EnzymeVJP())
+
+"""
+    fv_mean(v)
+
+Finite-volume mean on the uniform slab mesh: endpoint cells have half
+volume, so ``\\bar v = (\\tfrac12 v_1 + \\sum_{i=2}^{n-1} v_i + \\tfrac12 v_n)/(n-1)``.
+"""
+fv_mean(v) = (first(v) + last(v) + 2 * sum(v[2:(end - 1)])) / (2 * (length(v) - 1))
 
 """
     _meat_core(p, cfg, prob, tsave, Mts; abstol, reltol, sensealg)
@@ -507,8 +534,9 @@ function _meat_core(
     Tsurf = A[nx, :]
     Wsurf = A[2nx, :]
     C_field_final = A[(2nx + 1):3nx, end]
-    # water retained (water-only; kept for continuity + scale calibration)
-    w_retained = sum(A[(nx + 1):2nx, end]) / (nx * cfg.W0)
+    # water retained (water-only; kept for continuity + scale calibration).
+    # Endpoint cells have half volume — arithmetic mean(W) is mesh-biased.
+    w_retained = fv_mean(A[(nx + 1):2nx, end]) / cfg.W0
     nk = size(Mts, 2)
     Tpit_ts = Mts * p[(MEAT_NP + 1):(MEAT_NP + nk)]
     bark_b = A[4nx + 1, :]
@@ -519,7 +547,7 @@ function _meat_core(
     # cook-loss decomposition the scale experiment measures. All dry-basis
     # mean units; mass closure is algebraic (dripped water = water lost
     # minus evaporated), assuming uniform ICs (handoff caveat documented).
-    F_mean = sum(A[(3nx + 1):4nx, end]) / nx
+    F_mean = fv_mean(A[(3nx + 1):4nx, end])
     fat_rendered = (cfg.F0 - F_mean) / cfg.F0
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
     juiciness = w_retained + cfg.β_fat * R_ret / cfg.W0
@@ -570,8 +598,10 @@ Forward solve of the meat PDE under a pit-temperature forcing trajectory.
 - `cfg::MeatConfig`: Fixed physical configuration. [Default=MeatConfig()]
 - `abstol::Float64`: ODE absolute tolerance. [Default=1e-6]
 - `reltol::Float64`: ODE relative tolerance. [Default=1e-6]
-- `T0f, W0f, C0f::AbstractVector`: Optional full-field initial conditions
-  (receding-horizon handoff); empty ⇒ uniform defaults. [Default=empty]
+- `T0f, W0f, C0f, F0f::AbstractVector`: Optional full-field initial
+  conditions (receding-horizon handoff); empty ⇒ uniform defaults.
+  [Default=empty]
+- `B0, S0::Real`: Bark-state ICs for the handoff; NaN ⇒ 0. [Default=NaN]
 - `t_wrap::Real`: Texas-crutch wrap time [s]; `WRAP_NEVER` ⇒ bitwise
   unwrapped. [Default=WRAP_NEVER]
 - `smoke_knots::AbstractVector`: Smoke-flux forcing [kg/s] on the `tknots`
@@ -595,6 +625,9 @@ function meat_solve(
     T0f::AbstractVector=Float64[],
     W0f::AbstractVector=Float64[],
     C0f::AbstractVector=Float64[],
+    F0f::AbstractVector=Float64[],
+    B0::Real=NaN,
+    S0::Real=NaN,
     t_wrap::Real=WRAP_NEVER,
     smoke_knots::AbstractVector=Float64[],
 )
@@ -622,7 +655,10 @@ function meat_solve(
     # FullSpecialize: 3.6x faster forward solve (measured 0.23 -> 0.06 s,
     # 8 h/49-knot fixture); backward unaffected
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
-        rhs!, _meat_u0(cfg, T0f, W0f, C0f), (float(tsave[1]), float(tsave[end])), p
+        rhs!,
+        _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0),
+        (float(tsave[1]), float(tsave[end])),
+        p,
     )
     sol = solve(prob, FBDF(); saveat=tsave, abstol=abstol, reltol=reltol)
     A = Array(sol)
@@ -640,8 +676,8 @@ function meat_solve(
     bark_b = A[4nx + 1, :]
     bark_s = A[4nx + 2, :]
     j_evap = (1 .- cfg.η_evap .* s_ts) .* evap_flux.(Tsurf, Wsurf, θ[2], Ref(cfg))
-    w_retained = sum(A[(nx + 1):2nx, end]) / (nx * cfg.W0)
-    F_mean = sum(A[(3nx + 1):4nx, end]) / nx
+    w_retained = fv_mean(A[(nx + 1):2nx, end]) / cfg.W0
+    F_mean = fv_mean(A[(3nx + 1):4nx, end])
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
     dts = diff(collect(float.(tsave)))
     evap_w = sum((j_evap[1:(end - 1)] .+ j_evap[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
@@ -670,7 +706,7 @@ end
 
 """
     meat_vjp(θ, Tpit_knots, tknots, tsave, cot; cfg, abstol, reltol,
-             sensealg, t_wrap, smoke_knots)
+             sensealg, t_wrap, smoke_knots, T0f, W0f, C0f, F0f, B0, S0)
 
 Vector–Jacobian product of the meat Tesseract outputs w.r.t.
 `(θ, Tpit_knots, smoke_knots, t_wrap)`. The gradient flows through the
@@ -679,6 +715,11 @@ normalized to unit magnitude on entry and rescaled on exit (exact by
 linearity; prevents a large-seed backward-solve abort that returns silent
 zeros — see the inline comment) and a loud guard that throws if the
 backward solve aborted anyway.
+
+The optional field ICs (`T0f`/`W0f`/`C0f`/`F0f`/`B0`/`S0`) MUST match the
+primal solve's: the adjoint problem is built from the SAME initial state
+(receding-horizon replans differentiate their own forecast, not a fresh
+default brisket).
 
 # Arguments
 - `θ::AbstractVector`: Meat latents (length `MEAT_NP`; see [`meat_solve`](@ref)).
@@ -698,6 +739,10 @@ backward solve aborted anyway.
 - `t_wrap::Real`: Wrap time [s]. [Default=WRAP_NEVER]
 - `smoke_knots::AbstractVector`: Smoke forcing on `tknots`; empty ⇒ zeros.
   [Default=empty]
+- `T0f, W0f, C0f, F0f::AbstractVector`: Optional full-field initial
+  conditions — must match the primal's; empty ⇒ uniform defaults.
+  [Default=empty]
+- `B0, S0::Real`: Bark-state ICs; NaN ⇒ 0. [Default=NaN]
 
 # Returns
 - `g::NamedTuple`: `(; dθ, dTpit_knots, dsmoke_knots, dt_wrap)` gradients.
@@ -714,6 +759,12 @@ function meat_vjp(
     sensealg=MEAT_SENSEALG,
     t_wrap::Real=WRAP_NEVER,
     smoke_knots::AbstractVector=Float64[],
+    T0f::AbstractVector=Float64[],
+    W0f::AbstractVector=Float64[],
+    C0f::AbstractVector=Float64[],
+    F0f::AbstractVector=Float64[],
+    B0::Real=NaN,
+    S0::Real=NaN,
 )
     length(θ) == MEAT_NP || throw(
         ArgumentError(
@@ -722,12 +773,23 @@ function meat_vjp(
         ),
     )
     sk = isempty(smoke_knots) ? zeros(length(tknots)) : collect(float.(smoke_knots))
+    length(sk) == length(tknots) || throw(
+        ArgumentError(
+            "smoke_knots must share the tknots grid (got $(length(sk)) vs $(length(tknots)))",
+        ),
+    )
     p = vcat(θ, Tpit_knots, sk, float(t_wrap))
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
     Mts = hat_matrix(tsave, tk0, tkdt, length(tknots))
     rhs! = make_meat_rhs(cfg, tk0, tkdt, length(tknots))
+    # The adjoint problem starts from the SAME initial state as the primal:
+    # building it from cfg defaults here silently differentiated a fresh
+    # brisket for every mid-cook (receding-horizon) gradient.
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
-        rhs!, _meat_u0(cfg), (float(tsave[1]), float(tsave[end])), p
+        rhs!,
+        _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0),
+        (float(tsave[1]), float(tsave[end])),
+        p,
     )
     nt = length(tsave)
     z_t = zeros(nt)

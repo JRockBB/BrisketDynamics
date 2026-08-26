@@ -225,3 +225,48 @@ end
     fd = fd_partial(v -> sum(meat_solve(v, Tpit, tknots, tsave; tol...).Tcore), θ, 6)
     @test relerr(gT.dθ[6], fd) < 2e-3
 end
+
+@testset "mid-cook state adjoint vs FD" begin
+    # Receding-horizon invariant: VJP from a nonuniform mid-cook field must
+    # match FD of a primal that starts from the SAME fields (not cfg defaults).
+    hr = 3600.0
+    tk_all = collect(0.0:600.0:6hr)
+    θ = MEAT_θ_DEFAULT
+    Tpit_all = collect(range(380.0, 390.0, length=length(tk_all)))
+    tol = (abstol=1e-9, reltol=1e-9)
+    isplit = findfirst(t -> t >= 4hr, tk_all)
+    o1 = meat_solve(θ, Tpit_all[1:isplit], tk_all[1:isplit], tk_all[1:isplit]; tol...)
+    tk = tk_all[isplit:end] .- tk_all[isplit]
+    Tpit = Tpit_all[isplit:end]
+    ics = (
+        T0f=o1.T_field[:, end],
+        W0f=o1.W_field[:, end],
+        C0f=o1.C_field[:, end],
+        F0f=o1.F_field[:, end],
+        B0=o1.bark_b[end],
+        S0=o1.bark_s[end],
+    )
+
+    wts = (Tsurf=0.3, Tcore=1.0, C_field_final=10.0)
+    function loss(θv, Tpitv)
+        o = meat_solve(θv, Tpitv, tk, tk; ics..., tol...)
+        return wts.Tsurf * sum(abs2, o.Tsurf .- 350) / length(o.Tsurf) +
+               wts.Tcore * sum(abs2, o.Tcore .- 340) / length(o.Tcore) +
+               wts.C_field_final * sum(o.C_field_final)
+    end
+    o = meat_solve(θ, Tpit, tk, tk; ics..., tol...)
+    cot = (
+        Tsurf=wts.Tsurf .* 2 .* (o.Tsurf .- 350) ./ length(o.Tsurf),
+        Tcore=wts.Tcore .* 2 .* (o.Tcore .- 340) ./ length(o.Tcore),
+        C_field_final=fill(wts.C_field_final, length(o.C_field_final)),
+    )
+    g = meat_vjp(θ, Tpit, tk, tk, cot; ics..., tol...)
+
+    fd = fd_partial(v -> loss(v, Tpit), θ, 3)
+    @test relerr(g.dθ[3], fd) < 5e-3
+    fd = fd_partial(v -> loss(v, Tpit), θ, 5)
+    @test relerr(g.dθ[5], fd) < 5e-3
+    imid = max(1, length(Tpit) ÷ 2)
+    fd = fd_partial(v -> loss(θ, v), Tpit, imid; hrel=1e-4)
+    @test relerr(g.dTpit_knots[imid], fd) < 5e-3
+end

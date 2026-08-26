@@ -138,7 +138,8 @@ end
     lo = meat_solve(θ, fill(383.15, length(tk)), tk, tk)   # 110 C pit
     hi = meat_solve(θ, fill(408.15, length(tk)), tk, tk)   # 135 C pit
 
-    # mass closure: water lost = evaporated + dripped, algebraically exact
+    # mass closure is DEFINITIONAL (drip_w := water_lost - evap_w); this
+    # checks the algebra, not PDE conservation of the W field.
     for o in (lo, hi)
         water_lost = cfg.W0 * (1 - o.w_retained)
         @test isapprox(water_lost, o.evap_w + o.drip_w; atol=1e-8)
@@ -167,4 +168,65 @@ end
     cool = meat_solve(θ, fill(333.15, length(tk)), tk, tk)
     @test cool.w_retained > lo.w_retained
     @test cool.fat_rendered < 0.5
+end
+
+@testset "state handoff continuity (MPC replan invariant)" begin
+    # A cook split at 6 h with a FULL state handoff (T/W/C/F fields + bark
+    # scalars) must reproduce the straight 12 h cook: since the juiciness
+    # build, fat and bark restarting at defaults would re-render fat and
+    # zero bark every replanned segment, silently corrupting the terms the
+    # default objective optimizes. Tolerances cover the solver restart
+    # transient only.
+    hr = 3600.0
+    tk = collect(0.0:600.0:12hr)
+    θ = MEAT_θ_DEFAULT
+    Tpit = collect(range(378.0, 388.0; length=length(tk)))
+    smoke = fill(1.2e-4, length(tk))
+    whole = meat_solve(θ, Tpit, tk, tk; smoke_knots=smoke)
+
+    isplit = findfirst(t -> t >= 6hr, tk)
+    tk1 = tk[1:isplit]
+    seg1 = meat_solve(θ, Tpit[1:isplit], tk1, tk1; smoke_knots=smoke[1:isplit])
+    # second segment: shift times to start at 0, hand off the full state
+    tk2 = tk[isplit:end] .- tk[isplit]
+    seg2 = meat_solve(
+        θ,
+        Tpit[isplit:end],
+        tk2,
+        tk2;
+        smoke_knots=smoke[isplit:end],
+        T0f=seg1.T_field[:, end],
+        W0f=seg1.W_field[:, end],
+        C0f=seg1.C_field[:, end],
+        F0f=seg1.F_field[:, end],
+        B0=seg1.bark_b[end],
+        S0=seg1.bark_s[end],
+    )
+
+    @test abs(seg2.Tcore[end] - whole.Tcore[end]) < 0.05        # K
+    @test abs(seg2.w_retained - whole.w_retained) < 1e-3
+    @test abs(seg2.fat_rendered - whole.fat_rendered) < 1e-3
+    @test abs(seg2.juiciness - whole.juiciness) < 2e-3
+    @test abs(seg2.bark_b[end] - whole.bark_b[end]) < 1e-3
+    @test abs(seg2.bark_s[end] - whole.bark_s[end]) < 1e-3
+
+    # the OLD behavior (fat/bark restart at defaults) must NOT match —
+    # this is the bug the handoff fixes, kept as a tripwire
+    seg2_old = meat_solve(
+        θ,
+        Tpit[isplit:end],
+        tk2,
+        tk2;
+        smoke_knots=smoke[isplit:end],
+        T0f=seg1.T_field[:, end],
+        W0f=seg1.W_field[:, end],
+        C0f=seg1.C_field[:, end],
+    )
+    # the tripwire invariant is DISCONTINUITY, not a specific ratio: both
+    # bark integrators partially rebuild on their own (measured: B 0.218
+    # vs 0.251, S 0.635 vs 0.891), so assert the defaults-restart error
+    # exceeds the handoff's continuity tolerance by two orders of
+    # magnitude — that gap is what the handoff fix closes
+    @test seg2_old.fat_rendered < whole.fat_rendered - 0.05
+    @test abs(seg2_old.bark_s[end] - whole.bark_s[end]) > 0.1
 end

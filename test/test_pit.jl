@@ -24,4 +24,12 @@
     # meat load pulls the pit down
     loaded = pit_solve(φ, fill(0.4, 16), u_tknots, fill(150.0, length(tsave)), tsave, tsave)
     @test loaded.Tpit[end] < pit.Tpit[end]
+
+    # paired-length mismatch must fail loudly (silent p-slicing is a C3 trap)
+    @test_throws ArgumentError pit_solve(
+        φ, fill(0.4, 8), u_tknots, zeros(length(tsave)), tsave, tsave
+    )
+    @test_throws ArgumentError pit_solve(
+        φ, fill(0.4, 16), u_tknots, zeros(10), tsave, tsave
+    )
 end

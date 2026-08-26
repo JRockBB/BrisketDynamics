@@ -18,7 +18,7 @@ import jax.numpy as jnp
 import numpyro
 from brisket_app import calibrate, cooklog
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.coupled import HR, CookGrids, coupled_cook
+from brisket_app.coupled import HR, CookGrids, check_picard, coupled_cook
 from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDelta
 
@@ -90,6 +90,7 @@ def main():
         K=2,
         ics=ics,
     )
+    check_picard(sim)
 
     import matplotlib
 

@@ -74,17 +74,16 @@ class ControlConfig:
     w_surf: float = 1.0
     w_fuel: float = 0.1
     w_smooth: float = 0.01
-    # --- food safety: LETHALITY-CURVE constraint (gap audit Tier 1 #4) ---
+    # --- food safety: SOFT PENALTIES, not a certification ---
     # Pasteurization is a time-temperature CURVE, not a threshold. The
-    # z-value equivalence integrates surface lethality
+    # z-value equivalence integrates SURFACE lethality
     #     F = integral 10^((T_s - T_ref)/z) dt   [T_ref-equivalent seconds]
-    # FSIS guidance for ~7-log Salmonella reduction in beef: ~12 min at
-    # 60 C with z ~ 6 C. The constraint requires F >= leth_f_req by end of
-    # cook, penalized on the log10 shortfall (curve-faithful: any
-    # time-temperature path achieving the required lethality passes). A
-    # danger-zone dwell cap separately guards the GROWTH phase before
-    # lethal temperatures are reached. Both computed from the existing
-    # surface-temperature output; applied unconditionally.
+    # FSIS Appendix A requires the stated condition in all parts of the
+    # product; this model assumes INTACT MUSCLE (surface pathogens) and
+    # does not evaluate the cold spot. Both terms are weighted softplus
+    # penalties an optimizer can trade against quality — they are not
+    # hard constraints, do not reject unsafe plans, and are not a
+    # food-safety certification. See safety_report() for raw residuals.
     leth_t_ref: float = 333.15  # 60 C
     leth_z: float = 6.0  # z-value [K]
     leth_f_req: float = 720.0  # 60 C-equivalent seconds (~7-log)
@@ -93,20 +92,87 @@ class ControlConfig:
     t_danger_hi: float = 333.15  # 60 C
     danger_cap_h: float = 4.0
     w_dwell: float = 500.0
+    # ambient Kalman filter (MPC state estimation; see mpc.AmbientKF).
+    # R: variance of the segment-end pit innovation — from the CALIBRATED
+    # pit noise (sigma_0 + sigma_pit ~ 1.42 K at the real-cook AR(1) MAP).
+    # Q: ambient random-walk intensity — weather drifts a few K per hour.
+    # P0: prior variance of the initial ambient belief.
+    amb_r: float = 3.4  # [K^2]
+    amb_q: float = 0.0025  # [K^2 / s]
+    amb_p0: float = 25.0  # [K^2]
+    # receding-horizon consistency: fuel is normalized by a FIXED reference
+    # load and banked lethality carries across replans, so the remaining-
+    # horizon objective sums to the whole-cook objective (a replan that
+    # re-baselines fuel fractions taxes late burning ever harder and coasts
+    # the cook as an artifact — observed before this fix)
+    m0_ref: float = 7.0  # [kg] PitConfig default load
     # decision variables / optimizer
     opt_wrap: bool = False  # optimize t_wrap jointly with the schedule
     lr: float = 0.05
-    n_iter: int = 200
+    n_iter: int = 200  # iteration CAP; convergence stop below usually binds
+    # plateau stop: quit when the best loss has not improved by more than
+    # tol_rel * |best| for `patience` consecutive iterations (0 disables)
+    tol_rel: float = 1e-4
+    patience: int = 20
+
+
+def _plateau_stop(losses, cc: ControlConfig) -> bool:
+    """Convergence check: no improvement beyond tol_rel for `patience` iters.
+
+    Compares the best loss inside the trailing window against the best
+    before it; disabled when cc.patience == 0.
+    """
+    if cc.patience <= 0 or len(losses) <= cc.patience:
+        return False
+    best_before = min(losses[: -cc.patience])
+    best_recent = min(losses[-cc.patience :])
+    return best_recent > best_before - cc.tol_rel * abs(best_before)
+
+
+def safety_report(tsurf, t, cc: ControlConfig, leth_banked=0.0, danger_banked_h=0.0):
+    """Raw surface lethality / danger-zone dwell vs the configured thresholds.
+
+    Soft objective penalties are NOT a certification; this reports the
+    residuals. Assumes intact muscle (surface pathogens); the cold-spot
+    field is not evaluated.
+    """
+    ts = np.asarray(tsurf, dtype=np.float64)
+    tt = np.asarray(t, dtype=np.float64)
+    F = leth_banked + float(
+        np.trapezoid(10.0 ** ((ts - cc.leth_t_ref) / cc.leth_z), tt)
+    )
+    in_zone = 1.0 / (1.0 + np.exp(-(ts - cc.t_danger_lo) / 2.0))
+    in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - ts) / 2.0))
+    danger_h = danger_banked_h + float(np.trapezoid(in_zone, tt / 3600.0))
+    return {
+        "F_s": F,
+        "danger_h": danger_h,
+        "lethality_ok": F >= cc.leth_f_req,
+        "dwell_ok": danger_h <= cc.danger_cap_h,
+        "assumption": "intact muscle; surface lethality; soft penalties",
+    }
 
 
 def objective(
-    z, z_w, theta, phi, meat_tx, pit_tx, grids, cc: ControlConfig, tols, ics=None
+    z,
+    z_w,
+    theta,
+    phi,
+    meat_tx,
+    pit_tx,
+    grids,
+    cc: ControlConfig,
+    tols,
+    ics=None,
+    leth_banked: float = 0.0,
+    danger_banked_h: float = 0.0,
+    t_wrap_override: float | None = None,
 ):
     """Scalar quality objective of one simulated cook (lower is better).
 
     KCBS-weighted appearance/taste/tenderness bands plus operational terms
-    and the unconditional food-safety constraints (lethality curve +
-    danger-zone dwell); see ControlConfig for every weight and band.
+    and the food-safety *soft penalties* (surface lethality + danger-zone
+    dwell; intact-muscle assumption — see ControlConfig / safety_report).
 
     Parameters
     ----------
@@ -126,6 +192,20 @@ def objective(
         Solver tolerances.
     ics : dict, optional
         Initial conditions (receding-horizon replans).
+    leth_banked : float, optional
+        Lethality already accumulated by the executed cook [60C-equivalent
+        seconds]; replans pass it so the safety constraint sees the whole
+        cook, not just the remaining horizon.
+    danger_banked_h : float, optional
+        Danger-zone dwell already spent by the executed cook [h]; same
+        whole-cook accounting as leth_banked (the 4 h cap is cumulative,
+        not per-replan).
+    t_wrap_override : float, optional
+        Bypass the z_w mapping with an explicit wrap time [s], possibly
+        negative (wrap in the past). Used by post-wrap MPC replans: the
+        sigmoid map cannot represent an already-executed wrap, and pinning
+        z_w merely puts the wrap shortly after segment start (a half-open
+        blend for ~δ_wrap), not saturated-on.
 
     Returns
     -------
@@ -133,9 +213,18 @@ def objective(
         Scalar objective value.
     """
     u = jax.nn.sigmoid(z)
-    # bounded wrap time: t_end * sigmoid(z_w) in (0, t_end); wrapping at
-    # ~t_end is physically a no-wrap, so that corner stays reachable
-    t_wrap = grids.t_end * jax.nn.sigmoid(z_w)
+    # With opt_wrap: t_wrap = t_end * sigmoid(z_w) in (0, t_end).
+    # Without: WRAP_NEVER (1e9) plus a dummy 0*z_w so the tangent stays live.
+    # t_wrap_override (possibly negative = already wrapped) bypasses the map.
+    t_wrap = (
+        t_wrap_override
+        if t_wrap_override is not None
+        else (
+            grids.t_end * jax.nn.sigmoid(z_w)
+            if cc.opt_wrap
+            else 1.0e9 + 0.0 * z_w
+        )
+    )
     sim = coupled_cook(
         theta, phi, u, meat_tx, pit_tx, grids, K=2, ics=ics, t_wrap=t_wrap, **tols
     )
@@ -167,14 +256,15 @@ def objective(
     # moisture_plan.md; w_retained remains available for the scale story
     taste = smoke_band + cc.w_dry * (1.0 - sim["juiciness"]) ** 2
 
-    # operational terms
+    # operational terms; fuel normalized by the FIXED reference load so
+    # replans price burning identically to the whole-cook objective
     surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)
-    fuel_frac = (sim["m_fuel"][0] - sim["m_fuel"][-1]) / sim["m_fuel"][0]
+    fuel_frac = (sim["m_fuel"][0] - sim["m_fuel"][-1]) / cc.m0_ref
 
     # food safety (unconditional): lethality curve + growth-phase dwell
     Ts = sim["tsurf"]
     t_s = jnp.asarray(grids.tknots)
-    F = jnp.trapezoid(10.0 ** ((Ts - cc.leth_t_ref) / cc.leth_z), t_s)
+    F = leth_banked + jnp.trapezoid(10.0 ** ((Ts - cc.leth_t_ref) / cc.leth_z), t_s)
     leth_pen = (
         cc.w_lethality
         * jax.nn.softplus((jnp.log10(cc.leth_f_req) - jnp.log10(F + 1e-9)) / 0.2) ** 2
@@ -182,7 +272,7 @@ def objective(
     in_zone = jax.nn.sigmoid((Ts - cc.t_danger_lo) / 2.0) * jax.nn.sigmoid(
         (cc.t_danger_hi - Ts) / 2.0
     )
-    danger_h = jnp.trapezoid(in_zone, t_s / 3600.0)
+    danger_h = danger_banked_h + jnp.trapezoid(in_zone, t_s / 3600.0)
     dwell_pen = cc.w_dwell * jax.nn.softplus((danger_h - cc.danger_cap_h) / 0.5) ** 2
 
     return (
@@ -208,6 +298,7 @@ def optimize_schedule_expected(
     u_init=0.5,
     log_every: int = 10,
     callback=None,
+    z_w_init: float | None = None,
 ):
     """Optimize the damper schedule against the EXPECTED objective.
 
@@ -237,24 +328,47 @@ def optimize_schedule_expected(
 
     u0 = jnp.broadcast_to(jnp.asarray(u_init), (grids.n_u,))
     z = jnp.log(u0 / (1 - u0))
-    z_w = jnp.asarray(8.0)  # pinned no-wrap; tangent still flows (see above)
+    # wrap decision under uncertainty: with cc.opt_wrap the POSTERIOR-
+    # EXPECTED wrap moment is optimized jointly with the schedule (one
+    # t_wrap for all draws — you only get to wrap the real brisket once);
+    # otherwise WRAP_NEVER (1e9), tangent still flowing via 0*z_w.
+    if z_w_init is None:
+        z_w_init = 0.0 if cc.opt_wrap else 8.0
+    z_w = jnp.asarray(z_w_init)
     opt = optax.adam(cc.lr)
-    state = opt.init(z)
+    state = opt.init((z, z_w))
     val_grad = jax.jit(jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3)))
 
     losses = []
+    best_loss = np.inf
+    best_z, best_z_w = z, z_w
     t0 = time.perf_counter()
     for i in range(cc.n_iter):
-        loss, (g, _gw, _, _) = val_grad(z, z_w, thetas, phis)
-        updates, state = opt.update(g, state, z)
-        z = optax.apply_updates(z, updates)
-        losses.append(float(loss))
+        loss, (g, g_w, _, _) = val_grad(z, z_w, thetas, phis)
+        lf = float(loss)
+        losses.append(lf)
+        if np.isfinite(lf) and lf < best_loss:
+            best_loss, best_z, best_z_w = lf, z, z_w
+        updates, state = opt.update((g, g_w), state, (z, z_w))
+        z_new, z_w_new = optax.apply_updates((z, z_w), updates)
+        z = z_new
+        if cc.opt_wrap:
+            z_w = z_w_new
         if callback and (i % log_every == 0 or i == cc.n_iter - 1):
-            callback(i, float(loss), np.asarray(jax.nn.sigmoid(z)))
-    return np.asarray(jax.nn.sigmoid(z)), {
+            callback(i, lf, np.asarray(jax.nn.sigmoid(z)))
+        if _plateau_stop(losses, cc):
+            break
+    tw = (
+        float(grids.t_end * jax.nn.sigmoid(best_z_w)) if cc.opt_wrap else 1.0e9
+    )
+    return np.asarray(jax.nn.sigmoid(best_z)), {
         "losses": np.asarray(losses),
         "wall_s": time.perf_counter() - t0,
         "grids": grids,
+        "t_wrap": tw,
+        "best_loss": best_loss,
+        "converged": _plateau_stop(losses, cc),
+        "n_iter_run": len(losses),
     }
 
 
@@ -271,12 +385,18 @@ def optimize_schedule(
     callback=None,
     ics: dict | None = None,
     z_w_init: float = 0.0,
+    z_w_pin: float = 8.0,
+    leth_banked: float = 0.0,
+    danger_banked_h: float = 0.0,
+    t_wrap_override: float | None = None,
 ):
     """Optimize the damper schedule at fixed (theta, phi) with Adam.
 
     Returns (u_opt, history dict); the history carries losses, wall time,
     the grids, and the final t_wrap. `callback(i, loss, u)` fires every
-    `log_every` iterations.
+    `log_every` iterations. With ``cc.opt_wrap`` off, wrap physics is
+    WRAP_NEVER (1e9); ``z_w`` still carries a dummy tangent. Post-wrap MPC
+    replans pass ``t_wrap_override`` (possibly negative) instead of a pin.
     """
     cc = cc or ControlConfig()
     grids = grids or CookGrids(dt_exchange=600.0, n_u=16)
@@ -286,12 +406,11 @@ def optimize_schedule(
 
     u0 = jnp.broadcast_to(jnp.asarray(u_init), (grids.n_u,))
     z = jnp.log(u0 / (1 - u0))
-    # wrap decision variable: t_wrap = t_end*sigmoid(z_w). When opt_wrap is
-    # off, z_w is pinned near-never-wrap (sigmoid(8) = 0.9997 -> t_wrap at
-    # the horizon end, physically no wrap) and its updates are discarded --
-    # but it ALWAYS carries a tangent, keeping one traced graph and the
-    # all-inputs-tangent invariant (see below).
-    z_w = jnp.asarray(z_w_init if cc.opt_wrap else 8.0)
+    # wrap decision variable. When opt_wrap is off, objective uses WRAP_NEVER
+    # (1e9 + 0*z_w); z_w is still traced so one graph covers both modes.
+    # z_w_pin is kept for callers that still pass it; it no longer changes
+    # the physics.
+    z_w = jnp.asarray(z_w_init if cc.opt_wrap else z_w_pin)
     opt = optax.adam(cc.lr)
     state = opt.init((z, z_w))
     # Two deliberate choices here:
@@ -308,13 +427,27 @@ def optimize_schedule(
     val_grad = jax.jit(
         jax.value_and_grad(
             lambda zz, zw, th, ph: objective(
-                zz, zw, th, ph, meat_tx, pit_tx, grids, cc, tols, ics=ics
+                zz,
+                zw,
+                th,
+                ph,
+                meat_tx,
+                pit_tx,
+                grids,
+                cc,
+                tols,
+                ics=ics,
+                leth_banked=leth_banked,
+                danger_banked_h=danger_banked_h,
+                t_wrap_override=t_wrap_override,
             ),
             argnums=(0, 1, 2, 3),
         )
     )
 
     losses, schedules = [], []
+    best_loss = np.inf
+    best_z, best_z_w = z, z_w
     t0 = time.perf_counter()
     for i in range(cc.n_iter):
         # Single retry: a rare timing-dependent race in the local-client
@@ -328,19 +461,33 @@ def optimize_schedule(
                 raise
             print(f"  iter {i}: degenerate-input race, retrying once ({e})", flush=True)
             loss, (g, g_w, _g_theta, _g_phi) = val_grad(z, z_w, theta, phi)
+        lf = float(loss)
+        losses.append(lf)
+        if np.isfinite(lf) and lf < best_loss:
+            best_loss, best_z, best_z_w = lf, z, z_w
         if not cc.opt_wrap:
             g_w = jnp.zeros_like(g_w)
         updates, state = opt.update((g, g_w), state, (z, z_w))
         z, z_w = optax.apply_updates((z, z_w), updates)
-        losses.append(float(loss))
         if i % log_every == 0 or i == cc.n_iter - 1:
-            schedules.append(np.asarray(jax.nn.sigmoid(z)))
+            schedules.append(np.asarray(jax.nn.sigmoid(best_z)))
             if callback:
-                callback(i, float(loss), np.asarray(jax.nn.sigmoid(z)))
-    return np.asarray(jax.nn.sigmoid(z)), {
+                callback(i, lf, np.asarray(jax.nn.sigmoid(best_z)))
+        if _plateau_stop(losses, cc):
+            break
+    if t_wrap_override is not None:
+        tw = float(t_wrap_override)
+    elif cc.opt_wrap:
+        tw = float(grids.t_end * jax.nn.sigmoid(best_z_w))
+    else:
+        tw = 1.0e9
+    return np.asarray(jax.nn.sigmoid(best_z)), {
         "losses": np.asarray(losses),
         "schedules": np.asarray(schedules),
-        "t_wrap": float(grids.t_end * jax.nn.sigmoid(z_w)),
+        "t_wrap": tw,
+        "best_loss": best_loss,
         "wall_s": time.perf_counter() - t0,
         "grids": grids,
+        "converged": _plateau_stop(losses, cc),
+        "n_iter_run": len(losses),
     }

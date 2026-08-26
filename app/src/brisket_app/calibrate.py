@@ -1,9 +1,12 @@
 """Bayesian calibration of the coupled pit-brisket model (NumPyro).
 
-Stage 1 (this file's `run_map`): MAP via SVI with a Delta guide — validates the
-full gradient path through both Tesseracts cheaply and initializes NUTS.
+Stage 1 (`run_map`): MAP via SVI with a Delta guide — validates the
+full gradient path through both Tesseracts cheaply and initializes NUTS
+and VI.
 Stage 2 (`run_nuts`): full NUTS posterior. Every leapfrog step pulls adjoint
 gradients across the Julia<->JAX boundary.
+Evening / library path (`make_vi_guide`): full-rank (or low-rank /
+mean-field) ADVI on the same model. NUTS is not replaced.
 
 Priors are LogNormal, centered on the model defaults (which double as the
 physical scaling analysis; see docs/brief.md §6) with log-sds wide enough to
@@ -23,7 +26,12 @@ import numpy as np
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
-from numpyro.infer.autoguide import AutoDelta
+from numpyro.infer.autoguide import (
+    AutoDelta,
+    AutoLowRankMultivariateNormal,
+    AutoMultivariateNormal,
+    AutoNormal,
+)
 
 from .coupled import CookGrids, coupled_cook
 
@@ -57,6 +65,14 @@ PHI_SITES_IGNITION = [
     ("a0", dist.Beta(2.0, 4.0)),
 ]
 PHI_IGNITION_INERT = np.array([3e-4, 1.0])  # k_spread (inert at a0=1), a0
+# Real-cook residual AR(1). Beta(2,2) has density 0 at {0,1} so NUTS cannot
+# park on a unit root; the data (ρ̂ ≈ 0.85/0.97) still sit comfortably in
+# the prior mass. Clip keeps √(1-ρ²) defined under float rounding.
+RHO_SITES = [
+    ("rho_pit", dist.Beta(2.0, 2.0)),
+    ("rho_core", dist.Beta(2.0, 2.0)),
+]
+_RHO_VAR_FLOOR = 1.0e-8
 
 
 def phi_full(params: dict) -> np.ndarray:
@@ -152,33 +168,128 @@ def _bound_model(
 SIGMA_FLOOR_K = 1.2  # >= 2 F digitization noise floor (PROVENANCE.md)
 
 
+def contiguous_runs(mask: np.ndarray) -> tuple[tuple[int, ...], ...]:
+    """Index tuples of contiguous True runs in a 1-D boolean mask.
+
+    Lid events and probe-settling holes break the AR(1) chain: two
+    observations separated by a masked gap are not lag-1 neighbours.
+    Empty mask → empty tuple.
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        1-D boolean; True = usable observation.
+
+    Returns
+    -------
+    tuple[tuple[int, ...], ...]
+        One index tuple per contiguous True run, in order.
+    """
+    m = np.asarray(mask, dtype=bool).reshape(-1)
+    if m.size == 0 or not m.any():
+        return ()
+    padded = np.concatenate([[False], m, [False]])
+    d = np.diff(padded.astype(np.int8))
+    starts = np.flatnonzero(d == 1)
+    ends = np.flatnonzero(d == -1)
+    return tuple(tuple(range(int(s), int(e))) for s, e in zip(starts, ends, strict=True))
+
+
+def ar1_log_prob(y, mu, sigma, rho):
+    """Gaussian AR(1) log-density on a contiguous residual series.
+
+    `sigma` is the *marginal* residual scale: y_0 ~ N(μ_0, σ²) and
+    subsequent innovations have sd σ√(1-ρ²). ρ = 0 recovers iid N(μ, σ²).
+
+    Parameters
+    ----------
+    y, mu : array-like
+        Observations and model means, same length ≥ 1.
+    sigma, rho : scalar
+        Marginal scale (>0) and lag-1 correlation in (-1, 1).
+
+    Returns
+    -------
+    jax.Array
+        Scalar log-density.
+    """
+    y = jnp.asarray(y).reshape(-1)
+    mu = jnp.asarray(mu).reshape(-1)
+    e = y - mu
+    lp0 = dist.Normal(0.0, sigma).log_prob(e[0])
+    n = e.shape[0]
+    if n == 1:
+        return lp0
+    innov_sd = sigma * jnp.sqrt(jnp.clip(1.0 - rho * rho, _RHO_VAR_FLOOR, 1.0))
+    return lp0 + dist.Normal(rho * e[:-1], innov_sd).log_prob(e[1:]).sum()
+
+
+def ar1_observe(name, y, mu, sigma, rho):
+    """Condition a NumPyro model on an AR(1) Gaussian segment.
+
+    First point carries the marginal; the rest are innovations. A
+    length-1 run is just N(μ, σ²).
+
+    Parameters
+    ----------
+    name : str
+        Trace site prefix (must be unique per segment).
+    y, mu : array-like
+        Observations and model means for this contiguous run.
+    sigma, rho : scalar
+        Marginal residual scale and lag-1 correlation.
+    """
+    y = jnp.asarray(y).reshape(-1)
+    mu = jnp.asarray(mu).reshape(-1)
+    numpyro.sample(f"{name}_y0", dist.Normal(mu[0], sigma), obs=y[0])
+    # run length is a Python constant (precomputed mask segments)
+    if y.shape[0] == 1:
+        return
+    innov_sd = sigma * jnp.sqrt(jnp.clip(1.0 - rho * rho, _RHO_VAR_FLOOR, 1.0))
+    numpyro.sample(
+        f"{name}_innov",
+        dist.Normal(mu[1:] + rho * (y[:-1] - mu[:-1]), innov_sd),
+        obs=y[1:],
+    )
+
+
 def model_real(
-    obs_pit, obs_core, mask_pit, mask_core, u_knots, ics, meat_tx, pit_tx, grids, tols
+    obs_pit,
+    obs_core,
+    pit_runs,
+    core_runs,
+    u_knots,
+    ics,
+    meat_tx,
+    pit_tx,
+    grids,
+    tols,
 ):
     """Calibration model for the real cook log.
 
-    Masked Gaussian likelihood (lid events + probe-settling excluded) with
-    the digitization noise floor added to both scales, initial conditions
-    fixed from the log, and the ignition dynamics sampled (real cooks start
-    Minion-style).
+    Masked AR(1) Gaussian (lid events and probe-settling break the chain)
+    with the digitization noise floor added to both *marginal* scales,
+    initial conditions fixed from the log, and the ignition dynamics
+    sampled (real cooks start Minion-style). Synthetic calibration stays
+    iid: that data is generated iid.
     """
     theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
     # real cooks start Minion-style: sample the ignition dynamics too
     phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES + PHI_SITES_IGNITION])
     sigma_pit = SIGMA_FLOOR_K + numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
     sigma_core = SIGMA_FLOOR_K + numpyro.sample("sigma_core", dist.HalfNormal(2.0))
+    rho_pit = numpyro.sample("rho_pit", RHO_SITES[0][1])
+    rho_core = numpyro.sample("rho_core", RHO_SITES[1][1])
 
     sim = coupled_cook(
         theta, phi, jnp.asarray(u_knots), meat_tx, pit_tx, grids, K=2, ics=ics, **tols
     )
-    numpyro.sample(
-        "pit", dist.Normal(sim["tpit"][mask_pit], sigma_pit), obs=obs_pit[mask_pit]
-    )
-    numpyro.sample(
-        "core",
-        dist.Normal(sim["tcore"][mask_core], sigma_core),
-        obs=obs_core[mask_core],
-    )
+    for k, run in enumerate(pit_runs):
+        idx = jnp.array(run)
+        ar1_observe(f"pit{k}", obs_pit[idx], sim["tpit"][idx], sigma_pit, rho_pit)
+    for k, run in enumerate(core_runs):
+        idx = jnp.array(run)
+        ar1_observe(f"core{k}", obs_core[idx], sim["tcore"][idx], sigma_core, rho_core)
 
 
 def bound_model_real(log: dict, meat_tx, pit_tx, tols: dict | None = None):
@@ -198,8 +309,8 @@ def bound_model_real(log: dict, meat_tx, pit_tx, tols: dict | None = None):
         model_real,
         jnp.asarray(log["obs_pit"]),
         jnp.asarray(log["obs_core"]),
-        np.asarray(log["mask_pit"]),
-        np.asarray(log["mask_core"]),
+        contiguous_runs(log["mask_pit"]),
+        contiguous_runs(log["mask_core"]),
         log["u"],
         ics,
         meat_tx,
@@ -227,6 +338,84 @@ def time_gradient(data, meat_tx, pit_tx, **kw) -> float:
         v, _g = f(info.param_info.z)
         jax.block_until_ready(v)
     return (time.perf_counter() - t0) / n
+
+
+def real_latent_names() -> list[str]:
+    """Constrained site names sampled by `model_real` (not the observations)."""
+    return (
+        [n for n, _ in THETA_SITES]
+        + [n for n, _ in PHI_SITES]
+        + [n for n, _ in PHI_SITES_IGNITION]
+        + ["sigma_pit", "sigma_core"]
+        + [n for n, _ in RHO_SITES]
+    )
+
+
+def make_vi_guide(
+    model,
+    kind: str = "full",
+    init_values: dict | None = None,
+    rank: int = 8,
+):
+    """Build an ADVI guide for a bound NumPyro model.
+
+    `full` is a multivariate Gaussian on the unconstrained space (can
+    represent linear ridges). `lowrank` is cheaper; `meanfield` cannot
+    capture the pit ridges. NUTS (`run_nuts`) remains the exact-posterior
+    sampler.
+
+    Parameters
+    ----------
+    model : callable
+        Bound NumPyro model (no extra args).
+    kind : {'full', 'lowrank', 'meanfield'}
+        Variational family.
+    init_values : dict or None
+        Constrained site values (typically the MAP) for the guide loc.
+    rank : int
+        Factor rank when `kind='lowrank'`.
+
+    Returns
+    -------
+    numpyro.infer.autoguide.AutoContinuous
+        The guide.
+    """
+    init_loc_fn = (
+        numpyro.infer.init_to_value(values=init_values)
+        if init_values
+        else numpyro.infer.init_to_median()
+    )
+    kw = {"init_loc_fn": init_loc_fn}
+    if kind == "full":
+        return AutoMultivariateNormal(model, **kw)
+    if kind == "lowrank":
+        return AutoLowRankMultivariateNormal(model, rank=rank, **kw)
+    if kind == "meanfield":
+        return AutoNormal(model, **kw)
+    raise ValueError(f"unknown VI guide kind {kind!r}; use full|lowrank|meanfield")
+
+
+def draw_vi_posterior(guide, params: dict, n: int, seed: int = 1) -> dict:
+    """Draw constrained samples from a fitted ADVI guide.
+
+    Parameters
+    ----------
+    guide
+        Fitted autoguide (same object used in SVI).
+    params : dict
+        `svi.get_params(state)` / `SVIRunResult.params`.
+    n : int
+        Number of draws.
+    seed : int
+        PRNG seed.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        Site name → array of shape `(n,)`.
+    """
+    raw = guide.sample_posterior(jax.random.PRNGKey(seed), params, sample_shape=(n,))
+    return {k: np.asarray(v).reshape(n) for k, v in raw.items()}
 
 
 def run_map(
@@ -309,8 +498,13 @@ def recovery_table(map_params: dict, data: dict) -> str:
         + [n for n, _ in PHI_SITES_IGNITION]
     )
     truths = np.concatenate([data["theta_true"], data["phi_true"]])
+    if len(truths) != len(names):
+        raise ValueError(
+            f"truth vector length {len(truths)} != {len(names)} current sites; "
+            "regenerate synthetic data under the current parameter schema"
+        )
     lines = [f"{'param':>10} {'truth':>12} {'MAP':>12} {'err %':>8}"]
-    for n, t in zip(names, truths, strict=False):
+    for n, t in zip(names, truths, strict=True):
         if n not in map_params:
             continue
         m = float(map_params[n])

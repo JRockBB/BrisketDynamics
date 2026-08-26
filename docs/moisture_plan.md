@@ -1,9 +1,16 @@
 # Moisture Physics: Fat Rendering + Denaturation Expulsion
 
-Gap audit Tier 1 #1 and #2 (docs/model_gaps.md), built as one unit because
-they share the moisture story: perceived juiciness = retained water AND
-retained rendered fat; total cook loss = evaporated water + dripped water
-(purge) + drained fat. Branch `moisture-physics`.
+> Historical design note. Shipped (per-node fat `F`, denaturation expulsion
+> into `W`, `k_e`/`a_myosin` in θ). Equations: `docs/model.md`. Remaining
+> moisture-adjacent gaps (shrinkage, humidity, condensation) live in
+> `docs/model_gaps.md`, not here.
+
+Built as one unit because perceived juiciness = retained water AND retained
+rendered fat; total cook loss = evaporated water + dripped water (purge) +
+drained fat. Branch `moisture-physics`. Two findings the plan did not
+predict: frozen literature expulsion constants left a 2× calibration-loss
+floor, so `k_e` and `a_myosin` joined θ (5 → 7); the crutch entered the
+optimal plan (17 h cook, wrap at 3.5 h).
 
 ## Physics
 
@@ -33,17 +40,15 @@ water drips (purge). Mass closure is algebraic — no new integral states:
 
     dripped_water = (W0·nx − ΣW_final) − ∫ j_evap dt · (area scaling)
 
-**States**: [T | W | C | F] × nx + [B, S]  →  4·nx + 2 = 162. F is a pure
-sink (no feedback into T/W in v1 — fat's thermal-property and
-evaporation-barrier effects are documented exclusions; see gaps #3, #6).
-Wait — F HAS one feedback: the expulsion sink enters dW. F itself feeds
-nothing in v1.
+**States**: [T | W | C | F] × nx + [B, S]  →  4·nx + 2 = 162. Fat does not
+feed T or W in v1 (no thermal-property or evaporation-barrier coupling;
+those exclusions are in `docs/model_gaps.md`). The expulsion sink is in
+`dW`; it does not take `F` as an input.
 
-**New outputs** (all additive, Differentiable):
-- `juiciness` — perceptual: (ΣW_f + β_fat·ΣR_f) / (nx·(W0 + β_fat·F0·(1−η_drain)))
-  with β_fat ≈ 1.8 (fat's per-mass contribution to perceived moistness;
-  sensory placeholder, named as such). `w_retained` (water-only) is kept
-  for continuity and the scale calibration.
+**Outputs** (shipped; means are finite-volume weighted, `fv_mean`):
+- `juiciness` — `w_retained + β_fat · R_ret / W0` with
+  `R_ret = (1 − η_drain) · (F0 − F̄)` and `β_fat ≈ 1.8` (sensory
+  placeholder). `w_retained` (water-only) is kept for the scale calibration.
 - `fat_rendered` — mean rendered fraction (F0 − F̄)/F0 at pull.
 - `mass_evap`, `mass_drip_w`, `mass_drip_f` — the cook-loss decomposition
   the scale experiment observes (tallow catch = drip_w + drip_f;
@@ -76,8 +81,7 @@ nothing in v1.
 4. Composed check: one FD direction through juiciness.
 5. Rerun fullplan + wraptime ONCE under (new objective + new physics) —
    the deferred single rerun; regenerate figures; docs sync (writeup
-   taste taxonomy: moisture is now water + rendered fat; gaps #1/#2
-   status DONE).
+   taste taxonomy: moisture is water + rendered fat).
 
 ## Risks
 - State relayout is the landmine (B/S index shift breaks silently if any

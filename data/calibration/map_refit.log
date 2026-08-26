@@ -1,0 +1,16 @@
+final loss 494.9; wrote map_real.json
+         D_eff = 2.3254e-08
+           k_m = 0.0011424
+           h_c = 4.8326
+             L = 0.024577
+        k_mult = 2.8082
+          C_th = 86186
+            UA = 17.051
+         r_max = 0.00034503
+        dH_eff = 1.472e+07
+        u_leak = 0.22268
+      k_spread = 0.0003322
+            a0 = 0.86001
+     sigma_pit = 0.63995
+    sigma_core = 1.3842
+wrote figures/cooklog_fit_map.png

@@ -11,6 +11,7 @@ Run from app/:  uv run python -u ../scripts/run_fullplan.py
 Writes figures/fullplan.png + data/control/fullplan_result.json.
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -22,18 +23,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.control import ControlConfig
-from brisket_app.coupled import HR, coupled_cook
+from brisket_app.control import ControlConfig, safety_report
+from brisket_app.coupled import HR, check_picard, coupled_cook
 from brisket_app.timeplan import optimal_duration, plan_duration
 
 REPO = Path(__file__).resolve().parents[1]
-# CLI: run_fullplan.py [durations...]. The objective is the default
-# ControlConfig (KCBS-weighted quality + safety); override weights there.
-_args = sys.argv[1:]
-DURATIONS_H = (
-    [float(a) for a in _args] if _args else [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0]
-)
-RESULT_NAME = "fullplan_result_ext.json" if _args else "fullplan_result.json"
+# CLI: run_fullplan.py [durations...] [--params FILE] [--tag SUFFIX].
+# The objective is the default ControlConfig (KCBS-weighted quality +
+# safety); override weights there.
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 CC = ControlConfig(opt_wrap=True, n_iter=60)
 
@@ -41,10 +38,10 @@ CC = ControlConfig(opt_wrap=True, n_iter=60)
 def main():
     """Scan planned durations, jointly optimizing damper schedule and wrap time.
 
-    Runs ``plan_duration`` over DURATIONS_H at the MAP-real parameters
+    Runs ``plan_duration`` over the requested hours at ``--params``
     (extension runs warm-start from the base scan's converged optimum),
     picks the best duration with ``optimal_duration``, and writes
-    data/control/<RESULT_NAME> plus figures/fullplan.png: the quality
+    data/control/fullplan_result[_ext]{tag}.json plus figures/fullplan{tag}.png: the quality
     objective versus duration (each point annotated with its own optimal
     wrap moment) and the chosen cook's core/surface trajectories with the
     wrap time marked.
@@ -64,20 +61,50 @@ def main():
         f"{CC.w_tenderness * CC.over_rel * _ov**2:.3f} (expect ~0.14)",
         flush=True,
     )
-    m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "durations",
+        nargs="*",
+        type=float,
+        help="hours to scan; default 8-14. Passing values writes "
+        "fullplan_result_ext{tag}.json and warm-starts from the base scan",
+    )
+    ap.add_argument(
+        "--params",
+        default="map_real.json",
+        help="point-estimate json under data/calibration (MAP or VI mean)",
+    )
+    ap.add_argument(
+        "--tag",
+        default="",
+        help="suffix for result/figure files (e.g. _vi); leaves MAP artifacts alone",
+    )
+    args = ap.parse_args()
+    durations_h = args.durations or [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0]
+    is_ext = bool(args.durations)
+    result_name = (
+        f"fullplan_result_ext{args.tag}.json"
+        if is_ext
+        else f"fullplan_result{args.tag}.json"
+    )
+    fig_name = f"fullplan{args.tag}.png"
+    base_name = f"fullplan_result{args.tag}.json"
+    merged_name = f"fullplan_merged{args.tag}.json"
+
+    params_path = REPO / "data" / "calibration" / args.params
+    m = json.loads(params_path.read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
     meat_tx, pit_tx = meat_client(), pit_client()
+    print(f"params: {params_path.name}", flush=True)
 
     seed = None
-    if RESULT_NAME.endswith("_ext.json"):
+    if is_ext:
         # extension run: warm-start from the base scan's best (a CONVERGED
         # optimum). A cold 60-iter start at 14 h parked in doneness
         # saturation (J = 27.9 vs the warm chain's -0.163) and would have
         # poisoned every duration above it.
-        base = json.loads(
-            (REPO / "data" / "control" / "fullplan_result.json").read_text()
-        )
+        base = json.loads((REPO / "data" / "control" / base_name).read_text())
         seed = {
             "u": base["best_u"],
             "t_f_h": base["best_t_f_h"],
@@ -86,7 +113,7 @@ def main():
         print(f"extension seeded from base optimum at {base['best_t_f_h']} h")
     print("full composition scan: duration x wrap x schedule")
     records = plan_duration(
-        theta, phi, meat_tx, pit_tx, DURATIONS_H, cc=CC, ics=ICS, seed=seed
+        theta, phi, meat_tx, pit_tx, durations_h, cc=CC, ics=ICS, seed=seed
     )
     best = optimal_duration(records)
     print(
@@ -97,7 +124,7 @@ def main():
     )
 
     (REPO / "data" / "control").mkdir(parents=True, exist_ok=True)
-    (REPO / "data" / "control" / RESULT_NAME).write_text(
+    (REPO / "data" / "control" / result_name).write_text(
         json.dumps(
             {
                 "durations_h": [r["t_f_h"] for r in records],
@@ -126,6 +153,13 @@ def main():
         t_wrap=best["t_wrap_h"] * HR,
     )
     sim = {k: np.asarray(v) for k, v in sim.items()}
+    check_picard(sim)
+    sr = safety_report(sim["tsurf"], best["grids"].tknots, CC)
+    print(
+        f"safety (surface, intact-muscle assumption): "
+        f"F={sr['F_s']:.1f}s (ok={sr['lethality_ok']})  "
+        f"dwell={sr['danger_h']:.2f}h (ok={sr['dwell_ok']})"
+    )
     th = np.asarray(best["grids"].tknots) / HR
 
     import matplotlib
@@ -143,10 +177,8 @@ def main():
     plot_recs = [
         {k: r[k] for k in ("t_f_h", "j_quality", "t_wrap_h")} for r in records
     ]
-    if RESULT_NAME.endswith("_ext.json"):
-        base_r = json.loads(
-            (REPO / "data" / "control" / "fullplan_result.json").read_text()
-        )
+    if is_ext:
+        base_r = json.loads((REPO / "data" / "control" / base_name).read_text())
         plot_recs = [
             {"t_f_h": t, "j_quality": j, "t_wrap_h": w}
             for t, j, w in zip(
@@ -156,7 +188,7 @@ def main():
                 strict=True,
             )
         ] + plot_recs
-        (REPO / "data" / "control" / "fullplan_merged.json").write_text(
+        (REPO / "data" / "control" / merged_name).write_text(
             json.dumps(
                 {
                     "durations_h": [r["t_f_h"] for r in plot_recs],
@@ -223,12 +255,12 @@ def main():
 
     fig.suptitle(
         "The perfect brisket picks its own duration and wrap moment "
-        "(MAP smoker; bark constants uncalibrated)",
+        f"({params_path.stem} smoker; bark constants uncalibrated)",
         y=1.0,
     )
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / "fullplan.png", dpi=140, bbox_inches="tight")
-    print("wrote figures/fullplan.png")
+    fig.savefig(REPO / "figures" / fig_name, dpi=140, bbox_inches="tight")
+    print(f"wrote figures/{fig_name}")
 
 
 if __name__ == "__main__":

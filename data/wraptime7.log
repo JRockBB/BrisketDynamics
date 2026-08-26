@@ -1,0 +1,24 @@
+1) no-wrap optimum (juiciness- and bark-aware)
+   no-wrap: {'doneness': 0.8960607800911004, 'w_retained': 0.30387708347741066, 'l_star_end': 36.03244940718044, 'bark_b': 0.36241671185272156, 'bark_s': 0.8719216355765138, 'stall_h': np.float64(0.0), 'core_end_C': 96.53204239532982}
+2) joint (schedule, t_wrap) optimization, 3-point multi-start
+   start z_w=-2: J=2.3124  t_wrap=3.08 h
+   start z_w=+0: J=1.2991  t_wrap=7.07 h
+   start z_w=+2: J=1.3619  t_wrap=8.45 h
+   optimal wrap at 7.07 h: {'doneness': 0.99053272104839, 'w_retained': 0.30178354357176024, 'l_star_end': 34.772870940567245, 'bark_b': 0.45163034960558346, 'bark_s': 0.8194522067321086, 'stall_h': np.float64(0.0), 'core_end_C': 91.27678071631067}
+3) 1-D objective slice over t_wrap at the optimal schedule
+   t_wrap= 1.00 h  J=11.5784
+   t_wrap= 1.64 h  J=6.8057
+   t_wrap= 2.29 h  J=6.4739
+   t_wrap= 2.93 h  J=5.9694
+   t_wrap= 3.57 h  J=3.9868
+   t_wrap= 4.21 h  J=2.2130
+   t_wrap= 4.86 h  J=1.5122
+   t_wrap= 5.50 h  J=1.3588
+   t_wrap= 6.14 h  J=1.3061
+   t_wrap= 6.79 h  J=1.2937
+   t_wrap= 7.43 h  J=1.3117
+   t_wrap= 8.07 h  J=1.3518
+   t_wrap= 8.71 h  J=1.4053
+   t_wrap= 9.36 h  J=1.4659
+   t_wrap=10.00 h  J=1.5167
+wrote figures/wraptime.png

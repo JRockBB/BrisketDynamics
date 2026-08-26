@@ -18,8 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.control import ControlConfig, optimize_schedule
-from brisket_app.coupled import HR, CookGrids, coupled_cook
+from brisket_app.control import ControlConfig, optimize_schedule, safety_report
+from brisket_app.coupled import HR, CookGrids, check_picard, coupled_cook
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -89,7 +89,14 @@ def main():
     c1 = float(after["c_field_final"][0])
     print(
         f"optimized: core doneness {c1:.3f}, J {hist['losses'][0]:.2f} -> "
-        f"{hist['losses'][-1]:.2f} in {hist['wall_s']:.0f} s"
+        f"{hist.get('best_loss', hist['losses'][-1]):.2f} in {hist['wall_s']:.0f} s"
+    )
+    check_picard(after)
+    sr = safety_report(after["tsurf"], grids.tknots, cc)
+    print(
+        f"safety (surface, intact-muscle assumption): "
+        f"F={sr['F_s']:.1f}s (ok={sr['lethality_ok']})  "
+        f"dwell={sr['danger_h']:.2f}h (ok={sr['dwell_ok']})"
     )
 
     out_dir = REPO / "data" / "control"

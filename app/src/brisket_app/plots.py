@@ -22,7 +22,7 @@ from .coupled import HR, coupled_cook
 PARAM_NAMES = [n for n, _ in THETA_SITES] + [n for n, _ in PHI_SITES]
 # log-scale for the strictly positive scale parameters; u_leak stays linear
 # fractions stay linear; every other physical scale is log10
-_LINEAR = {"u_leak", "a0"}
+_LINEAR = {"u_leak", "a0", "rho_pit", "rho_core"}
 LOG_PARAMS = {n for n in PARAM_NAMES if n not in _LINEAR}
 
 

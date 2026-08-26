@@ -80,26 +80,60 @@ def main():
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=100)
+    ap.add_argument(
+        "--samples",
+        default="nuts_samples_real.npz",
+        help="posterior sample file(s) under data/calibration, "
+        "comma-separated (chains are concatenated)",
+    )
+    ap.add_argument(
+        "--plan",
+        default="fullplan_result_ext.json",
+        help="assessed cook json under data/control (u, t_f, t_wrap)",
+    )
+    ap.add_argument(
+        "--figure",
+        default="control_robust.png",
+        help="output figure name under figures/",
+    )
+    ap.add_argument(
+        "--out",
+        default="schedule_robust.json",
+        help="output json name under data/control/",
+    )
     args = ap.parse_args()
 
-    samples = dict(np.load(REPO / "data" / "calibration" / "nuts_samples.npz"))
+    parts = [
+        dict(np.load(REPO / "data" / "calibration" / f.strip()))
+        for f in args.samples.split(",")
+    ]
+    samples = {
+        k: np.concatenate([np.asarray(p[k]).reshape(-1) for p in parts])
+        for k in parts[0]
+    }
     n_total = len(samples[THETA_SITES[0][0]])
     opt_idx = np.linspace(0, n_total - 1, N_OPT, dtype=int)  # decorrelated
     eval_idx = np.linspace(0, n_total - 1, N_EVAL + 2, dtype=int)[1:-1]
     th_opt, ph_opt = draws(samples, opt_idx)
     th_ev, ph_ev = draws(samples, eval_idx)
 
-    u_map = np.asarray(
-        json.loads((REPO / "data" / "control" / "schedule_opt.json").read_text())[
-            "u_opt"
-        ]
-    )
+    # the plan under uncertainty-hedging: the ASSESSED fullplan optimum
+    # (17 h, wrap ~3.5 h), not the legacy 12 h MAP schedule
+    best = json.loads((REPO / "data" / "control" / args.plan).read_text())
+    print(f"plan: {args.plan}  samples: {args.samples}", flush=True)
+    u_map = np.asarray(best["best_u"])
+    t_wrap_map = best["best_t_wrap_h"] * HR
+    t_f = best["best_t_f_h"] * HR
 
     meat_tx, pit_tx = meat_client(), pit_client()
-    grids = CookGrids(dt_exchange=600.0, n_u=len(u_map))
-    cc = ControlConfig(n_iter=args.iters)
+    grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=len(u_map))
+    # opt_wrap: the posterior-EXPECTED wrap moment is a decision variable
+    # too — the interesting question is whether parameter uncertainty
+    # hedges the crutch earlier or later than the MAP's choice
+    cc = ControlConfig(n_iter=args.iters, opt_wrap=True)
 
     print(f"optimizing E[J] over {N_OPT} posterior draws, warm start from MAP schedule")
+    frac = np.clip(t_wrap_map / t_f, 1e-3, 1 - 1e-3)
     u_rob, hist = optimize_schedule_expected(
         th_opt,
         ph_opt,
@@ -108,14 +142,20 @@ def main():
         grids=grids,
         cc=cc,
         u_init=u_map,
+        z_w_init=float(np.log(frac / (1 - frac))),
         callback=lambda i, l, u: print(f"  iter {i:4d}  E[J]={l:9.4f}", flush=True),
+    )
+    t_wrap_rob = hist["t_wrap"]
+    print(
+        f"wrap: plan {t_wrap_map / HR:.2f} h -> "
+        f"posterior-expected {t_wrap_rob / HR:.2f} h"
     )
     print(
         f"E[J] {hist['losses'][0]:.3f} -> {hist['losses'][-1]:.3f} "
         f"in {hist['wall_s']:.0f} s"
     )
 
-    def doneness(u, th, ph):
+    def metrics(u, tw, th, ph):
         out = coupled_cook(
             jnp.asarray(th),
             jnp.asarray(ph),
@@ -124,28 +164,40 @@ def main():
             pit_tx,
             grids,
             K=2,
+            t_wrap=tw,
         )
-        return float(out["c_field_final"][0])
+        return float(out["c_field_final"][0]), float(out["juiciness"])
 
-    print(f"evaluating both schedules on {N_EVAL} held-out draws")
-    d_map = np.array([doneness(u_map, th_ev[i], ph_ev[i]) for i in range(N_EVAL)])
-    d_rob = np.array([doneness(u_rob, th_ev[i], ph_ev[i]) for i in range(N_EVAL)])
-    for name, d in [("MAP-optimal", d_map), ("robust", d_rob)]:
+    print(f"evaluating both plans on {N_EVAL} held-out draws")
+    m_map = [metrics(u_map, t_wrap_map, th_ev[i], ph_ev[i]) for i in range(N_EVAL)]
+    m_rob = [metrics(u_rob, t_wrap_rob, th_ev[i], ph_ev[i]) for i in range(N_EVAL)]
+    d_map = np.array([x[0] for x in m_map])
+    d_rob = np.array([x[0] for x in m_rob])
+    j_map = np.array([x[1] for x in m_map])
+    j_rob = np.array([x[1] for x in m_rob])
+    for name, d, j in [("plan-optimal", d_map, j_map), ("robust", d_rob, j_rob)]:
         print(
             f"  {name}: doneness mean={d.mean():.3f} sd={d.std():.3f} "
-            f"min={d.min():.3f} max={d.max():.3f}"
+            f"min={d.min():.3f} max={d.max():.3f}  "
+            f"juiciness mean={j.mean():.3f} sd={j.std():.3f}"
         )
 
     out_dir = REPO / "data" / "control"
-    (out_dir / "schedule_robust.json").write_text(
+    (out_dir / args.out).write_text(
         json.dumps(
             {
                 "u_robust": u_rob.tolist(),
+                "t_wrap_plan_h": t_wrap_map / HR,
+                "t_wrap_robust_h": t_wrap_rob / HR,
                 "doneness_map_eval": d_map.tolist(),
                 "doneness_robust_eval": d_rob.tolist(),
+                "juiciness_map_eval": j_map.tolist(),
+                "juiciness_robust_eval": j_rob.tolist(),
                 "n_opt": N_OPT,
                 "n_eval": N_EVAL,
                 "iters": args.iters,
+                "samples": args.samples,
+                "plan": args.plan,
             },
             indent=2,
         )
@@ -161,17 +213,17 @@ def main():
         min(d_map.min(), d_rob.min()) - 0.02, max(d_map.max(), d_rob.max()) + 0.02, 16
     )
     axes[0].hist(
-        d_map, bins=bins, alpha=0.6, label=f"MAP-optimal (sd={d_map.std():.3f})"
+        d_map, bins=bins, alpha=0.6, label=f"plan-optimal (sd={d_map.std():.3f})"
     )
     axes[0].hist(d_rob, bins=bins, alpha=0.6, label=f"robust (sd={d_rob.std():.3f})")
     axes[0].axvline(0.90, color="r", ls=":", lw=1, label="target")
     axes[0].set(
-        xlabel="core doneness at 12 h",
+        xlabel=f"core doneness at {t_f / HR:.0f} h",
         ylabel="posterior draws",
         title=f"doneness under parameter uncertainty ({N_EVAL} draws)",
     )
     axes[0].legend(fontsize=8)
-    axes[1].step(grids.u_tknots / HR, u_map, where="mid", label="MAP-optimal")
+    axes[1].step(grids.u_tknots / HR, u_map, where="mid", label="plan-optimal")
     axes[1].step(
         grids.u_tknots / HR, u_rob, where="mid", label="robust (E over posterior)"
     )
@@ -180,8 +232,8 @@ def main():
     )
     axes[1].legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / "control_robust.png", dpi=140)
-    print("wrote figures/control_robust.png")
+    fig.savefig(REPO / "figures" / args.figure, dpi=140)
+    print(f"wrote figures/{args.figure}")
 
 
 if __name__ == "__main__":

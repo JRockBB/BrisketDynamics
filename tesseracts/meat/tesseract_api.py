@@ -102,22 +102,24 @@ def _init():
     jl.seval(
         """
         function _meat_apply(θ, knots, tknots, tsave, abstol, reltol, t0,
-                             T0f, W0f, C0f, t_wrap, smoke)
+                             T0f, W0f, C0f, F0f, b0, s0, t_wrap, smoke)
             cfg = MeatConfig(T0=t0)
             o = meat_solve(θ, knots, tknots, tsave; cfg=cfg, abstol=abstol,
                            reltol=reltol, T0f=T0f, W0f=W0f, C0f=C0f,
+                           F0f=F0f, B0=b0, S0=s0,
                            t_wrap=t_wrap, smoke_knots=smoke)
             return (o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final,
                     o.w_retained, o.T_field[:, end], o.W_field[:, end],
                     o.bark_b, o.bark_s, o.l_star,
-                    o.juiciness, o.fat_rendered, o.evap_w, o.drip_w, o.drip_f)
+                    o.juiciness, o.fat_rendered, o.evap_w, o.drip_w, o.drip_f,
+                    o.F_field[:, end])
         end
-        # KNOWN GAP (documented, not fixed here): the VJP path builds its
-        # initial state from cfg only — the field ICs T0f/W0f/C0f are NOT
-        # threaded through, so gradients taken from a mid-cook state
-        # (receding-horizon MPC) silently use uniform ICs. Whole-horizon
-        # optimization and calibration are unaffected. t_wrap IS threaded.
+        # The VJP threads the full field ICs (T0f/W0f/C0f/F0f/B0/S0) so the
+        # adjoint problem starts from the SAME state as the primal —
+        # receding-horizon (mid-cook) gradients differentiate their own
+        # forecast, not a fresh default brisket.
         function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol, t0,
+                           T0f, W0f, C0f, F0f, b0, s0,
                            t_wrap, smoke, cTs, cTc, cj, cq, cC, cW, cB, cS, cL,
                            cJu, cFr)
             cfg = MeatConfig(T0=t0)
@@ -125,7 +127,8 @@ def _init():
                    w_retained=cW, bark_b=cB, bark_s=cS, l_star=cL,
                    juiciness=cJu, fat_rendered=cFr)
             g = meat_vjp(θ, knots, tknots, tsave, cot; cfg=cfg, abstol=abstol,
-                         reltol=reltol, t_wrap=t_wrap, smoke_knots=smoke)
+                         reltol=reltol, t_wrap=t_wrap, smoke_knots=smoke,
+                         T0f=T0f, W0f=W0f, C0f=C0f, F0f=F0f, B0=b0, S0=s0)
             return g.dθ, g.dTpit_knots, g.dsmoke_knots, g.dt_wrap
         end
         """
@@ -193,6 +196,20 @@ class InputSchema(BaseModel):
     c_field0: Array[(None,), Float64] = Field(
         default_factory=list, description="Initial C field (len nx) or empty"
     )
+    f_field0: Array[(None,), Float64] = Field(
+        default_factory=list,
+        description="Initial un-rendered fat field (len nx) or empty. Part "
+        "of the full state handoff: without it a replanned segment "
+        "re-renders fat from scratch and mis-scores juiciness.",
+    )
+    bark_b0: Float64 = Field(
+        default=float("nan"),
+        description="Initial Maillard bark state (NaN = 0; state handoff)",
+    )
+    bark_s0: Float64 = Field(
+        default=float("nan"),
+        description="Initial smoke-deposition state (NaN = 0; state handoff)",
+    )
 
 
 class OutputSchema(BaseModel):
@@ -254,6 +271,10 @@ class OutputSchema(BaseModel):
     w_field_final: Array[(NX,), Float64] = Field(
         description="Final moisture field (state handoff; non-differentiable)"
     )
+    f_field_final: Array[(NX,), Float64] = Field(
+        description="Final un-rendered fat field (state handoff; "
+        "non-differentiable)"
+    )
 
 
 # Soft-fail mode for MCMC: failed solves return sentinel outputs / zero
@@ -261,6 +282,34 @@ class OutputSchema(BaseModel):
 # See pit tesseract_api.py for rationale.
 SOFT_FAIL = os.environ.get("BRISKET_SOFT_FAIL", "0") == "1"
 _SENTINEL_T = 1.0e4  # [K]
+_SOFT_FAIL_COUNT = 0
+_SOLVER_FAIL_MARKERS = (
+    "solve failed",
+    "retcode",
+    "nan inputs",
+    "dt_epsilon",
+    "identically zero gradients",
+    "backward solve",
+    "dt < eps",
+)
+
+
+def _is_solver_failure(err: BaseException) -> bool:
+    msg = str(err).lower()
+    return any(m in msg for m in _SOLVER_FAIL_MARKERS)
+
+
+def _maybe_soft_fail(err: RuntimeError, what: str) -> None:
+    """Re-raise programming errors; swallow classified solver failures when enabled."""
+    global _SOFT_FAIL_COUNT
+    if not SOFT_FAIL or not _is_solver_failure(err):
+        raise
+    _SOFT_FAIL_COUNT += 1
+    if _SOFT_FAIL_COUNT == 1 or _SOFT_FAIL_COUNT % 10 == 0:
+        # Windows cp1252 consoles cannot print Julia's θ in the error text;
+        # a UnicodeEncodeError here would abort NUTS instead of rejecting.
+        msg = str(err).encode("ascii", "replace").decode("ascii")
+        print(f"SOFT_FAIL {what} #{_SOFT_FAIL_COUNT}: {msg}", flush=True)
 
 
 def _own(x) -> np.ndarray:
@@ -312,10 +361,11 @@ def apply(inputs: InputSchema) -> OutputSchema:
         _own(inputs.tknots),
         _own(inputs.tsave),
     )
-    t0f, w0f, c0f = (
+    t0f, w0f, c0f, f0f = (
         _own(inputs.t_field0),
         _own(inputs.w_field0),
         _own(inputs.c_field0),
+        _own(inputs.f_field0),
     )
     smoke = _own(inputs.smoke_knots)
     if tpit.shape != tknots.shape:
@@ -324,19 +374,24 @@ def apply(inputs: InputSchema) -> OutputSchema:
         )
 
     def _run():
-        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df) = jl._meat_apply(
-            _jvec(theta),
-            _jvec(tpit),
-            _jvec(tknots),
-            _jvec(tsave),
-            float(inputs.abstol),
-            float(inputs.reltol),
-            float(inputs.t0_meat),
-            _jvec(t0f),
-            _jvec(w0f),
-            _jvec(c0f),
-            float(np.asarray(inputs.t_wrap)),
-            _jvec(smoke),
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df, ff) = (
+            jl._meat_apply(
+                _jvec(theta),
+                _jvec(tpit),
+                _jvec(tknots),
+                _jvec(tsave),
+                float(inputs.abstol),
+                float(inputs.reltol),
+                float(inputs.t0_meat),
+                _jvec(t0f),
+                _jvec(w0f),
+                _jvec(c0f),
+                _jvec(f0f),
+                float(inputs.bark_b0),
+                float(inputs.bark_s0),
+                float(np.asarray(inputs.t_wrap)),
+                _jvec(smoke),
+            )
         )
         # .copy() is load-bearing: np.asarray over a Julia vector is a
         # zero-copy VIEW of Julia memory. If that view escapes this thread,
@@ -360,15 +415,15 @@ def apply(inputs: InputSchema) -> OutputSchema:
             np.float64(ew),
             np.float64(dw),
             np.float64(df),
+            np.asarray(ff).copy(),
         )
 
     try:
-        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df) = (
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df, ff) = (
             _on_julia_thread(_run)
         )
-    except RuntimeError:
-        if not SOFT_FAIL:
-            raise
+    except RuntimeError as e:
+        _maybe_soft_fail(e, "meat apply")
         nt = len(tsave)
         ts = tc = np.full(nt, _SENTINEL_T)
         j = q = np.zeros(nt)
@@ -379,6 +434,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
         bb = bs = np.zeros(nt)
         ls = np.full(nt, 52.0)
         ju = fr = ew = dw = df = np.float64(0.0)
+        ff = np.zeros(NX)
     return OutputSchema(
         tsurf=ts,
         tcore=tc,
@@ -388,6 +444,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
         w_retained=wr,
         t_field_final=tf,
         w_field_final=wf,
+        f_field_final=ff,
         bark_b=bb,
         bark_s=bs,
         l_star=ls,
@@ -424,6 +481,7 @@ def abstract_eval(abstract_inputs):
         "w_retained": ShapeDType(shape=(), dtype="float64"),
         "t_field_final": vec(NX),
         "w_field_final": vec(NX),
+        "f_field_final": vec(NX),
         "bark_b": vec(nt),
         "bark_s": vec(nt),
         "l_star": vec(nt),
@@ -445,11 +503,10 @@ def vector_jacobian_product(
 
     Backed by the SciMLSensitivity continuous adjoint of the stiff
     method-of-lines solve, run on the dedicated Julia thread. Missing
-    cotangents are treated as zeros. Known gap (documented in the Julia
-    bridge): the VJP path rebuilds its initial state from the config only,
-    so the optional field ICs (t_field0/w_field0/c_field0) are NOT threaded
-    through — gradients taken from a mid-cook state silently use uniform
-    ICs; whole-horizon optimization and calibration are unaffected.
+    cotangents are treated as zeros. The optional field ICs
+    (t_field0/w_field0/c_field0/f_field0/bark_b0/bark_s0) are threaded
+    through, so the adjoint problem starts from the same state as the
+    primal (mid-cook / receding-horizon gradients included).
 
     Parameters
     ----------
@@ -485,6 +542,12 @@ def vector_jacobian_product(
         _own(inputs.tpit_knots),
         _own(inputs.tknots),
         _own(inputs.tsave),
+    )
+    t0f, w0f, c0f, f0f = (
+        _own(inputs.t_field0),
+        _own(inputs.w_field0),
+        _own(inputs.c_field0),
+        _own(inputs.f_field0),
     )
     nt = len(tsave)
     smoke = _own(inputs.smoke_knots)
@@ -522,6 +585,12 @@ def vector_jacobian_product(
             float(inputs.abstol),
             float(inputs.reltol),
             float(inputs.t0_meat),
+            _jvec(t0f),
+            _jvec(w0f),
+            _jvec(c0f),
+            _jvec(f0f),
+            float(inputs.bark_b0),
+            float(inputs.bark_s0),
             float(np.asarray(inputs.t_wrap)),
             _jvec(smoke),
             cot("tsurf", nt),
@@ -546,9 +615,8 @@ def vector_jacobian_product(
 
     try:
         dtheta, dknots, dsmoke, dtwrap = _on_julia_thread(_run)
-    except RuntimeError:
-        if not SOFT_FAIL:
-            raise
+    except RuntimeError as e:
+        _maybe_soft_fail(e, "meat vjp")
         dtheta, dknots, dsmoke, dtwrap = (
             np.zeros(len(theta)),
             np.zeros(len(tpit)),

@@ -64,6 +64,12 @@ def load(dt_min: float = 10.0, t_end_min: float | None = 1140.0) -> dict:
     meat_has_data = np.interp(tg, t_min, raw_ok_meat.astype(float)) > 0.99
     mask_pit = ~lid_g
     mask_core = ~lid_g & meat_has_data
+    usable_core = np.where(mask_core)[0]
+    tcore0 = (
+        float(meat_g[usable_core[0]])
+        if usable_core.size
+        else float(meat_g[meat_has_data.argmax()])
+    )
 
     return {
         "t": tg * 60.0,  # [s]
@@ -75,7 +81,7 @@ def load(dt_min: float = 10.0, t_end_min: float | None = 1140.0) -> dict:
         "amb": amb_g,
         "meta": {
             "tpit0_K": float(pit_g[0]),
-            "tcore0_K": float(meat_g[meat_has_data.argmax()]),
+            "tcore0_K": tcore0,
             "t_end_h": float(tg[-1] / 60.0),
             "n_obs_pit": int(mask_pit.sum()),
             "n_obs_core": int(mask_core.sum()),

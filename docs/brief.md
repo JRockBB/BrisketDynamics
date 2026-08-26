@@ -1,5 +1,13 @@
 # Project Plan: Differentiable BBQ — Bayesian Calibration & Optimal Control of a Coupled Smoker–Brisket System
 
+> **Status note (Aug 2026):** this is the FOUNDING plan, kept verbatim as
+> provenance — the [DECIDE] markers and phase schedule document how the
+> project was scoped. What actually shipped (and how it grew beyond this
+> plan: bark and moisture physics, the KCBS objective with food-safety
+> soft penalties, the differentiable wrap decision, multi-chain diagnostics)
+> is in `docs/writeup.md`; the equations are in `docs/model.md`; the
+> living plan is `docs/roadmap.md`.
+
 **Target:** Tesseract Hackathon 2026 (Aug 3–31, submission due Aug 31 11:59 PM AoE)
 **Primary track:** 04 — Differentiable inference & UQ. **Cross-track:** 02 — Multi-physics & coupled systems.
 **Team:** Solo, weekend-warrior cadence. Remaining working windows: Aug 8–9, 15–16, 22–23, 29–30.
