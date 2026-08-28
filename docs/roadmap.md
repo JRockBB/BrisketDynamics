@@ -59,63 +59,19 @@ without calibration data.
    is re-timing it under disturbances, plus irreversibility once executed).
    Remaining: wrap irreversibility (`t_wrap` frozen once executed) and
    pointing the re-planner at a real pit.
-2. **Discrete adjoint via Enzyme-through-the-stepper: kill the backward
-   pass properly.** Measured 2026-08-21: the meat VJP costs ~1.9 s base
-   + 66 ms per cotangent save point (~9 s at 49 points, ~80% of gradient
-   cost on the 115-point real-cook grid) against a 0.06 s forward solve,
-   and the cost is flat in tolerance. Mechanism (SciMLSensitivity
-   source-confirmed): every discrete cotangent injection is a u-modifying
-   callback that restarts the backward BDF at order 1 — an artifact of
-   the *continuous* adjoint formulation. A **discrete adjoint** —
-   Enzyme reverse-mode through the stepper iteration itself — has no
-   backward ODE and no restarts: save-point cotangents simply add into
-   the reverse sweep, cost ≈ small multiple of the forward. Potential
-   ~10-50x on every NUTS/SVI/control gradient, dwarfing every
-   configuration-level option (QuadratureAdjoint failed our FD gate;
-   KenCarp/checkpointing/sparsity all measured out). Price: Enzyme
-   cannot eat adaptive FBDF, so this means a hand-rolled fixed-step
-   stiff stepper (TRBDF2-class) with a custom Enzyme rule for the
-   Newton/LU linear solve, fixed-step accuracy validation against the
-   adaptive reference, and a full re-run of the gradient-verification
-   doctrine. Week-class; the single highest-leverage performance item
-   on this list. Composes with the monolith item below (one stepper,
-   one discrete adjoint for the whole coupled system).
-   Measured dead end (2026-08-22): routing through the direct
-   `adjoint_sensitivities` API is NOT a shortcut — its infrastructure
-   overhead (26.2 s FBDF-backward vs the rrule path's 11.2 s on the 19 h
-   fixture) swamps the genuine one-step-backward win (KenCarp47 backward:
-   17.6 s, confirming restarts cost ~1.5x). The production Zygote-rrule
-   path is the fastest continuous-adjoint configuration for this model;
-   only the full discrete adjoint beats it.
-3. **Monolith / Dyad exploration: move the Tesseract boundary to the
-   edge.** Shape (a) exists: `src/monolith.jl`, numbers in
-   `docs/monolith.md`. The K=2 Picard split exists only because the pit/meat boundary
-   bisects the physics; a monolithic Julia core (one coupled DAE, one
-   adjoint, Turing/AdvancedHMC calibration, MCMCThreads parallel chains)
-   is worth ~2x per gradient, trivial multi-chain, and retires the
-   juliacall threading zoo entirely. Two candidate shapes to prototype
-   against the two-Tesseract baseline: (a) hand-written monolith (merge
-   the RHS functions, keep full sensealg control); (b) **Dyad/MTK acausal
-   components** — pit, fuel bed, and future heat sources as declared
-   components with typed ports (T_source in, q_load out), the PDE staying
-   a hand-written component inside. Dyad's component discipline is exactly
-   the architecture the meats-and-cookers generalization item wants, so
-   this exploration doubles as its foundation — benchmark both for
-   gradient cost, NUTS wall-clock, and adjoint controllability (we needed
-   surgical sensealg choices; symbolic layers add distance to those
-   knobs). A third shape to benchmark: (c) **Reactant.jl + EnzymeMLIR** —
-   trace the smooth parts (pit ODE, orchestration, quality objective) to
-   StableHLO/XLA with Enzyme differentiating through the compiled graph.
-   Caveat measured 2026-08-21: the cost center is the stiff BDF *backward*
-   solve (adaptive stepping, Newton/LU, injection callbacks — the
-   XLA-hostile case, and the reason this project is polyglot at all), so
-   Reactant helps the edges, not the core; viable only paired with a
-   Julia-side stiff adjoint kernel, i.e. the same boundary redrawn with
-   MLIR tracing instead of Tesseract. Either way, keep what Tesseract is
-   actually for post-hackathon by wrapping the *whole* coupled model as a
-   single Tesseract — a language-agnostic, versioned deployment skin for
-   the MPC/HeaterMeter service — so the boundary sits around the physics,
-   not through it. Decides *where* the items below get built.
+2. **Reverse mode only when the parameter count demands it.** Forward mode
+   is the primary derivative now (one Dual solve per JVP, one chunked pass
+   per Jacobian; docs/monolith.md). A discrete adjoint (Enzyme through a
+   fixed-step stiff stepper) becomes worth its cost only for hundreds of
+   parameters — dense controls, spatial fields, bark chemistry. The
+   continuous-adjoint measurements that motivated it are in the history
+   (commit def7f4e).
+3. **Monolith: done in shape (a)** (`src/monolith.jl`, one Tesseract around
+   the whole physics). Remaining: the acausal component version (pit, fuel
+   bed, wrap, rest, ambient as ports; the slab as a generated component)
+   with the hand-written monolith as its oracle — benchmark
+   `structural_simplify` time, generated-code size, and derivative cost
+   before adopting it. Same-monolith prerequisites for items 5 and 11.
 4. **The ~$150 instrument package + data flywheel.** In value order: a
    two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
    meat, no controller — free, and the only way to identify the pit's fast

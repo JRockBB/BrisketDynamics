@@ -80,8 +80,6 @@ or uncalibrated:
   runs; that stops counting a smooth discrepancy as 111 independent
   Kelvins. Fan duty is still treated as exact, ambient is still 300 K,
   and AR(1) is still a discrepancy process, not probe noise.
-- **K=2 Picard.** AD is exact for the unrolled map. The last meat heat
-  load is not fed back; `check_picard` warns above a 2 K residual.
 
 ## Rule
 

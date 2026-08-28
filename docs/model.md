@@ -13,7 +13,7 @@ with its provenance commented in the source (`src/meat.jl`, `src/pit.jl`,
 Three σ's appear: $\sigma(\cdot)$ is always the logistic sigmoid,
 $\sigma_{SB}$ the Stefan–Boltzmann constant, and $\sigma_{aw}$ the width
 of the Maillard water-activity bell. All switches are smooth — no branch
-ever enters the adjoint.
+ever enters the derivatives.
 
 **Smooth primitives**
 
@@ -330,27 +330,18 @@ At $a_0 = 1$ the spread term vanishes and the two-state model is
 recovered exactly. $\dot m_b$ is exported (exact algebraic recompute at
 save times) as the smoke-flux forcing to the bark model.
 
-## 3. Coupling: unrolled Picard iteration
+## 3. Coupling: one solve
 
-The components exchange whole trajectories on a shared knot grid, $K = 2$
-fixed passes, with the meat heat load
-$q_{\mathrm{meat}} = A_{\mathrm{meat}} \cdot q_{\mathrm{surf}}$
-($A_{\mathrm{meat}}$ the exposed surface area):
-
-$$
-\big(T_p^{(k)},\, \dot m_b^{(k)}\big)
-= P_\varphi\big(u,\, q_{\mathrm{meat}}^{(k-1)}\big),
-\qquad
-\big(T_{\mathrm{core}},\, j,\, q_{\mathrm{meat}}^{(k)}\big)
-= M_\theta\big(T_p^{(k)},\, \dot m_b^{(k)}\big),
-\qquad k = 1 \ldots K .
-$$
-
-The model is *defined* as the $k = K$ output of this unrolled map, so
-reverse-mode AD through the composed Tesseract VJPs (continuous adjoint on
-the meat side, transposed ForwardDiff Jacobian on the pit side) is the
-exact gradient of the simulated system — no implicit-function
-approximation.
+Pit, meat and the quasi-steady humidity balance are integrated together as
+one stiff system (`src/monolith.jl`): the pit sees the meat's instantaneous
+heat load $q_{\mathrm{meat}} = A(t)\, q_{\mathrm{surf}}$ and the meat sees
+the instantaneous $T_p$, $\dot m_b$ and $p_{v,\mathrm{base}}$. There is no
+exchange grid and no truncation; derivatives are forward-mode
+(ForwardDiff) through the solve and exposed as the monolith Tesseract's
+`jacobian_vector_product`, `vector_jacobian_product` and `jacobian`
+endpoints. The Picard composition of the two component solvers
+(`picard_cook`) is kept as the test oracle: it converges to the monolith
+with the pass count (docs/monolith.md).
 
 ## 4. The quality objective (KCBS-weighted; every term overridable)
 
