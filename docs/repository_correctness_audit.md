@@ -1,5 +1,7 @@
 # BrisketDynamics repository correctness audit
 
+> Historical audit of the two-Tesseract pipeline (pre-monolith).
+
 **Date:** 2026-08-24. Historical snapshot — not the current defect list.
 Current gaps: `docs/model_gaps.md`. Current equations: `docs/model.md`.
 

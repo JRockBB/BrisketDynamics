@@ -1,5 +1,7 @@
 # Project Plan: Differentiable BBQ — Bayesian Calibration & Optimal Control of a Coupled Smoker–Brisket System
 
+> Historical: the original build brief (two composed Tesseracts, continuous adjoint). The shipped architecture is one monolith Tesseract with forward-mode derivatives — see docs/monolith.md and docs/writeup.md.
+
 > **Status note (Aug 2026):** this is the FOUNDING plan, kept verbatim as
 > provenance — the [DECIDE] markers and phase schedule document how the
 > project was scoped. What actually shipped (and how it grew beyond this

@@ -1,5 +1,7 @@
 # Rest / carryover dynamics — review
 
+> Historical review of the rest/pull implementation on the two-Tesseract pipeline; `t_rest`, `check_picard` and the adjoint it discusses no longer exist (docs/monolith.md).
+
 **Date:** 2026-08-27. Read-only review of the working tree. No code changes.
 **Scope:** Pull blend, rest boundary condition, quality-at-serve, and how those
 reach the Tesseract, coupled cook, objective, and planners.

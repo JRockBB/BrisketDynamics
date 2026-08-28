@@ -1,5 +1,7 @@
 # Tier-1 gaps: rest / carryover, shrinkage, humidity feedback
 
+> Historical: the Tier-1 gap plan as executed on the two-Tesseract pipeline. Its physics shipped; the coupling and derivative machinery it references were replaced by the monolith (docs/monolith.md).
+
 > Design + implementation plan (2026-08-26) for `docs/model_gaps.md` Tier 1
 > (gap numbers below are as of that date: #1 shrinkage, #2 rest, #3
 > humidity). Equations of what exists: `docs/model.md`. Same shape as
