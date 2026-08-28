@@ -80,9 +80,10 @@ A finite-difference Hessian of the potential at this optimum is indefinite
 (min eigenvalue −20 against a max of 1.7·10⁵; 8 of 18 directions below a
 10⁻⁴ floor): second differences of an adaptive solve are noise along the
 ridges. The Fisher information (Jᵀ Σ⁻¹ J + prior) from the exact Jacobian is
-the curvature used everywhere — the Laplace draws (`scripts/run_laplace.py`,
-finite differences only for the four noise coordinates), the NUTS metric,
-the robust-control draws. `data/calibration/gn_map_real.json` carries the
+the curvature used everywhere — the Laplace draws (`scripts/run_laplace.py`:
+`jax.hessian` of the model with the solve replaced by its tangent model, so
+the noise and physics × noise blocks are exact and only the solve's second
+derivatives are dropped), the NUTS metric, the robust-control draws. `data/calibration/gn_map_real.json` carries the
 optimum, the iteration history and the Fisher widths.
 
 ## What it leaves open

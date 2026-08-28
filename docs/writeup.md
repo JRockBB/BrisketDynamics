@@ -113,7 +113,9 @@ stall break, the climb to 90 °C (core rms 3.3 K).
   scores 136.03 under the same objective with ‖∇F‖ = 40 — the LM optimum is
   4 nats better, the difference lying along the ridges below.
 - **Curvature.** The Fisher information (Jᵀ Σ⁻¹ J + prior) from the same
-  Jacobian is the posterior curvature used everywhere — the Laplace draws,
+  Jacobian is the posterior curvature used everywhere — the Laplace draws
+  (Gauss–Newton in the physics block; the noise and cross blocks exact by
+  `jax.hessian` of the model with the solve replaced by its tangent model),
   the NUTS metric, the robust-control draws. A finite-difference Hessian of
   the potential at the same point is indefinite (min eigenvalue −20 against
   a max of 1.7·10⁵; 8 of 18 directions below a 10⁻⁴ floor): second

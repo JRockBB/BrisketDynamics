@@ -1,20 +1,17 @@
-"""Laplace posterior at the real-cook MAP on the Gauss-Newton curvature.
+"""Laplace posterior at the real-cook MAP on the Gauss-Newton Hessian.
 
-A Gaussian in numpyro's unconstrained space, centred one Newton step from
-the MAP (the constrained mode; the transform Jacobian shifts it slightly).
-Precision: the Fisher information Jᵀ Σ⁻¹ J + prior curvature from the
-monolith's exact Jacobian for the 14 physics latents, and a
-central-difference Hessian of the log density for the 4 noise latents
-(σ, ρ); no cross terms. Second differences of the adaptive solve are noise
-along the ridges — an 18-column FD Hessian at the optimum comes out
-indefinite — so the physics block is never finite-differenced. Draws are
-transformed back to the constrained space and written like the ADVI
-output, so every downstream consumer (robust control on the draws, the
-NUTS metric's noise block) reads them unchanged.
+The Hessian of the potential in numpyro's unconstrained space, by
+`jax.hessian` of a surrogate model whose μ is the Tesseract's tangent model
+μ₀ + J (x − x₀) at the MAP: the 14 × 14 physics block is the Gauss-Newton
+curvature Jᵀ Σ⁻¹ J + prior (the solve's second derivatives dropped), the
+noise block and the physics × noise cross block are exact, and numpyro
+applies the constrained→unconstrained chain rule. No finite differences.
+Draws are transformed back to the constrained space and written like the
+ADVI output, so every downstream consumer reads them unchanged.
 
 Run from app/:  uv run python -u ../scripts/run_laplace.py
 Writes data/calibration/laplace_samples_real.npz, laplace_mean_real.json,
-laplace_hess_real.npz (the assembled precision, sorted-site order),
+laplace_hess_real.npz (H, z0; sorted-site order),
 figures/corner_laplace_real.png, figures/posterior_predictive_laplace_real.png.
 """
 
@@ -34,15 +31,7 @@ from brisket_app import calibrate, cooklog
 from brisket_app.calibrate import phi_full
 from brisket_app.clients import monolith_client
 from brisket_app.coupled import CookGrids
-from brisket_app.monolith import (
-    ALL_NAMES_SORTED,
-    NAMES,
-    NOISE_NAMES,
-    Whitened,
-    effective_sigma,
-    objective,
-    to_z,
-)
+from brisket_app.monolith import ALL_NAMES_SORTED, NAMES, model_mean
 from brisket_app.plots import corner_plot, posterior_predictive_plot
 from jax.flatten_util import ravel_pytree
 from numpyro.distributions import biject_to
@@ -53,38 +42,14 @@ REPO = Path(__file__).resolve().parents[1]
 NEWTON_CLIP = 0.3  # max |dz| per coordinate in unconstrained space
 
 
-def main():
-    """Fit the Laplace posterior, draw from it, render corner + predictive."""
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--draws", type=int, default=400)
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument(
-        "--fd-step",
-        type=float,
-        default=1e-3,
-        help="central-difference step for the noise block, unconstrained space",
-    )
-    ap.add_argument("--init-json", default="map_real.json")
-    args = ap.parse_args()
-    cal = REPO / "data" / "calibration"
-
-    tx = monolith_client()
-    log = cooklog.load(dt_min=10.0)
-    model = calibrate.bound_model_real(log, tx)
-    init = {
-        k: float(v)
-        for k, v in json.loads((cal / args.init_json).read_text()).items()
-        if not k.startswith("_")
-    }
+def _hessian_of(model, init, seed):
+    """(z0, names, unravel, inverse transforms, H, grad) of a model's potential at `init`."""
     mi = initialize_model(
-        jax.random.PRNGKey(args.seed), model, init_strategy=init_to_value(values=init)
+        jax.random.PRNGKey(seed), model, init_strategy=init_to_value(values=init)
     )
-    z0_tree = mi.param_info.z
-    z0, unravel = ravel_pytree(z0_tree)
-    z0 = np.asarray(z0, dtype=float)
-    names = sorted(z0_tree.keys())
+    z0, unravel = ravel_pytree(mi.param_info.z)
+    names = sorted(mi.param_info.z.keys())
     assert names == ALL_NAMES_SORTED
-    n = z0.size
     inv_transforms = {
         k: biject_to(site["fn"].support)
         for k, site in mi.model_trace.items()
@@ -92,49 +57,59 @@ def main():
     }
 
     def pot(z):
-        return mi.potential_fn(unravel(jnp.asarray(z)))
+        return mi.potential_fn(unravel(z))
 
-    grad = jax.grad(lambda z: mi.potential_fn(unravel(z)))
+    H = np.asarray(jax.hessian(pot)(z0), dtype=float)
+    g = np.asarray(jax.grad(pot)(z0), dtype=float)
+    return np.asarray(z0, dtype=float), names, unravel, inv_transforms, pot, H, g
+
+
+def main():
+    """Fit the Laplace posterior, draw from it, render corner + predictive."""
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--draws", type=int, default=400)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--init-json", default="map_real.json")
+    args = ap.parse_args()
+    cal = REPO / "data" / "calibration"
+
+    tx = monolith_client()
+    log = cooklog.load(dt_min=10.0)
+    init = {
+        k: float(v)
+        for k, v in json.loads((cal / args.init_json).read_text()).items()
+        if not k.startswith("_")
+    }
+    x0 = np.concatenate([[init[k] for k in NAMES[:7]], phi_full(init)])
+
     t0 = time.perf_counter()
-    p0 = float(pot(z0))
-    g0 = np.asarray(grad(jnp.asarray(z0)), dtype=float)
+    mu0, J = model_mean(x0, log)
     print(
-        f"potential at {args.init_json}: {p0:.2f}  |grad| {np.linalg.norm(g0):.3g}  "
-        f"({time.perf_counter() - t0:.0f} s)",
+        f"Tesseract: μ and J {J.shape} at {args.init_json} "
+        f"({time.perf_counter() - t0:.0f} s incl. compile)",
         flush=True,
     )
-
-    # physics block: Gauss-Newton Hessian of the whitened objective (exact Jacobian)
-    x_phys = np.concatenate([[init[k] for k in NAMES[:7]], phi_full(init)])
-    wh = Whitened.build(log, *effective_sigma(init))
-    _F, _g, H_gn, _w = objective(to_z(x_phys), wh, log)
-    print(f"Gauss-Newton block done ({time.perf_counter() - t0:.0f} s)", flush=True)
-
-    # noise block: central differences, one gradient pair per noise coordinate
-    nidx = [names.index(k) for k in NOISE_NAMES]
-    pidx = [names.index(k) for k in NAMES]
-    h = args.fd_step
-    Hn = np.zeros((len(nidx), len(nidx)))
-    for col, j in enumerate(nidx):
-        e = np.zeros(n)
-        e[j] = h
-        gp = np.asarray(grad(jnp.asarray(z0 + e)), dtype=float)
-        gm = np.asarray(grad(jnp.asarray(z0 - e)), dtype=float)
-        Hn[:, col] = (gp[nidx] - gm[nidx]) / (2 * h)
-    Hn = 0.5 * (Hn + Hn.T)
-    lam = np.linalg.eigvalsh(Hn)
-    print(f"noise-block eigenvalues: min {lam.min():.3g}  max {lam.max():.3g}")
+    surrogate = calibrate.bound_model_real_linear(log, mu0, J, x0)
+    z0, names, _unravel, inv_transforms, pot, H, g0 = _hessian_of(
+        surrogate, init, args.seed
+    )
+    p0 = float(pot(jnp.asarray(z0)))
+    n = z0.size
+    print(f"potential at {args.init_json}: {p0:.2f}  |grad| {np.linalg.norm(g0):.3g}")
+    H = 0.5 * (H + H.T)
+    lam = np.linalg.eigvalsh(H)
+    print(f"Gauss-Newton Hessian eigenvalues: min {lam.min():.3g}  max {lam.max():.3g}")
     if lam.min() <= 0:
-        Hn = Hn + (1e-3 * lam.max() - lam.min()) * np.eye(len(nidx))
-    P = np.zeros((n, n))
-    P[np.ix_(pidx, pidx)] = H_gn
-    P[np.ix_(nidx, nidx)] = Hn
-    np.savez(cal / "laplace_hess_real.npz", z0=z0, h=h, H=P, done=n)
-    cov = np.linalg.inv(P)
+        raise RuntimeError("Gauss-Newton Hessian is not positive definite")
+    np.savez(cal / "laplace_hess_real.npz", z0=z0, H=H, done=n)
+    cov = np.linalg.inv(H)
+    sd_z = np.sqrt(np.diag(cov))
+    print("sd(z):", {k: round(float(sd_z[i]), 3) for i, k in enumerate(names)})
+    source = "Gauss-Newton Hessian (jax; noise and cross blocks exact)"
 
     dz = np.clip(-cov @ g0, -NEWTON_CLIP, NEWTON_CLIP)
     z_c = z0 + dz
-    pc = float(pot(z_c))
+    pc = float(pot(jnp.asarray(z_c)))
     if pc > p0:
         print(f"newton step rejected ({pc:.2f} > {p0:.2f}); centred at the MAP")
         z_c = z0
@@ -155,9 +130,7 @@ def main():
     np.savez(out, **stacked)
     mean = {k: float(np.mean(v)) for k, v in stacked.items()}
     mean["_n_draws"] = args.draws
-    mean["_source"] = (
-        f"Laplace at {args.init_json} (Gauss-Newton curvature; FD noise block)"
-    )
+    mean["_source"] = f"Laplace at {args.init_json}: {source}"
     (cal / "laplace_mean_real.json").write_text(json.dumps(mean, indent=2))
     sd = {k: float(np.std(v)) for k, v in stacked.items()}
     print(f"wrote {out.name} ({args.draws} draws), laplace_mean_real.json")

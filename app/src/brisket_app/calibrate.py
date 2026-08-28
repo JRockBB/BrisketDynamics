@@ -258,6 +258,29 @@ def ar1_observe(name, y, mu, sigma, rho):
     )
 
 
+def _real_latents():
+    """Sample the real-cook latents: (theta, phi, sigma_pit, sigma_core, rho_pit, rho_core)."""
+    theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
+    # real cooks start Minion-style: sample the ignition dynamics too
+    phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES + PHI_SITES_IGNITION])
+    sigma_pit = SIGMA_FLOOR_K + numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
+    sigma_core = SIGMA_FLOOR_K + numpyro.sample("sigma_core", dist.HalfNormal(2.0))
+    rho_pit = numpyro.sample("rho_pit", RHO_SITES[0][1])
+    rho_core = numpyro.sample("rho_core", RHO_SITES[1][1])
+    return theta, phi, sigma_pit, sigma_core, rho_pit, rho_core
+
+
+def _observe_real(obs_pit, obs_core, pit_runs, core_runs, tpit, tcore, noise):
+    """Condition on the masked AR(1) runs of both probes."""
+    sigma_pit, sigma_core, rho_pit, rho_core = noise
+    for k, run in enumerate(pit_runs):
+        idx = jnp.array(run)
+        ar1_observe(f"pit{k}", obs_pit[idx], tpit[idx], sigma_pit, rho_pit)
+    for k, run in enumerate(core_runs):
+        idx = jnp.array(run)
+        ar1_observe(f"core{k}", obs_core[idx], tcore[idx], sigma_core, rho_core)
+
+
 def model_real(
     obs_pit,
     obs_core,
@@ -277,21 +300,29 @@ def model_real(
     sampled (real cooks start Minion-style). Synthetic calibration stays
     iid: that data is generated iid.
     """
-    theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
-    # real cooks start Minion-style: sample the ignition dynamics too
-    phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES + PHI_SITES_IGNITION])
-    sigma_pit = SIGMA_FLOOR_K + numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
-    sigma_core = SIGMA_FLOOR_K + numpyro.sample("sigma_core", dist.HalfNormal(2.0))
-    rho_pit = numpyro.sample("rho_pit", RHO_SITES[0][1])
-    rho_core = numpyro.sample("rho_core", RHO_SITES[1][1])
-
+    theta, phi, *noise = _real_latents()
     sim = coupled_cook(theta, phi, jnp.asarray(u_knots), tx, grids, ics=ics, **tols)
-    for k, run in enumerate(pit_runs):
-        idx = jnp.array(run)
-        ar1_observe(f"pit{k}", obs_pit[idx], sim["tpit"][idx], sigma_pit, rho_pit)
-    for k, run in enumerate(core_runs):
-        idx = jnp.array(run)
-        ar1_observe(f"core{k}", obs_core[idx], sim["tcore"][idx], sigma_core, rho_core)
+    _observe_real(
+        obs_pit, obs_core, pit_runs, core_runs, sim["tpit"], sim["tcore"], noise
+    )
+
+
+def model_real_linear(obs_pit, obs_core, pit_runs, core_runs, mu0, jac, x0):
+    """`model_real` with the solve replaced by its tangent model at x₀.
+
+    μ̂(x) = μ₀ + J (x − x₀) over the 14 physics latents x = (theta, phi),
+    J from the Tesseract's ``jacobian``. Same sample sites and likelihood
+    as `model_real`, so `jax.hessian` of this model's potential at x₀ is
+    the Gauss-Newton Hessian of `model_real`'s: the physics block drops the
+    solve's second derivatives, the noise and cross blocks are exact, and
+    numpyro applies the constrained→unconstrained chain rule.
+    """
+    theta, phi, *noise = _real_latents()
+    mu = jnp.asarray(mu0) + jnp.asarray(jac) @ (
+        jnp.concatenate([theta, phi]) - jnp.asarray(x0)
+    )
+    nt = mu.shape[0] // 2
+    _observe_real(obs_pit, obs_core, pit_runs, core_runs, mu[:nt], mu[nt:], noise)
 
 
 def bound_model_real(log: dict, tx, tols: dict | None = None):
@@ -318,6 +349,20 @@ def bound_model_real(log: dict, tx, tols: dict | None = None):
         tx,
         grids,
         tols,
+    )
+
+
+def bound_model_real_linear(log: dict, mu0, jac, x0):
+    """Bind model_real_linear to a loaded cook log and a tangent point."""
+    return partial(
+        model_real_linear,
+        jnp.asarray(log["obs_pit"]),
+        jnp.asarray(log["obs_core"]),
+        contiguous_runs(log["mask_pit"]),
+        contiguous_runs(log["mask_core"]),
+        np.asarray(mu0, dtype=float),
+        np.asarray(jac, dtype=float),
+        np.asarray(x0, dtype=float),
     )
 
 

@@ -265,8 +265,8 @@ def fisher_inverse_mass(x_map, log: dict, noise: dict, hess_npz=None) -> np.ndar
     The 14 physics coordinates get the Gauss-Newton covariance
     (Jᵀ Σ⁻¹ J + prior curvature)⁻¹ in the unconstrained space — ridge widths
     included, no eigenvalue floor; the 4 noise coordinates get the
-    noise block of run_laplace.py's precision (finite-differenced) when
-    ``hess_npz`` is given, else the identity. Assembled in numpyro's
+    noise block of run_laplace.py's Gauss-Newton Hessian (exact in the
+    noise coordinates) when ``hess_npz`` is given, else the identity. Assembled in numpyro's
     sorted-site order with no cross terms between the two groups.
     """
     wh = Whitened.build(log, *effective_sigma(noise))
