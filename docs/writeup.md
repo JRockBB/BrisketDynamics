@@ -19,6 +19,8 @@ document follows the six judging criteria in order.
 
 ## 1. Composition across a real boundary
 
+![Composition](../figures/composition_diagram.png)
+
 **Where the boundary is.** `brisket-monolith` is one Tesseract around the whole
 physics: the lumped charcoal pit (energy balance, fuel burn with a smooth
 burnout taper, Minion-method ignition spread), the 1D slab heat–moisture PDE of
