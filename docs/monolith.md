@@ -60,7 +60,7 @@ medians:
 |---|---|---|
 | prior medians | 5412 | — |
 | after 19 LM iterations | 131.97 | 131 s |
-| the adjoint MAP, evaluated under the same objective | 136.03 (|∇F| = 40) | hours of Adam + adjoints |
+| the adjoint MAP, evaluated under the same objective | 136.03 (‖∇F‖ = 40) | hours of Adam + adjoints |
 
 The two optima differ along the ridges (D_eff ×1.5, h_c ×1.3, C_th ×0.62,
 r_max ×0.76, u_leak ×1.38), where the Fisher sd in z is 0.15–0.6; the 4-nat
