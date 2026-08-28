@@ -1,7 +1,7 @@
 """Composition/boundary diagram for the writeup (criterion 1).
 
 Run from app/:  uv run python -u ../scripts/render_diagram.py
-Writes figures/composition_diagram.png.
+Writes figures/composition_diagram.png. Pure matplotlib (no Julia).
 """
 
 from pathlib import Path
@@ -13,197 +13,287 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 REPO = Path(__file__).resolve().parents[1]
+BLUE, ORANGE, GREEN, INK, MUTED = "#256abf", "#eb6834", "#2e8b57", "#0b0b0b", "#52514e"
+FILL_JAX, FILL_TX, FILL_JL, FILL_OLD = "#eaf1fb", "#fdeee6", "#e9f4ec", "#f4f4f2"
 
-fig, ax = plt.subplots(figsize=(13, 6.4))
-ax.set_xlim(0, 13)
-ax.set_ylim(0, 6.4)
+# one data unit = one inch, so point sizes map to the layout directly
+fig = plt.figure(figsize=(13.5, 8.0))
+ax = fig.add_axes([0, 0, 1, 1])
+ax.set_xlim(0, 13.5)
+ax.set_ylim(0, 8.0)
 ax.axis("off")
 
-BOX = {"boxstyle": "round,pad=0.12", "linewidth": 1.4}
-WHITE = {"boxstyle": "round,pad=0.14", "fc": "white", "ec": "none", "alpha": 0.95}
 
-
-def box(x, y, w, h, fc, ec, title, lines, title_size=11, size=8.8):
-    """Draw one diagram component: a rounded box with title and body lines.
-
-    Parameters
-    ----------
-    x, y : float
-        Lower-left corner of the box in data coordinates.
-    w, h : float
-        Box width and height.
-    fc, ec : str
-        Face and edge colors.
-    title : str
-        Bold heading centered near the top of the box.
-    lines : list of str
-        Body text lines, stacked downward beneath the title.
-    title_size, size : float, optional
-        Font sizes for the title and the body lines.
-    """
-    ax.add_patch(FancyBboxPatch((x, y), w, h, fc=fc, ec=ec, **BOX))
-    ax.text(
-        x + w / 2,
-        y + h - 0.34,
-        title,
-        ha="center",
-        va="center",
-        fontsize=title_size,
-        fontweight="bold",
+def box(x, y, w, h, fc, ec, title, lines, title_size=10.5, size=8.4, lw=1.4, ls="-"):
+    """Draw a rounded box with a bold title and body lines stacked beneath it."""
+    ax.add_patch(
+        FancyBboxPatch(
+            (x, y),
+            w,
+            h,
+            boxstyle="round,pad=0.10",
+            fc=fc,
+            ec=ec,
+            lw=lw,
+            ls=ls,
+            zorder=1,
+        )
     )
-    for i, ln in enumerate(lines):
+    if title:
         ax.text(
             x + w / 2,
-            y + h - 0.76 - 0.36 * i,
-            ln,
+            y + h - 0.28,
+            title,
             ha="center",
-            va="center",
+            va="top",
+            fontsize=title_size,
+            fontweight="bold",
+            color=INK,
+            zorder=2,
+        )
+    for i, s in enumerate(lines):
+        ax.text(
+            x + 0.18,
+            y + h - 0.68 - 0.30 * i,
+            s,
+            ha="left",
+            va="top",
             fontsize=size,
+            color=INK,
+            zorder=2,
         )
 
 
-def arrow(p, q, color, lw=1.9):
-    """Draw a filled-head arrow from ``p`` to ``q``.
-
-    Parameters
-    ----------
-    p, q : tuple of float
-        Tail and head positions in data coordinates.
-    color : str
-        Arrow color.
-    lw : float, optional
-        Line width.
-    """
+def arrow(p, q, color, lw=1.8, style="-|>"):
+    """Draw an arrow from p to q."""
     ax.add_patch(
-        FancyArrowPatch(p, q, arrowstyle="-|>", mutation_scale=14, color=color, lw=lw)
+        FancyArrowPatch(
+            p, q, arrowstyle=style, mutation_scale=14, color=color, lw=lw, zorder=3
+        )
     )
 
 
-def label(x, y, s, color, size=8.4):
-    """Place centered text on a white rounded background (for arrow labels).
-
-    Parameters
-    ----------
-    x, y : float
-        Text center in data coordinates.
-    s : str
-        Label text (mathtext allowed).
-    color : str
-        Text color.
-    size : float, optional
-        Font size.
-    """
-    ax.text(x, y, s, ha="center", va="center", fontsize=size, color=color, bbox=WHITE)
+def label(x, y, s, color, size=8.2, ha="center"):
+    """Draw a small caption with a white backdrop."""
+    ax.text(
+        x,
+        y,
+        s,
+        ha=ha,
+        va="center",
+        fontsize=size,
+        color=color,
+        zorder=4,
+        bbox={"boxstyle": "round,pad=0.15", "fc": "white", "ec": "none", "alpha": 0.95},
+    )
 
 
-# ---- JAX orchestrator (top) ----
-box(
-    1.4,
-    4.75,
-    10.2,
-    1.45,
-    "#eef3fb",
-    "#3b6ea5",
-    "JAX orchestrator  (Python)",
-    [
-        "coupled_cook: K=2 Picard, unrolled  ·  jax.jit / jax.grad",
-        "NumPyro MAP + NUTS   ·   Optax control   ·   E[J] over posterior",
-    ],
+def centered(x, y, s, size, color=INK, bold=False):
+    """Draw centred text at (x, y)."""
+    ax.text(
+        x,
+        y,
+        s,
+        ha="center",
+        va="center",
+        fontsize=size,
+        color=color,
+        fontweight="bold" if bold else "normal",
+        zorder=2,
+    )
+
+
+centered(
+    6.75,
+    7.75,
+    "BrisketDynamics — one Tesseract around the whole physics, forward-mode derivatives",
+    12.5,
 )
 
-# ---- boundary (labels sit clear of boxes and line) ----
-ax.plot([0.3, 12.7], [4.05, 4.05], ls=(0, (6, 4)), color="#888", lw=1.2)
-# centered in the arrow-free span between the pit-side and meat-side crossings
+# --- JAX layer ---------------------------------------------------------------
+ax.text(0.2, 7.4, "JAX  (app/)", fontsize=11, fontweight="bold", color=BLUE, va="top")
+box(
+    0.2,
+    5.5,
+    4.2,
+    1.55,
+    FILL_JAX,
+    BLUE,
+    "Calibration on the real cook",
+    [
+        "NumPyro model_real: masked AR(1) likelihood",
+        "Gauss–Newton / Fisher from the Jacobian (131 s)",
+        "NUTS, dense metric seeded from the Fisher",
+    ],
+)
+box(
+    4.7,
+    5.5,
+    4.2,
+    1.55,
+    FILL_JAX,
+    BLUE,
+    "Planning & control",
+    [
+        "fullplan: cook length × wrap × pull × vents",
+        "MPC: hourly replans incl. crutch and pull",
+        "robust: E[J] over posterior draws (Optax)",
+    ],
+)
+box(1.2, 4.45, 6.5, 0.5, "white", BLUE, "", [])
+centered(
+    4.45,
+    4.70,
+    "coupled_cook(θ, φ, u, tx, grids, t_wrap, t_pull)  —  one apply_tesseract call",
+    9.6,
+    bold=True,
+)
+arrow((2.3, 5.4), (2.3, 5.06), BLUE)
+arrow((6.8, 5.4), (6.8, 5.06), BLUE)
+
+# --- Tesseract boundary ------------------------------------------------------
+ax.add_patch(
+    FancyBboxPatch(
+        (0.2, 2.95), 8.7, 1.0, boxstyle="round,pad=0.08", fc=FILL_TX, ec=ORANGE, lw=1.6
+    )
+)
+centered(4.55, 3.68, "Tesseract boundary  ·  brisket-monolith", 10.5, ORANGE, bold=True)
+centered(
+    4.55,
+    3.36,
+    "apply · abstract_eval · jacobian_vector_product · vector_jacobian_product · jacobian",
+    8.0,
+)
+centered(
+    4.55,
+    3.10,
+    "tesseract-jax: jax.grad and jax.jacfwd through the same interface",
+    8.0,
+)
+arrow((4.55, 4.35), (4.55, 4.03), ORANGE, style="<|-|>")
+
+# --- Julia layer ---------------------------------------------------------------
 ax.text(
-    6.5,
-    4.05,
-    "Tesseract boundary · apply / abstract_eval / VJP",
-    ha="center",
-    va="center",
-    fontsize=8.8,
-    color="#555",
-    style="italic",
-    bbox=WHITE,
-)
-
-# ---- pit tesseract (left) ----
-box(
-    0.6,
-    0.85,
-    4.6,
-    2.55,
-    "#fdf1e7",
-    "#c96a1b",
-    "brisket-pit  (Julia)",
-    [
-        "lumped charcoal pit — 3 ODEs (Tsit5)",
-        "energy · fuel burn · Minion ignition spread",
-        "AD: exact dense ForwardDiff",
-        "Jacobian, transposed to a VJP",
-    ],
-)
-
-# ---- meat tesseract (right) ----
-box(
-    7.8,
-    0.85,
-    4.6,
-    2.55,
-    "#fdeaea",
-    "#b03a3a",
-    "brisket-meat  (Julia)",
-    [
-        "1D slab heat + moisture PDE + bark",
-        "162 stiff ODEs (FBDF) · smoothed stall",
-        "AD: SciMLSensitivity continuous adjoint",
-        "(InterpolatingAdjoint + EnzymeVJP)",
-    ],
-)
-
-# FancyBboxPatch pads its VISIBLE border 0.12 beyond the nominal rect;
-# connect arrows to the padded edge with a small clearance so heads/tails
-# touch the border instead of piercing it.
-PAD, CLR = 0.12, 0.03
-JAX_BOT = 4.75 - PAD - CLR  # visible bottom edge of the JAX box
-LOW_TOP = 3.40 + PAD + CLR  # visible top edge of the component boxes
-PIT_R = 5.20 + PAD + CLR  # visible right edge of pit box
-MEAT_L = 7.80 - PAD - CLR  # visible left edge of meat box
-
-# ---- coupling arrows (in the gap between the boxes) ----
-arrow((PIT_R, 2.85), (MEAT_L, 2.85), "#b03a3a")
-label(6.5, 3.13, r"$T_{pit}(t),\ \dot m(t)$", "#b03a3a")
-arrow((MEAT_L, 1.40), (PIT_R, 1.40), "#c96a1b")
-label(6.5, 1.12, r"$q_{meat}(t)$", "#c96a1b")
-label(
-    6.5,
-    2.12,
-    "two-way coupling\n(K = 2, unrolled)\nsmoke = burn rate",
-    "#555",
-    size=7.4,
-)
-
-# ---- boundary crossings: primal down (blue), outputs/cotangents up ----
-arrow((2.0, JAX_BOT), (2.0, LOW_TOP), "#3b6ea5")
-label(2.0, 4.44, r"$\varphi,\; u(t),\; q$", "#3b6ea5")
-arrow((3.8, LOW_TOP), (3.8, JAX_BOT), "#c96a1b")
-label(3.8, 3.72, r"$T_{pit},\, m_{fuel},\, \dot m$", "#c96a1b")
-arrow((9.2, JAX_BOT), (9.2, LOW_TOP), "#3b6ea5")
-label(9.2, 4.44, r"$\theta,\, T_{pit}(t),\, \dot m(t),\, t_{wrap}$", "#3b6ea5")
-arrow((11.0, LOW_TOP), (11.0, JAX_BOT), "#b03a3a")
-label(11.0, 3.72, r"$T_{core},\, j_{evap},\, q,\, C,\, w,\, L^{*}$", "#b03a3a")
-
-# ---- gradient annotation (its own band at the bottom) ----
-ax.text(
-    6.5,
-    0.32,
-    "one  jax.grad  of the composed log-density  =  4 VJP crossings of the "
-    "boundary  (2 continuous-adjoint solves + 2 forward-mode transposes)",
-    ha="center",
-    fontsize=9.4,
-    color="#333",
+    0.2,
+    2.78,
+    "Julia  (src/monolith.jl)",
+    fontsize=11,
     fontweight="bold",
+    color=GREEN,
+    va="top",
+)
+box(0.2, 0.25, 8.7, 2.1, FILL_JL, GREEN, "", [])
+centered(
+    4.55, 2.15, "monolith_solve — one stiff FBDF solve of 165 ODEs", 10.5, bold=True
+)
+centered(
+    4.55,
+    1.85,
+    "derivatives: ForwardDiff through the solve — JVP = one Dual solve, "
+    "VJP / Jacobian = one chunked pass",
+    8.2,
+    GREEN,
+)
+box(
+    0.45,
+    0.4,
+    2.1,
+    1.15,
+    "white",
+    GREEN,
+    "pit",
+    ["T_pit, m_fuel, ignited", "burn ∝ airflow(u) · ignited"],
+    title_size=9.5,
+    size=7.8,
+)
+box(
+    3.45,
+    0.4,
+    2.6,
+    1.15,
+    "white",
+    GREEN,
+    "meat",
+    ["T, W, C, F × 40 nodes + B, S", "evaporative stall, shrinkage, bark"],
+    title_size=9.5,
+    size=7.8,
+)
+box(
+    6.55,
+    0.4,
+    2.1,
+    1.15,
+    "white",
+    GREEN,
+    "pit humidity",
+    ["p_v = base + meat vapour", "dilution by the draft"],
+    title_size=9.5,
+    size=7.8,
+)
+arrow((2.65, 1.25), (3.35, 1.25), GREEN, lw=1.4)
+arrow((3.35, 0.7), (2.65, 0.7), GREEN, lw=1.4)
+arrow((6.15, 1.0), (6.45, 1.0), GREEN, lw=1.4, style="<|-|>")
+label(3.0, 1.45, "T_pit, ṁ", GREEN, size=7.4)
+label(3.0, 0.5, "q_meat", GREEN, size=7.4)
+arrow((4.55, 2.87), (4.55, 2.45), ORANGE, style="<|-|>")
+
+# --- the version it replaced ---------------------------------------------------
+box(9.35, 0.25, 3.95, 6.8, FILL_OLD, MUTED, "", [], lw=1.2, ls="--")
+ax.text(
+    11.32,
+    6.8,
+    "the first build (git history)",
+    ha="center",
+    va="top",
+    fontsize=10,
+    fontweight="bold",
+    color=MUTED,
+)
+box(
+    9.6,
+    5.15,
+    3.45,
+    1.2,
+    "white",
+    MUTED,
+    "brisket-meat",
+    ["PDE; VJP = SciMLSensitivity", "continuous adjoint (EnzymeVJP)"],
+    title_size=9.5,
+    size=7.8,
+    lw=1.1,
+)
+box(
+    9.6,
+    3.45,
+    3.45,
+    1.2,
+    "white",
+    MUTED,
+    "brisket-pit",
+    ["ODE; VJP = ForwardDiff Jacobianᵀ"],
+    title_size=9.5,
+    size=7.8,
+    lw=1.1,
+)
+arrow((10.3, 5.05), (10.3, 4.75), MUTED, lw=1.3)
+arrow((12.3, 4.75), (12.3, 5.05), MUTED, lw=1.3)
+label(11.32, 4.9, "K = 2 Picard in JAX", MUTED, size=7.6)
+ax.text(
+    9.55,
+    3.1,
+    "measured against the monolith\n(real-cook grid, 19 h):\n"
+    "• coupling truncation 0.27 K pit / 0.11 K core\n"
+    "• 20× per gradient (adjoint 50 s vs 2.5 s)\n"
+    "• plan scan 4.5 h → 69 min\n"
+    "• MPC demo ~30 h → 58 min\n"
+    "• a Hessian: 36 adjoints → one Jacobian",
+    ha="left",
+    va="top",
+    fontsize=8.0,
+    color=INK,
+    linespacing=1.45,
 )
 
 out = REPO / "figures" / "composition_diagram.png"
 fig.savefig(out, dpi=150, bbox_inches="tight")
-print(f"wrote {out}")
+print(f"wrote {out.relative_to(REPO)}")
