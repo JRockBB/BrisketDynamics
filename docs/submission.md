@@ -1,8 +1,8 @@
 # Submission package (drafts)
 
-Author notes (not posted): fill NUTS numbers after
-`uv run python ../scripts/run_nuts.py --real`; fill MPC numbers after
-`uv run python ../scripts/run_mpc.py`. Repo:
+Author notes (not posted): fill the NUTS-on-monolith diagnostics from
+`scripts/merge_nuts_mono.py` and the robust-control numbers from
+`data/control/schedule_robust_mono.json` where marked. Repo:
 https://github.com/JRock95/BrisketDynamics. User-owned: hackathon
 registration (tally.so/r/kdx2ej, required for prize eligibility).
 
@@ -18,61 +18,55 @@ Multi-physics & coupled systems)
 **Repo:** https://github.com/JRock95/BrisketDynamics
 
 **One-line description:**
-A charcoal smoker and a brisket as two Julia Tesseracts — a stiff
-heat–moisture PDE with a SciMLSensitivity continuous adjoint and a lumped
-pit ODE with a ForwardDiff Jacobian — composed into one end-to-end
-differentiable JAX function and used for MAP + NUTS Bayesian
-calibration (synthetic and a real 19-hour cook log), damper-schedule
-optimization, robust control in expectation over posterior draws,
-receding-horizon MPC with full-field state handoff, cook-time
-planning, and a mechanistic bark-color model whose gradients cross both
-components. Moisture physics puts a mid-cook wrap into the joint
-duration × wrap × vents plan to protect juiciness. Food-safety terms are
-soft surface penalties under an intact-muscle assumption, not a
-certification.
+A charcoal smoker and a brisket — a lumped pit ODE, a stiff 1D heat–moisture
+PDE with the evaporative stall, and the pit's humidity — as one Julia
+Tesseract with forward-mode `jvp` / `vjp` / `jacobian` endpoints, driven from
+JAX for Gauss–Newton and NUTS calibration on a real 19-hour cook log, a
+duration × wrap × pull × vent plan scored at serve, robust control over the
+posterior, and receding-horizon MPC that re-times the wrap and the pull. We
+built it first as two composed Tesseracts (adjoint + Jacobian, Picard-coupled
+in JAX), measured the seam, and moved the boundary to the edge of the physics:
+the same scans went from hours to minutes.
 
 **Longer description (if the form has a field for it):**
-Real barbecue is a coupled multi-physics control problem: a charcoal pit
-with its own thermal and fuel dynamics drives a brisket whose internal
-heat conduction and moisture transport produce the famous "stall" — a
-multi-hour plateau caused by evaporative cooling. We built both solvers in
-Julia with deliberately different differentiation strategies (continuous
-adjoint for the 162-ODE stiff PDE; exact forward-mode Jacobian for the
-3-state pit), exposed each through the Tesseract VJP interface, and coupled
-them two-way in JAX via tesseract-jax with an unrolled Picard iteration, so
-reverse-mode AD through the composed VJPs is the exact gradient of the
-simulated system.
+Real barbecue is a coupled multi-physics control problem: a charcoal pit with
+its own thermal and fuel dynamics drives a brisket whose internal heat
+conduction and moisture transport produce the famous "stall" — a multi-hour
+plateau caused by evaporative cooling. The physics is Julia: a 165-ODE stiff
+system (method of lines, FBDF) integrating pit, meat and pit humidity
+together, with smoothed switches so the stall emerges and breaks
+differentiably. It is exposed as one Tesseract whose derivative endpoints are
+forward-mode through the solve — a JVP is one Dual solve, a VJP or full
+Jacobian one chunked pass — so tesseract-jax gives JAX both reverse and forward
+mode through the same interface.
 
-The gradients then do real work. NUTS calibration recovers synthetic truth
-and — the capstone — fits a digitized real 19-hour overnight cook (18.5"
-WSM), tracking the pit hold within ~3 °C and reproducing the core's full
-arc: rise, multi-hour stall, break at ~14 h. The posterior shows which
-physics the data pins: meat-side parameters to within a few percent,
-pit-side parameters only in combinations — two clean ridges (heat loss vs
-heat release, burn rate vs leak), the fingerprint of closed-loop cook data
-— while the posterior-predictive band holds both 19-hour traces.
-The same coupled function drives Optax damper-schedule optimization
-(doneness 0.900 on a 0.90 target), robust control over posterior draws,
-and receding-horizon MPC: hourly re-plans from the full meat field
-(temperature, moisture, collagen, fat, bark) handed through the
-Tesseracts. Food-safety terms are soft surface penalties (intact-muscle
-assumption), not a certification.
+The derivatives do real work. A Gauss–Newton MAP on a digitized real 19-hour
+overnight cook (18.5" WSM) converges from the prior medians in 19 iterations
+and two minutes, tracking the pit hold to ~1.6 K rms and reproducing the
+core's rise, stall and break; the Fisher information from the same Jacobian
+matches a finite-difference Laplace Hessian to within 0.8–1.4× and shows
+which physics the data pins (the meat's) and which it identifies only along
+ridges (the pit's: heat loss vs heat release, burn rate vs leak). The plan —
+cook length, wrap time, pull time and vent schedule optimized jointly against
+a KCBS-weighted quality objective scored at serve — lands on a 20 h cook that
+wraps at 8.2 h and pulls at 18.15 h. Receding-horizon MPC replans the
+schedule, the wrap and the pull hourly from the full meat field; hit with a
+15 K cold front it has never seen, it re-times the crutch and the pull and
+serves at doneness 0.965 where the open-loop plan ends at 0.55.
 
-A three-tier gradient verification gate (Julia adjoint vs FD,
-per-endpoint check-gradients, composed FD through the full pipeline)
-backs the solvers, and the writeup names the model's deficiencies
-honestly, including why closed-loop cook logs cannot identify the
-pit's fast dynamics. Real-cook calibration uses an AR(1) likelihood so
-smooth discrepancy is not counted as independent observations. To our knowledge — based on a survey of the mosaic
-suite, the official examples, and the forum — no public example existed of
-a SciMLSensitivity continuous adjoint exposed through the Tesseract VJP
-interface.
+The first build was two composed Tesseracts (a SciMLSensitivity continuous
+adjoint on the PDE, a ForwardDiff Jacobian on the pit, K = 2 Picard in JAX).
+It was verified and it is in the history; measured against the monolith it
+carried a 0.27 K coupling truncation and cost 20× per gradient. Everything —
+the three-level finite-difference verification, the deadlocks found and fixed
+in the Julia↔JAX threading, the model's deficiencies (closed-loop cook logs
+cannot identify the pit's fast dynamics) — is documented in the repo.
 
 **Key artifacts:** `docs/writeup.md` (six-criteria writeup) ·
-`figures/cook_animation.gif` · `figures/cooklog_fit_map.png` ·
-`figures/corner.png` · `figures/corner_real.png` · `figures/mpc_demo.png` ·
-`figures/fullplan.png` · `figures/bark_model.png` ·
-`figures/composition_diagram.png` · `docs/verification.md`
+`docs/monolith.md` (the seam, measured) · `figures/cooklog_fit_map.png` ·
+`figures/corner_laplace_real.png` · `figures/fullplan.png` ·
+`figures/mpc_demo_mono.png` · `figures/control_robust_mono.png` ·
+`figures/bark_model.png` · `docs/verification.md`
 
 ---
 
@@ -80,97 +74,86 @@ interface.
 
 Can you take the gradient of a brisket?
 
-For the Tesseract Hackathon by Pasteur Labs & ISI, I built
-BrisketDynamics: a charcoal smoker and a brisket as two differentiable
-physics components — a stiff heat–moisture PDE (the physics behind the
-infamous BBQ "stall") and a charcoal-pit ODE — written in Julia, composed
-through Tesseract into one end-to-end differentiable function under JAX.
+For the Tesseract Hackathon by Pasteur Labs & ISI, I built BrisketDynamics:
+a charcoal smoker and a brisket — a pit ODE, a stiff heat–moisture PDE (the
+physics behind the infamous BBQ "stall"), and the pit's humidity — as one
+differentiable Julia Tesseract driven from JAX.
 
-What the gradients bought, flowing across the Julia↔JAX container boundary
-on every step:
+What the derivatives bought:
 
-🔥 Bayesian calibration (NumPyro NUTS) against a real 19-hour overnight
-cook digitized from a 2013 forum post — the model reproduces the full arc:
-rise, five-hour stall, break at hour 14. And the posterior tells you
-exactly which physics a cook log can pin (the meat's) and which it only
-constrains in combinations (the pit's) — uncertainty quantification with
-an interpretable shape.
+🔥 Calibration against a real 19-hour overnight cook digitized from a 2013
+forum post — the model reproduces the full arc: rise, five-hour stall, break,
+climb to 90 °C. A Gauss–Newton fit from the prior medians takes two minutes;
+the posterior says which physics a cook log pins (the meat's) and which it
+only constrains in combinations (the pit's).
 
-🔥 An optimized vent schedule that hits target doneness on deadline —
-and a robust version optimized in expectation over the posterior.
+🔥 A plan that picks its own cook length, wrap time, pull time and vent
+schedule, scored at serve — the rest is part of the cook.
 
-🔥 Receding-horizon MPC: hourly re-plans from the full meat field
-(temperature, moisture, doneness, fat, bark) handed through the
-Tesseracts. Hit the simulated cook with a cold front the controller has
-never seen, and it re-plans.
+🔥 Receding-horizon MPC that re-plans the vents, the crutch and the pull
+hourly from the full meat field. Hit the simulated cook with a cold front the
+controller has never seen: the open-loop plan serves a tough brisket, MPC
+wraps earlier, pulls earlier, and lands it.
 
-🔥 A mechanistic bark model (Maillard + smoke deposition, smoke flux =
-the pit's own burn rate — gradients cross both physics components). Given
-tenderness + juiciness + color, the optimizer lands on a 17-hour cook that
-wraps at 3.5 h: smoke for bark, then crutch to protect juiciness.
-
-The interesting engineering: a SciMLSensitivity continuous adjoint exposed
-as a Tesseract VJP (to my knowledge a first in public code), two-way
-coupling by an unrolled Picard iteration so the composed gradient is exact,
-and a three-level finite-difference verification gate on the Julia
-adjoints, the Tesseract endpoints, and `jax.grad` through the composed
-cook.
+The engineering story: I built it first as two composed Tesseracts — a
+SciMLSensitivity adjoint on the PDE, a Jacobian on the pit, Picard-coupled in
+JAX — measured what that seam cost (0.27 K of truncation, 20× per gradient),
+and moved the boundary to the edge of the physics with forward-mode
+`jvp`/`vjp`/`jacobian` endpoints. Same scans, hours to minutes.
 
 Repo: https://github.com/JRock95/BrisketDynamics
 
 #TesseractHackathon #DifferentiableProgramming #JuliaLang #JAX
 #BayesianInference #BBQ
 
-[Attach: figures/mpc_demo.png or figures/cook_animation.gif]
+[Attach: figures/mpc_demo_mono.png]
 [Tag: Pasteur Labs & ISI; Tesseract]
 
 ---
 
 ## 3. Forum showcase post (si-tesseract discourse)
 
-**Title:** BrisketDynamics — Bayesian calibration & MPC of a coupled
-smoker–brisket system (two Julia Tesseracts, SciMLSensitivity adjoint as
-VJP)
+**Title:** BrisketDynamics — calibration & MPC of a coupled smoker–brisket
+system as one Julia Tesseract with forward-mode jvp / vjp / jacobian endpoints
 
-Hi all — my hackathon entry composes two Julia Tesseracts into an
-end-to-end differentiable BBQ simulator, then uses the gradients for
-Bayesian calibration on a real 19-hour cook log and for optimal control.
+Hi all — my hackathon entry wraps a coupled BBQ simulator (charcoal pit ODE +
+1D heat–moisture PDE with the evaporative stall + pit humidity, 165 stiff
+ODEs) as one Tesseract and uses the derivatives from JAX for Bayesian
+calibration on a real 19-hour cook log and for planning and MPC.
 
-**The composition.** `brisket-meat` is a 1D heat–moisture PDE plus surface bark states
-(method of lines, 162 stiff ODEs, FBDF) whose smoothed evaporative surface
-BC produces the stall; its `vector_jacobian_product` endpoint is a
-SciMLSensitivity continuous adjoint (`InterpolatingAdjoint` + `EnzymeVJP`).
-`brisket-pit` is a 3-state charcoal-pit ODE (energy balance, fuel burn,
-Minion-method ignition spread) differentiated with an exact ForwardDiff
-Jacobian, transposed to a VJP. A JAX orchestrator couples them two-way
-(pit temperature → boundary condition; evaporative + sensible load → pit
-energy balance) with a K=2 Picard iteration unrolled in the graph, so
-`jax.grad` through the composed VJPs is the exact gradient of the
-simulated system. One gradient crosses the Julia↔JAX boundary four times.
+**The boundary, and why it is where it is.** I built it first as two
+Tesseracts: `brisket-meat` (the PDE, `vector_jacobian_product` = a
+SciMLSensitivity continuous adjoint) and `brisket-pit` (the ODE, exact
+ForwardDiff Jacobian transposed), coupled two-way in JAX by a K = 2 Picard
+iteration unrolled in the graph. It worked and verified. Then I built the
+coupled system as one Julia solve and measured the seam: 0.27 K of coupling
+truncation on the real cook, and 20× per gradient (a continuous adjoint with
+115 cotangent injections vs a 14-column forward-mode Jacobian at 2.5 s). The
+monolith Tesseract exposes `jacobian_vector_product` (one Dual solve),
+`vector_jacobian_product` and `jacobian` (one chunked pass), so tesseract-jax
+gives `jax.grad` for Optax/NUTS and `jacfwd` for Gauss–Newton through the same
+interface. The two-Tesseract version is in the history with the numbers.
 
-**What the gradients do.** NumPyro NUTS against a digitized real overnight
-WSM cook — pit hold tracked within ~3 °C, the stall and its break
-reproduced. The posterior pins the meat-side physics to a few percent but
-identifies the pit side only along two clean ridges (heat loss vs heat
-release, burn rate vs leak) — the identifiability fingerprint of
-closed-loop data. The cook's author mentioned a leaky door; that leak
-parameter sits on the burn ridge, not as an individually pinned number.
-Optax damper-schedule optimization, a robust variant in expectation over
-those draws, and receding-horizon MPC with full T/W/C/F/B/S-field state
-handoff through the Tesseracts. Food-safety terms are soft surface
-penalties (intact-muscle assumption), not a certification.
+**What the derivatives do.** Gauss–Newton MAP on the real cook from the prior
+medians in 19 iterations / 131 s; Fisher widths vs an FD-Laplace Hessian
+within 0.8–1.4×; a duration × wrap × pull × vent plan scored at serve (13 cook
+lengths in 69 min); receding-horizon MPC replanning vents, crutch and pull
+hourly (4 cooks in 58 min) that absorbs a 15 K cold front the open-loop plan
+does not survive; robust control over posterior draws.
 
 **Notes that might be useful to others building Julia Tesseracts:**
-- To our knowledge there was no public SciMLSensitivity-adjoint-as-VJP
-  example (the mosaic Julia precedents use Zygote or hand-written
-  adjoints); ours is documented in `docs/verification.md`, including a
-  gotcha where compiled ReverseDiff tapes silently freeze time-interpolated
-  forcings, and a GaussAdjoint NaN-quadrature failure mode.
-- juliacall + jitted JAX callbacks: all Julia work must run on one
-  dedicated thread; three distinct deadlock modes and their fixes are
+- If your parameter count is small and the forward solve is cheap, forward
+  mode makes the endpoint discipline free: `jvp`, `vjp` and `jacobian` are
+  each one Julia call, and tesseract-jax already has the JVP rule.
+- juliacall + jitted JAX callbacks: one executor thread per process for all
+  Julia work, and every Julia→numpy array copied on that thread — a
+  zero-copy view released from an XLA thread deadlocks the GC; a second
+  executor deadlocks the moment two modules share the runtime. Both are
   documented in the repo.
-- Checkpointing NumPyro at the kernel level (`HMCState` pickles cleanly)
-  made sampling survive four battery deaths with zero lost samples.
+- numpyro derives a `TransformedDistribution`'s support from the transform's
+  codomain; an `AffineTransform` of a Beta needs `domain=unit_interval` or
+  the guide samples outside the support.
 
 Repo: https://github.com/JRock95/BrisketDynamics — writeup in
-`docs/writeup.md`, every figure regenerable by script. Feedback welcome!
+`docs/writeup.md`, the seam measurements in `docs/monolith.md`, every figure
+regenerable by script. Feedback welcome!

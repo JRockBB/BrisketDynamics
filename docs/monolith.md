@@ -30,14 +30,22 @@ trajectory and `pv_base`; it accepts ForwardDiff duals, which is what
 | Picard K=2 (pit + meat, twice) | 0.32 s |
 | continuous adjoint gradient of the same residuals (Tesseract path, measured 2026-08-27) | ~50 s |
 
+End-to-end, same scripts, one import swapped:
+
+| | two Tesseracts (K = 2 Picard) | monolith Tesseract |
+|---|---|---|
+| fullplan scan, 13 cook lengths, schedule + wrap + pull each | 4.5 h | 69 min |
+| MPC demo, 4 cooks, hourly replans incl. the pull | ~2 h per replan under the disturbance | 58 min total |
+| Gauss–Newton MAP from the prior medians | — (Adam + adjoint, hours) | 131 s |
+
 | Picard vs monolith | max ΔT_pit | max ΔT_core |
 |---|---|---|
 | K = 1 | 4.3 K | 6.7 K |
 | K = 2 | 0.27 K | 0.11 K |
 | K = 4, 8 | 0.04 K | 0.03 K |
 
-The `picard_dT` diagnostic the scripts report is |x₂ − x₁| — the K = 1
-error. The K = 2 truncation actually carried by the composed pipeline is
+The `picard_dT` diagnostic the old scripts reported was |x₂ − x₁| — the
+K = 1 error. The K = 2 truncation actually carried by the composed pipeline is
 ~0.3 K on the real cook; the K ≥ 4 residual is the exchange-grid
 interpolation.
 
