@@ -221,7 +221,7 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
         ax0.axvline(th, color=color, lw=1.2, ls=ls)
         ax0.text(
             th,
-            12.0 + i * 16.0,
+            20.0 + i * 16.0,  # rows interleave with the crutch rows
             f"{short} pull  {th:.1f} h ",
             ha="right",
             va="center",
@@ -243,9 +243,9 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
         ylim=(0, 1),
         title="executed schedules (MPC re-plans hourly)",
     )
-    axes[0].legend(fontsize=8, loc="lower right")
-    axes[1].legend(fontsize=8, loc="lower left")
-    axes[2].legend(fontsize=8, loc="center right")
+    # one legend, on the pit panel: the core panel carries the event labels
+    axes[1].legend(fontsize=8, loc="lower center")
+    axes[2].legend(fontsize=8, loc="upper left")
     retimed = (
         wrap_mode
         and len(wraps) >= 2
