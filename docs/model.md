@@ -439,7 +439,8 @@ with $\mu^{\mathrm{pit}} = T_p(t;\theta,\varphi)$ and
 $\mu^{\mathrm{core}} = T_{\mathrm{core}}(t;\theta,\varphi)$, independently
 for each probe. $\rho = 0$ recovers the iid model. LogNormal priors
 centered on the model defaults (Beta for the (0,1)-bounded
-$u_{\mathrm{leak}}, a_0, \rho$). MAP by SVI/AutoDelta. Evening-scale
-posterior by full-rank ADVI (`scripts/run_vi.py`). Optional exact
-posterior by NUTS (`scripts/run_nuts.py`), every leapfrog step pulling
-the composed VJPs across the Julia↔JAX boundary.
+$u_{\mathrm{leak}}, a_0, \rho$). MAP by Gauss–Newton on the monolith's
+Jacobian (`scripts/run_gn_map.py`). Evening-scale posterior by full-rank
+ADVI (`scripts/run_vi.py`). Exact posterior by NUTS
+(`scripts/run_nuts_mono.py`), every leapfrog step pulling one VJP through
+the Tesseract.

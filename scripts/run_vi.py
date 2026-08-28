@@ -1,8 +1,7 @@
 """Evening-scale ADVI on the coupled model. Does not replace NUTS.
 
 Full-rank (default) / low-rank / mean-field SVI on the same NumPyro model
-`run_nuts.py` uses. Checkpoints the SVI state so a run can be paused.
-NUTS remains `scripts/run_nuts.py`.
+`run_nuts_mono.py` samples. Checkpoints the SVI state so a run can be paused.
 
 Run from app/:
     uv run python -u ../scripts/run_vi.py --real [--steps N]
