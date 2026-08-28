@@ -331,7 +331,7 @@ state it closes with `RHO_MEAT` / `RHO_DRY` to ~1 %.
 """
 function specific_volume(W, F, cfg::MeatConfig)
     fat = F + (1 - cfg.η_drain) * (cfg.F0 - F)
-    return (1 - cfg.F0) / cfg.ρ_sol + fat / cfg.ρ_fat + W / cfg.ρ_water
+    return (1 - cfg.F0) / cfg.ρ_sol + fat / cfg.ρ_fat + max(W, zero(W)) / cfg.ρ_water
 end
 
 """
@@ -455,10 +455,11 @@ by two smooth denaturation steps (myosin ~58 °C amplitude `a_myosin`, actin
 actin amplitude stays a config constant.
 """
 function w_eq(T, a_myosin, cfg::MeatConfig)
-    return cfg.W0 * (
+    w = cfg.W0 * (
         1 - a_myosin * logistic((T - cfg.T_myosin) / cfg.δ_myosin) -
         cfg.a_actin * logistic((T - cfg.T_actin) / cfg.δ_actin)
     )
+    return max(w, zero(w))  # water-holding capacity cannot go negative
 end
 w_eq(T, cfg::MeatConfig) = w_eq(T, cfg.a_myosin, cfg)
 

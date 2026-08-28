@@ -280,6 +280,7 @@ _SOLVER_FAIL_MARKERS = (
     "nan inputs",
     "dt_epsilon",
     "dt < eps",
+    "domainerror",
 )
 
 
