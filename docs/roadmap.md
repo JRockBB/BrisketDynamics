@@ -6,21 +6,18 @@ Gaps: `docs/model_gaps.md`.
 
 ## Hackathon
 
-1. **Current-model real-cook NUTS** — first
-   `uv run python ../scripts/run_map_real.py --init ../data/calibration/map_real.json`
-   (AR(1) likelihood; writes a new MAP including \(\rho\)). Then
-   `uv run python ../scripts/run_nuts.py --real` from a **fresh**
-   checkpoint dir (do not resume `nuts_ckpt_real` or `7a`/`7b`). 300
-   warmup + 300 samples. Fill `figures/corner_real.png` and
-   `figures/posterior_predictive_real.png`. Quote ESS, split-r̂,
-   divergences as-is. The identifiability claim to check: meat side
-   pinned, pit side only along ridges (UA ∝ ΔH_eff, r_max vs u_leak).
+1. **NUTS on the monolith** — `uv run python ../scripts/run_nuts_mono.py
+   --chain N` per chain (Fisher-seeded dense metric, LM-MAP init, progress
+   bar), then `scripts/merge_nuts_mono.py` for split-r̂ / ESS / divergences
+   and the width comparison against Fisher, ADVI and FD-Laplace. Quote the
+   diagnostics as-is. The identifiability claim to check: meat side pinned,
+   pit side only along ridges (UA ∝ ΔH_eff, r_max vs u_leak).
 2. **Submission** — post the form / LinkedIn / forum drafts in
    `docs/submission.md`. User-owned: hackathon registration
    (tally.so/r/kdx2ej, required for prize eligibility).
 3. *Stretch, only if 1–2 are done — in this order:*
    1. **Differentiable duration** via \(s = t/t_f\) time-scaling. The
-      outer-scan planner (`timeplan.py`, `fullplan.py`) already chooses
+      outer-scan planner (`fullplan.py`) already chooses
       duration by cook quality. Remaining: duration as a differentiable
       decision jointly with the schedule. Formulation: the perfect brisket
       defines its own time — duration by *pure cook quality* (target

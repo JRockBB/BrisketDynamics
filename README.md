@@ -32,16 +32,13 @@ doc.
 
 | | |
 |---|---|
-| **Gradient correctness** | 3-level FD verification: Julia suite (physics; monolith Jacobian / JVP vs FD; Picard→monolith convergence) and the app suite (composed `jax.grad` gate, bark chain, MPC invariants). See [docs/verification.md](docs/verification.md) |
-| **Synthetic calibration** | MAP + NUTS on the coupled model; the k_m–h_c ridge is the stall's cooling/heating trade-off ([corner](figures/corner.png), [predictive band](figures/posterior_predictive.png)) |
-| **Real-cook capstone** | 19-h WSM cook (digitized with provenance): pit hold tracked ±3 °C, core stall **and** stall break reproduced ([fit](figures/cooklog_fit_map.png), [data](data/cook_log/PROVENANCE.md)). NUTS posterior: [corner](figures/corner_real.png), [predictive band](figures/posterior_predictive_real.png) |
-| **Optimal control** | doneness 0.26 → **0.900** on target, surface under bark limit ([before/after](figures/control_before_after.png)) |
-| **Robust control** | expected-objective schedule vs MAP-optimal, evaluated on posterior draws ([comparison](figures/control_robust.png)) |
-| **MPC** | receding-horizon replan from the full meat field (T/W/C/F/B/S) handed through the Tesseract ([demo](figures/mpc_demo.png)) |
-| **Cook-time planning** | quality scan over duration (9 h pre-color → 17 h with bark). The chance layer reports an **empirical fraction over N draws**, not a 95% certification ([figure](figures/timeplan.png)) |
-| **Differentiable Texas crutch** | wrap time optimized jointly with the vents against predicted bark color ([figure](figures/wraptime.png)) |
+| **Derivative correctness** | 3-level FD verification: Julia (residual Jacobian / JVP vs FD; Picard→monolith convergence), the Tesseract endpoints against each other (jvp = J·v, vjp = Jᵀ·w), and `jax.grad` through `coupled_cook`. See [docs/verification.md](docs/verification.md) |
+| **Real-cook calibration** | 19-h WSM cook (digitized with provenance): Gauss–Newton MAP from the prior medians in 19 iterations / 131 s, pit rms 1.6 K, stall **and** stall break reproduced ([fit](figures/cooklog_fit_map.png), [data](data/cook_log/PROVENANCE.md)) |
+| **Posterior** | Fisher widths vs an FD-Laplace Hessian within 0.8–1.4×; meat side pinned, pit side along two ridges ([Laplace corner](figures/corner_laplace_real.png), [predictive](figures/posterior_predictive_laplace_real.png); ADVI: [corner](figures/corner_vi_real.png), [predictive](figures/posterior_predictive_vi_real.png)); NUTS on the monolith via `scripts/run_nuts_mono.py` |
+| **The plan** | cook length × wrap × pull × vents optimized jointly, quality scored at serve: the 20 h cook wraps at 8.2 h, pulls at 18.15 h, rests 1.85 h ([figure](figures/fullplan.png)) — 13 cook lengths in 69 min |
+| **MPC** | hourly replans of vents, crutch and pull from the full meat field through the Tesseract; a 15 K cold front the open-loop plan does not survive (doneness 0.55) is absorbed (0.965) ([demo](figures/mpc_demo_mono.png)) — 4 cooks in 58 min |
+| **Robust control** | E[J] over 8 posterior draws vs the plan-optimal schedule on 30 held-out draws: half the spread, the hedge is in the wrap and pull times ([comparison](figures/control_robust_mono.png)) |
 | **Mechanistic bark model** | Maillard + smoke deposition as meat states, smoke flux = pit burn rate; hot-fast vs low-slow vs wrap reproduced ([figure](figures/bark_model.png)) |
-| **The full composition** | duration × wrap × vents jointly optimized; current artifacts wrap near 3.5–3.8 h on a ~17 h horizon ([figure](figures/fullplan.png)) |
 | **Animated cook** | calibrated T/W fields evolving through the real cook ([gif](figures/cook_animation.gif)) |
 
 ## Layout
@@ -81,8 +78,6 @@ uv run python ../scripts/run_map_real.py        # real cook MAP calibration
 uv run python ../scripts/run_vi.py --real       # real cook ADVI (evening-scale; checkpointed)
 uv run python ../scripts/run_nuts.py --real     # real cook NUTS (long; checkpointed)
 uv run python ../scripts/run_mpc.py             # receding-horizon MPC demo
-uv run python ../scripts/run_timeplan.py        # cook-time-as-decision-variable
-uv run python ../scripts/run_wraptime.py        # differentiable wrap-time (crutch)
 uv run python ../scripts/run_bark.py            # bark model forward validation
 uv run python ../scripts/run_fullplan.py        # duration x wrap x schedule
 uv run python ../scripts/render_animation.py    # animated calibrated cook
