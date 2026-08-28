@@ -1,9 +1,0 @@
-band self-check: tenderness overshoot at c=0.9995 -> 0.143 (expect ~0.14)
-extension seeded from base optimum at 14.0 h
-full composition scan: duration x wrap x schedule
-  t_f= 15.0 h  J=  1.067  doneness=1.000  juiciness=0.417  L*=35.4  wrap@3.74 h
-  t_f= 16.0 h  J=  1.034  doneness=1.000  juiciness=0.429  L*=35.4  wrap@3.52 h
-  t_f= 17.0 h  J=  1.010  doneness=1.000  juiciness=0.435  L*=35.3  wrap@3.47 h
-  t_f= 18.0 h  J=  0.994  doneness=1.000  juiciness=0.440  L*=35.2  wrap@3.55 h
-THE COOK: 17 h total, wrap at 3.47 h — doneness 1.000, juiciness 0.435, bark L* 35.3
-wrote figures/fullplan.png
