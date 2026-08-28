@@ -1,0 +1,64 @@
+plant: laplace_mean_real.json
+using plan fullplan_result.json
+plan under defense: the 20 h cook — wrap at 7.85 h, pull at 18.71 h, serve at 20.0 h, u in [0.00, 0.93]
+reference (no disturbance):
+  [openloop] t= 1.0 h  Tpit=120.2 C  core= 43.9 C  C=0.000  u~0.60  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 2.0 h  Tpit=108.5 C  core= 69.0 C  C=0.007  u~0.10  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 3.0 h  Tpit=100.8 C  core= 70.3 C  C=0.030  u~0.01  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 4.0 h  Tpit=106.2 C  core= 70.2 C  C=0.051  u~0.08  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 5.0 h  Tpit=112.2 C  core= 72.7 C  C=0.078  u~0.14  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 6.0 h  Tpit=121.5 C  core= 75.5 C  C=0.119  u~0.21  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 7.0 h  Tpit=130.8 C  core= 79.8 C  C=0.191  u~0.29  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 8.0 h  Tpit=120.3 C  core= 81.1 C  C=0.296  u~0.16  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 9.0 h  Tpit=107.3 C  core= 85.6 C  C=0.437  u~0.03  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=10.0 h  Tpit=101.7 C  core= 86.4 C  C=0.600  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=11.0 h  Tpit= 99.9 C  core= 85.8 C  C=0.715  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=12.0 h  Tpit= 99.7 C  core= 85.2 C  C=0.789  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=13.0 h  Tpit=100.6 C  core= 85.0 C  C=0.841  u~0.01  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=14.0 h  Tpit=101.4 C  core= 85.2 C  C=0.880  u~0.02  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=15.0 h  Tpit=101.4 C  core= 85.4 C  C=0.911  u~0.02  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=16.0 h  Tpit=101.1 C  core= 85.4 C  C=0.934  u~0.02  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=17.0 h  Tpit=102.2 C  core= 85.5 C  C=0.951  u~0.05  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=18.0 h  Tpit=108.4 C  core= 86.7 C  C=0.965  u~0.17  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=20.0 h  Tpit= 65.0 C  core= 74.5 C  C=0.979  u~0.11  T_amb=27 C  T_amb_hat=26.9±5.0 C  PULLED at 18.71 h -> rest
+open-loop through the cold front:
+  [openloop] t= 1.0 h  Tpit=120.2 C  core= 43.9 C  C=0.000  u~0.60  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 2.0 h  Tpit=108.5 C  core= 69.0 C  C=0.007  u~0.10  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 3.0 h  Tpit= 91.0 C  core= 68.1 C  C=0.027  u~0.01  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 4.0 h  Tpit= 93.4 C  core= 65.5 C  C=0.038  u~0.08  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 5.0 h  Tpit= 98.5 C  core= 66.9 C  C=0.049  u~0.14  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 6.0 h  Tpit=107.5 C  core= 69.4 C  C=0.064  u~0.21  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 7.0 h  Tpit=116.7 C  core= 73.9 C  C=0.092  u~0.29  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 8.0 h  Tpit=105.9 C  core= 75.1 C  C=0.137  u~0.16  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 9.0 h  Tpit= 92.7 C  core= 78.1 C  C=0.197  u~0.03  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=10.0 h  Tpit= 87.0 C  core= 78.0 C  C=0.268  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=11.0 h  Tpit= 85.1 C  core= 76.8 C  C=0.324  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=12.0 h  Tpit= 84.9 C  core= 75.9 C  C=0.367  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=13.0 h  Tpit= 85.8 C  core= 75.4 C  C=0.404  u~0.01  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=14.0 h  Tpit= 86.6 C  core= 75.5 C  C=0.437  u~0.02  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=15.0 h  Tpit= 86.6 C  core= 75.7 C  C=0.469  u~0.02  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=16.0 h  Tpit= 86.3 C  core= 75.7 C  C=0.500  u~0.02  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=17.0 h  Tpit= 87.3 C  core= 75.7 C  C=0.529  u~0.05  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=18.0 h  Tpit= 93.5 C  core= 76.9 C  C=0.558  u~0.17  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=20.0 h  Tpit= 50.0 C  core= 67.4 C  C=0.604  u~0.11  T_amb=12 C  T_amb_hat=26.9±5.0 C  PULLED at 18.71 h -> rest
+MPC, NO disturbance (discriminator: plan-refinement vs weather):
+  [mpc] t= 1.0 h  Tpit=114.2 C  core= 42.5 C  C=0.000  u~0.54  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 2.0 h  Tpit=101.9 C  core= 65.1 C  C=0.003  u~0.02  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 3.0 h  Tpit= 98.2 C  core= 68.1 C  C=0.017  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 4.0 h  Tpit=101.6 C  core= 68.7 C  C=0.033  u~0.04  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 5.0 h  Tpit=109.1 C  core= 71.2 C  C=0.054  u~0.12  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 6.0 h  Tpit=119.6 C  core= 74.5 C  C=0.088  u~0.20  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 7.0 h  Tpit=134.4 C  core= 80.5 C  C=0.161  u~0.34  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 8.0 h  Tpit=120.8 C  core= 81.5 C  C=0.286  u~0.17  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 9.0 h  Tpit=105.8 C  core= 84.4 C  C=0.413  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=10.0 h  Tpit=101.1 C  core= 85.4 C  C=0.560  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=11.0 h  Tpit= 99.6 C  core= 85.1 C  C=0.673  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=12.0 h  Tpit= 99.1 C  core= 84.7 C  C=0.752  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=13.0 h  Tpit= 99.0 C  core= 84.4 C  C=0.810  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=14.0 h  Tpit= 98.9 C  core= 84.2 C  C=0.852  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=15.0 h  Tpit= 98.8 C  core= 84.1 C  C=0.884  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=16.0 h  Tpit= 98.6 C  core= 84.0 C  C=0.909  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=17.0 h  Tpit=100.2 C  core= 84.1 C  C=0.929  u~0.02  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=18.0 h  Tpit=109.7 C  core= 85.8 C  C=0.945  u~0.15  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t=20.0 h  Tpit= 72.4 C  core= 73.0 C  C=0.965  u~0.12  T_amb=27 C  T_amb_hat=26.9±2.2 C  PULLED at 18.45 h -> rest
+MPC through the cold front:

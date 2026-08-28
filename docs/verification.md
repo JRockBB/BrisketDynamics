@@ -12,8 +12,14 @@ conditioning pitfalls we hit (which are themselves informative).
   silent-zero hunt, both below): 8 h horizon, tol 1e-9, mixed loss over
   the output heads. All seven θ parameters (incl. the expulsion latents
   k_e/a_myosin via juiciness AND coupled-Tcore paths), forcing-trajectory
-  knots, the wrap time, smoke knots, bark/moisture output
-  cotangents, and a **mid-cook (nonuniform IC) VJP** agree with central FD:
+  knots, the wrap time, the pull time (rest blend live over the last
+  quarter of the horizon, with p-tail off-by-one guards on both switch
+  slots), smoke knots, bark/moisture output
+  cotangents, the shrinkage metric (D_eff, L, k_mult and a mid knot with
+  the W → T face-metric coupling and the `l_thick` head live), the pit
+  humidity forcings (a `pv_base` and an `imair` knot, differentiated
+  through the self-consistent flux's Newton steps), and a **mid-cook
+  (nonuniform IC) VJP** agree with central FD:
   - `D_eff` ≤ 2e-2 (1% FD step; see "FD conditioning" below)
   - all other parameters and knots ≤ 1e-3–5e-3 (typically 1e-5 to 1e-6)
 - **Pit** (`pit_vjp`, exact dense ForwardDiff Jacobian, transposed):
@@ -50,13 +56,17 @@ those are covered by Level 1's relative-step tests):
 (pit → meat → pit → meat, gradients crossing the Tesseract VJP boundary
 4 times) vs central FD on a scalar loss. Coverage: the five meat
 transport/thermal latents (`theta[0:5]`; D_eff 2e-2 with a 1% step, others
-5e-3), all 7 pit parameters, three damper directions, wrap time, and the
-damper→burn-rate→smoke→bark-color chain. Expulsion latents `k_e` /
-`a_myosin` are not in this Python parametrize; they are held at Level 1
-(moisture adjoint + juiciness/Tcore paths). The full app suite is 27
-collected tests (`test_composed_grad` 18, `test_mpc` 6, `test_local_apply`
-3). CI runs `test_local_apply` only. 6 h horizon, tolerances 1e-10,
-float64 end-to-end.
+5e-3), all 7 pit parameters, three damper directions, wrap time, pull
+time (rest live for the last third of the horizon; the pit's second
+Picard pass sees `q_meat` drop to zero) plus its bitwise
+backward-compatibility test, and the damper→burn-rate→smoke→bark-color
+chain (the shrinkage metric couples W → T and the exposed area scales
+`q_meat`, so every direction above exercises it). Expulsion latents `k_e` / `a_myosin`
+are not in this Python parametrize; they are held at Level 1 (moisture
+adjoint + juiciness/Tcore paths). The full app suite is 29 collected
+tests (`test_composed_grad` 20, `test_mpc` 6, `test_local_apply` 3). CI
+runs `test_local_apply` only. 6 h horizon, tolerances 1e-10, float64
+end-to-end.
 
 ## The NaN-gradient hunt (Phase C) — symptoms vs root cause
 
@@ -95,6 +105,32 @@ returns all-zero gradients against nonzero seeds. The lesson generalizes:
 an adjoint that agrees with an independent backend can still be wrong —
 backends share the backward *solve*, so cross-backend agreement only
 exonerates the VJP layer.
+
+## The first-step abort (humidity era, 2026-08-27)
+
+Third sensealg incident, same silent class as the second. With the pit
+humidity feedback in the surface BC, the composed gate's phi/u directions
+came back 5–90 % low at `a0 = 0.85` while every component VJP passed FD.
+Bisection (explicit forcings, K = 1 vs 2, `mair` held constant) isolated
+the Picard coupling cotangent: with a `q_meat` cotangent alone, the meat
+VJP lost its entire solution path (`k_m`, `pv_base` gradients exactly zero,
+`tpit` knots keeping only their algebraic part). The backward FBDF was
+aborting on its *first* step — "dt was forced below floating point
+epsilon" — because the adjoint's per-parameter accumulators start at zero
+with an O(1e3) integrand when the cotangent injects at the surface, and at
+`abstol = 1e-10` no `dt` satisfies the absolute-error test. The all-zero
+guard did not fire because the algebraic part of the gradient is nonzero.
+The pre-humidity physics shows the same abort in this configuration; the
+composed gate had only ever combined `q_meat` with other cotangents.
+
+Fix, both permanent: the adjoint solve runs at `abstol = max(abstol,
+1e-8)` (`ADJOINT_ABSTOL_FLOOR`; the forward keeps the caller's tolerances,
+so the composed FD gate's noise floor is unchanged) — recovering the FD
+values to 1e-5 in every configuration and 10–60× faster — and a logging
+watch around the backward pass (`_AdjointAbortWatch`) turns the abort and
+maxiters warnings into a loud error. Enzyme and ReverseDiff agreed to 1e-6
+throughout, as in the second incident: cross-backend agreement exonerates
+only the VJP layer.
 
 ## FD conditioning lessons (worth knowing before touching these tests)
 

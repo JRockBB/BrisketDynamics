@@ -38,7 +38,7 @@ from .coupled import CookGrids, coupled_cook
 # (name, prior, index) for the two parameter vectors; order must match the
 # Julia solvers' expectations.
 THETA_SITES = [
-    ("D_eff", dist.LogNormal(np.log(1.5e-8), 0.7)),
+    ("D_eff", dist.LogNormal(np.log(7.0e-9), 0.7)),
     ("k_m", dist.LogNormal(np.log(1.8e-3), 0.7)),
     ("h_c", dist.LogNormal(np.log(10.0), 0.4)),
     ("L", dist.LogNormal(np.log(0.03), 0.25)),
@@ -65,12 +65,19 @@ PHI_SITES_IGNITION = [
     ("a0", dist.Beta(2.0, 4.0)),
 ]
 PHI_IGNITION_INERT = np.array([3e-4, 1.0])  # k_spread (inert at a0=1), a0
-# Real-cook residual AR(1). Beta(2,2) has density 0 at {0,1} so NUTS cannot
-# park on a unit root; the data (ρ̂ ≈ 0.85/0.97) still sit comfortably in
-# the prior mass. Clip keeps √(1-ρ²) defined under float rounding.
+# Real-cook residual AR(1) on the 10-min grid. ρ is bounded at RHO_MAX
+# (correlation time ≤ ~3 h): near a unit root the discrepancy process
+# becomes a free offset and a smooth 15 K miss costs less than a fit.
+RHO_MAX = 0.95
+_RHO_PRIOR = dist.TransformedDistribution(
+    dist.Beta(2.0, 2.0),
+    dist.transforms.AffineTransform(
+        0.0, RHO_MAX, domain=dist.constraints.unit_interval
+    ),
+)
 RHO_SITES = [
-    ("rho_pit", dist.Beta(2.0, 2.0)),
-    ("rho_core", dist.Beta(2.0, 2.0)),
+    ("rho_pit", _RHO_PRIOR),
+    ("rho_core", _RHO_PRIOR),
 ]
 _RHO_VAR_FLOOR = 1.0e-8
 
@@ -192,7 +199,9 @@ def contiguous_runs(mask: np.ndarray) -> tuple[tuple[int, ...], ...]:
     d = np.diff(padded.astype(np.int8))
     starts = np.flatnonzero(d == 1)
     ends = np.flatnonzero(d == -1)
-    return tuple(tuple(range(int(s), int(e))) for s, e in zip(starts, ends, strict=True))
+    return tuple(
+        tuple(range(int(s), int(e))) for s, e in zip(starts, ends, strict=True)
+    )
 
 
 def ar1_log_prob(y, mu, sigma, rho):
@@ -356,6 +365,7 @@ def make_vi_guide(
     kind: str = "full",
     init_values: dict | None = None,
     rank: int = 8,
+    init_scale: float = 0.1,
 ):
     """Build an ADVI guide for a bound NumPyro model.
 
@@ -374,6 +384,8 @@ def make_vi_guide(
         Constrained site values (typically the MAP) for the guide loc.
     rank : int
         Factor rank when `kind='lowrank'`.
+    init_scale : float
+        Initial guide scale in the unconstrained space.
 
     Returns
     -------
@@ -385,7 +397,7 @@ def make_vi_guide(
         if init_values
         else numpyro.infer.init_to_median()
     )
-    kw = {"init_loc_fn": init_loc_fn}
+    kw = {"init_loc_fn": init_loc_fn, "init_scale": init_scale}
     if kind == "full":
         return AutoMultivariateNormal(model, **kw)
     if kind == "lowrank":

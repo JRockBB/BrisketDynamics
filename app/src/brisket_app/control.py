@@ -21,6 +21,12 @@ import optax
 
 from .coupled import CookGrids, coupled_cook
 
+# Pull blend width [s] — mirrors MeatConfig.δ_pull (the in-pit weighting of
+# the bark-burn cap must use the same blend the meat integrates)
+DELTA_PULL_S = 300.0
+# initial pull logit: sigmoid(2.2) ≈ 0.9 of the cook horizon
+PULL_Z_INIT = 2.2
+
 
 @dataclass(frozen=True)
 class ControlConfig:
@@ -37,8 +43,8 @@ class ControlConfig:
       tenderness — mechanistic proxy: collagen conversion IS the physics of
         probe-tender; the C = 0.90 scale is literature kinetics,
         uncalibrated against texture data. Two-sided band: undershoot =
-        tough, saturation = pot roast; overshoot is discounted by
-        `over_rel` because early finishes are absorbed by the resting hold.
+        tough, saturation = pot roast, weighted equally (`over_rel`); the
+        rest hold is modeled, so an early finish is a decision, not a gift.
       taste — two correlates: smoke-phenolic mass (deposited guaiacol /
         syringol; band = depth without acrid over-deposition; smoke
         QUALITY clean-vs-dirty is not modeled) and perceptual juiciness
@@ -58,7 +64,7 @@ class ControlConfig:
     # tenderness band (collagen conversion at the center node)
     c_target: float = 0.90
     c_overdone: float = 0.95
-    over_rel: float = 0.5  # overshoot severity relative to undershoot
+    over_rel: float = 1.0  # overshoot severity relative to undershoot
     # appearance band (predicted surface CIELAB L*)
     l_mahogany_lo: float = 28.0  # blacker reads burnt
     l_mahogany_hi: float = 34.0  # paler reads underdeveloped
@@ -108,6 +114,10 @@ class ControlConfig:
     m0_ref: float = 7.0  # [kg] PitConfig default load
     # decision variables / optimizer
     opt_wrap: bool = False  # optimize t_wrap jointly with the schedule
+    # optimize the pull time jointly: t_pull = t_end * sigmoid(z_p); the meat
+    # rests from the pull to the end of the horizon (serve), so the quality
+    # terms are scored at serve
+    opt_pull: bool = True
     lr: float = 0.05
     n_iter: int = 200  # iteration CAP; convergence stop below usually binds
     # plateau stop: quit when the best loss has not improved by more than
@@ -167,12 +177,19 @@ def objective(
     leth_banked: float = 0.0,
     danger_banked_h: float = 0.0,
     t_wrap_override: float | None = None,
+    t_pull: float = 1.0e9,
+    rest: dict | None = None,
+    z_p=None,
 ):
     """Scalar quality objective of one simulated cook (lower is better).
 
     KCBS-weighted appearance/taste/tenderness bands plus operational terms
     and the food-safety *soft penalties* (surface lethality + danger-zone
     dwell; intact-muscle assumption — see ControlConfig / safety_report).
+    With ``t_pull`` inside the horizon the quality terms are evaluated at
+    SERVE (the horizon end) — after the rest's carryover, continued
+    collagen conversion and juice redistribution — while the operational
+    terms price the cook only (fuel at the pull, bark-burn cap in the pit).
 
     Parameters
     ----------
@@ -206,6 +223,16 @@ def objective(
         sigmoid map cannot represent an already-executed wrap, and pinning
         z_w merely puts the wrap shortly after segment start (a half-open
         blend for ~δ_wrap), not saturated-on.
+    t_pull : float, optional
+        Fixed pull time [s] used when ``cc.opt_pull`` is off or ``z_p`` is
+        None (default never).
+    rest : dict, optional
+        Rest-environment overrides for the meat Tesseract
+        (``rest_t/rest_h/rest_eps/rest_eta``); None = faux-cambro defaults.
+    z_p : jnp.ndarray, optional
+        Unconstrained pull-time variable; t_pull = t_end * sigmoid(z_p) when
+        ``cc.opt_pull``. The meat rests from the pull to the end of the
+        horizon (serve).
 
     Returns
     -------
@@ -219,14 +246,25 @@ def objective(
     t_wrap = (
         t_wrap_override
         if t_wrap_override is not None
-        else (
-            grids.t_end * jax.nn.sigmoid(z_w)
-            if cc.opt_wrap
-            else 1.0e9 + 0.0 * z_w
-        )
+        else (grids.t_end * jax.nn.sigmoid(z_w) if cc.opt_wrap else 1.0e9 + 0.0 * z_w)
     )
+    if cc.opt_pull and z_p is not None:
+        t_pull = grids.t_end * jax.nn.sigmoid(z_p)
+    elif z_p is not None:
+        t_pull = t_pull + 0.0 * z_p
     sim = coupled_cook(
-        theta, phi, u, meat_tx, pit_tx, grids, K=2, ics=ics, t_wrap=t_wrap, **tols
+        theta,
+        phi,
+        u,
+        meat_tx,
+        pit_tx,
+        grids,
+        K=2,
+        ics=ics,
+        t_wrap=t_wrap,
+        t_pull=t_pull,
+        rest=rest,
+        **tols,
     )
 
     # tenderness: two-sided collagen band, each side normalized to O(1)
@@ -257,13 +295,20 @@ def objective(
     taste = smoke_band + cc.w_dry * (1.0 - sim["juiciness"]) ** 2
 
     # operational terms; fuel normalized by the FIXED reference load so
-    # replans price burning identically to the whole-cook objective
-    surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)
-    fuel_frac = (sim["m_fuel"][0] - sim["m_fuel"][-1]) / cc.m0_ref
-
-    # food safety (unconditional): lethality curve + growth-phase dwell
-    Ts = sim["tsurf"]
+    # replans price burning identically to the whole-cook objective. The
+    # fire keeps burning after the pull, so price the fuel AT the pull
+    # (jnp.interp clamps: t_pull = never reads the end of the horizon
+    # exactly) and cap bark-burn in the pit only ((1 - pull blend) weight)
     t_s = jnp.asarray(grids.tknots)
+    surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)
+    in_pit = 1.0 - jax.nn.sigmoid((t_s - t_pull) / DELTA_PULL_S)
+    surf_term = jnp.sum(in_pit * surf_over**2) / jnp.sum(in_pit)
+    m_at_pull = jnp.interp(jnp.minimum(t_pull, t_s[-1]), t_s, sim["m_fuel"])
+    fuel_frac = (sim["m_fuel"][0] - m_at_pull) / cc.m0_ref
+
+    # food safety (unconditional): lethality curve + growth-phase dwell,
+    # through the rest as well (a long board rest re-enters the zone)
+    Ts = sim["tsurf"]
     F = leth_banked + jnp.trapezoid(10.0 ** ((Ts - cc.leth_t_ref) / cc.leth_z), t_s)
     leth_pen = (
         cc.w_lethality
@@ -279,7 +324,7 @@ def objective(
         cc.w_appearance * appearance
         + cc.w_taste * taste
         + cc.w_tenderness * tenderness
-        + cc.w_surf * jnp.mean(surf_over**2)
+        + cc.w_surf * surf_term
         + cc.w_fuel * fuel_frac
         + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
         + leth_pen
@@ -299,6 +344,10 @@ def optimize_schedule_expected(
     log_every: int = 10,
     callback=None,
     z_w_init: float | None = None,
+    z_p_init: float | None = None,
+    t_pull: float = 1.0e9,
+    rest: dict | None = None,
+    ics: dict | None = None,
 ):
     """Optimize the damper schedule against the EXPECTED objective.
 
@@ -307,7 +356,8 @@ def optimize_schedule_expected(
     Sequential loop over draws inside the objective (vmap over Tesseract
     calls needs an explicit vmap_method and buys nothing at N=8); cost is
     N x the single-draw gradient. `u_init` may be a scalar or a schedule
-    array (warm start).
+    array (warm start). The wrap and pull moments are single decisions
+    shared by all draws (you wrap and pull the real brisket once).
     """
     cc = cc or ControlConfig()
     grids = grids or CookGrids(dt_exchange=600.0, n_u=16)
@@ -316,11 +366,25 @@ def optimize_schedule_expected(
     phis = jnp.asarray(phis)
     n = thetas.shape[0]
 
-    def expected_obj(z, z_w, ths, phs):
+    def expected_obj(z, z_w, z_p, ths, phs):
         # differentiate w.r.t. ALL differentiable inputs (see optimize_schedule)
         return (
             sum(
-                objective(z, z_w, ths[i], phs[i], meat_tx, pit_tx, grids, cc, tols)
+                objective(
+                    z,
+                    z_w,
+                    ths[i],
+                    phs[i],
+                    meat_tx,
+                    pit_tx,
+                    grids,
+                    cc,
+                    tols,
+                    ics=ics,
+                    t_pull=t_pull,
+                    rest=rest,
+                    z_p=z_p,
+                )
                 for i in range(n)
             )
             / n
@@ -328,44 +392,42 @@ def optimize_schedule_expected(
 
     u0 = jnp.broadcast_to(jnp.asarray(u_init), (grids.n_u,))
     z = jnp.log(u0 / (1 - u0))
-    # wrap decision under uncertainty: with cc.opt_wrap the POSTERIOR-
-    # EXPECTED wrap moment is optimized jointly with the schedule (one
-    # t_wrap for all draws — you only get to wrap the real brisket once);
-    # otherwise WRAP_NEVER (1e9), tangent still flowing via 0*z_w.
     if z_w_init is None:
         z_w_init = 0.0 if cc.opt_wrap else 8.0
     z_w = jnp.asarray(z_w_init)
+    z_p = jnp.asarray(PULL_Z_INIT if z_p_init is None else z_p_init)
     opt = optax.adam(cc.lr)
-    state = opt.init((z, z_w))
-    val_grad = jax.jit(jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3)))
+    state = opt.init((z, z_w, z_p))
+    val_grad = jax.jit(jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3, 4)))
 
     losses = []
     best_loss = np.inf
-    best_z, best_z_w = z, z_w
+    best_z, best_z_w, best_z_p = z, z_w, z_p
     t0 = time.perf_counter()
     for i in range(cc.n_iter):
-        loss, (g, g_w, _, _) = val_grad(z, z_w, thetas, phis)
+        loss, (g, g_w, g_p, _, _) = val_grad(z, z_w, z_p, thetas, phis)
         lf = float(loss)
         losses.append(lf)
         if np.isfinite(lf) and lf < best_loss:
-            best_loss, best_z, best_z_w = lf, z, z_w
-        updates, state = opt.update((g, g_w), state, (z, z_w))
-        z_new, z_w_new = optax.apply_updates((z, z_w), updates)
-        z = z_new
-        if cc.opt_wrap:
-            z_w = z_w_new
+            best_loss, best_z, best_z_w, best_z_p = lf, z, z_w, z_p
+        if not cc.opt_wrap:
+            g_w = jnp.zeros_like(g_w)
+        if not cc.opt_pull:
+            g_p = jnp.zeros_like(g_p)
+        updates, state = opt.update((g, g_w, g_p), state, (z, z_w, z_p))
+        z, z_w, z_p = optax.apply_updates((z, z_w, z_p), updates)
         if callback and (i % log_every == 0 or i == cc.n_iter - 1):
             callback(i, lf, np.asarray(jax.nn.sigmoid(z)))
         if _plateau_stop(losses, cc):
             break
-    tw = (
-        float(grids.t_end * jax.nn.sigmoid(best_z_w)) if cc.opt_wrap else 1.0e9
-    )
+    tw = float(grids.t_end * jax.nn.sigmoid(best_z_w)) if cc.opt_wrap else 1.0e9
+    tp = float(grids.t_end * jax.nn.sigmoid(best_z_p)) if cc.opt_pull else t_pull
     return np.asarray(jax.nn.sigmoid(best_z)), {
         "losses": np.asarray(losses),
         "wall_s": time.perf_counter() - t0,
         "grids": grids,
         "t_wrap": tw,
+        "t_pull": tp,
         "best_loss": best_loss,
         "converged": _plateau_stop(losses, cc),
         "n_iter_run": len(losses),
@@ -389,14 +451,18 @@ def optimize_schedule(
     leth_banked: float = 0.0,
     danger_banked_h: float = 0.0,
     t_wrap_override: float | None = None,
+    t_pull: float = 1.0e9,
+    rest: dict | None = None,
+    z_p_init: float | None = None,
 ):
     """Optimize the damper schedule at fixed (theta, phi) with Adam.
 
     Returns (u_opt, history dict); the history carries losses, wall time,
-    the grids, and the final t_wrap. `callback(i, loss, u)` fires every
-    `log_every` iterations. With ``cc.opt_wrap`` off, wrap physics is
+    the grids, and the final t_wrap / t_pull. `callback(i, loss, u)` fires
+    every `log_every` iterations. With ``cc.opt_wrap`` off, wrap physics is
     WRAP_NEVER (1e9); ``z_w`` still carries a dummy tangent. Post-wrap MPC
     replans pass ``t_wrap_override`` (possibly negative) instead of a pin.
+    With ``cc.opt_pull`` off the pull is the fixed ``t_pull``.
     """
     cc = cc or ControlConfig()
     grids = grids or CookGrids(dt_exchange=600.0, n_u=16)
@@ -411,8 +477,9 @@ def optimize_schedule(
     # z_w_pin is kept for callers that still pass it; it no longer changes
     # the physics.
     z_w = jnp.asarray(z_w_init if cc.opt_wrap else z_w_pin)
+    z_p = jnp.asarray(PULL_Z_INIT if z_p_init is None else z_p_init)
     opt = optax.adam(cc.lr)
-    state = opt.init((z, z_w))
+    state = opt.init((z, z_w, z_p))
     # Two deliberate choices here:
     # 1. Differentiate w.r.t. ALL differentiable Tesseract inputs (z via u,
     #    z_w via t_wrap, theta, phi) and discard the gradients you don't
@@ -426,7 +493,7 @@ def optimize_schedule(
     #    exhibited the race across thousands of calls.
     val_grad = jax.jit(
         jax.value_and_grad(
-            lambda zz, zw, th, ph: objective(
+            lambda zz, zw, zp, th, ph: objective(
                 zz,
                 zw,
                 th,
@@ -440,14 +507,17 @@ def optimize_schedule(
                 leth_banked=leth_banked,
                 danger_banked_h=danger_banked_h,
                 t_wrap_override=t_wrap_override,
+                t_pull=t_pull,
+                rest=rest,
+                z_p=zp,
             ),
-            argnums=(0, 1, 2, 3),
+            argnums=(0, 1, 2, 3, 4),
         )
     )
 
     losses, schedules = [], []
     best_loss = np.inf
-    best_z, best_z_w = z, z_w
+    best_z, best_z_w, best_z_p = z, z_w, z_p
     t0 = time.perf_counter()
     for i in range(cc.n_iter):
         # Single retry: a rare timing-dependent race in the local-client
@@ -455,20 +525,22 @@ def optimize_schedule(
         # tesseract api raises a clear error). One retry has always sufficed;
         # two consecutive failures is a real bug worth surfacing.
         try:
-            loss, (g, g_w, _g_theta, _g_phi) = val_grad(z, z_w, theta, phi)
+            loss, (g, g_w, g_p, _g_theta, _g_phi) = val_grad(z, z_w, z_p, theta, phi)
         except RuntimeError as e:
             if "DEGENERATE" not in str(e) and "BoundsError" not in str(e):
                 raise
             print(f"  iter {i}: degenerate-input race, retrying once ({e})", flush=True)
-            loss, (g, g_w, _g_theta, _g_phi) = val_grad(z, z_w, theta, phi)
+            loss, (g, g_w, g_p, _g_theta, _g_phi) = val_grad(z, z_w, z_p, theta, phi)
         lf = float(loss)
         losses.append(lf)
         if np.isfinite(lf) and lf < best_loss:
-            best_loss, best_z, best_z_w = lf, z, z_w
+            best_loss, best_z, best_z_w, best_z_p = lf, z, z_w, z_p
         if not cc.opt_wrap:
             g_w = jnp.zeros_like(g_w)
-        updates, state = opt.update((g, g_w), state, (z, z_w))
-        z, z_w = optax.apply_updates((z, z_w), updates)
+        if not cc.opt_pull:
+            g_p = jnp.zeros_like(g_p)
+        updates, state = opt.update((g, g_w, g_p), state, (z, z_w, z_p))
+        z, z_w, z_p = optax.apply_updates((z, z_w, z_p), updates)
         if i % log_every == 0 or i == cc.n_iter - 1:
             schedules.append(np.asarray(jax.nn.sigmoid(best_z)))
             if callback:
@@ -481,10 +553,12 @@ def optimize_schedule(
         tw = float(grids.t_end * jax.nn.sigmoid(best_z_w))
     else:
         tw = 1.0e9
+    tp = float(grids.t_end * jax.nn.sigmoid(best_z_p)) if cc.opt_pull else t_pull
     return np.asarray(jax.nn.sigmoid(best_z)), {
         "losses": np.asarray(losses),
         "schedules": np.asarray(schedules),
         "t_wrap": tw,
+        "t_pull": tp,
         "best_loss": best_loss,
         "wall_s": time.perf_counter() - t0,
         "grids": grids,

@@ -19,7 +19,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids, check_picard, coupled_cook
+from brisket_app.coupled import (
+    HR,
+    PHI_DEFAULT,
+    THETA_DEFAULT,
+    CookGrids,
+    check_picard,
+    coupled_cook,
+)
 
 
 def main():

@@ -13,6 +13,7 @@ Run from app/:  uv run python -u ../scripts/run_timeplan.py
 Writes figures/timeplan.png + data/control/timeplan_result.json.
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -46,12 +47,20 @@ def main():
     with retained moisture), and per-duration doneness draws with
     P(serveably done) and the chance-constrained start time.
     """
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--samples",
+        default="vi_samples_real.npz",
+        help="posterior sample file under data/calibration",
+    )
+    args = ap.parse_args()
+
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
     meat_tx, pit_tx = meat_client(), pit_client()
 
-    print("quality scan over durations (inner: 60-iter asymmetric+juicy opt)")
+    print("quality scan over cook lengths (inner: 60-iter asymmetric+juicy opt)")
     records = plan_duration(theta, phi, meat_tx, pit_tx, DURATIONS_H, ics=ICS)
     best = optimal_duration(records)
     t_star = best["t_f_h"]
@@ -61,10 +70,12 @@ def main():
         f"juiciness={best['juiciness']:.3f})"
     )
 
-    print(f"empirical done-fraction from {N_DRAWS} NUTS-real posterior draws")
-    post_path = REPO / "data" / "calibration" / "nuts_samples_real.npz"
+    print(f"empirical done-fraction from {N_DRAWS} posterior draws ({args.samples})")
+    post_path = REPO / "data" / "calibration" / args.samples
     post = dict(np.load(post_path))
-    missing = [n for n, _ in THETA_SITES + PHI_SITES + PHI_SITES_IGNITION if n not in post]
+    missing = [
+        n for n, _ in THETA_SITES + PHI_SITES + PHI_SITES_IGNITION if n not in post
+    ]
     if missing:
         raise SystemExit(
             f"{post_path.name} is missing sites {missing}; "
@@ -174,7 +185,7 @@ def main():
             ha="center",
         )
     ax.annotate(
-        "gray: retained moisture at pull",
+        "gray: retained moisture at serve",
         (0.02, 0.03),
         xycoords="axes fraction",
         color=MUTED,

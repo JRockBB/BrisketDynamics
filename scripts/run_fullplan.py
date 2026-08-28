@@ -1,14 +1,15 @@
-"""The full quality composition: DURATION x WRAP TIME x SCHEDULE.
+"""The full quality composition: COOK LENGTH x WRAP x PULL x SCHEDULE.
 
-Outer scan over planned durations; inside each, the damper schedule AND
-the Texas-crutch wrap time are optimized jointly against the full quality
-objective — doneness band (undershoot catastrophic, gentle overdone
-penalty above 0.95), juiciness, mechanistic bark color L*, bark-burn
-surface constraint, fuel. The perfect brisket picks its own duration AND
-its own wrap moment.
+Outer scan over cook lengths (start to serve); inside each, the damper
+schedule, the Texas-crutch wrap time and the pull are optimized jointly
+against the full quality objective — doneness band (undershoot
+catastrophic, overdone penalty above 0.95), juiciness, mechanistic bark
+color L*, bark-burn surface constraint, fuel — scored at serve. The rest is
+what follows the pull inside the cook.
 
 Run from app/:  uv run python -u ../scripts/run_fullplan.py
 Writes figures/fullplan.png + data/control/fullplan_result.json.
+``--replot`` redraws the figure from the saved json (one forward solve).
 """
 
 import argparse
@@ -25,26 +26,45 @@ from brisket_app.calibrate import THETA_SITES, phi_full
 from brisket_app.clients import meat_client, pit_client
 from brisket_app.control import ControlConfig, safety_report
 from brisket_app.coupled import HR, check_picard, coupled_cook
-from brisket_app.timeplan import optimal_duration, plan_duration
+from brisket_app.timeplan import _grids_for, optimal_duration, plan_duration
 
 REPO = Path(__file__).resolve().parents[1]
-# CLI: run_fullplan.py [durations...] [--params FILE] [--tag SUFFIX].
+# CLI: run_fullplan.py [hours...] [--params FILE] [--tag SUFFIX] [--replot].
 # The objective is the default ControlConfig (KCBS-weighted quality +
 # safety); override weights there.
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 CC = ControlConfig(opt_wrap=True, n_iter=60)
 
 
-def main():
-    """Scan planned durations, jointly optimizing damper schedule and wrap time.
+def records_from_json(d: dict) -> tuple[list, dict]:
+    """Rebuild the scan records and the chosen cook from fullplan_result.json."""
+    records = [
+        {"t_f_h": tf, "j_quality": j, "t_wrap_h": tw, "t_pull_h": tp}
+        for tf, j, tw, tp in zip(
+            d["durations_h"], d["j_quality"], d["t_wrap_h"], d["t_pull_h"], strict=True
+        )
+    ]
+    best = {
+        "t_f_h": d["best_t_f_h"],
+        "t_wrap_h": d["best_t_wrap_h"],
+        "t_pull_h": d["best_t_pull_h"],
+        "t_pull": d["best_t_pull_h"] * HR if d["best_t_pull_h"] else 1.0e9,
+        "u_opt": np.asarray(d["best_u"]),
+        "grids": _grids_for(d["best_t_f_h"] * HR),
+        "rest": None,
+    }
+    return records, best
 
-    Runs ``plan_duration`` over the requested hours at ``--params``
-    (extension runs warm-start from the base scan's converged optimum),
-    picks the best duration with ``optimal_duration``, and writes
-    data/control/fullplan_result[_ext]{tag}.json plus figures/fullplan{tag}.png: the quality
-    objective versus duration (each point annotated with its own optimal
-    wrap moment) and the chosen cook's core/surface trajectories with the
-    wrap time marked.
+
+def main():
+    """Scan cook lengths, jointly optimizing schedule, wrap and pull.
+
+    Runs ``plan_duration`` over the requested hours at ``--params``, picks
+    the best cook with ``optimal_duration``, and writes
+    data/control/fullplan_result{tag}.json plus figures/fullplan{tag}.png:
+    the quality objective versus cook length (each point annotated with its
+    own wrap moment) and the chosen cook's core/surface trajectories with
+    the wrap and pull marked, through the rest to serve.
     """
     # startup self-check: prove the RUNNING process imports the band we
     # think it does (stale-import debugging cost us a scan once)
@@ -54,11 +74,10 @@ def main():
     _ov = float(
         (jax.nn.softplus(_k * (0.9995 - CC.c_overdone)) / _k) / (1.0 - CC.c_overdone)
     )
-    # current objective: overshoot enters as w_tenderness * over_rel * over^2
-    # (the pre-KCBS w_overdone field no longer exists)
     print(
         f"band self-check: tenderness overshoot at c=0.9995 -> "
-        f"{CC.w_tenderness * CC.over_rel * _ov**2:.3f} (expect ~0.14)",
+        f"{CC.w_tenderness * CC.over_rel * _ov**2:.3f} "
+        f"(w_tenderness {CC.w_tenderness} x over_rel {CC.over_rel})",
         flush=True,
     )
     ap = argparse.ArgumentParser()
@@ -66,8 +85,7 @@ def main():
         "durations",
         nargs="*",
         type=float,
-        help="hours to scan; default 8-14. Passing values writes "
-        "fullplan_result_ext{tag}.json and warm-starts from the base scan",
+        help="cook lengths [h], start to serve; default 8-20",
     )
     ap.add_argument(
         "--params",
@@ -79,17 +97,16 @@ def main():
         default="",
         help="suffix for result/figure files (e.g. _vi); leaves MAP artifacts alone",
     )
-    args = ap.parse_args()
-    durations_h = args.durations or [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0]
-    is_ext = bool(args.durations)
-    result_name = (
-        f"fullplan_result_ext{args.tag}.json"
-        if is_ext
-        else f"fullplan_result{args.tag}.json"
+    ap.add_argument(
+        "--replot",
+        action="store_true",
+        help="redraw the figure from the saved json instead of scanning",
     )
+    args = ap.parse_args()
+    durations_h = args.durations or [float(h) for h in range(8, 21)]
+    result_name = f"fullplan_result{args.tag}.json"
     fig_name = f"fullplan{args.tag}.png"
-    base_name = f"fullplan_result{args.tag}.json"
-    merged_name = f"fullplan_merged{args.tag}.json"
+    result_path = REPO / "data" / "control" / result_name
 
     params_path = REPO / "data" / "calibration" / args.params
     m = json.loads(params_path.read_text())
@@ -98,48 +115,35 @@ def main():
     meat_tx, pit_tx = meat_client(), pit_client()
     print(f"params: {params_path.name}", flush=True)
 
-    seed = None
-    if is_ext:
-        # extension run: warm-start from the base scan's best (a CONVERGED
-        # optimum). A cold 60-iter start at 14 h parked in doneness
-        # saturation (J = 27.9 vs the warm chain's -0.163) and would have
-        # poisoned every duration above it.
-        base = json.loads((REPO / "data" / "control" / base_name).read_text())
-        seed = {
-            "u": base["best_u"],
-            "t_f_h": base["best_t_f_h"],
-            "t_wrap_frac": base["best_t_wrap_h"] / base["best_t_f_h"],
-        }
-        print(f"extension seeded from base optimum at {base['best_t_f_h']} h")
-    print("full composition scan: duration x wrap x schedule")
-    records = plan_duration(
-        theta, phi, meat_tx, pit_tx, durations_h, cc=CC, ics=ICS, seed=seed
-    )
-    best = optimal_duration(records)
-    print(
-        f"THE COOK: {best['t_f_h']:.0f} h total, wrap at "
-        f"{best['t_wrap_h']:.2f} h — doneness {best['doneness']:.3f}, "
-        f"juiciness {best.get('juiciness', best['w_retained']):.3f}, "
-        f"bark L* {best['l_star_end']:.1f}"
-    )
-
-    (REPO / "data" / "control").mkdir(parents=True, exist_ok=True)
-    (REPO / "data" / "control" / result_name).write_text(
-        json.dumps(
-            {
-                "durations_h": [r["t_f_h"] for r in records],
-                "j_quality": [r["j_quality"] for r in records],
-                "t_wrap_h": [r["t_wrap_h"] for r in records],
-                "doneness": [r["doneness"] for r in records],
-                "w_retained": [r["w_retained"] for r in records],
-                "l_star_end": [r["l_star_end"] for r in records],
-                "best_t_f_h": best["t_f_h"],
-                "best_t_wrap_h": best["t_wrap_h"],
-                "best_u": best["u_opt"].tolist(),
-            },
-            indent=2,
+    if args.replot:
+        records, best = records_from_json(json.loads(result_path.read_text()))
+        print(f"replotting {result_name}", flush=True)
+    else:
+        print("full composition scan: cook length x wrap x pull x schedule")
+        records = plan_duration(
+            theta, phi, meat_tx, pit_tx, durations_h, cc=CC, ics=ICS
         )
-    )
+        best = optimal_duration(records)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps(
+                {
+                    "durations_h": [r["t_f_h"] for r in records],
+                    "j_quality": [r["j_quality"] for r in records],
+                    "t_wrap_h": [r["t_wrap_h"] for r in records],
+                    "t_pull_h": [r["t_pull_h"] for r in records],
+                    "doneness": [r["doneness"] for r in records],
+                    "w_retained": [r["w_retained"] for r in records],
+                    "juiciness": [r["juiciness"] for r in records],
+                    "l_star_end": [r["l_star_end"] for r in records],
+                    "best_t_f_h": best["t_f_h"],
+                    "best_t_wrap_h": best["t_wrap_h"],
+                    "best_t_pull_h": best["t_pull_h"],
+                    "best_u": best["u_opt"].tolist(),
+                },
+                indent=2,
+            )
+        )
 
     sim = coupled_cook(
         jnp.asarray(theta),
@@ -151,9 +155,22 @@ def main():
         K=2,
         ics=ICS,
         t_wrap=best["t_wrap_h"] * HR,
+        t_pull=best["t_pull"],
+        rest=best.get("rest"),
     )
     sim = {k: np.asarray(v) for k, v in sim.items()}
     check_picard(sim)
+    doneness = float(sim["c_field_final"][0])
+    juiciness = float(sim["juiciness"])
+    l_end = float(sim["l_star"][-1])
+    cook_h = best["t_f_h"]
+    t_wrap_h = best["t_wrap_h"]
+    t_pull_h = best["t_pull_h"] if best.get("t_pull_h") else cook_h
+    print(
+        f"THE COOK: {cook_h:.0f} h — wrap at {t_wrap_h:.2f} h, pull at "
+        f"{t_pull_h:.2f} h, rest {cook_h - t_pull_h:.2f} h, serve at {cook_h:.1f} h "
+        f"— doneness {doneness:.3f}, juiciness {juiciness:.3f}, bark L* {l_end:.1f}"
+    )
     sr = safety_report(sim["tsurf"], best["grids"].tknots, CC)
     print(
         f"safety (surface, intact-muscle assumption): "
@@ -171,64 +188,41 @@ def main():
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6))
 
     ax = axes[0]
-    # extension runs plot the FULL merged duration axis (base + extension)
-    # so the figure tells the whole rising-then-plateau story, and persist
-    # the merged scan for the writeup
-    plot_recs = [
-        {k: r[k] for k in ("t_f_h", "j_quality", "t_wrap_h")} for r in records
-    ]
-    if is_ext:
-        base_r = json.loads((REPO / "data" / "control" / base_name).read_text())
-        plot_recs = [
-            {"t_f_h": t, "j_quality": j, "t_wrap_h": w}
-            for t, j, w in zip(
-                base_r["durations_h"],
-                base_r["j_quality"],
-                base_r["t_wrap_h"],
-                strict=True,
-            )
-        ] + plot_recs
-        (REPO / "data" / "control" / merged_name).write_text(
-            json.dumps(
-                {
-                    "durations_h": [r["t_f_h"] for r in plot_recs],
-                    "j_quality": [r["j_quality"] for r in plot_recs],
-                    "t_wrap_h": [r["t_wrap_h"] for r in plot_recs],
-                    "best_t_f_h": best["t_f_h"],
-                    "best_t_wrap_h": best["t_wrap_h"],
-                },
-                indent=2,
-            )
-        )
-    t_fs = np.array([r["t_f_h"] for r in plot_recs])
-    js = np.array([r["j_quality"] for r in plot_recs])
-    ax.plot(t_fs, js, "o-", color=BLUE, lw=2)
-    for r in plot_recs:
+    cooks = np.array([r["t_f_h"] for r in records])
+    js = np.array([r["j_quality"] for r in records])
+    ax.plot(cooks, js, "o-", color=BLUE, lw=2)
+    for i, r in enumerate(records):
+        # the first point sits on a steep segment: label it above
         ax.annotate(
             f"wrap\n{r['t_wrap_h']:.1f}h",
             (r["t_f_h"], r["j_quality"]),
             textcoords="offset points",
-            xytext=(0, -22),
+            xytext=(0, 6) if i == 0 else (0, -22),
+            va="bottom" if i == 0 else "baseline",
             color=MUTED,
             fontsize=7,
             ha="center",
         )
-    ax.axvline(best["t_f_h"], color=ORANGE, lw=1.5, ls=":")
+    ylim = (
+        float(js.min()) - abs(float(js.min())) * 0.35 - 0.2,
+        float(js.max()) + 0.3,
+    )
+    # marker line from the chosen point upward, clear of its wrap label
+    j_best = float(js[np.argmin(np.abs(cooks - cook_h))])
+    ax.plot([cook_h, cook_h], [j_best, ylim[1]], ":", color=ORANGE, lw=1.5)
     ax.annotate(
-        f"the cook: {best['t_f_h']:.0f} h",
-        (best["t_f_h"] + 0.12, float(js.max()) * 0.85),
+        f"the cook: {cook_h:.0f} h",
+        (cook_h - 0.12, float(js.max()) * 0.85),
         color=ORANGE,
         fontsize=10,
+        ha="right",
     )
     ax.set(
-        xlabel="planned duration t_f [h]",
+        xlabel="cook length, start to serve [h]",
         ylabel="quality objective J",
-        ylim=(
-            float(js.min()) - abs(float(js.min())) * 0.35 - 0.2,
-            float(js.max()) + 0.3,
-        ),
-        title="duration and wrap time chosen together\n"
-        "(gray: each duration's own optimal wrap moment)",
+        ylim=ylim,
+        title="cook length, wrap and pull chosen together\n"
+        "(gray: each cook's own optimal wrap moment)",
     )
 
     ax = axes[1]
@@ -236,25 +230,37 @@ def main():
     ax.plot(
         th, sim["tsurf"] - 273.15, "-", color=BLUE, lw=1, alpha=0.5, label="surface"
     )
-    ax.axvline(best["t_wrap_h"], color=ORANGE, lw=1.5, ls=":")
+    ax.axvline(t_wrap_h, color=ORANGE, lw=1.5, ls=":")
     ax.annotate(
-        f"wrap at {best['t_wrap_h']:.1f} h",
-        (best["t_wrap_h"] - 0.15, 25),
+        f"wrap at {t_wrap_h:.1f} h",
+        (t_wrap_h - 0.15, 25),
         color=ORANGE,
         fontsize=10,
         ha="right",
     )
+    if best.get("t_pull_h"):
+        # the optimized pull: the trace continues through the rest
+        # (carryover, then the slow cambro decline) to serve
+        ax.axvline(t_pull_h, color=MUTED, lw=1.2, ls="--")
+        ax.annotate(
+            f"pull at {t_pull_h:.1f} h → rest",
+            (t_pull_h - 0.15, 45),
+            color=MUTED,
+            fontsize=10,
+            ha="right",
+        )
     ax.set(
         xlabel="time [h]",
         ylabel="temperature [°C]",
-        title=f"the chosen cook: {best['t_f_h']:.0f} h · "
-        f"doneness {best['doneness']:.3f} · juiciness "
-        f"{best['w_retained']:.2f} · bark L* {best['l_star_end']:.0f}",
+        xlim=(0, cook_h),
+        title=f"the {cook_h:.0f} h cook: wrap {t_wrap_h:.1f} h · pull {t_pull_h:.1f} h "
+        f"· serve {cook_h:.0f} h\n"
+        f"doneness {doneness:.3f} · juiciness {juiciness:.2f} · bark L* {l_end:.0f}",
     )
-    ax.legend(fontsize=9, loc="lower right")
+    ax.legend(fontsize=9, loc="upper left")
 
     fig.suptitle(
-        "The perfect brisket picks its own duration and wrap moment "
+        "The perfect brisket picks its own length, wrap and pull "
         f"({params_path.stem} smoker; bark constants uncalibrated)",
         y=1.0,
     )

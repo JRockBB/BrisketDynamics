@@ -22,7 +22,7 @@ from .coupled import HR, CookGrids, coupled_cook
 # Regenerating this dataset: from app/,
 #   uv run python -c "from brisket_app.clients import meat_client, pit_client; from brisket_app import synth; synth.save(synth.generate(*[meat_client(), pit_client()]))"
 # then `uv run python ../scripts/run_map.py`. Do not mix with 5-parameter artifacts.
-THETA_TRUE = np.array([2.1e-8, 0.0014, 12.5, 0.026, 1.15, 7.3e-4, 0.26])
+THETA_TRUE = np.array([1.0e-8, 0.0014, 12.5, 0.026, 1.15, 7.3e-4, 0.26])
 # ignition entries inert (a0 = 1): synthetic cooks start fully lit
 PHI_TRUE = np.array([18e3, 24.0, 2.5e-4, 1.35e7, 0.25, 3e-4, 1.0])
 

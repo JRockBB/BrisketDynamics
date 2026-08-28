@@ -49,7 +49,13 @@ floor, ignition spread rate, initial ignited fraction). Code names:
 | $\Delta\rho_v(T_s)$ | clamped vapor-density deficit | in `evap_flux` |
 | $s(t)$ | Texas-crutch wrap blend | `wrap_blend` |
 | $\varepsilon(s)$ | wrap-blended emissivity | in RHS |
-| $q_{\mathrm{surf}}$ | surface heat drawn from the pit [W/m²] | `surface_heat_in_wrapped` |
+| $p(t)$ | pull blend (in the pit → resting) | `pull_blend` |
+| $v(W,F)$, $\varsigma$ | specific volume per kg dry matter; thickness stretch $(v/v_0)^{n_{sh}}$ | `specific_volume`, in RHS |
+| $p_{v,\mathrm{base}}$, $c$ | pit base vapor pressure [Pa]; vapor-mixing coefficient | in `coupled.py`, `mixing_coefficient` |
+| $\dot m_{\mathrm{air}}$ | pit air mass flow [kg/s] | in `coupled.py` |
+| $A(t)/A_0$ | exposed-area factor $(\bar v/v_0)^{1-n_{sh}}$ | `a_area` in RHS |
+| $q_{\mathrm{surf}}$ | surface heat drawn from the pit [W/m²] | `surface_q_pit_blended` |
+| $q_{\mathrm{rest}}$ | surface heat from the rest environment [W/m²] | `surface_heat_rest` |
 | $k_C(T), k_f(T), k_B(T_s)$ | collagen / fat-render / Maillard rates | `collagen_rate`, `fat_rate`, `bark_rate` |
 | $W_{\mathrm{eq}}(T)$ | water-holding equilibrium | `w_eq` |
 | $a_w(W_s)$ | surface water activity (Oswin isotherm) | `a_w_oswin` |
@@ -66,7 +72,11 @@ $\eta_e$ (`η_evap`), $\eta_h$, $\varepsilon_{\mathrm{wrap}}$, $\delta_w$
 `dL_B`, `dL_S`); deposition rate $k_{\mathrm{dep}}$; fuel taper scale
 $m_t$ (`m_taper`); expulsion widths $\delta_e, \delta_{\mathrm{myo}},
 \delta_{\mathrm{act}}$; drain split $\eta_{\mathrm{drain}}$; sensory
-weight $\beta_{\mathrm{fat}}$.
+weight $\beta_{\mathrm{fat}}$; rest constants $T_r, h_r, \varepsilon_r,
+\eta_r, p_{v,r}, \delta_p$ (`T_rest`, `h_rest`, `ε_rest`, `η_rest`,
+`p_v_rest`, `δ_pull`); shrinkage exponent $n_{sh}$ (`n_shrink`, 0 =
+fixed slab) and component densities $\rho_{\mathrm{sol}}, \rho_f,
+\rho_w$.
 
 ## 1. Meat: 1-D heat–moisture–kinetics PDE (162 ODEs after MOL)
 
@@ -130,6 +140,31 @@ $$
 \;\;\text{(clamped deficit)},
 $$
 
+where the pit vapor pressure is the pit's own quasi-steady balance plus
+the meat's vapor (the pit residence time is ~30 s, far below the exchange
+grid):
+
+$$
+p_{v,\mathrm{pit}} = p_{v,\mathrm{base}} + c\, j,
+\qquad
+p_{v,\mathrm{base}} = \frac{p_{\mathrm{atm}}}{0.622}\Big(\omega_{\mathrm{amb}}
++ \frac{y_w\,\dot m_b + \dot m_{\mathrm{pan}}}{\dot m_{\mathrm{air}}}\Big),
+\qquad
+c = \frac{p_{\mathrm{atm}}}{0.622}\,\frac{A(t)}{\dot m_{\mathrm{air}}},
+\qquad
+\dot m_{\mathrm{air}} = \mathrm{AFR}\, r_{\max}\, g(u)
+$$
+
+(ambient absolute humidity $\omega_{\mathrm{amb}}$, combustion water
+yield $y_w$, water-pan rate $\dot m_{\mathrm{pan}}$, air–fuel ratio of the
+draft AFR — plain constants in `coupled.Humidity`). $j$ then solves
+$j = a\,\mathrm{sp}_{\delta_p}(p_{\mathrm{sat}} - p_{v,\mathrm{base}} - c j)$,
+$a = k_m\varphi/(R_v T_s)$ — a scalar fixed point with a unique root,
+taken in closed form plus two Newton steps inside the RHS
+(`evap_flux_fb`). The pit exports $\dot m_b$; the orchestrator forms
+$p_{v,\mathrm{base}}$ and $1/\dot m_{\mathrm{air}}$ on the exchange grid as
+two more differentiable meat forcings; `pv_pit` is an output.
+
 $$
 k\,\partial_x T|_s
 = h_c\,(1 - \eta_h\, s)\,(T_p - T_s)
@@ -156,6 +191,78 @@ the deposition state. $t_{\mathrm{wrap}}$ is a differentiable decision
 variable; $t_{\mathrm{wrap}} = 10^9$ puts the logistic blend at numerical
 zero over any cook horizon (Python no-wrap is `WRAP_NEVER = 1e9 + 0\cdot z_w`
 so the unused wrap logit stays in the tape).
+
+**Rest / carryover (pull).** A second blend of the same construction,
+$p(t) = \sigma\!\left((t - t_{\mathrm{pull}})/\delta_p\right)$
+($\delta_p = 300$ s), swaps the surface environment from the pit to the
+rest; the interior equations are untouched, so carryover (conduction),
+juice redistribution (diffusion with the surface flux blocked), and the
+hold's continued collagen conversion follow with no new physics:
+
+$$
+k\,\partial_x T|_s
+= (1-p)\,q_{\mathrm{surf}}
++ p\,\big[h_r\,(T_r - T_s) + \varepsilon_r\,\sigma_{SB}\,(T_r^4 - T_s^4)\big]
+- \lambda\, j,
+$$
+
+$$
+j = (1-p)\,(1-\eta_e s)\,k_m\,\varphi\,\Delta\rho_v(T_s;\,p_{v,\mathrm{pit}})
++ p\,(1-\eta_r)\,k_m\tfrac{h_r}{h_c}\,\varphi\,\Delta\rho_v(T_s;\,p_{v,r}),
+$$
+
+with the rest-phase mass-transfer coefficient scaled by the heat–mass
+analogy $h_r/h_c$, smoke deposition gated by $(1-p)$, and the coupling
+output $q_{\mathrm{meat}} = A_{\mathrm{meat}}\,(1-p)\,q_{\mathrm{surf}}$
+(the pit sees no load once the meat is out). The rest constants are
+literature-fixed presets (faux cambro: $T_r = T_{\mathrm{amb}}$, $h_r =
+1.5$, $\varepsilon_r = 0.1$, $\eta_r = 0.9$; bare board: $h_r = 7$,
+$\varepsilon_r = 0.85$, $\eta_r = 0$) — the cook log ends at the pull, so
+nothing here is calibrated. $t_{\mathrm{pull}}$ is a differentiable
+input like $t_{\mathrm{wrap}}$ (`PULL_NEVER = 1e9` puts the blend at
+numerical zero). With a rest appended to the horizon, every quality
+summary below is evaluated at serve; the objective prices fuel at the pull
+and the bark-burn cap in the pit only.
+
+**Shrinkage (material coordinate).** The fields above are integrated on
+the dry-matter (Lagrangian) coordinate $\xi \in [0, L]$ — $L$ is the raw
+half-thickness, dry mass per unit $\xi$ is constant, and the grid never
+moves. Density bookkeeping gives each node's specific volume per kg dry
+matter and its thickness stretch,
+
+$$
+v(W,F) = \frac{1-F_0}{\rho_{\mathrm{sol}}}
++ \frac{F + (1-\eta_{\mathrm{drain}})(F_0 - F)}{\rho_f}
++ \frac{W}{\rho_w},
+\qquad
+\varsigma = \big(v/v_0\big)^{n_{sh}},
+\qquad
+\frac{A(t)}{A_0} = \big(\bar v/v_0\big)^{1-n_{sh}},
+$$
+
+($v_0 = v(W_0,F_0)$; the drained fat's volume has left, the retained
+rendered share stays). Volumetric shrinkage is therefore not a free
+parameter — only its split between thickness ($n_{sh}$: $1/3$ isotropic,
+$1$ all-thickness) and the lateral area is. The interior equations in
+$\xi$ are, with heat per physical volume ($\rho c_p$ fixed per volume) and
+water per dry mass (the dry-matter concentration rises as the matrix
+contracts, hence $\varsigma^{-2}$):
+
+$$
+\rho c_p\,\varsigma\,\partial_t T = \partial_\xi\!\Big(\frac{k}{\varsigma}\,\partial_\xi T\Big),
+\qquad
+\partial_t W = \partial_\xi\!\Big(\frac{D_{\mathrm{eff}}}{\varsigma^{2}}\,\partial_\xi W\Big)
+- k_e\,\mathrm{sp}_{\delta_e}\!\big(W - W_{\mathrm{eq}}(T)\big),
+$$
+
+discretized in flux form with face stretches (mean of the neighbours). At
+the surface the heat balance is unchanged per physical area (the area
+factor cancels between capacity and intake) while the water balance sees
+the shrunken exposed surface, $-\rho_d D_{\mathrm{eff}}\,\varsigma^{-2}\,
+\partial_\xi W|_s = (A/A_0)\, j$; the pit coupling becomes
+$q_{\mathrm{meat}} = A_0\,(A/A_0)\,q_{\mathrm{surf}}$, and the physical
+thickness $L(t) = \int_0^{L}\varsigma\,d\xi$ is an output (`l_thick`; a
+ruler measures it). $n_{sh} = 1/3$ (isotropic).
 
 **Bark states** (surface only), with the Oswin water activity
 $a_w(W_s) = \left(1 + (k_{ox}/W_s)^{n_{ox}}\right)^{-1}$:
@@ -247,8 +354,11 @@ approximation.
 
 ## 4. The quality objective (KCBS-weighted; every term overridable)
 
-Decision variables: damper knots $z \mapsto u = \sigma(z)$ and wrap
-$z_w \mapsto t_{\mathrm{wrap}} = t_f\,\sigma(z_w)$. Below
+Decision variables: damper knots $z \mapsto u = \sigma(z)$, wrap
+$z_w \mapsto t_{\mathrm{wrap}} = t_f\,\sigma(z_w)$, and pull
+$z_p \mapsto t_{\mathrm{pull}} = t_f\,\sigma(z_p)$ (the meat rests from the
+pull to serve, $t_f + t_{\mathrm{rest}}$, where the quality terms are
+evaluated). Below
 $\mathrm{sp}(x) = \mathrm{sp}_1(x) = \log(1+e^x)$, and the category
 weights are $(w_{\mathrm{app}}, w_{\mathrm{taste}}, w_{\mathrm{tend}}) =
 (0.14,\, 0.57,\, 0.29)$ — the normalized multipliers KCBS judging
@@ -322,8 +432,9 @@ Gaussian on both probes.
 holes break the chain (contiguous usable runs only). $\sigma_0 = 1.2$ K
 is the digitization floor; $\sigma_{\mathrm{pit}},\sigma_{\mathrm{core}}$
 are sampled extras on the *marginal* residual scale; $\rho$ is a
-per-probe lag-1 correlation (Beta$(2,2)$ prior, density $0$ at the
-unit root):
+per-probe lag-1 correlation on the 10-min grid, $\rho = 0.95\,\beta$ with
+$\beta \sim$ Beta$(2,2)$ — a correlation time of at most ~3 h, so the
+discrepancy process cannot become a free offset:
 
 $$
 \sigma = \sigma_0 + \sigma_{\cdot},\qquad

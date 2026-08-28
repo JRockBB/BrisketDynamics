@@ -117,6 +117,126 @@ end
     @test relerr(g.dTpit_knots[end], fd) < 5e-3
 end
 
+@testset "pull-time (rest) adjoint vs FD" begin
+    hr = 3600.0
+    tknots = collect(0.0:600.0:8hr)
+    tsave = tknots
+    θ = MEAT_θ_DEFAULT
+    Tpit = collect(range(380.0, 390.0, length=length(tknots)))
+    tol = (abstol=1e-9, reltol=1e-9)
+    t_pull = 6hr   # rest live over the last quarter of the horizon
+
+    wts = (Tsurf=0.3, Tcore=1.0, j_evap=1e3, q_meat=1e-2, C_field_final=10.0)
+    function loss(θv, Tpitv, tp)
+        o = meat_solve(θv, Tpitv, tknots, tsave; t_pull=tp, tol...)
+        return wts.Tsurf * sum(abs2, o.Tsurf .- 350) / length(o.Tsurf) +
+               wts.Tcore * sum(abs2, o.Tcore .- 340) / length(o.Tcore) +
+               wts.j_evap * sum(o.j_evap) +
+               wts.q_meat * sum(o.q_meat) +
+               wts.C_field_final * sum(o.C_field_final)
+    end
+    o = meat_solve(θ, Tpit, tknots, tsave; t_pull, tol...)
+    cot = (
+        Tsurf=wts.Tsurf .* 2 .* (o.Tsurf .- 350) ./ length(o.Tsurf),
+        Tcore=wts.Tcore .* 2 .* (o.Tcore .- 340) ./ length(o.Tcore),
+        j_evap=fill(wts.j_evap, length(o.j_evap)),
+        q_meat=fill(wts.q_meat, length(o.q_meat)),
+        C_field_final=fill(wts.C_field_final, length(o.C_field_final)),
+    )
+    g = meat_vjp(θ, Tpit, tknots, tsave, cot; t_pull, tol...)
+
+    # FD on t_pull: hrel = 1e-3 → ~22 s step, well inside δ_pull = 300 s
+    h = 1e-3 * t_pull
+    fd_tp = (loss(θ, Tpit, t_pull + h) - loss(θ, Tpit, t_pull - h)) / (2h)
+    @test relerr(g.dt_pull, fd_tp) < 2e-3
+
+    # p-tail off-by-one guards: with the wrap at WRAP_NEVER its slot must
+    # read the saturated blend's zero (a swap would put dt_pull there), and
+    # the θ / mid-knot slices must be untouched by the appended entry
+    @test abs(g.dt_wrap) < 1e-12
+    fd = fd_partial(v -> loss(v, Tpit, t_pull), θ, 3)
+    @test relerr(g.dθ[3], fd) < 2e-3
+    fd = fd_partial(v -> loss(θ, v, t_pull), Tpit, 13; hrel=1e-4)
+    @test relerr(g.dTpit_knots[13], fd) < 5e-3
+end
+
+@testset "shrinkage adjoint vs FD" begin
+    hr = 3600.0
+    tknots = collect(0.0:600.0:8hr)
+    tsave = tknots
+    θ = MEAT_θ_DEFAULT
+    Tpit = collect(range(380.0, 390.0, length=length(tknots)))
+    tol = (abstol=1e-9, reltol=1e-9)
+    cfg = MeatConfig()   # default: isotropic shrinkage, stretch AND A(t) live
+
+    wts = (Tsurf=0.3, Tcore=1.0, q_meat=1e-2, C_field_final=10.0, l_thick=1e3)
+    function loss(θv, Tpitv)
+        o = meat_solve(θv, Tpitv, tknots, tsave; cfg, tol...)
+        return wts.Tsurf * sum(abs2, o.Tsurf .- 350) / length(o.Tsurf) +
+               wts.Tcore * sum(abs2, o.Tcore .- 340) / length(o.Tcore) +
+               wts.q_meat * sum(o.q_meat) +
+               wts.C_field_final * sum(o.C_field_final) +
+               wts.l_thick * sum(o.l_thick)
+    end
+    o = meat_solve(θ, Tpit, tknots, tsave; cfg, tol...)
+    cot = (
+        Tsurf=wts.Tsurf .* 2 .* (o.Tsurf .- 350) ./ length(o.Tsurf),
+        Tcore=wts.Tcore .* 2 .* (o.Tcore .- 340) ./ length(o.Tcore),
+        q_meat=fill(wts.q_meat, length(o.q_meat)),
+        C_field_final=fill(wts.C_field_final, length(o.C_field_final)),
+        l_thick=fill(wts.l_thick, length(o.l_thick)),
+    )
+    g = meat_vjp(θ, Tpit, tknots, tsave, cot; cfg, tol...)
+
+    # the stretch couples W → T through the face metric and W → q_meat
+    # through A(t); the l_thick head is differentiated through the saved
+    # fields. D_eff keeps its 1% step / FD-conditioning tolerance; L is now
+    # the INITIAL half-thickness; k_mult and a mid knot as in the base test
+    fd = fd_partial(v -> loss(v, Tpit), θ, 1; hrel=1e-2)
+    @test relerr(g.dθ[1], fd) < 4e-2
+    for i in (4, 5)
+        fd = fd_partial(v -> loss(v, Tpit), θ, i)
+        @test relerr(g.dθ[i], fd) < 2e-3
+    end
+    fd = fd_partial(v -> loss(θ, v), Tpit, 13; hrel=1e-4)
+    @test relerr(g.dTpit_knots[13], fd) < 5e-3
+end
+
+@testset "humidity adjoint vs FD" begin
+    hr = 3600.0
+    tknots = collect(0.0:600.0:8hr)
+    tsave = tknots
+    θ = MEAT_θ_DEFAULT
+    Tpit = collect(range(380.0, 390.0, length=length(tknots)))
+    pvb = fill(4000.0, length(tknots))
+    im = fill(1 / 2.5e-3, length(tknots))
+    tol = (abstol=1e-9, reltol=1e-9)
+
+    wts = (Tcore=1.0, j_evap=1e3)
+    function loss(pv, imv)
+        o = meat_solve(θ, Tpit, tknots, tsave; pv_base_knots=pv, imair_knots=imv, tol...)
+        return wts.Tcore * sum(abs2, o.Tcore .- 340) / length(o.Tcore) +
+               wts.j_evap * sum(o.j_evap)
+    end
+    o = meat_solve(θ, Tpit, tknots, tsave; pv_base_knots=pvb, imair_knots=im, tol...)
+    cot = (
+        Tcore=wts.Tcore .* 2 .* (o.Tcore .- 340) ./ length(o.Tcore),
+        j_evap=fill(wts.j_evap, length(o.j_evap)),
+    )
+    g = meat_vjp(θ, Tpit, tknots, tsave, cot; pv_base_knots=pvb, imair_knots=im, tol...)
+
+    # a mid-cook knot of each humidity forcing (the self-consistent flux
+    # differentiates through the Newton steps), plus the switch-time slots
+    # that now sit behind the two extra knot blocks
+    i = 13
+    fd = fd_partial(v -> loss(v, im), pvb, i; hrel=1e-3)
+    @test relerr(g.dpv_base_knots[i], fd) < 5e-3
+    fd = fd_partial(v -> loss(pvb, v), im, i; hrel=1e-3)
+    @test relerr(g.dimair_knots[i], fd) < 5e-3
+    @test abs(g.dt_wrap) < 1e-12
+    @test abs(g.dt_pull) < 1e-12
+end
+
 @testset "pit ForwardDiff VJP vs FD" begin
     hr = 3600.0
     tsave = collect(0.0:600.0:6hr)

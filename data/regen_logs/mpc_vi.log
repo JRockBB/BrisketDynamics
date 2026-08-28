@@ -1,0 +1,49 @@
+plant: vi_mean_real.json
+using plan fullplan_result.json
+plan under defense: the 20 h cook — wrap at 7.85 h, pull at 18.71 h, serve at 20.0 h, u in [0.00, 0.93]
+reference (no disturbance):
+  [openloop] t= 1.0 h  Tpit=116.6 C  core= 41.8 C  C=0.000  u~0.60  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 2.0 h  Tpit=108.8 C  core= 68.0 C  C=0.005  u~0.10  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 3.0 h  Tpit=100.4 C  core= 70.1 C  C=0.027  u~0.01  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 4.0 h  Tpit=105.2 C  core= 69.8 C  C=0.047  u~0.08  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 5.0 h  Tpit=111.9 C  core= 72.3 C  C=0.072  u~0.14  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 6.0 h  Tpit=122.4 C  core= 75.5 C  C=0.112  u~0.21  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 7.0 h  Tpit=133.9 C  core= 80.5 C  C=0.190  u~0.29  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 8.0 h  Tpit=124.3 C  core= 82.4 C  C=0.313  u~0.16  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 9.0 h  Tpit=109.6 C  core= 87.0 C  C=0.482  u~0.03  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=10.0 h  Tpit=101.8 C  core= 87.3 C  C=0.658  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=11.0 h  Tpit= 98.6 C  core= 85.9 C  C=0.764  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=12.0 h  Tpit= 97.6 C  core= 84.6 C  C=0.823  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=13.0 h  Tpit= 98.2 C  core= 83.8 C  C=0.862  u~0.01  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=14.0 h  Tpit= 99.1 C  core= 83.7 C  C=0.890  u~0.02  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=15.0 h  Tpit= 99.2 C  core= 83.8 C  C=0.913  u~0.02  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=16.0 h  Tpit= 98.9 C  core= 83.8 C  C=0.931  u~0.02  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=17.0 h  Tpit=100.0 C  core= 83.8 C  C=0.945  u~0.05  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=18.0 h  Tpit=106.5 C  core= 85.0 C  C=0.957  u~0.17  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=20.0 h  Tpit= 66.5 C  core= 72.9 C  C=0.971  u~0.11  T_amb=27 C  T_amb_hat=26.9±5.0 C  PULLED at 18.71 h -> rest
+open-loop through the cold front:
+  [openloop] t= 1.0 h  Tpit=116.6 C  core= 41.8 C  C=0.000  u~0.60  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 2.0 h  Tpit=108.8 C  core= 68.0 C  C=0.005  u~0.10  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 3.0 h  Tpit= 92.0 C  core= 68.3 C  C=0.024  u~0.01  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 4.0 h  Tpit= 93.4 C  core= 65.6 C  C=0.036  u~0.08  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 5.0 h  Tpit= 98.7 C  core= 66.9 C  C=0.047  u~0.14  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 6.0 h  Tpit=108.6 C  core= 69.6 C  C=0.062  u~0.21  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 7.0 h  Tpit=119.8 C  core= 74.7 C  C=0.093  u~0.29  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 8.0 h  Tpit=110.1 C  core= 76.6 C  C=0.148  u~0.16  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 9.0 h  Tpit= 95.0 C  core= 79.7 C  C=0.224  u~0.03  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=10.0 h  Tpit= 87.1 C  core= 79.1 C  C=0.310  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=11.0 h  Tpit= 83.8 C  core= 77.2 C  C=0.370  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=12.0 h  Tpit= 82.8 C  core= 75.5 C  C=0.411  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=13.0 h  Tpit= 83.4 C  core= 74.5 C  C=0.441  u~0.01  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=14.0 h  Tpit= 84.2 C  core= 74.1 C  C=0.466  u~0.02  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=15.0 h  Tpit= 84.3 C  core= 74.1 C  C=0.490  u~0.02  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=16.0 h  Tpit= 84.0 C  core= 74.0 C  C=0.512  u~0.02  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=17.0 h  Tpit= 85.1 C  core= 74.0 C  C=0.533  u~0.05  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=18.0 h  Tpit= 91.6 C  core= 75.1 C  C=0.555  u~0.17  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=20.0 h  Tpit= 51.5 C  core= 65.8 C  C=0.590  u~0.11  T_amb=12 C  T_amb_hat=26.9±5.0 C  PULLED at 18.71 h -> rest
+MPC, NO disturbance (discriminator: plan-refinement vs weather):
+  [mpc] t= 1.0 h  Tpit=113.5 C  core= 41.4 C  C=0.000  u~0.57  T_amb=27 C  T_amb_hat=26.9±2.8 C
+  [mpc] t= 2.0 h  Tpit=103.1 C  core= 65.3 C  C=0.003  u~0.03  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 3.0 h  Tpit= 97.8 C  core= 68.2 C  C=0.017  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 4.0 h  Tpit=102.5 C  core= 68.8 C  C=0.033  u~0.07  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 5.0 h  Tpit=108.6 C  core= 71.1 C  C=0.054  u~0.12  T_amb=27 C  T_amb_hat=26.9±2.5 C

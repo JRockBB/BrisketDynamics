@@ -27,12 +27,21 @@ from brisket_app.calibrate import (
     THETA_SITES,
 )
 from brisket_app.clients import meat_client, pit_client
-from brisket_app.control import ControlConfig, optimize_schedule_expected
+from brisket_app.control import ControlConfig, objective, optimize_schedule_expected
 from brisket_app.coupled import HR, CookGrids, coupled_cook
 
 REPO = Path(__file__).resolve().parents[1]
 N_OPT = 8  # posterior draws in the optimization objective
 N_EVAL = 30  # held-out draws for evaluating both schedules
+# the same cook conditions fullplan plans under
+ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
+TOLS = {"abstol": 1e-6, "reltol": 1e-6}
+
+
+def logit(x, lo=1e-3):
+    """Inverse sigmoid, clipped away from 0 and 1."""
+    x = np.clip(np.asarray(x, dtype=float), lo, 1 - lo)
+    return np.log(x / (1 - x))
 
 
 def draws(samples, idx):
@@ -88,7 +97,7 @@ def main():
     )
     ap.add_argument(
         "--plan",
-        default="fullplan_result_ext.json",
+        default="fullplan_result.json",
         help="assessed cook json under data/control (u, t_f, t_wrap)",
     )
     ap.add_argument(
@@ -118,22 +127,21 @@ def main():
     th_ev, ph_ev = draws(samples, eval_idx)
 
     # the plan under uncertainty-hedging: the ASSESSED fullplan optimum
-    # (17 h, wrap ~3.5 h), not the legacy 12 h MAP schedule
     best = json.loads((REPO / "data" / "control" / args.plan).read_text())
     print(f"plan: {args.plan}  samples: {args.samples}", flush=True)
     u_map = np.asarray(best["best_u"])
     t_wrap_map = best["best_t_wrap_h"] * HR
     t_f = best["best_t_f_h"] * HR
+    t_pull_map = best["best_t_pull_h"] * HR if best.get("best_t_pull_h") else 1.0e9
 
     meat_tx, pit_tx = meat_client(), pit_client()
     grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=len(u_map))
-    # opt_wrap: the posterior-EXPECTED wrap moment is a decision variable
-    # too — the interesting question is whether parameter uncertainty
-    # hedges the crutch earlier or later than the MAP's choice
+    # opt_wrap / opt_pull: the posterior-EXPECTED wrap and pull moments are
+    # decision variables too — does parameter uncertainty hedge them
+    # earlier or later than the point-estimate plan's choices?
     cc = ControlConfig(n_iter=args.iters, opt_wrap=True)
 
-    print(f"optimizing E[J] over {N_OPT} posterior draws, warm start from MAP schedule")
-    frac = np.clip(t_wrap_map / t_f, 1e-3, 1 - 1e-3)
+    print(f"optimizing E[J] over {N_OPT} posterior draws, warm start from plan")
     u_rob, hist = optimize_schedule_expected(
         th_opt,
         ph_opt,
@@ -141,21 +149,43 @@ def main():
         pit_tx,
         grids=grids,
         cc=cc,
+        tols=TOLS,
         u_init=u_map,
-        z_w_init=float(np.log(frac / (1 - frac))),
+        z_w_init=float(logit(t_wrap_map / t_f)),
+        z_p_init=float(logit(min(t_pull_map, t_f) / t_f)),
+        ics=ICS,
         callback=lambda i, l, u: print(f"  iter {i:4d}  E[J]={l:9.4f}", flush=True),
     )
     t_wrap_rob = hist["t_wrap"]
+    t_pull_rob = hist["t_pull"]
     print(
         f"wrap: plan {t_wrap_map / HR:.2f} h -> "
-        f"posterior-expected {t_wrap_rob / HR:.2f} h"
+        f"posterior-expected {t_wrap_rob / HR:.2f} h;  "
+        f"pull: plan {t_pull_map / HR:.2f} h -> {t_pull_rob / HR:.2f} h"
     )
     print(
         f"E[J] {hist['losses'][0]:.3f} -> {hist['losses'][-1]:.3f} "
         f"in {hist['wall_s']:.0f} s"
     )
 
-    def metrics(u, tw, th, ph):
+    def metrics(u, tw, tp, th, ph):
+        # the objective fullplan optimizes, at serve, under the same cook
+        # conditions, plus the doneness / juiciness behind it
+        j = float(
+            objective(
+                jnp.asarray(logit(u)),
+                jnp.asarray(logit(tw / t_f)),
+                jnp.asarray(th),
+                jnp.asarray(ph),
+                meat_tx,
+                pit_tx,
+                grids,
+                cc,
+                TOLS,
+                ics=ICS,
+                z_p=jnp.asarray(logit(min(tp, t_f) / t_f)),
+            )
+        )
         out = coupled_cook(
             jnp.asarray(th),
             jnp.asarray(ph),
@@ -164,20 +194,34 @@ def main():
             pit_tx,
             grids,
             K=2,
+            ics=ICS,
             t_wrap=tw,
+            t_pull=tp,
         )
-        return float(out["c_field_final"][0]), float(out["juiciness"])
+        return j, float(out["c_field_final"][0]), float(out["juiciness"])
 
     print(f"evaluating both plans on {N_EVAL} held-out draws")
-    m_map = [metrics(u_map, t_wrap_map, th_ev[i], ph_ev[i]) for i in range(N_EVAL)]
-    m_rob = [metrics(u_rob, t_wrap_rob, th_ev[i], ph_ev[i]) for i in range(N_EVAL)]
-    d_map = np.array([x[0] for x in m_map])
-    d_rob = np.array([x[0] for x in m_rob])
-    j_map = np.array([x[1] for x in m_map])
-    j_rob = np.array([x[1] for x in m_rob])
-    for name, d, j in [("plan-optimal", d_map, j_map), ("robust", d_rob, j_rob)]:
+    m_map = [
+        metrics(u_map, t_wrap_map, t_pull_map, th_ev[i], ph_ev[i])
+        for i in range(N_EVAL)
+    ]
+    m_rob = [
+        metrics(u_rob, t_wrap_rob, t_pull_rob, th_ev[i], ph_ev[i])
+        for i in range(N_EVAL)
+    ]
+    J_map = np.array([x[0] for x in m_map])
+    J_rob = np.array([x[0] for x in m_rob])
+    d_map = np.array([x[1] for x in m_map])
+    d_rob = np.array([x[1] for x in m_rob])
+    j_map = np.array([x[2] for x in m_map])
+    j_rob = np.array([x[2] for x in m_rob])
+    for name, J, d, j in [
+        ("plan-optimal", J_map, d_map, j_map),
+        ("robust", J_rob, d_rob, j_rob),
+    ]:
         print(
-            f"  {name}: doneness mean={d.mean():.3f} sd={d.std():.3f} "
+            f"  {name}: J mean={J.mean():.3f} sd={J.std():.3f} max={J.max():.3f}  "
+            f"doneness mean={d.mean():.3f} sd={d.std():.3f} "
             f"min={d.min():.3f} max={d.max():.3f}  "
             f"juiciness mean={j.mean():.3f} sd={j.std():.3f}"
         )
@@ -187,8 +231,13 @@ def main():
         json.dumps(
             {
                 "u_robust": u_rob.tolist(),
+                "J_map_eval": J_map.tolist(),
+                "J_robust_eval": J_rob.tolist(),
                 "t_wrap_plan_h": t_wrap_map / HR,
                 "t_wrap_robust_h": t_wrap_rob / HR,
+                "t_pull_plan_h": t_pull_map / HR if t_pull_map < 1e8 else None,
+                "t_pull_robust_h": t_pull_rob / HR if t_pull_rob < 1e8 else None,
+                "cook_h": t_f / HR,
                 "doneness_map_eval": d_map.tolist(),
                 "doneness_robust_eval": d_rob.tolist(),
                 "juiciness_map_eval": j_map.tolist(),
@@ -209,18 +258,24 @@ def main():
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-    bins = np.linspace(
-        min(d_map.min(), d_rob.min()) - 0.02, max(d_map.max(), d_rob.max()) + 0.02, 16
+    lo, hi = min(J_map.min(), J_rob.min()), max(J_map.max(), J_rob.max())
+    bins = np.linspace(lo - 0.05 * (hi - lo + 1e-9), hi + 0.05 * (hi - lo + 1e-9), 16)
+    axes[0].hist(
+        J_map,
+        bins=bins,
+        alpha=0.6,
+        label=f"plan-optimal (E[J]={J_map.mean():.3f}, sd={J_map.std():.3f})",
     )
     axes[0].hist(
-        d_map, bins=bins, alpha=0.6, label=f"plan-optimal (sd={d_map.std():.3f})"
+        J_rob,
+        bins=bins,
+        alpha=0.6,
+        label=f"robust (E[J]={J_rob.mean():.3f}, sd={J_rob.std():.3f})",
     )
-    axes[0].hist(d_rob, bins=bins, alpha=0.6, label=f"robust (sd={d_rob.std():.3f})")
-    axes[0].axvline(0.90, color="r", ls=":", lw=1, label="target")
     axes[0].set(
-        xlabel=f"core doneness at {t_f / HR:.0f} h",
+        xlabel=f"quality objective J at serve ({t_f / HR:.0f} h)",
         ylabel="posterior draws",
-        title=f"doneness under parameter uncertainty ({N_EVAL} draws)",
+        title=f"the planning objective under parameter uncertainty ({N_EVAL} draws)",
     )
     axes[0].legend(fontsize=8)
     axes[1].step(grids.u_tknots / HR, u_map, where="mid", label="plan-optimal")

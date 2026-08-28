@@ -33,6 +33,10 @@ Gaps: `docs/model_gaps.md`.
       reduces to pull-when-done (elapsed time is sunk; the live
       time-decision is the pull), whose t_done = differentiable crossing of
       the doneness target. A losing cook should extend, not surrender.
+      The pull is a decision variable (`opt_pull`: `t_pull` optimized
+      jointly with the schedule and wrap, quality at serve —
+      `docs/tier1_plan.md` §1); remaining: the MPC pull-when-done state
+      machine (replans keep a fixed horizon and cook to the plan's pull).
    2. **Multi-chain NUTS-real** — 2–3 short chains from dispersed inits
       (separate processes); real split-r̂ across chains and a test of
       whether the pit-ridge mass location is reproducible.

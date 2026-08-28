@@ -54,6 +54,12 @@ def main():
         help="variational family (full-rank Gaussian can represent ridges)",
     )
     ap.add_argument("--rank", type=int, default=8, help="lowrank factor rank")
+    ap.add_argument(
+        "--init-scale",
+        type=float,
+        default=0.1,
+        help="initial guide scale in unconstrained space",
+    )
     ap.add_argument("--draws", type=int, default=400, help="posterior draws to save")
     ap.add_argument(
         "--real",
@@ -90,7 +96,11 @@ def main():
         }
 
     guide = calibrate.make_vi_guide(
-        model, kind=args.guide, init_values=init or None, rank=args.rank
+        model,
+        kind=args.guide,
+        init_values=init or None,
+        rank=args.rank,
+        init_scale=args.init_scale,
     )
     svi = SVI(model, guide, numpyro.optim.Adam(args.lr), Trace_ELBO())
 
@@ -108,6 +118,7 @@ def main():
             k: v for k, v in new.items() if k != "steps"
         } and old.get("steps", -1) <= new["steps"]
         if same:
+            svi.init(rng)  # builds svi.constrain_fn; the state itself is the checkpoint
             with open(state_file, "rb") as f:
                 state = pickle.load(f)
             step0 = int(meta.get("step", 0))
@@ -168,9 +179,7 @@ def main():
             + [n for n, _ in calibrate.PHI_SITES_IGNITION]
             + [n for n, _ in calibrate.RHO_SITES]
         )
-        corner_plot(
-            stacked, REPO / "figures" / "corner_vi_real.png", names=names
-        )
+        corner_plot(stacked, REPO / "figures" / "corner_vi_real.png", names=names)
         posterior_predictive_plot(
             stacked,
             pp_data,

@@ -27,7 +27,7 @@ from .coupled import HR, CookGrids, coupled_cook
 
 
 def _grids_for(t_f: float) -> CookGrids:
-    """Grids for a candidate duration: ~45-min damper knots, 10-min exchange."""
+    """Grids for a candidate cook length: ~45-min damper knots, 10-min exchange."""
     n_u = max(8, round(t_f / (0.75 * HR)))
     return CookGrids(t_end=t_f, dt_exchange=600.0, n_u=n_u)
 
@@ -43,6 +43,7 @@ def plan_duration(
     inner_iters: int = 60,
     log=print,
     seed: dict | None = None,
+    rest: dict | None = None,
 ):
     """Outer scan over candidate cook durations, inner schedule optimum.
 
@@ -53,18 +54,27 @@ def plan_duration(
     Warm-starts each duration from the previous optimum: the schedule by
     fractional cook progress, the wrap time by horizon fraction (z_w
     carries over directly since t_wrap = t_end * sigmoid(z_w)).
+
+    Each duration is the cook length, start to serve: with cc.opt_pull the
+    pull is optimized inside it and the meat rests under the ``rest``
+    environment (None = faux-cambro defaults) to serve, where the quality
+    terms are scored.
     """
     cc = cc or ControlConfig(n_iter=inner_iters)
     records = []
-    u_prev, grids_prev, zw_prev = None, None, 0.0
+    u_prev, grids_prev, zw_prev, zp_prev = None, None, 0.0, None
     if seed is not None:  # warm-start the FIRST duration from a prior scan
         u_prev = np.asarray(seed["u"])
         grids_prev = _grids_for(seed["t_f_h"] * HR)
         f = min(max(seed.get("t_wrap_frac", 0.5), 1e-4), 1 - 1e-4)
         zw_prev = float(np.log(f / (1 - f)))
+        if "t_pull_frac" in seed:
+            fp = min(max(seed["t_pull_frac"], 1e-4), 1 - 1e-4)
+            zp_prev = float(np.log(fp / (1 - fp)))
     for th_f in durations_h:
         t_f = th_f * HR
         grids = _grids_for(t_f)
+        t_pull = 1.0e9
         if u_prev is None:
             u_init = 0.5
         else:
@@ -81,12 +91,19 @@ def plan_duration(
             u_init=u_init,
             ics=ics,
             z_w_init=zw_prev,
+            t_pull=t_pull,
+            rest=rest,
+            z_p_init=zp_prev,
         )
         u_prev, grids_prev = u_opt, grids
         t_wrap = hist.get("t_wrap", 1.0e9)
         if cc.opt_wrap:
             frac = min(max(t_wrap / t_f, 1e-4), 1 - 1e-4)
             zw_prev = float(np.log(frac / (1 - frac)))
+        t_pull = hist.get("t_pull", t_pull)
+        if cc.opt_pull:
+            fp = min(max(t_pull / t_f, 1e-4), 1 - 1e-4)
+            zp_prev = float(np.log(fp / (1 - fp)))
         sim = coupled_cook(
             np.asarray(theta),
             np.asarray(phi),
@@ -97,6 +114,8 @@ def plan_duration(
             K=2,
             ics=ics,
             t_wrap=t_wrap if cc.opt_wrap else 1.0e9,
+            t_pull=t_pull,
+            rest=rest,
         )
         c_end = float(np.asarray(sim["c_field_final"])[0])
         w_ret = float(np.asarray(sim["w_retained"]))
@@ -115,13 +134,18 @@ def plan_duration(
                 "t_wrap_h": (t_wrap / HR) if cc.opt_wrap else None,
                 "l_star_end": l_end,
                 "picard_dT": float(np.asarray(sim["picard_dT"])),
+                "t_pull": float(t_pull),
+                "t_pull_h": float(t_pull / HR) if t_pull < 1.0e8 else None,
+                "rest": rest,
             }
         )
         log(
-            f"  t_f={th_f:5.1f} h  J={records[-1]['j_quality']:7.3f}  "
+            f"  cook {th_f:4.1f} h  "
+            f"J={records[-1]['j_quality']:7.3f}  "
             f"doneness={c_end:.3f}  juiciness={juicy:.3f}  "
             f"(water {w_ret:.3f})  L*={l_end:.1f}"
             + (f"  wrap@{t_wrap / HR:.2f} h" if cc.opt_wrap else "")
+            + (f"  pull@{t_pull / HR:.2f} h" if t_pull < 1.0e8 else "")
             + (
                 f"  Picard {records[-1]['picard_dT']:.2f} K"
                 if np.isfinite(records[-1]["picard_dT"])
@@ -161,12 +185,14 @@ def chance_of_done(
     """Empirical fraction of posterior draws that are serveably done at t_f.
 
     This is a Monte Carlo frequency over N draws, not a 95% certification.
-    Replays the record's optimized wrap time with the schedule.
+    Replays the record's optimized wrap, pull and schedule, so "done"
+    means done at serve.
     """
     grids, u_opt = record["grids"], record["u_opt"]
     t_wrap = record.get("t_wrap", 1.0e9)
     if t_wrap is None:
         t_wrap = 1.0e9
+    t_pull = record.get("t_pull", 1.0e9)
     done = []
     for i in range(len(thetas)):
         sim = coupled_cook(
@@ -179,6 +205,8 @@ def chance_of_done(
             K=2,
             ics=ics,
             t_wrap=t_wrap,
+            t_pull=t_pull,
+            rest=record.get("rest"),
         )
         done.append(float(np.asarray(sim["c_field_final"])[0]))
     done = np.asarray(done)

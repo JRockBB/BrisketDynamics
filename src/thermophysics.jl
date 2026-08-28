@@ -10,6 +10,8 @@
 
 const σ_SB = 5.670374419e-8   # Stefan–Boltzmann constant [W m⁻² K⁻⁴]
 const R_V = 461.52            # specific gas constant of water vapor [J kg⁻¹ K⁻¹]
+const P_ATM = 101325.0        # atmospheric pressure [Pa]
+const EPS_W = 0.622           # molar-mass ratio water/air (absolute humidity ↔ vapor pressure)
 
 const K_MEAT = 0.45           # baseline thermal conductivity [W m⁻¹ K⁻¹]
 const RHO_MEAT = 1060.0       # density [kg m⁻³]

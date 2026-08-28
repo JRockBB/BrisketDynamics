@@ -9,7 +9,6 @@ handful of short coupled solves.
 
 import numpy as np
 import pytest
-
 from brisket_app import mpc
 from brisket_app.clients import meat_client, pit_client
 from brisket_app.control import ControlConfig
@@ -161,7 +160,17 @@ def test_nowrap_objective_matches_wrap_never(clients, theta_phi):
     tols = {"abstol": 1e-6, "reltol": 1e-6}
     cc = ControlConfig(opt_wrap=False)
     j_off = float(
-        objective(z, z_w, jnp.asarray(theta), jnp.asarray(phi), meat_tx, pit_tx, grids, cc, tols)
+        objective(
+            z,
+            z_w,
+            jnp.asarray(theta),
+            jnp.asarray(phi),
+            meat_tx,
+            pit_tx,
+            grids,
+            cc,
+            tols,
+        )
     )
     j_never = float(
         objective(
@@ -189,7 +198,9 @@ def test_wrap_commit_agreement_or_dj():
     # both due → commit even with a flat J
     assert mpc.wrap_commit(due, 4.1 * HR, t0, dt, j_best=1.0, j_start=1.0, tol_rel=1e-4)
     # candidate due, incumbent later, no improvement → hold
-    assert not mpc.wrap_commit(due, later, t0, dt, j_best=1.0, j_start=1.0, tol_rel=1e-4)
+    assert not mpc.wrap_commit(
+        due, later, t0, dt, j_best=1.0, j_start=1.0, tol_rel=1e-4
+    )
     # candidate due, incumbent later, real same-horizon ΔJ → commit
     assert mpc.wrap_commit(due, later, t0, dt, j_best=0.8, j_start=1.0, tol_rel=1e-4)
     # candidate still in the future → never fire this hour
@@ -200,3 +211,57 @@ def test_wrap_commit_agreement_or_dj():
     assert mpc.wrap_commit(due, 3.9 * HR, t0, dt, j_best=1.0, j_start=1.0, tol_rel=1e-4)
     assert mpc.wrap_due(3.9 * HR, t0, dt)
     assert not mpc.wrap_due(5.5 * HR, t0, dt)
+
+
+def test_pull_rests_to_serve(clients, theta_phi):
+    """A pulled cook keeps running to serve: the meat leaves the pit at the
+    pull, the damper shuts, the surface cools in the cambro, and the
+    executed objective scores the pit-only terms up to the pull."""
+    theta, phi = theta_phi
+    t_f, t_pull = 2 * HR, 1.25 * HR
+    grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=4)
+    out = mpc.run_cook(
+        theta,
+        phi,
+        lambda t: T_AMB,
+        t_f=t_f,
+        dt_replan=1 * HR,
+        cc=ControlConfig(),
+        mode="openloop",
+        u_openloop=np.full(4, 0.5),
+        u_openloop_grids=grids,
+        model_t_amb=T_AMB,
+        t_pull_init_abs=t_pull,
+        log=lambda *_: None,
+    )
+    t, ts, u = (np.asarray(out[k]) for k in ("t", "tsurf", "u"))
+    assert out["pulled"] and out["t_pull_exec_abs"] == pytest.approx(t_pull, abs=1.0)
+    assert t[-1] == pytest.approx(t_f, rel=1e-6)
+    assert out["final_state"].t == pytest.approx(t_f, abs=1.0)
+    assert np.all(u[t > t_pull + 1.0] == 0.0)
+    i_pull = int(np.searchsorted(t, t_pull))
+    assert ts[-1] < ts[i_pull] - 1.0
+    comp = mpc.executed_objective(out, ControlConfig(), t_f)
+    assert np.isfinite(comp["J"])
+    # no pull: the meat stays in the pit to the end
+    ref = _openloop(theta, phi, t_f)
+    assert ref["pulled"] is False and ref["t_pull_exec_abs"] is None
+    assert float(np.asarray(ref["tsurf"])[-1]) > ts[-1]
+
+
+def test_plan_optimizes_pull(clients, theta_phi):
+    """A replan with cc.opt_pull returns a pull inside the remaining horizon."""
+    theta, phi = theta_phi
+    state = mpc.CookState.fresh()
+    _u, grids, hist = mpc.plan(
+        theta,
+        phi,
+        state,
+        2 * HR,
+        ControlConfig(opt_wrap=False),
+        T_AMB,
+        iters=2,
+        z_p_init=1.0,
+    )
+    assert grids.t_end == pytest.approx(2 * HR)
+    assert 0.0 < hist["t_pull"] < 2 * HR

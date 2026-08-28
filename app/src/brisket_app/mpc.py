@@ -8,6 +8,11 @@ Tesseracts' state IO), then the plant executes the first interval.
 
 This is state-feedback MPC (the controller reads the plant state directly);
 output-feedback with an estimator is future work, noted in the roadmap.
+
+The cook runs to serve (``t_f``): every replan optimizes the schedule, the
+wrap and the pull over the remaining time, scored at serve; the pull
+executes like the wrap (candidate -> commit -> irreversible) and the plant
+then rests to serve.
 """
 
 from __future__ import annotations
@@ -85,13 +90,16 @@ def advance_plant(
     t_amb: float,
     tols=None,
     t_wrap_seg: float = 1.0e9,
+    t_pull_seg: float = 1.0e9,
+    rest: dict | None = None,
 ) -> tuple[CookState, dict]:
     """Run the plant one interval; return (new state, trajectories).
 
-    ``t_wrap_seg`` is the wrap moment in SEGMENT-relative time: 1e9 = no
-    wrap this segment, a value inside [0, dt) executes the crutch here,
-    and a negative value (~-3600) means the cook arrived already wrapped
-    (blend saturated on from the segment start).
+    ``t_wrap_seg`` / ``t_pull_seg`` are the wrap and pull moments in
+    SEGMENT-relative time: 1e9 = not this segment, a value inside [0, dt)
+    executes the event here, and a negative value (~-3600) means the cook
+    arrived already wrapped / pulled (blend saturated from the segment
+    start; after the pull the meat rests under the ``rest`` preset).
     """
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
     grids = CookGrids(t_end=dt, dt_exchange=min(600.0, dt / 2), n_u=len(u_seg))
@@ -104,6 +112,8 @@ def advance_plant(
         K=2,
         ics=_ics(state, t_amb),
         t_wrap=t_wrap_seg,
+        t_pull=t_pull_seg,
+        rest=rest,
         **tols,
     )
     new = CookState(
@@ -181,6 +191,10 @@ def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
     t = np.asarray(out["t"])
     tsurf = np.asarray(out["tsurf"])
     u = np.asarray(out["u"])
+    # bark-burn cap and damper smoothness apply in the pit only; safety
+    # integrates through the rest, like control.objective
+    tp = out.get("t_pull_exec_abs")
+    in_pit = np.ones(t.shape, dtype=bool) if tp is None else t <= float(tp)
 
     c0 = out["doneness"]
     under = (sp(20.0 * (cc.c_target - c0)) / 20.0) / 0.05
@@ -214,14 +228,15 @@ def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
     dwell = cc.w_dwell * sp((danger_h - cc.danger_cap_h) / 0.5) ** 2
 
     # smoothness over the executed per-segment means (hourly steps)
-    u_steps = u[np.r_[0, np.nonzero(np.diff(u))[0] + 1]]
+    u_pit = u[in_pit]
+    u_steps = u_pit[np.r_[0, np.nonzero(np.diff(u_pit))[0] + 1]]
     smooth = cc.w_smooth * float(np.sum(np.diff(u_steps) ** 2))
 
     comp = {
         "appearance": cc.w_appearance * float(appearance),
         "taste": cc.w_taste * float(taste),
         "tenderness": cc.w_tenderness * float(tenderness),
-        "surf": cc.w_surf * float(np.mean(surf_over**2)),
+        "surf": cc.w_surf * float(np.mean(surf_over[in_pit] ** 2)),
         "fuel": cc.w_fuel * float(fuel_frac),
         "smooth": smooth,
         "safety": float(leth + dwell),
@@ -248,13 +263,19 @@ def plan(
     z_w_init: float = 0.0,
     z_w_pin: float = 8.0,
     t_wrap_override: float | None = None,
+    z_p_init: float | None = None,
+    rest: dict | None = None,
+    t_pull: float = 1.0e9,
 ):
     """Re-optimize the remaining-horizon plan from the current state.
 
-    Returns (u_opt, grids, hist): the schedule, its grids, and the
-    optimize_schedule history (``t_wrap`` is remaining-horizon relative;
-    ``best_loss`` / ``losses`` feed wrap_commit). With opt_wrap off, z_w
-    stays pinned at ``z_w_pin`` (8 = never; -8 = already wrapped).
+    The horizon is the remaining time to serve; with ``cc.opt_pull`` the
+    pull is optimized inside it (the rest is what follows) and quality is
+    scored at serve. Returns (u_opt, grids, hist): the schedule, its
+    grids, and the optimize_schedule history (``t_wrap`` / ``t_pull`` are
+    remaining-horizon relative; ``best_loss`` / ``losses`` feed
+    wrap_commit). With opt_wrap off, z_w stays pinned at ``z_w_pin``
+    (8 = never; -8 = already wrapped).
     """
     n_u = max(2, round(t_remaining / (0.75 * HR)))
     grids = CookGrids(
@@ -268,7 +289,7 @@ def plan(
         pit_tx,
         grids=grids,
         # iters is a CAP; the plateau rule in optimize_schedule stops the
-        # warm-started replan when converged (usually well before the cap)
+        # warm-started replan when converged (usually well before the cap).
         cc=replace(cc, n_iter=iters),
         u_init=u_init,
         ics=_ics(state, model_t_amb),
@@ -277,19 +298,22 @@ def plan(
         leth_banked=state.leth_f,
         danger_banked_h=state.danger_h,
         t_wrap_override=t_wrap_override,
+        t_pull=t_pull,
+        rest=rest,
+        z_p_init=z_p_init,
     )
     return u_opt, grids, hist
 
 
 def wrap_due(tw, t0, dt_seg) -> bool:
-    """Return True if a planned wrap falls in this segment (including overdue)."""
+    """Return True if a planned event (wrap or pull) falls in this segment."""
     return tw is not None and np.isfinite(tw) and tw < t0 + dt_seg
 
 
 def wrap_commit(cand, incumbent, t0, dt_seg, j_best, j_start, tol_rel) -> bool:
-    """Whether to fire the crutch this segment.
+    """Whether to fire an irreversible event (crutch or pull) this segment.
 
-    The planned wrap always tracks the optimizer candidate. Execution is
+    The planned moment always tracks the optimizer candidate. Execution is
     gated: wrap this hour only if the candidate is due *and* either the
     incumbent is also due (two consecutive 'wrap now' votes) or this
     replan improved J from its warm start by more than ``tol_rel``.
@@ -325,8 +349,16 @@ def run_cook(
     t_wrap_init_abs: float | None = None,
     u_incumbent=None,
     u_incumbent_grids=None,
+    t_pull_init_abs: float | None = None,
+    rest: dict | None = None,
 ):
     """Simulate a full cook under MPC or open-loop control.
+
+    ``t_f`` is the cook length, start to serve. The meat is pulled at
+    ``t_pull_init_abs`` (open-loop: verbatim; MPC with cc.opt_pull: the
+    incumbent, re-timed every replan and executed under ``wrap_commit``)
+    and rests under the ``rest`` preset to serve, where the terminal
+    quality is read. No pull = the meat stays in the pit to serve.
 
     mode='mpc' replans each dt_replan interval from the advanced plant
     state (full-field handoff); mode='openloop' executes u_openloop
@@ -358,6 +390,32 @@ def run_cook(
     state = CookState.fresh(t0_meat=281.15)
     m0_start = state.m0
     traj = {k: [] for k in ("t", "tpit", "tcore", "tsurf", "u")}
+    replan_pull = mode == "mpc" and cc.opt_pull
+    t_pull_abs: float | None = t_pull_init_abs
+    last_pull_cand: float | None = t_pull_init_abs
+    pulled = False
+    t_pull_exec_abs: float | None = None
+    m_at_pull: float | None = None
+    pull_history: list[tuple[float, float]] = []
+    pull_candidates: list[tuple] = []
+
+    def record_segment(seg_traj, t_seg_start, dt_seg, u_trace):
+        # safety banking with the CONFIGURED constants (hard-coded 60C/6K
+        # here would silently disagree with a customized ControlConfig)
+        nseg_t = len(seg_traj["tpit"])
+        tseg = np.linspace(0.0, dt_seg, nseg_t)
+        ts_seg = np.asarray(seg_traj["tsurf"])
+        state.leth_f += float(
+            np.trapezoid(10.0 ** ((ts_seg - cc.leth_t_ref) / cc.leth_z), tseg)
+        )
+        in_zone = 1.0 / (1.0 + np.exp(-(ts_seg - cc.t_danger_lo) / 2.0))
+        in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - ts_seg) / 2.0))
+        state.danger_h += float(np.trapezoid(in_zone, tseg / 3600.0))
+        traj["t"].extend((t_seg_start + tseg).tolist())
+        for k in ("tpit", "tcore", "tsurf"):
+            traj[k].extend(seg_traj[k].tolist())
+        traj["u"].extend(np.broadcast_to(u_trace, (nseg_t,)).tolist())
+
     # incumbent plan (if given) is "a plan made at t = 0": the standard
     # shift-and-interpolate warm start then applies from the first replan
     u_prev_plan = None if u_incumbent is None else np.asarray(u_incumbent)
@@ -379,7 +437,7 @@ def run_cook(
 
     # final segment shrinks to the remainder, so arbitrary horizons execute
     # exactly t_f (round(t_f/dt) previously over/under-shot)
-    while state.t < t_f - 1e-6:
+    while state.t < t_f - 1e-6 and not pulled:
         dt_seg = min(dt_replan, t_f - state.t)
         t_remaining = t_f - state.t
         if mode == "mpc":
@@ -416,17 +474,31 @@ def run_cook(
                 zw_pin = 8.0
                 if wrapped:
                     tw_override = t_wrap_exec_abs - state.t
+            # the pull: warm-start z_p from the last candidate; without
+            # replanning it, the plan still scores at serve with the fixed pull
+            zp0 = None
+            tp_fixed = 1.0e9
+            if replan_pull and last_pull_cand is not None:
+                frac_p = np.clip(
+                    (last_pull_cand - state.t) / t_remaining, 1e-3, 1 - 1e-3
+                )
+                zp0 = float(np.log(frac_p / (1 - frac_p)))
+            elif t_pull_abs is not None:
+                tp_fixed = max(0.0, t_pull_abs - state.t)
             u_plan, plan_grids, hist = plan(
                 theta,
                 phi_model,
                 state,
                 t_remaining,
-                cc_seg,
+                replace(cc_seg, opt_pull=replan_pull),
                 kf.x,
                 u_init=u_init,
                 z_w_init=zw0,
                 z_w_pin=zw_pin,
                 t_wrap_override=tw_override,
+                z_p_init=zp0,
+                rest=rest,
+                t_pull=tp_fixed,
             )
             if cc.opt_wrap and not wrapped:
                 incumbent = last_cand
@@ -457,19 +529,55 @@ def run_cook(
                 else:
                     t_wrap_abs = cand
                 wrap_history.append((state.t, t_wrap_abs))
+            if replan_pull:
+                cand_p = state.t + float(hist["t_pull"])
+                losses = np.asarray(hist.get("losses", []), dtype=float)
+                j_best = hist.get("best_loss")
+                j_start = float(losses[0]) if losses.size else j_best
+                commit_p = wrap_commit(
+                    cand_p, last_pull_cand, state.t, dt_seg, j_best, j_start, cc.tol_rel
+                )
+                pull_candidates.append(
+                    (
+                        state.t,
+                        cand_p,
+                        np.nan if last_pull_cand is None else float(last_pull_cand),
+                        np.nan if j_best is None else float(j_best),
+                        np.nan if j_start is None else float(j_start),
+                        float(commit_p),
+                    )
+                )
+                last_pull_cand = cand_p
+                if commit_p:
+                    t_pull_abs = cand_p
+                elif wrap_due(cand_p, state.t, dt_seg):
+                    t_pull_abs = state.t + dt_seg  # deferred, like the wrap
+                else:
+                    t_pull_abs = cand_p
+                pull_history.append((state.t, t_pull_abs))
             u_prev_plan, _prev_grids = u_plan, plan_grids
             prev_plan_t0 = state.t
-            # execute the first dt_seg of the plan, sampled at exchange
-            # resolution — a 2-point interp coarsened every plan into pit
-            # overshoot (reference executed-J 1.162 vs its model-J 1.005,
-            # mostly a surface-cap violation the plan never had)
-            n_exec = max(2, round(dt_seg / 600.0) + 1)
-            tt = np.linspace(0, dt_seg, n_exec)
+
+        # the pull fires this segment: the plant runs through the rest to
+        # serve, damper shut after the pull
+        pull_now = wrap_due(t_pull_abs, state.t, dt_seg)
+        if pull_now:
+            tp_seg = max(0.0, t_pull_abs - state.t)
+            dt_seg = t_f - state.t
+        else:
+            tp_seg = 1.0e9
+        # execute the first dt_seg of the plan, sampled at exchange
+        # resolution — a 2-point interp coarsened every plan into pit
+        # overshoot (reference executed-J 1.162 vs its model-J 1.005,
+        # mostly a surface-cap violation the plan never had)
+        n_exec = max(2, round(dt_seg / 600.0) + 1)
+        tt = np.linspace(0, dt_seg, n_exec)
+        if mode == "mpc":
             u_seg = np.interp(tt, plan_grids.u_tknots, u_plan)
         else:
-            n_exec = max(2, round(dt_seg / 600.0) + 1)
-            tt = state.t + np.linspace(0, dt_seg, n_exec)
-            u_seg = np.interp(tt, u_openloop_grids.u_tknots, u_openloop)
+            u_seg = np.interp(state.t + tt, u_openloop_grids.u_tknots, u_openloop)
+        if pull_now:
+            u_seg = np.where(tt < tp_seg, u_seg, 0.0)
 
         t_amb = plant_t_amb_fn(state.t + dt_seg / 2)
         if wrapped:
@@ -477,7 +585,11 @@ def run_cook(
             # time), bitwise-continuous across segment boundaries — a fixed
             # saturated constant would jump a partial blend at the joint
             tw_seg = t_wrap_exec_abs - state.t
-        elif t_wrap_abs is not None and t_wrap_abs < state.t + dt_seg:
+        elif (
+            t_wrap_abs is not None
+            and t_wrap_abs < state.t + dt_seg
+            and not (pull_now and t_wrap_abs > t_pull_abs)
+        ):
             tw_seg = max(0.0, t_wrap_abs - state.t)  # crutch executes NOW
             t_wrap_exec_abs = state.t + tw_seg
         else:
@@ -485,9 +597,27 @@ def run_cook(
         t_seg_start = state.t
         state_before = state
         state, seg_traj = advance_plant(
-            state, u_seg, dt_seg, theta, phi_plant, t_amb, t_wrap_seg=tw_seg
+            state,
+            u_seg,
+            dt_seg,
+            theta,
+            phi_plant,
+            t_amb,
+            t_wrap_seg=tw_seg,
+            t_pull_seg=tp_seg,
+            rest=rest,
         )
-        if mode == "mpc":
+        if pull_now:
+            pulled = True
+            t_pull_exec_abs = t_seg_start + tp_seg
+            m_at_pull = float(
+                np.interp(
+                    tp_seg,
+                    np.linspace(0.0, dt_seg, len(seg_traj["m_fuel"])),
+                    seg_traj["m_fuel"],
+                )
+            )
+        if mode == "mpc" and not pull_now:
             # one forward solve: what the controller EXPECTED this segment's
             # pit end to be under its current ambient belief
             pred_grids = CookGrids(
@@ -512,31 +642,27 @@ def run_cook(
             t_amb_hat_hist.append((state.t, kf.x, kf.p))
         if tw_seg < 1.0e8 and not wrapped:
             wrapped = True  # irreversible from here on
-        # safety banking with the CONFIGURED constants (hard-coded 60C/6K
-        # here would silently disagree with a customized ControlConfig)
-        nseg_t = len(seg_traj["tpit"])
-        tseg = np.linspace(0.0, dt_seg, nseg_t)
-        ts_seg = np.asarray(seg_traj["tsurf"])
-        state.leth_f += float(
-            np.trapezoid(10.0 ** ((ts_seg - cc.leth_t_ref) / cc.leth_z), tseg)
-        )
-        in_zone = 1.0 / (1.0 + np.exp(-(ts_seg - cc.t_danger_lo) / 2.0))
-        in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - ts_seg) / 2.0))
-        state.danger_h += float(np.trapezoid(in_zone, tseg / 3600.0))
-        traj["t"].extend((t_seg_start + np.linspace(0, dt_seg, nseg_t)).tolist())
-        for k in ("tpit", "tcore", "tsurf"):
-            traj[k].extend(seg_traj[k].tolist())
-        traj["u"].extend([float(np.mean(u_seg))] * nseg_t)
+        if pull_now:
+            in_pit = tt < tp_seg
+            u_pit = float(np.mean(u_seg[in_pit])) if np.any(in_pit) else 0.0
+            tseg = np.linspace(0.0, dt_seg, len(seg_traj["tpit"]))
+            record_segment(
+                seg_traj, t_seg_start, dt_seg, np.where(tseg < tp_seg, u_pit, 0.0)
+            )
+        else:
+            record_segment(seg_traj, t_seg_start, dt_seg, float(np.mean(u_seg)))
         log(
             f"  [{mode}] t={state.t / HR:4.1f} h  Tpit={state.tpit0 - 273.15:5.1f} C  "
             f"core={seg_traj['tcore'][-1] - 273.15:5.1f} C  "
             f"C={state.c_field0[0]:.3f}  u~{np.mean(u_seg):.2f}  "
             f"T_amb={t_amb - 273.15:.0f} C  "
             f"T_amb_hat={kf.x - 273.15:.1f}±{np.sqrt(kf.p):.1f} C"
+            + (f"  PULLED at {t_pull_exec_abs / HR:.2f} h -> rest" if pull_now else "")
         )
 
     doneness = float(state.c_field0[0])
-    fuel_frac = (m0_start - state.m0) / m0_start
+    m_end = state.m0 if m_at_pull is None else m_at_pull
+    fuel_frac = (m0_start - m_end) / m0_start
     # terminal quality vector from the final plant state (constants mirror
     # MeatConfig: W0/F0/beta_fat/eta_drain and the L* map)
     W0, F0, BETA_FAT, ETA_DRAIN = 2.33, 0.22, 1.8, 0.5
@@ -570,5 +696,10 @@ def run_cook(
         out["t_wrap_exec_abs"] = t_wrap_exec_abs
         out["wrap_history"] = wrap_history
         out["wrap_candidates"] = wrap_candidates
+    out["pulled"] = pulled
+    out["t_pull_abs"] = t_pull_abs
+    out["t_pull_exec_abs"] = t_pull_exec_abs
+    out["pull_history"] = pull_history
+    out["pull_candidates"] = pull_candidates
     out["t_amb_hat_hist"] = t_amb_hat_hist
     return out

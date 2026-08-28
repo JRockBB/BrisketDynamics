@@ -1,1 +1,1 @@
-{"config": {"steps": 200, "lr": 0.01, "guide": "full", "rank": 8, "draws": 400, "real": true, "seed": 0, "init_json": null}, "step": 200, "done": true}
+{"config": {"steps": 300, "lr": 0.003, "guide": "full", "rank": 8, "init_scale": 0.02, "draws": 400, "real": true, "seed": 0, "init_json": null}, "step": 300, "done": true}

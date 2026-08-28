@@ -101,18 +101,25 @@ def _init():
     jl.seval("using BrisketDynamics")
     jl.seval(
         """
+        # rest constants (rest_t/rest_h/rest_eps/rest_eta) ride the config:
+        # plain inputs, literature-fixed presets (docs/tier1_plan.md §1)
         function _meat_apply(θ, knots, tknots, tsave, abstol, reltol, t0,
-                             T0f, W0f, C0f, F0f, b0, s0, t_wrap, smoke)
-            cfg = MeatConfig(T0=t0)
+                             T0f, W0f, C0f, F0f, b0, s0, t_wrap, smoke,
+                             t_pull, rest_t, rest_h, rest_eps, rest_eta,
+                             n_shrink, pvb, imair)
+            cfg = MeatConfig(T0=t0, T_rest=rest_t, h_rest=rest_h,
+                             ε_rest=rest_eps, η_rest=rest_eta,
+                             n_shrink=n_shrink)
             o = meat_solve(θ, knots, tknots, tsave; cfg=cfg, abstol=abstol,
                            reltol=reltol, T0f=T0f, W0f=W0f, C0f=C0f,
                            F0f=F0f, B0=b0, S0=s0,
-                           t_wrap=t_wrap, smoke_knots=smoke)
+                           t_wrap=t_wrap, smoke_knots=smoke, t_pull=t_pull,
+                           pv_base_knots=pvb, imair_knots=imair)
             return (o.Tsurf, o.Tcore, o.j_evap, o.q_meat, o.C_field_final,
                     o.w_retained, o.T_field[:, end], o.W_field[:, end],
                     o.bark_b, o.bark_s, o.l_star,
                     o.juiciness, o.fat_rendered, o.evap_w, o.drip_w, o.drip_f,
-                    o.F_field[:, end])
+                    o.F_field[:, end], o.l_thick, o.pv_pit)
         end
         # The VJP threads the full field ICs (T0f/W0f/C0f/F0f/B0/S0) so the
         # adjoint problem starts from the SAME state as the primal —
@@ -120,16 +127,21 @@ def _init():
         # forecast, not a fresh default brisket.
         function _meat_vjp(θ, knots, tknots, tsave, abstol, reltol, t0,
                            T0f, W0f, C0f, F0f, b0, s0,
-                           t_wrap, smoke, cTs, cTc, cj, cq, cC, cW, cB, cS, cL,
-                           cJu, cFr)
-            cfg = MeatConfig(T0=t0)
+                           t_wrap, smoke, t_pull, rest_t, rest_h, rest_eps,
+                           rest_eta, n_shrink, pvb, imair, cTs, cTc, cj, cq,
+                           cC, cW, cB, cS, cL, cJu, cFr, cLt)
+            cfg = MeatConfig(T0=t0, T_rest=rest_t, h_rest=rest_h,
+                             ε_rest=rest_eps, η_rest=rest_eta,
+                             n_shrink=n_shrink)
             cot = (Tsurf=cTs, Tcore=cTc, j_evap=cj, q_meat=cq, C_field_final=cC,
                    w_retained=cW, bark_b=cB, bark_s=cS, l_star=cL,
-                   juiciness=cJu, fat_rendered=cFr)
+                   juiciness=cJu, fat_rendered=cFr, l_thick=cLt)
             g = meat_vjp(θ, knots, tknots, tsave, cot; cfg=cfg, abstol=abstol,
                          reltol=reltol, t_wrap=t_wrap, smoke_knots=smoke,
+                         t_pull=t_pull, pv_base_knots=pvb, imair_knots=imair,
                          T0f=T0f, W0f=W0f, C0f=C0f, F0f=F0f, B0=b0, S0=s0)
-            return g.dθ, g.dTpit_knots, g.dsmoke_knots, g.dt_wrap
+            return (g.dθ, g.dTpit_knots, g.dsmoke_knots, g.dpv_base_knots,
+                    g.dimair_knots, g.dt_wrap, g.dt_pull)
         end
         """
     )
@@ -184,6 +196,45 @@ class InputSchema(BaseModel):
         "grid; empty = no smoke. Drives the bark deposition state; "
         "differentiable so gradients flow damper -> burn rate -> "
         "smoke -> bark.",
+    )
+    # Rest / carryover (docs/tier1_plan.md §1): after t_pull the surface sees
+    # the rest environment; the horizon simply continues through the rest.
+    t_pull: Differentiable[Array[(), Float64]] = Field(
+        default=1.0e9,
+        description="Pull time [s]; default (1e9) = never pull. Smooth blend "
+        "of width MeatConfig.δ_pull; differentiable.",
+    )
+    rest_t: float = Field(
+        default=293.15, description="Rest environment temperature [K]"
+    )
+    rest_h: float = Field(
+        default=1.5,
+        description="Effective convective coefficient at rest [W/m²K] "
+        "(1.5 faux cambro through insulation; ~7 bare board)",
+    )
+    rest_eps: float = Field(
+        default=0.10, description="Effective emissivity at rest (0.10 foil)"
+    )
+    rest_eta: float = Field(
+        default=0.9,
+        description="Evaporation suppression at rest (0.9 wrapped; 0 bare)",
+    )
+    n_shrink: float = Field(
+        default=1.0 / 3.0,
+        description="Thickness share of the volumetric shrinkage (1/3 "
+        "isotropic, 1 all-thickness); theta's L is the raw half-thickness.",
+    )
+    # Pit humidity (docs/tier1_plan.md §3): base vapor pressure and inverse
+    # air mass flow on the tknots grid; the meat's own vapor is added inside.
+    pv_base_knots: Differentiable[Array[(None,), Float64]] = Field(
+        default_factory=list,
+        description="Pit base vapor pressure [Pa] (ambient + combustion water + "
+        "pan) on the tknots grid; empty = constant MeatConfig.p_v_pit",
+    )
+    imair_knots: Differentiable[Array[(None,), Float64]] = Field(
+        default_factory=list,
+        description="Inverse pit air mass flow [s/kg] on the tknots grid "
+        "(dilution of the meat's own vapor); empty = no self-humidification",
     )
     # Optional full-field initial state (receding-horizon state handoff);
     # empty arrays fall back to uniform ICs. Non-differentiable by design.
@@ -255,6 +306,13 @@ class OutputSchema(BaseModel):
     )
     fat_rendered: Differentiable[Array[(), Float64]] = Field(
         description="Mean rendered fat fraction at pull (0-1)"
+    )
+    l_thick: Differentiable[Array[(None,), Float64]] = Field(
+        description="Physical half-thickness L(t) [m] at tsave"
+    )
+    pv_pit: Array[(None,), Float64] = Field(
+        description="Pit vapor pressure at the surface [Pa] at tsave (base + "
+        "the meat's own vapor) — what a wet-bulb probe measures"
     )
     evap_w: Array[(), Float64] = Field(
         description="Evaporated water, dry-basis mean units (scale calib)"
@@ -368,13 +426,14 @@ def apply(inputs: InputSchema) -> OutputSchema:
         _own(inputs.f_field0),
     )
     smoke = _own(inputs.smoke_knots)
+    pvb, imair = _own(inputs.pv_base_knots), _own(inputs.imair_knots)
     if tpit.shape != tknots.shape:
         raise ValueError(
             f"DEGENERATE MEAT INPUT: tpit_knots {tpit.shape} vs tknots {tknots.shape}"
         )
 
     def _run():
-        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df, ff) = (
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df, ff, lt, pv) = (
             jl._meat_apply(
                 _jvec(theta),
                 _jvec(tpit),
@@ -391,6 +450,14 @@ def apply(inputs: InputSchema) -> OutputSchema:
                 float(inputs.bark_s0),
                 float(np.asarray(inputs.t_wrap)),
                 _jvec(smoke),
+                float(np.asarray(inputs.t_pull)),
+                float(inputs.rest_t),
+                float(inputs.rest_h),
+                float(inputs.rest_eps),
+                float(inputs.rest_eta),
+                float(inputs.n_shrink),
+                _jvec(pvb),
+                _jvec(imair),
             )
         )
         # .copy() is load-bearing: np.asarray over a Julia vector is a
@@ -416,10 +483,12 @@ def apply(inputs: InputSchema) -> OutputSchema:
             np.float64(dw),
             np.float64(df),
             np.asarray(ff).copy(),
+            np.asarray(lt).copy(),
+            np.asarray(pv).copy(),
         )
 
     try:
-        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df, ff) = (
+        (ts, tc, j, q, c, wr, tf, wf, bb, bs, ls, ju, fr, ew, dw, df, ff, lt, pv) = (
             _on_julia_thread(_run)
         )
     except RuntimeError as e:
@@ -435,6 +504,8 @@ def apply(inputs: InputSchema) -> OutputSchema:
         ls = np.full(nt, 52.0)
         ju = fr = ew = dw = df = np.float64(0.0)
         ff = np.zeros(NX)
+        lt = np.zeros(nt)
+        pv = np.zeros(nt)
     return OutputSchema(
         tsurf=ts,
         tcore=tc,
@@ -450,6 +521,8 @@ def apply(inputs: InputSchema) -> OutputSchema:
         l_star=ls,
         juiciness=ju,
         fat_rendered=fr,
+        l_thick=lt,
+        pv_pit=pv,
         evap_w=ew,
         drip_w=dw,
         drip_f=df,
@@ -487,6 +560,8 @@ def abstract_eval(abstract_inputs):
         "l_star": vec(nt),
         "juiciness": ShapeDType(shape=(), dtype="float64"),
         "fat_rendered": ShapeDType(shape=(), dtype="float64"),
+        "l_thick": vec(nt),
+        "pv_pit": vec(nt),
         "evap_w": ShapeDType(shape=(), dtype="float64"),
         "drip_w": ShapeDType(shape=(), dtype="float64"),
         "drip_f": ShapeDType(shape=(), dtype="float64"),
@@ -514,7 +589,8 @@ def vector_jacobian_product(
         The primal inputs of the corresponding apply call.
     vjp_inputs : set of str
         Differentiable input names to return gradients for (subset of
-        {"theta", "tpit_knots", "t_wrap", "smoke_knots"}).
+        {"theta", "tpit_knots", "t_wrap", "smoke_knots", "t_pull",
+        "pv_base_knots", "imair_knots"}).
     vjp_outputs : set of str
         Output names whose cotangents in ``cotangent_vector`` are live.
     cotangent_vector : dict
@@ -551,6 +627,7 @@ def vector_jacobian_product(
     )
     nt = len(tsave)
     smoke = _own(inputs.smoke_knots)
+    pvb, imair = _own(inputs.pv_base_knots), _own(inputs.imair_knots)
     cots = {
         name: (
             _own(cotangent_vector[name])
@@ -569,6 +646,7 @@ def vector_jacobian_product(
             "l_star",
             "juiciness",
             "fat_rendered",
+            "l_thick",
         )
     }
 
@@ -577,7 +655,7 @@ def vector_jacobian_product(
             v = cots[name]
             return _jvec(v if v is not None else np.zeros(n))
 
-        dtheta, dknots, dsmoke, dtwrap = jl._meat_vjp(
+        dtheta, dknots, dsmoke, dpvb, dimair, dtwrap, dtpull = jl._meat_vjp(
             _jvec(theta),
             _jvec(tpit),
             _jvec(tknots),
@@ -593,6 +671,14 @@ def vector_jacobian_product(
             float(inputs.bark_s0),
             float(np.asarray(inputs.t_wrap)),
             _jvec(smoke),
+            float(np.asarray(inputs.t_pull)),
+            float(inputs.rest_t),
+            float(inputs.rest_h),
+            float(inputs.rest_eps),
+            float(inputs.rest_eta),
+            float(inputs.n_shrink),
+            _jvec(pvb),
+            _jvec(imair),
             cot("tsurf", nt),
             cot("tcore", nt),
             cot("j_evap", nt),
@@ -604,30 +690,40 @@ def vector_jacobian_product(
             cot("l_star", nt),
             float(cots["juiciness"]) if cots["juiciness"] is not None else 0.0,
             float(cots["fat_rendered"]) if cots["fat_rendered"] is not None else 0.0,
+            cot("l_thick", nt),
         )
         # .copy(): no zero-copy views of Julia memory may cross threads
         return (
             np.asarray(dtheta).copy(),
             np.asarray(dknots).copy(),
             np.asarray(dsmoke).copy(),
+            np.asarray(dpvb).copy(),
+            np.asarray(dimair).copy(),
             float(dtwrap),
+            float(dtpull),
         )
 
     try:
-        dtheta, dknots, dsmoke, dtwrap = _on_julia_thread(_run)
+        dtheta, dknots, dsmoke, dpvb, dimair, dtwrap, dtpull = _on_julia_thread(_run)
     except RuntimeError as e:
         _maybe_soft_fail(e, "meat vjp")
-        dtheta, dknots, dsmoke, dtwrap = (
+        dtheta, dknots, dsmoke, dpvb, dimair, dtwrap, dtpull = (
             np.zeros(len(theta)),
             np.zeros(len(tpit)),
             np.zeros(len(smoke)),
+            np.zeros(len(pvb)),
+            np.zeros(len(imair)),
+            0.0,
             0.0,
         )
     if (
         np.isnan(dtheta).any()
         or np.isnan(dknots).any()
         or np.isnan(dsmoke).any()
+        or np.isnan(dpvb).any()
+        or np.isnan(dimair).any()
         or np.isnan(dtwrap)
+        or np.isnan(dtpull)
     ):
         # NaN gradients propagate silently through the whole pipeline (they
         # reached the optimizer state once and cost us an evening) — capture
@@ -655,4 +751,10 @@ def vector_jacobian_product(
         out["t_wrap"] = np.asarray(dtwrap, dtype=np.float64)
     if "smoke_knots" in vjp_inputs:
         out["smoke_knots"] = dsmoke
+    if "t_pull" in vjp_inputs:
+        out["t_pull"] = np.asarray(dtpull, dtype=np.float64)
+    if "pv_base_knots" in vjp_inputs:
+        out["pv_base_knots"] = dpvb
+    if "imair_knots" in vjp_inputs:
+        out["imair_knots"] = dimair
     return out

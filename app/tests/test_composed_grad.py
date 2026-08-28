@@ -197,3 +197,54 @@ def test_bark_smoke_path():
     assert np.all(np.isfinite(gu)) and np.any(gu != 0.0), f"gu={gu}"
     fd = central_fd(loss, (theta, phi, u), 2, 1)
     assert rel_err(float(gu[1]), fd) < GATE_TOL, f"u[1] via bark: ad={gu[1]} fd={fd}"
+
+
+# --- Rest / carryover: the pull time is a differentiable p-tail entry like
+# t_wrap. t_pull = 4 h on the 6 h grid: the rest boundary condition is live
+# for the last third of the horizon (carryover + continued collagen
+# conversion), and the pit's second Picard pass sees q_meat drop to zero.
+
+
+@pytest.fixture(scope="module")
+def pull_loss_fn():
+    meat_tx, pit_tx = meat_client(), pit_client()
+
+    def loss(theta, phi, u_knots, t_pull):
+        out = coupled_cook(
+            theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2, t_pull=t_pull, **TOLS
+        )
+        return (
+            1e-3 * jnp.sum((out["tcore"] - 340.0) ** 2)
+            + 1e-3 * jnp.sum((out["tpit"] - 390.0) ** 2)
+            + 10.0 * jnp.sum(out["c_field_final"])
+            + 1e3 * jnp.sum(out["j_evap"])
+            + jnp.sum(out["m_fuel"]) / GRIDS.nt
+        )
+
+    return loss
+
+
+def test_grad_tpull(pull_loss_fn):
+    theta = jnp.asarray(THETA_DEFAULT)
+    phi = jnp.asarray(PHI_DEFAULT)
+    u = jnp.asarray(np.linspace(0.3, 0.6, GRIDS.n_u))
+    t_pull = jnp.asarray(4.0 * HR)
+    g = jax.grad(pull_loss_fn, argnums=(0, 1, 2, 3))(theta, phi, u, t_pull)
+    tp = float(t_pull)
+    h = 1e-3 * tp  # ~14 s step, well inside the 300 s blend width
+    fp = float(pull_loss_fn(theta, phi, u, jnp.asarray(tp + h)))
+    fm = float(pull_loss_fn(theta, phi, u, jnp.asarray(tp - h)))
+    fd = (fp - fm) / (2 * h)
+    ad = float(g[3])
+    assert rel_err(ad, fd) < GATE_TOL, f"t_pull: ad={ad} fd={fd}"
+
+
+def test_pull_default_backward_compat(loss_fn, pull_loss_fn):
+    """No t_pull arg vs explicit 1e9 must be the identical in-pit cook
+    (the pull blend is exactly zero at the default)."""
+    theta = jnp.asarray(THETA_DEFAULT)
+    phi = jnp.asarray(PHI_DEFAULT)
+    u = jnp.asarray(np.linspace(0.3, 0.6, GRIDS.n_u))
+    a = float(loss_fn(theta, phi, u))
+    b = float(pull_loss_fn(theta, phi, u, jnp.asarray(1.0e9)))
+    assert np.isclose(a, b, rtol=0, atol=1e-9), f"{a} vs {b}"

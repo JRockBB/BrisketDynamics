@@ -1,0 +1,20 @@
+band self-check: tenderness overshoot at c=0.9995 -> 0.287 (w_tenderness 0.29 x over_rel 1.0)
+params: map_real.json
+full composition scan: cook length x wrap x pull x schedule
+  cook  8.0 h  J=  1.933  doneness=0.961  juiciness=0.450  (water 0.393)  L*=39.3  wrap@5.63 h  pull@6.65 h  Picard 6.69 K
+  cook  9.0 h  J=  1.471  doneness=0.966  juiciness=0.341  (water 0.280)  L*=36.4  wrap@7.10 h  pull@7.23 h  Picard 7.18 K
+  cook 10.0 h  J=  1.433  doneness=0.967  juiciness=0.342  (water 0.277)  L*=36.1  wrap@7.12 h  pull@7.87 h  Picard 7.01 K
+  cook 11.0 h  J=  1.402  doneness=0.964  juiciness=0.342  (water 0.274)  L*=35.9  wrap@7.26 h  pull@8.52 h  Picard 6.75 K
+  cook 12.0 h  J=  1.371  doneness=0.965  juiciness=0.347  (water 0.276)  L*=35.7  wrap@7.29 h  pull@9.72 h  Picard 6.41 K
+  cook 13.0 h  J=  1.334  doneness=0.965  juiciness=0.360  (water 0.287)  L*=35.8  wrap@7.23 h  pull@11.27 h  Picard 6.07 K
+  cook 14.0 h  J=  1.299  doneness=0.964  juiciness=0.380  (water 0.305)  L*=36.0  wrap@7.20 h  pull@12.55 h  Picard 5.71 K
+  cook 15.0 h  J=  1.261  doneness=0.964  juiciness=0.407  (water 0.331)  L*=36.2  wrap@7.33 h  pull@13.70 h  Picard 5.47 K
+  cook 16.0 h  J=  1.224  doneness=0.964  juiciness=0.437  (water 0.359)  L*=36.5  wrap@7.49 h  pull@14.81 h  Picard 5.44 K
+  cook 17.0 h  J=  1.189  doneness=0.965  juiciness=0.461  (water 0.383)  L*=36.6  wrap@7.61 h  pull@15.85 h  Picard 5.24 K
+  cook 18.0 h  J=  1.156  doneness=0.965  juiciness=0.482  (water 0.402)  L*=36.7  wrap@7.73 h  pull@16.85 h  Picard 4.92 K
+  cook 19.0 h  J=  1.126  doneness=0.965  juiciness=0.497  (water 0.416)  L*=36.7  wrap@7.84 h  pull@17.81 h  Picard 4.66 K
+  cook 20.0 h  J=  1.096  doneness=0.965  juiciness=0.505  (water 0.424)  L*=36.7  wrap@7.85 h  pull@18.71 h  Picard 4.54 K
+WARNING: Picard residual max|dT_pit| = 4.539 K exceeds 2.0 K (K=2 coupling not converged)
+THE COOK: 20 h — wrap at 7.85 h, pull at 18.71 h, rest 1.29 h, serve at 20.0 h — doneness 0.965, juiciness 0.505, bark L* 36.7
+safety (surface, intact-muscle assumption): F=572254776.1s (ok=True)  dwell=1.28h (ok=True)
+wrote figures/fullplan.png

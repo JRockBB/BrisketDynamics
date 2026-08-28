@@ -230,3 +230,202 @@ end
     @test seg2_old.fat_rendered < whole.fat_rendered - 0.05
     @test abs(seg2_old.bark_s[end] - whole.bark_s[end]) > 0.1
 end
+
+@testset "rest / carryover (pull blend) physics" begin
+    # docs/tier1_plan.md §1: after t_pull the surface sees the rest
+    # environment; the interior equations are unchanged and must produce
+    # carryover, continued collagen conversion, and surface rewetting.
+    hr = 3600.0
+    tk = collect(0.0:600.0:14hr)
+    θ = MEAT_θ_DEFAULT
+    Tpit = fill(383.15, length(tk))
+    smoke = fill(1.2e-4, length(tk))
+    cfg = MeatConfig()                       # rest defaults = faux cambro
+
+    inpit = meat_solve(θ, Tpit, tk, tk; smoke_knots=smoke)
+    never = meat_solve(θ, Tpit, tk, tk; smoke_knots=smoke, t_pull=PULL_NEVER)
+    # PULL_NEVER: blend ≡ 0 exactly
+    @test never.Tcore == inpit.Tcore
+    @test never.j_evap == inpit.j_evap
+    @test never.q_meat == inpit.q_meat
+    @test never.C_field_final == inpit.C_field_final
+    @test never.bark_s == inpit.bark_s
+
+    t_pull = 10hr                            # 4 h rest follows
+    ip = findfirst(t -> t >= t_pull, tk)
+    cambro = meat_solve(θ, Tpit, tk, tk; smoke_knots=smoke, t_pull=t_pull)
+    board = meat_solve(
+        θ,
+        Tpit,
+        tk,
+        tk;
+        smoke_knots=smoke,
+        t_pull=t_pull,
+        cfg=MeatConfig(h_rest=7.0, ε_rest=0.85, η_rest=0.0),
+    )
+
+    # unchanged cook before the blend opens (pl < 4e-4 before t_pull - 8δ);
+    # the core cannot see the last minutes of the surface change anyway
+    ipre = findlast(t -> t < t_pull - 8cfg.δ_pull, tk)
+    @test maximum(abs.(cambro.Tcore[1:ipre] .- inpit.Tcore[1:ipre])) < 1e-2
+    @test cambro.C_field[1, ipre] ≈ inpit.C_field[1, ipre] rtol = 1e-4
+
+    # carryover scales with the internal gradient at the pull: a hot-fast
+    # cook pulled early carries over at least as much as the low-slow stall
+    # (whose interior is nearly isothermal); afterwards the core cools, the
+    # bare board much faster than the cambro
+    rest = ip:length(tk)
+    rise_lo = maximum(cambro.Tcore[rest]) - cambro.Tcore[ip]
+    ip_hf = findfirst(t -> t >= 6hr, tk)
+    hotfast = meat_solve(θ, fill(408.15, length(tk)), tk, tk; t_pull=6hr)
+    rise_hf = maximum(hotfast.Tcore[ip_hf:end]) - hotfast.Tcore[ip_hf]
+    @test rise_hf >= rise_lo
+    @test cambro.Tcore[end] < cambro.Tcore[ip] - 0.2
+    @test board.Tcore[end] < cambro.Tcore[end] - 5.0
+
+    # doneness keeps converting through the hold — the reason the deadline
+    # formulation leans on the rest
+    @test cambro.C_field[1, end] > cambro.C_field[1, ip] + 0.02
+
+    # juice redistribution: the wrapped rest rewets the surface from the
+    # interior (evaporation blocked, diffusion continues)
+    @test cambro.W_field[end, end] > cambro.W_field[end, ip]
+
+    # once pulled the pit sees no load and no smoke deposits
+    ipost = findfirst(t -> t >= t_pull + 8cfg.δ_pull, tk)
+    @test maximum(abs.(cambro.q_meat[ipost:end])) < 0.01 * maximum(abs.(inpit.q_meat))
+    @test cambro.bark_s[end] < cambro.bark_s[ipost] + 1e-3
+end
+
+@testset "shrinkage (material coordinate) physics" begin
+    # docs/tier1_plan.md §2: dry-matter coordinate, thickness stretch
+    # st = (v/v0)^n_shrink, exposed area A(t)/A0 = (v̄/v0)^(1 - n_shrink).
+    hr = 3600.0
+    tk = collect(0.0:600.0:16hr)
+    θ = MEAT_θ_DEFAULT
+    L0 = θ[4]
+    Tpit = fill(383.15, length(tk))
+    cfg0 = MeatConfig()
+    # the density bookkeeping closes with the fixed constants at the raw state
+    v0 = BrisketDynamics.specific_volume(cfg0.W0, cfg0.F0, cfg0)
+    @test isapprox((1 + cfg0.W0) / v0, BrisketDynamics.RHO_MEAT; rtol=0.03)
+    @test isapprox(1 / v0, BrisketDynamics.RHO_DRY; rtol=0.03)
+
+    iso = meat_solve(θ, Tpit, tk, tk)                             # default: 1/3
+    fixed = meat_solve(θ, Tpit, tk, tk; cfg=MeatConfig(n_shrink=0.0))  # old slab
+    thick = meat_solve(θ, Tpit, tk, tk; cfg=MeatConfig(n_shrink=1.0))
+
+    # n_shrink = 0: the slab never moves
+    @test all(fixed.l_thick .== L0)
+    # the thickness shrinks monotonically (to interpolation noise) into the
+    # plausible band, more so when the thickness takes all the volume loss
+    @test all(diff(iso.l_thick) .< 1e-9)
+    @test 0.65 < iso.l_thick[end] / L0 < 0.90
+    @test thick.l_thick[end] < iso.l_thick[end]
+    @test iso.l_thick[1] ≈ L0 rtol = 1e-12          # raw meat: no shrinkage yet
+    # the stall at the same θ: the contracted dry layer resupplies the
+    # surface ~1/ς² faster and the exposed area shrinks, so the surface
+    # stays wet longer — the plateau is LONGER than the fixed slab's;
+    # once the surface dries, the thinner slab climbs faster
+    function stall_h(o)
+        TcC = o.Tcore .- 273.15
+        dt_h = (tk[2] - tk[1]) / hr
+        rate = diff(TcC) ./ dt_h
+        best = 0
+        cur = 0
+        for i in eachindex(rate)
+            cur = (rate[i] < 1.5 && 60 <= TcC[i] <= 82) ? cur + 1 : 0
+            best = max(best, cur)
+        end
+        return best * dt_h
+    end
+    @test stall_h(iso) > stall_h(fixed)
+    @test stall_h(iso) > 2.0                        # and it is still a stall
+    @test iso.Tcore[end] > 273.15 + 80              # that still breaks by 16 h
+    # dry-mass bookkeeping is unchanged: closure and the budgets still hold
+    for o in (iso, thick)
+        @test isapprox(cfg0.W0 * (1 - o.w_retained), o.evap_w + o.drip_w; atol=1e-8)
+        @test 0 < o.w_retained < 1
+    end
+    # the pit sees a shrinking exposed area: early in the cook (identical
+    # surface states) the shrunken slab already draws slightly less heat
+    i2h = findfirst(t -> t >= 2hr, tk)
+    @test iso.q_meat[i2h] < fixed.q_meat[i2h]
+    # state handoff stays exact in the material coordinate: split at 6 h
+    cfg = MeatConfig()
+    isplit = findfirst(t -> t >= 6hr, tk)
+    tk1 = tk[1:isplit]
+    seg1 = meat_solve(θ, Tpit[1:isplit], tk1, tk1; cfg)
+    tk2 = tk[isplit:end] .- tk[isplit]
+    seg2 = meat_solve(
+        θ, Tpit[isplit:end], tk2, tk2; cfg,
+        T0f=seg1.T_field[:, end], W0f=seg1.W_field[:, end],
+        C0f=seg1.C_field[:, end], F0f=seg1.F_field[:, end],
+        B0=seg1.bark_b[end], S0=seg1.bark_s[end],
+    )
+    @test abs(seg2.Tcore[end] - iso.Tcore[end]) < 0.05
+    @test abs(seg2.l_thick[end] - iso.l_thick[end]) < 1e-5
+end
+
+@testset "humidity feedback physics" begin
+    # docs/tier1_plan.md §3: p_v,pit = pv_base + c·j, j in closed form.
+    hr = 3600.0
+    tk = collect(0.0:600.0:14hr)
+    n = length(tk)
+    θ = MEAT_θ_DEFAULT
+    Tpit = fill(383.15, n)
+    cfg = MeatConfig()
+
+    # the two-step Newton root vs bisection on f(j) = j − a·sp(D − c j);
+    # over the cooking range the clamp is inactive (p_sat ≫ p_v) and the
+    # closed form is exact, so Newton is a rounding-level correction
+    for (Ts, Ws, c) in ((340.0, 1.2, 0.0), (345.0, 0.6, 5e6), (350.0, 0.45, 2e7), (335.0, 2.0, 1e8))
+        a = θ[2] * BrisketDynamics.logistic((Ws - cfg.W_crit) / cfg.δW) / (BrisketDynamics.R_V * Ts)
+        D = p_sat(Ts) - 3000.0
+        f(j) = j - a * BrisketDynamics.softclamp(D - c * j, cfg.δp)
+        lo, hi = 0.0, a * BrisketDynamics.softclamp(D, cfg.δp) + 1e-12
+        for _ in 1:200
+            mid = (lo + hi) / 2
+            f(mid) > 0 ? (hi = mid) : (lo = mid)
+        end
+        jfb = BrisketDynamics.evap_flux_fb(Ts, Ws, θ[2], 3000.0, c, cfg)
+        @test isapprox(jfb, (lo + hi) / 2; rtol=1e-9)
+    end
+
+    # a humid pit evaporates less and its plateau sits higher
+    dry = meat_solve(θ, Tpit, tk, tk; pv_base_knots=fill(1000.0, n))
+    humid = meat_solve(θ, Tpit, tk, tk; pv_base_knots=fill(6000.0, n))
+    i4 = findfirst(t -> t >= 4hr, tk)
+    @test sum(humid.j_evap) < sum(dry.j_evap)
+    @test humid.Tsurf[i4] > dry.Tsurf[i4]
+    @test humid.Tcore[i4] > dry.Tcore[i4]
+
+    # self-humidification: the meat's own vapor raises the pit humidity and
+    # throttles its own evaporation (ṁ_air = 2.5e-3 kg/s: a WSM at low fan duty)
+    fb = meat_solve(
+        θ, Tpit, tk, tk; pv_base_knots=fill(3000.0, n), imair_knots=fill(1 / 2.5e-3, n)
+    )
+    nofb = meat_solve(θ, Tpit, tk, tk; pv_base_knots=fill(3000.0, n))
+    @test sum(fb.j_evap) < sum(nofb.j_evap)
+    @test all(fb.pv_pit .>= 3000.0 - 1e-9)
+    @test maximum(fb.pv_pit) > 3500.0
+    @test all(nofb.pv_pit .== 3000.0)
+end
+
+@testset "adjoint abort watch" begin
+    # the backward solve reports a first-step abort / maxiters stop only as
+    # a warning; the watch must flag exactly those and pass everything else
+    for (msg, expect) in (
+        ("At t=1.0, dt was forced below floating point epsilon 1e-12. Aborting.", true),
+        ("Interrupted. Larger maxiters is needed.", true),
+        ("some unrelated warning", false),
+    )
+        hit = Ref(false)
+        Base.CoreLogging.with_logger(
+            BrisketDynamics._AdjointAbortWatch(Base.CoreLogging.NullLogger(), hit)
+        ) do
+            @warn msg
+        end
+        @test hit[] == expect
+    end
+end
