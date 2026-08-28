@@ -246,12 +246,12 @@ ax.text(
     bbox={"boxstyle": "round,pad=0.15", "fc": "white", "ec": "none", "alpha": 0.95},
 )
 
-# Picard coupling note
+# coupling note
 ax.text(
     7.25,
     9.55,
-    "coupling: whole-horizon Picard iteration, K = 2 unrolled passes — "
-    "the model IS the unrolled map, so composed VJPs give exact gradients",
+    "coupling: pit, meat and pit humidity integrated together as one stiff system (FBDF) — "
+    "ForwardDiff through the solve gives the exact JVP, VJP and Jacobian",
     ha="center",
     va="center",
     fontsize=9.5,
