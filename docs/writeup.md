@@ -25,7 +25,9 @@ document follows the six judging criteria in order.
 physics: the lumped charcoal pit (energy balance, fuel burn with a smooth
 burnout taper, Minion-method ignition spread), the 1D slab heat–moisture PDE of
 the brisket (denaturation-driven water expulsion, fat rendering, collagen
-kinetics, Maillard and smoke-deposition bark states), and the quasi-steady pit
+kinetics, a two-sided surface flux — evaporation and condensation — against
+the pit's vapor pressure, draft-scaled convection, Maillard and
+smoke-deposition bark states, a smoke-ring front), and the quasi-steady pit
 humidity balance, integrated together as a 166-ODE stiff system (method of
 lines, FBDF). Its inputs are the meat and pit parameters, the damper schedule,
 the wrap and pull times, initial conditions (including the full meat field
