@@ -88,7 +88,8 @@ without calibration data.
    path is the fastest continuous-adjoint configuration for this model;
    only the full discrete adjoint beats it.
 3. **Monolith / Dyad exploration: move the Tesseract boundary to the
-   edge.** The K=2 Picard split exists only because the pit/meat boundary
+   edge.** Shape (a) exists: `src/monolith.jl`, numbers in
+   `docs/monolith.md`. The K=2 Picard split exists only because the pit/meat boundary
    bisects the physics; a monolithic Julia core (one coupled DAE, one
    adjoint, Turing/AdvancedHMC calibration, MCMCThreads parallel chains)
    is worth ~2x per gradient, trivial multi-chain, and retires the

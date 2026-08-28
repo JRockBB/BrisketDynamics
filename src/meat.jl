@@ -516,6 +516,139 @@ function collagen_rate(T, cfg::MeatConfig)
 end
 
 """
+    meat_rhs_core!(du, u, t, θ, Tpit, smoke, pv_base, imair, t_wrap, t_pull,
+                   cfg, n_s, n_a, v0)
+
+The meat right-hand side under the INSTANTANEOUS forcings at time `t` —
+pit temperature, burn rate (smoke), base vapor pressure and inverse air
+mass flow — shared by the knot-forced Tesseract path ([`make_meat_rhs`](@ref))
+and the coupled monolith ([`make_monolith_rhs`](@ref)). States:
+`[T(nx) | W(nx) | C(nx) | F(nx) | B | S]`. Bark states are pure
+integrators; fat F is a pure sink; the ONE quality-physics feedback is the
+expulsion sink in dW (denaturation purge).
+
+# Arguments
+- `du, u`: Derivative and state vectors (length 4·nx + 2).
+- `t::Number`: Time [s].
+- `θ`: The meat latents as a 7-tuple `(D_eff, k_m, h_c, L, k_mult, k_e, a_myosin)`.
+- `Tpit, smoke, pv_base, imair::Number`: Forcings at `t`.
+- `t_wrap, t_pull::Number`: Wrap and pull times [s].
+- `cfg::MeatConfig`: Physical configuration.
+- `n_s, n_a, v0`: [`shrink_exponents`](@ref) of `cfg` (hoisted by the caller).
+
+# Returns
+- `q_meat::Number`: Heat the meat draws from the pit [W] (surface-area
+  scaled, pit part only) — the pit's coupling input.
+"""
+function meat_rhs_core!(
+    du, u, t, θ, Tpit, smoke, pv_base, imair, t_wrap, t_pull, cfg::MeatConfig, n_s, n_a, v0
+)
+    nx = cfg.nx
+    D_eff, k_m, h_c, L, k_mult, k_e, a_myosin = θ
+
+    # material (dry-matter) coordinate: Δξ is the raw node spacing; the
+    # physical spacing is st·Δξ with the local thickness stretch
+    # st = (v/v0)^n_shrink
+    Δξ = L / (nx - 1)
+    k_th = k_mult * K_MEAT
+    α = k_th / (RHO_MEAT * CP_MEAT)
+
+    T = @view u[1:nx]
+    W = @view u[(nx + 1):2nx]
+    C = @view u[(2nx + 1):3nx]
+    F = @view u[(3nx + 1):4nx]
+    dT = @view du[1:nx]
+    dW = @view du[(nx + 1):2nx]
+    dC = @view du[(2nx + 1):3nx]
+    dF = @view du[(3nx + 1):4nx]
+
+    # node stretches from the node's own water + fat, in a rolling
+    # window (allocation-free); the fv-weighted running sum of v gives
+    # the slab-mean specific volume for the exposed-area factor
+    v_c = specific_volume(W[1], F[1], cfg)
+    st_m = (v_c / v0)^n_s
+    vsum = v_c / 2
+    v_c = specific_volume(W[2], F[2], cfg)
+    st_c = (v_c / v0)^n_s
+    vsum += v_c
+    # center: symmetry (zero-flux) via mirror ghost node — a full cell
+    # of width st_1·Δξ with two identical faces
+    f_c = (st_m + st_c) / 2
+    dT[1] = 2α * (T[2] - T[1]) / (f_c * st_m * Δξ^2)
+    dW[1] = 2D_eff * (W[2] - W[1]) / (f_c^2 * Δξ^2)
+    # interior: flux form with face metrics (st at the face = mean of
+    # the neighbours). Heat is per PHYSICAL volume (cell capacity ∝ st,
+    # flux ∝ 1/st); water is per DRY MASS (cell dry mass fixed in ξ,
+    # flux ∝ 1/st² since the dry-matter concentration rises as the
+    # matrix contracts)
+    @inbounds for i in 2:(nx - 1)
+        v_p = specific_volume(W[i + 1], F[i + 1], cfg)
+        st_p = (v_p / v0)^n_s
+        vsum += v_p
+        f_m = (st_m + st_c) / 2
+        f_p = (st_c + st_p) / 2
+        dT[i] =
+            α * ((T[i + 1] - T[i]) / f_p - (T[i] - T[i - 1]) / f_m) / (st_c * Δξ^2)
+        dW[i] =
+            D_eff * ((W[i + 1] - W[i]) / f_p^2 - (W[i] - W[i - 1]) / f_m^2) / Δξ^2
+        st_m, st_c, v_c = st_c, st_p, v_p
+    end
+    # the loop counted the surface node fully: halve it (fv weight),
+    # then the exposed-area factor A(t)/A0 from the slab mean; st_c is
+    # now the surface node's stretch and f_s its inner face
+    vsum -= v_c / 2
+    a_area = (vsum / (nx - 1) / v0)^n_a
+    f_s = (st_m + st_c) / 2
+
+    # surface: half-cell finite-volume balance, with the smooth
+    # Texas-crutch blend (s = 0 recovers the unwrapped BC exactly) and
+    # the pull blend (pl = 0 recovers the in-pit BC exactly; pl = 1 is
+    # the rest environment — carryover, rewetting and continued collagen
+    # conversion all follow from the unchanged interior equations)
+    Ts, Ws = T[nx], W[nx]
+    s = wrap_blend(t, t_wrap, cfg)
+    pl = pull_blend(t, t_pull, cfg)
+    # pit humidity: the pit's base vapor pressure plus the meat's own
+    # vapor, p_v = pv_base + c·j with c ∝ exposed area / air mass flow
+    c_mix = mixing_coefficient(a_area, imair, cfg)
+    j = surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c_mix, cfg)
+    q_pit = surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg)
+    q_in = q_pit + pl * surface_heat_rest(Ts, cfg)
+    q_net = q_in - cfg.λ_vap * j
+    # half-cell balances: heat per physical volume (the area factor
+    # cancels between capacity and intake); water per dry mass — the
+    # physical surface j leaves through has shrunk by a_area
+    dT[nx] =
+        (k_th * (T[nx - 1] - Ts) / (f_s * Δξ) + q_net) /
+        (RHO_MEAT * CP_MEAT * st_c * Δξ / 2)
+    dW[nx] =
+        (RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) - a_area * j) /
+        (RHO_DRY * Δξ / 2)
+
+    # collagen conversion (doneness diagnostic as state — adjoint for free)
+    # + denaturation-driven water expulsion (purge; drips out of the
+    #   node budget) + fat rendering
+    @inbounds for i in 1:nx
+        dC[i] = collagen_rate(T[i], cfg) * (1 - C[i])
+        dW[i] -= expulsion_rate(W[i], T[i], k_e, a_myosin, cfg)
+        dF[i] = -fat_rate(T[i], cfg) * F[i]
+    end
+
+    # bark states: Maillard browning B and smoke deposit S at the surface
+    aw = a_w_oswin(Ws, cfg)
+    B = u[4nx + 1]
+    du[4nx + 1] = bark_rate(Ts, aw, cfg) * (1 - B)
+    S = u[4nx + 2]
+    # (1 - S): deposition sites saturate, so S ∈ [0, 1) and dL_S is the
+    # max smoke darkening; (1 - s): foil blocks smoke contact; (1 - pl):
+    # no smoke on the board
+    du[4nx + 2] =
+        cfg.k_dep * wet_blend(aw, cfg) * max(smoke, zero(smoke)) * (1 - s) * (1 - pl) *
+        (1 - S)
+    return cfg.A_meat * a_area * q_pit
+end
+
+"""
     make_meat_rhs(cfg, tk0, tkdt, nk)
 
 Build the in-place MOL right-hand side. The parameter vector is
@@ -524,129 +657,35 @@ Build the in-place MOL right-hand side. The parameter vector is
 in `p` is what exposes the VJP w.r.t. the boundary-condition trajectory.
 """
 function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
-    nx = cfg.nx
     # p = [θ(7) | Tpit_knots(nk) | smoke_knots(nk) | pv_base_knots(nk) |
     # imair_knots(nk) | t_wrap | t_pull]: the pit forcings (temperature,
     # burn rate for smoke, base vapor pressure, inverse air mass flow) share
     # one knot grid; the two scalar switch times are the p-tail (explicit
-    # index arithmetic everywhere — see meat_vjp). States: [T(nx) | W(nx) |
-    # C(nx) | F(nx) | B | S]. Bark states are pure integrators; fat F is a
-    # pure sink; the ONE quality-physics feedback is the expulsion sink in
-    # dW (denaturation purge).
+    # index arithmetic everywhere — see meat_vjp). The body lives in
+    # meat_rhs_core!, shared with the coupled monolith.
     n_s, n_a, v0 = shrink_exponents(cfg)
     return function meat_rhs!(du, u, p, t)
-        D_eff, k_m, h_c, L, k_mult = p[1], p[2], p[3], p[4], p[5]
-        k_e, a_myosin = p[6], p[7]
+        θ = (p[1], p[2], p[3], p[4], p[5], p[6], p[7])
         knots = @view p[(MEAT_NP + 1):(MEAT_NP + nk)]
         smoke_knots = @view p[(MEAT_NP + nk + 1):(MEAT_NP + 2nk)]
         pvb_knots = @view p[(MEAT_NP + 2nk + 1):(MEAT_NP + 3nk)]
         imair_knots = @view p[(MEAT_NP + 3nk + 1):(MEAT_NP + 4nk)]
-        t_wrap = p[MEAT_NP + 4nk + 1]
-        t_pull = p[MEAT_NP + 4nk + 2]
-
-        # material (dry-matter) coordinate: Δξ is the raw node spacing; the
-        # physical spacing is st·Δξ with the local thickness stretch
-        # st = (v/v0)^n_shrink
-        Δξ = L / (nx - 1)
-        k_th = k_mult * K_MEAT
-        α = k_th / (RHO_MEAT * CP_MEAT)
-
-        T = @view u[1:nx]
-        W = @view u[(nx + 1):2nx]
-        C = @view u[(2nx + 1):3nx]
-        F = @view u[(3nx + 1):4nx]
-        dT = @view du[1:nx]
-        dW = @view du[(nx + 1):2nx]
-        dC = @view du[(2nx + 1):3nx]
-        dF = @view du[(3nx + 1):4nx]
-
-        Tpit = lininterp(t, tk0, tkdt, knots)
-
-        # node stretches from the node's own water + fat, in a rolling
-        # window (allocation-free); the fv-weighted running sum of v gives
-        # the slab-mean specific volume for the exposed-area factor
-        v_c = specific_volume(W[1], F[1], cfg)
-        st_m = (v_c / v0)^n_s
-        vsum = v_c / 2
-        v_c = specific_volume(W[2], F[2], cfg)
-        st_c = (v_c / v0)^n_s
-        vsum += v_c
-        # center: symmetry (zero-flux) via mirror ghost node — a full cell
-        # of width st_1·Δξ with two identical faces
-        f_c = (st_m + st_c) / 2
-        dT[1] = 2α * (T[2] - T[1]) / (f_c * st_m * Δξ^2)
-        dW[1] = 2D_eff * (W[2] - W[1]) / (f_c^2 * Δξ^2)
-        # interior: flux form with face metrics (st at the face = mean of
-        # the neighbours). Heat is per PHYSICAL volume (cell capacity ∝ st,
-        # flux ∝ 1/st); water is per DRY MASS (cell dry mass fixed in ξ,
-        # flux ∝ 1/st² since the dry-matter concentration rises as the
-        # matrix contracts)
-        @inbounds for i in 2:(nx - 1)
-            v_p = specific_volume(W[i + 1], F[i + 1], cfg)
-            st_p = (v_p / v0)^n_s
-            vsum += v_p
-            f_m = (st_m + st_c) / 2
-            f_p = (st_c + st_p) / 2
-            dT[i] =
-                α * ((T[i + 1] - T[i]) / f_p - (T[i] - T[i - 1]) / f_m) / (st_c * Δξ^2)
-            dW[i] =
-                D_eff * ((W[i + 1] - W[i]) / f_p^2 - (W[i] - W[i - 1]) / f_m^2) / Δξ^2
-            st_m, st_c, v_c = st_c, st_p, v_p
-        end
-        # the loop counted the surface node fully: halve it (fv weight),
-        # then the exposed-area factor A(t)/A0 from the slab mean; st_c is
-        # now the surface node's stretch and f_s its inner face
-        vsum -= v_c / 2
-        a_area = (vsum / (nx - 1) / v0)^n_a
-        f_s = (st_m + st_c) / 2
-
-        # surface: half-cell finite-volume balance, with the smooth
-        # Texas-crutch blend (s = 0 recovers the unwrapped BC exactly) and
-        # the pull blend (pl = 0 recovers the in-pit BC exactly; pl = 1 is
-        # the rest environment — carryover, rewetting and continued collagen
-        # conversion all follow from the unchanged interior equations)
-        Ts, Ws = T[nx], W[nx]
-        s = wrap_blend(t, t_wrap, cfg)
-        pl = pull_blend(t, t_pull, cfg)
-        # pit humidity: the pit's base vapor pressure plus the meat's own
-        # vapor, p_v = pv_base + c·j with c ∝ exposed area / air mass flow
-        pv_base = lininterp(t, tk0, tkdt, pvb_knots)
-        c_mix = mixing_coefficient(a_area, lininterp(t, tk0, tkdt, imair_knots), cfg)
-        j = surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c_mix, cfg)
-        q_in = surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg) +
-               pl * surface_heat_rest(Ts, cfg)
-        q_net = q_in - cfg.λ_vap * j
-        # half-cell balances: heat per physical volume (the area factor
-        # cancels between capacity and intake); water per dry mass — the
-        # physical surface j leaves through has shrunk by a_area
-        dT[nx] =
-            (k_th * (T[nx - 1] - Ts) / (f_s * Δξ) + q_net) /
-            (RHO_MEAT * CP_MEAT * st_c * Δξ / 2)
-        dW[nx] =
-            (RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) - a_area * j) /
-            (RHO_DRY * Δξ / 2)
-
-        # collagen conversion (doneness diagnostic as state — adjoint for free)
-        # + denaturation-driven water expulsion (purge; drips out of the
-        #   node budget) + fat rendering
-        @inbounds for i in 1:nx
-            dC[i] = collagen_rate(T[i], cfg) * (1 - C[i])
-            dW[i] -= expulsion_rate(W[i], T[i], k_e, a_myosin, cfg)
-            dF[i] = -fat_rate(T[i], cfg) * F[i]
-        end
-
-        # bark states: Maillard browning B and smoke deposit S at the surface
-        aw = a_w_oswin(Ws, cfg)
-        B = u[4nx + 1]
-        smoke = lininterp(t, tk0, tkdt, smoke_knots)
-        du[4nx + 1] = bark_rate(Ts, aw, cfg) * (1 - B)
-        S = u[4nx + 2]
-        # (1 - S): deposition sites saturate, so S ∈ [0, 1) and dL_S is the
-        # max smoke darkening; (1 - s): foil blocks smoke contact; (1 - pl):
-        # no smoke on the board
-        du[4nx + 2] =
-            cfg.k_dep * wet_blend(aw, cfg) * max(smoke, zero(smoke)) * (1 - s) * (1 - pl) *
-            (1 - S)
+        meat_rhs_core!(
+            du,
+            u,
+            t,
+            θ,
+            lininterp(t, tk0, tkdt, knots),
+            lininterp(t, tk0, tkdt, smoke_knots),
+            lininterp(t, tk0, tkdt, pvb_knots),
+            lininterp(t, tk0, tkdt, imair_knots),
+            p[MEAT_NP + 4nk + 1],
+            p[MEAT_NP + 4nk + 2],
+            cfg,
+            n_s,
+            n_a,
+            v0,
+        )
         return nothing
     end
 end

@@ -12,6 +12,7 @@ include("thermophysics.jl")
 include("interpolation.jl")
 include("meat.jl")
 include("pit.jl")
+include("monolith.jl")
 
 export MeatConfig,
     meat_solve,
@@ -23,6 +24,10 @@ export MeatConfig,
     PitConfig,
     pit_solve,
     pit_vjp,
+    Humidity,
+    monolith_solve,
+    monolith_jacobian,
+    picard_cook,
     lininterp,
     hat_matrix,
     p_sat,
