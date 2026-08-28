@@ -13,18 +13,18 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 REPO = Path(__file__).resolve().parents[1]
-BLUE, ORANGE, GREEN, INK, MUTED = "#256abf", "#eb6834", "#2e8b57", "#0b0b0b", "#52514e"
-FILL_JAX, FILL_TX, FILL_JL, FILL_OLD = "#eaf1fb", "#fdeee6", "#e9f4ec", "#f4f4f2"
+BLUE, ORANGE, GREEN, INK = "#256abf", "#eb6834", "#2e8b57", "#0b0b0b"
+FILL_JAX, FILL_TX, FILL_JL = "#eaf1fb", "#fdeee6", "#e9f4ec"
 
 # one data unit = one inch, so point sizes map to the layout directly
-fig = plt.figure(figsize=(13.5, 8.0))
+fig = plt.figure(figsize=(9.2, 8.0))
 ax = fig.add_axes([0, 0, 1, 1])
-ax.set_xlim(0, 13.5)
+ax.set_xlim(0, 9.2)
 ax.set_ylim(0, 8.0)
 ax.axis("off")
 
 
-def box(x, y, w, h, fc, ec, title, lines, title_size=10.5, size=8.4, lw=1.4, ls="-"):
+def box(x, y, w, h, fc, ec, title, lines, title_size=10.5, size=8.4, lw=1.4):
     """Draw a rounded box with a bold title and body lines stacked beneath it."""
     ax.add_patch(
         FancyBboxPatch(
@@ -35,7 +35,6 @@ def box(x, y, w, h, fc, ec, title, lines, title_size=10.5, size=8.4, lw=1.4, ls=
             fc=fc,
             ec=ec,
             lw=lw,
-            ls=ls,
             zorder=1,
         )
     )
@@ -104,7 +103,7 @@ def centered(x, y, s, size, color=INK, bold=False):
 
 
 centered(
-    6.75,
+    4.6,
     7.75,
     "BrisketDynamics — one Tesseract around the whole physics, forward-mode derivatives",
     12.5,
@@ -236,63 +235,6 @@ arrow((6.15, 1.0), (6.45, 1.0), GREEN, lw=1.4, style="<|-|>")
 label(3.0, 1.45, "T_pit, ṁ", GREEN, size=7.4)
 label(3.0, 0.5, "q_meat", GREEN, size=7.4)
 arrow((4.55, 2.87), (4.55, 2.45), ORANGE, style="<|-|>")
-
-# --- the version it replaced ---------------------------------------------------
-box(9.35, 0.25, 3.95, 6.8, FILL_OLD, MUTED, "", [], lw=1.2, ls="--")
-ax.text(
-    11.32,
-    6.8,
-    "the first build (git history)",
-    ha="center",
-    va="top",
-    fontsize=10,
-    fontweight="bold",
-    color=MUTED,
-)
-box(
-    9.6,
-    5.15,
-    3.45,
-    1.2,
-    "white",
-    MUTED,
-    "brisket-meat",
-    ["PDE; VJP = SciMLSensitivity", "continuous adjoint (EnzymeVJP)"],
-    title_size=9.5,
-    size=7.8,
-    lw=1.1,
-)
-box(
-    9.6,
-    3.45,
-    3.45,
-    1.2,
-    "white",
-    MUTED,
-    "brisket-pit",
-    ["ODE; VJP = ForwardDiff Jacobianᵀ"],
-    title_size=9.5,
-    size=7.8,
-    lw=1.1,
-)
-arrow((10.3, 5.05), (10.3, 4.75), MUTED, lw=1.3)
-arrow((12.3, 4.75), (12.3, 5.05), MUTED, lw=1.3)
-label(11.32, 4.9, "K = 2 Picard in JAX", MUTED, size=7.6)
-ax.text(
-    9.55,
-    3.1,
-    "measured against the monolith\n(real-cook grid, 19 h):\n"
-    "• coupling truncation 0.27 K pit / 0.11 K core\n"
-    "• 20× per gradient (adjoint 50 s vs 2.5 s)\n"
-    "• plan scan 4.5 h → 69 min\n"
-    "• MPC demo ~30 h → 58 min\n"
-    "• a Hessian: 36 adjoints → one Jacobian",
-    ha="left",
-    va="top",
-    fontsize=8.0,
-    color=INK,
-    linespacing=1.45,
-)
 
 out = REPO / "figures" / "composition_diagram.png"
 fig.savefig(out, dpi=150, bbox_inches="tight")
