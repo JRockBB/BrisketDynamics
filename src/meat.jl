@@ -122,11 +122,15 @@ const PULL_NEVER = 1.0e9
 """
     evap_flux(Ts::Number, Ws::Number, k_m::Number, [p_v::Number,] cfg::MeatConfig)
 
-Evaporative mass flux at the meat surface: mass-transfer coefficient ×
-smooth moisture availability × vapor-density deficit, with the deficit
-clamped smoothly at 0 (no condensation branch). Every factor is smooth —
-this is what keeps the adjoint and the NUTS posterior surface well-behaved
-through the stall.
+Surface mass flux, two-sided: evaporation when the surface's saturation
+pressure exceeds the ambient vapor pressure (mass-transfer coefficient ×
+smooth moisture availability × vapor-density deficit), condensation when
+it does not (the same coefficient on the negative deficit, *not* gated by
+moisture availability — a cold surface below the dew point condenses
+whatever its water content). Both branches are smooth clamps of the
+deficit, so the flux is smooth in every input; condensation is what a
+cold brisket does in a humid pit for its first half hour, and the wet
+surface it leaves is where smoke adheres.
 
 # Arguments
 - `Ts::Number`: Surface temperature [K].
@@ -137,37 +141,42 @@ through the stall.
 - `cfg::MeatConfig`: Physical configuration.
 
 # Returns
-- `j::Number`: Evaporative mass flux [kg m⁻² s⁻¹], ≥ 0.
+- `j::Number`: Mass flux [kg m⁻² s⁻¹]; > 0 evaporation, < 0 condensation.
 """
 function evap_flux(Ts, Ws, k_m, p_v, cfg::MeatConfig)
     φ = logistic((Ws - cfg.W_crit) / cfg.δW)
-    Δρv = softclamp(p_sat(Ts) - p_v, cfg.δp) / (R_V * Ts)
-    return k_m * φ * Δρv
+    D = p_sat(Ts) - p_v
+    return k_m * (φ * softclamp(D, cfg.δp) - softclamp(-D, cfg.δp)) / (R_V * Ts)
 end
 evap_flux(Ts, Ws, k_m, cfg::MeatConfig) = evap_flux(Ts, Ws, k_m, cfg.p_v_pit, cfg)
 
 """
     evap_flux_fb(Ts, Ws, k_m, pv_base, c, cfg::MeatConfig)
 
-Evaporative flux with the pit humidity feedback (docs/tier1_plan.md §3):
-the pit vapor pressure is `pv_base + c·j` — the pit's own vapor balance
-(ambient, combustion water, pan) plus the meat's vapor diluted by the air
-mass flow, `c` the mixing coefficient [Pa per kg m⁻² s⁻¹] — so
-`j = a·sp_δp(p_sat(Ts) − pv_base − c j)` with `a = k_m φ/(R_v Ts)`. The
-root is unique (`f′ = 1 + a c σ > 0`); two Newton steps from the
-clamp-active closed form are exact to rounding over the cooking range.
-`c = 0` is [`evap_flux`](@ref).
+The two-sided surface flux of [`evap_flux`](@ref) with the pit humidity
+feedback (docs/tier1_plan.md §3): the pit vapor pressure is `pv_base + c·j`
+— the pit's own vapor balance (ambient, combustion water, pan) plus the
+meat's vapor diluted by the air mass flow, `c` the mixing coefficient
+[Pa per kg m⁻² s⁻¹] — so `j = F(p_sat(Ts) − pv_base − c j)` with
+`F(D) = a_e sp_δp(D) − a_c sp_δp(−D)`, `a_e = k_m φ/(R_v Ts)` the gated
+evaporation coefficient and `a_c = k_m/(R_v Ts)` the ungated condensation
+one. The root is unique (`f′ = 1 + c F′ > 0`, condensation lowers the pit
+humidity and is self-limiting); two Newton steps from the linearized start
+are exact to rounding over the cooking range. `c = 0` is `evap_flux`.
 
 # Returns
-- `j::Number`: Evaporative mass flux [kg m⁻² s⁻¹], ≥ 0.
+- `j::Number`: Mass flux [kg m⁻² s⁻¹]; > 0 evaporation, < 0 condensation.
 """
 function evap_flux_fb(Ts, Ws, k_m, pv_base, c, cfg::MeatConfig)
-    a = k_m * logistic((Ws - cfg.W_crit) / cfg.δW) / (R_V * Ts)
-    D = p_sat(Ts) - pv_base
-    j = a * softclamp(D, cfg.δp) / (1 + a * c)
+    a_e = k_m * logistic((Ws - cfg.W_crit) / cfg.δW) / (R_V * Ts)
+    a_c = k_m / (R_V * Ts)
+    F(D) = a_e * softclamp(D, cfg.δp) - a_c * softclamp(-D, cfg.δp)
+    F′(D) = a_e * logistic(D / cfg.δp) + a_c * logistic(-D / cfg.δp)
+    D0 = p_sat(Ts) - pv_base
+    j = F(D0) / (1 + c * F′(D0))
     for _ in 1:2
-        r = D - c * j
-        j -= (j - a * softclamp(r, cfg.δp)) / (1 + a * c * logistic(r / cfg.δp))
+        r = D0 - c * j
+        j -= (j - F(r)) / (1 + c * F′(r))
     end
     return j
 end

@@ -11,11 +11,8 @@ Shrinkage, rest / carryover and pit humidity are modelled
 
 ## Tier 2 — corrupts specific claims
 
-4. **Food safety is not a constraint.** The objective has weighted
-   softplus terms on *surface* lethality and danger-zone dwell
-   (`safety_report` prints the residuals). Intact-muscle assumption; the
-   cold-spot field is not checked; unsafe plans are not rejected. Do not
-   read a low safety term as pasteurization.
+Food safety on the cold spot and condensation are modelled; their residues
+are under *Limitations* below.
 
 5. **\(h_c\) independent of damper.** Airflow changes convection, not just
    pit temperature. Control authority is thermally mediated only.
@@ -23,11 +20,6 @@ Shrinkage, rest / carryover and pit humidity are modelled
 
 6. **Point vs flat.** Homogeneous slab. Two muscles, different
    fat/thickness, burnt ends, and slice variance are unmodeled.
-
-7. **No condensation.** Cold meat below pit dew point cannot gain surface
-   water; evaporation is clamped at zero. That is also when smoke adheres.
-   With the pit humidity now dynamic, the two-sided flux is a one-line
-   change in `evap_flux_fb`.
 
 8. **No smoke ring.** NO/myoglobin chemistry is unmodeled.
 
@@ -45,6 +37,16 @@ smolder).
 These are not missing features. They are how the current physics is wrong
 or uncalibrated:
 
+- **Food safety.** Lethality and danger-zone dwell are evaluated on the
+  surface and on the core node of a symmetric 1D slab — the cold spot of
+  *this* geometry, not of a real point-and-flat; intact-muscle assumption
+  for the surface. The fullplan scan rejects cook lengths whose raw
+  residuals fail; the MPC's gradient loop only penalizes and reports.
+  Not a certification.
+- **Condensation.** Ungated two-sided flux with the same mass-transfer
+  coefficient both ways and the condensate absorbed into the surface
+  node's water (no film, no run-off); it acts through the dew-point
+  crossing in the first half hour, which no probe in the cook log sees.
 - **Purge sink.** Softplus still removes \(\sim k_e \delta_e \ln 2\) water
   at \(W = W_{\mathrm{eq}}\). Calibrated \(k_e\) absorbs the offset.
 - **Shrinkage.** Isotropic (`n_shrink = 1/3`); the anisotropy is a config

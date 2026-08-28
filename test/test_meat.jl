@@ -15,7 +15,8 @@
     @test all(out.Tcore .<= 383.15 + 0.1)
     @test all(out.Tsurf .<= 383.15 + 0.1)
     @test issorted(out.W_field[end, :], rev=true)         # surface moisture monotone ↓
-    @test all(out.j_evap .>= 0)
+    # fridge-cold meat below the pit dew point condenses first, then evaporates
+    @test out.j_evap[1] <= 0 && all(out.j_evap[(end - 10):end] .>= 0)
 
     # the cook makes progress: core well past 80 °C by 16 h, and the stall BROKE
     # (post-stall climb resumed — the finite moisture reservoir mechanism)
@@ -407,7 +408,52 @@ end
     )
     nofb = meat_solve(θ, Tpit, tk, tk; pv_base_knots=fill(3000.0, n))
     @test sum(fb.j_evap) < sum(nofb.j_evap)
-    @test all(fb.pv_pit .>= 3000.0 - 1e-9)
+    @test all((fb.pv_pit .- 3000.0) .* sign.(fb.j_evap) .>= -1e-9)  # vapor follows the flux sign
     @test maximum(fb.pv_pit) > 3500.0
     @test all(nofb.pv_pit .== 3000.0)
+end
+
+@testset "condensation physics (two-sided surface flux)" begin
+    θ = MEAT_θ_DEFAULT
+    cfg = MeatConfig()
+    k_m = θ[2]
+    # a 10 °C surface under 3 kPa of pit vapor is below the dew point:
+    # the flux is condensation at the ungated mass-transfer rate
+    Ts, pv = 283.15, 3000.0
+    j_dry = BrisketDynamics.evap_flux(Ts, 0.2, k_m, pv, cfg)
+    j_wet = BrisketDynamics.evap_flux(Ts, 2.0, k_m, pv, cfg)
+    j_ref = -k_m * (pv - p_sat(Ts)) / (BrisketDynamics.R_V * Ts)
+    @test j_dry < 0
+    @test isapprox(j_dry, j_ref; rtol=1e-6)
+    @test isapprox(j_dry, j_wet; rtol=1e-6)  # availability gates evaporation only
+    # above the dew point the old one-sided evaporation is recovered
+    @test BrisketDynamics.evap_flux(340.0, 1.2, k_m, pv, cfg) ≈
+          k_m * BrisketDynamics.logistic((1.2 - cfg.W_crit) / cfg.δW) *
+          (p_sat(340.0) - pv) / (BrisketDynamics.R_V * 340.0) rtol = 1e-9
+    # with the pit feedback, condensation lowers the pit humidity: the root
+    # is self-limiting and satisfies j = F(D0 - c j)
+    c = 5e6
+    jfb = BrisketDynamics.evap_flux_fb(Ts, 0.2, k_m, pv, c, cfg)
+    @test jfb < 0 && abs(jfb) < abs(j_dry)
+    D = p_sat(Ts) - pv - c * jfb
+    F = -k_m * BrisketDynamics.softclamp(-D, cfg.δp) / (BrisketDynamics.R_V * Ts) +
+        k_m * BrisketDynamics.logistic((0.2 - cfg.W_crit) / cfg.δW) *
+        BrisketDynamics.softclamp(D, cfg.δp) / (BrisketDynamics.R_V * Ts)
+    @test isapprox(jfb, F; rtol=1e-9)
+
+    # fridge-cold meat into a humid pit (dew point ≈ 36 °C): the surface
+    # gains water and warms by condensation over the first steps; in a dry
+    # pit (dew point below the meat) it loses water from the start
+    hr = 3600.0
+    tk = collect(0.0:60.0:2hr)
+    Tpit = fill(383.15, length(tk))
+    humid = meat_solve(θ, Tpit, tk, tk; pv_base_knots=fill(6000.0, length(tk)))
+    dry = meat_solve(θ, Tpit, tk, tk; pv_base_knots=fill(1000.0, length(tk)))
+    @test humid.j_evap[1] < 0
+    @test humid.W_field[end, 3] > humid.W_field[end, 1]
+    @test dry.W_field[end, 3] < dry.W_field[end, 1]
+    @test humid.Tsurf[5] > dry.Tsurf[5]
+    # and it is a transient: once the surface passes the dew point the pit
+    # dries it again
+    @test humid.j_evap[end] > 0
 end

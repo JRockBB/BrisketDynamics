@@ -261,7 +261,9 @@ class OutputSchema(BaseModel):
         description="Pit vapor pressure at the surface [Pa]"
     )
     pv_base: Array[(None,), Float64] = Field(description="Pit base vapor pressure [Pa]")
-    evap_w: Array[(), Float64] = Field(description="Evaporated water (dry-basis mean)")
+    evap_w: Array[(), Float64] = Field(
+        description="Net evaporated water, condensation negative (dry-basis mean)"
+    )
     drip_w: Array[(), Float64] = Field(description="Dripped water (dry-basis mean)")
     drip_f: Array[(), Float64] = Field(description="Drained fat (dry-basis mean)")
     t_field_final: Array[(NX,), Float64] = Field(description="Final T field (handoff)")

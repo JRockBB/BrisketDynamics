@@ -123,10 +123,17 @@ W_{\mathrm{eq}}(T) = W_0\Big(1
 $$
 
 **Surface boundary** ($x = L$) — the stall mechanism, with the wrap blend
-$s$. Evaporative flux is mass-transfer-limited (θ: $k_m$, $h_c$):
+$s$. The surface mass flux is mass-transfer-limited (θ: $k_m$, $h_c$) and
+two-sided: evaporation, gated by moisture availability, when the surface's
+saturation pressure exceeds the pit's vapor pressure, condensation —
+ungated: a cold surface below the dew point condenses whatever its water
+content — when it does not. Fridge-cold meat in a humid pit condenses for
+its first half hour; the latent heat warms the surface and the wet surface
+is where smoke adheres:
 
 $$
-j = (1 - \eta_e\, s)\;k_m\,\varphi(W_s)\,\Delta\rho_v(T_s),
+j = (1 - \eta_e\, s)\;k_m\,\frac{\varphi(W_s)\,\mathrm{sp}_{\delta_p}(\Delta p) - \mathrm{sp}_{\delta_p}(-\Delta p)}{R_v T_s},
+\qquad \Delta p = p_{\mathrm{sat}}(T_s) - p_v,
 \qquad
 -\rho_d D_{\mathrm{eff}}\,\partial_x W|_s = j,
 $$
@@ -158,10 +165,12 @@ $$
 (ambient absolute humidity $\omega_{\mathrm{amb}}$, combustion water
 yield $y_w$, water-pan rate $\dot m_{\mathrm{pan}}$, air–fuel ratio of the
 draft AFR — plain constants in `coupled.Humidity`). $j$ then solves
-$j = a\,\mathrm{sp}_{\delta_p}(p_{\mathrm{sat}} - p_{v,\mathrm{base}} - c j)$,
-$a = k_m\varphi/(R_v T_s)$ — a scalar fixed point with a unique root,
-taken in closed form plus two Newton steps inside the RHS
-(`evap_flux_fb`). The pit exports $\dot m_b$; the orchestrator forms
+$j = F(p_{\mathrm{sat}} - p_{v,\mathrm{base}} - c j)$ with
+$F(\Delta p) = a_e\,\mathrm{sp}_{\delta_p}(\Delta p) - a_c\,\mathrm{sp}_{\delta_p}(-\Delta p)$,
+$a_e = k_m\varphi/(R_v T_s)$, $a_c = k_m/(R_v T_s)$ — a scalar fixed
+point with a unique root ($1 + c F' > 0$; condensation lowers the pit
+humidity and is self-limiting), taken from the linearized start plus two
+Newton steps inside the RHS (`evap_flux_fb`). The pit exports $\dot m_b$; the orchestrator forms
 $p_{v,\mathrm{base}}$ and $1/\dot m_{\mathrm{air}}$ on the exchange grid as
 two more differentiable meat forcings; `pv_pit` is an output.
 
@@ -207,9 +216,11 @@ k\,\partial_x T|_s
 $$
 
 $$
-j = (1-p)\,(1-\eta_e s)\,k_m\,\varphi\,\Delta\rho_v(T_s;\,p_{v,\mathrm{pit}})
-+ p\,(1-\eta_r)\,k_m\tfrac{h_r}{h_c}\,\varphi\,\Delta\rho_v(T_s;\,p_{v,r}),
+j = (1-p)\,(1-\eta_e s)\,j_{\mathrm{2s}}(T_s, W_s;\,k_m,\,p_{v,\mathrm{pit}})
++ p\,(1-\eta_r)\,j_{\mathrm{2s}}(T_s, W_s;\,k_m\tfrac{h_r}{h_c},\,p_{v,r}),
 $$
+
+with $j_{\mathrm{2s}}$ the two-sided flux above,
 
 with the rest-phase mass-transfer coefficient scaled by the heat–mass
 analogy $h_r/h_c$, smoke deposition gated by $(1-p)$, and the coupling
@@ -388,16 +399,20 @@ $$
 $$
 
 **Food safety** $\mathcal S_{\mathrm{safety}}$, curve-faithful and
-unconditional. Surface lethality via the z-value equivalence (FSIS ~7-log
-at 60 °C reference, $z = 6$ K, requirement $F_{\mathrm{req}} = 720$
-equivalent seconds), penalized on the log shortfall, plus a danger-zone
-dwell cap ($h_{\mathrm{zone}}$ = hours with $T_s$ in 4.4–60 °C, cap 4 h):
+unconditional, evaluated on the surface (intact-muscle contamination)
+*and* on the core node — the cold spot of the symmetric slab, the last
+point to heat, since the condition must hold in all parts of the product.
+Lethality via the z-value equivalence (FSIS ~7-log at 60 °C reference,
+$z = 6$ K, requirement $F_{\mathrm{req}} = 720$ equivalent seconds),
+penalized on the log shortfall, plus a danger-zone dwell cap
+($h_{\mathrm{zone}}$ = hours with $T$ in 4.4–60 °C, cap 4 h), each for
+$T \in \{T_s, T_{\mathrm{core}}\}$:
 
 $$
-F_{\mathrm{leth}} = \int_0^{t_f} 10^{(T_s - T_{\mathrm{ref}})/z}\, dt,
+F_{\mathrm{leth}}[T] = \int_0^{t_f} 10^{(T - T_{\mathrm{ref}})/z}\, dt,
 \qquad
-\mathcal S = w_F\,\mathrm{sp}\Big(\tfrac{\log_{10} F_{\mathrm{req}} - \log_{10} F_{\mathrm{leth}}}{0.2}\Big)^2
-+ w_D\,\mathrm{sp}\Big(\tfrac{h_{\mathrm{zone}} - 4\,\mathrm{h}}{0.5}\Big)^2 .
+\mathcal S = \sum_{T} w_F\,\mathrm{sp}\Big(\tfrac{\log_{10} F_{\mathrm{req}} - \log_{10} F_{\mathrm{leth}}[T]}{0.2}\Big)^2
++ w_D\,\mathrm{sp}\Big(\tfrac{h_{\mathrm{zone}}[T] - 4\,\mathrm{h}}{0.5}\Big)^2 .
 $$
 
 **Total** — the diagram's $\mathrm{ops}(T_s, m, u)$ collects the three

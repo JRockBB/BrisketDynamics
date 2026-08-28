@@ -174,7 +174,7 @@ box(
     MEAT_EC,
     "surface boundary ($x = L$; wrap blend $s$)",
     [
-        r"$j = (1-\eta_e\, s)\;k_m\,\varphi(W_s)\,\Delta\rho_v(T_s)\,,\qquad -\rho_d D_{e\!f\!f}\,\partial_x W|_s = j$",
+        r"$j = (1-\eta_e\, s)\,k_m\,\frac{\varphi(W_s)\,\mathrm{sp}_\delta(\Delta p) - \mathrm{sp}_\delta(-\Delta p)}{R_v T_s}\,,\quad \Delta p = p_{sat}(T_s) - p_v\,,\quad -\rho_d D_{e\!f\!f}\,\partial_x W|_s = j$",
         r"$k\,\partial_x T|_s = h_c\,(1-\eta_h\, s)\,(T_p - T_s) + \varepsilon(s)\,\sigma_{SB}\,(T_p^4 - T_s^4) - \lambda\,j$",
         r"$\varepsilon(s) = \varepsilon\,(1-s) + \varepsilon_{wrap}\,s\qquad q_{surf} = k\,\partial_x T|_s + \lambda\,j$",
     ],
@@ -209,7 +209,7 @@ box(
     "QUALITY OBJECTIVE  $J$  (KCBS weights; every term a smooth band)",
     [
         r"$J = 0.14\,\mathcal{A}(L^*) \;+\; 0.57\,\left[\mathcal{G}_{smoke}(S) + w_d\,(1-\mathrm{juiciness}(W,F))^2\right] \;+\; 0.29\,\mathcal{T}(C_0) \;+\; \mathrm{ops}(T_s, m, u)$",
-        r"$+\;\; \mathcal{S}_{safety}:\ \ F_{leth} = \int 10^{(T_s - T_{ref})/z}\,dt \geq F_{req}\,,\quad$ danger-zone dwell $\leq 4\,$h",
+        r"$+\;\; \mathcal{S}_{safety}\ (T_s$ and $T_{core}):\ \ F_{leth} = \int 10^{(T - T_{ref})/z}\,dt \geq F_{req}\,,\quad$ danger-zone dwell $\leq 4\,$h",
     ],
     size=10.5,
 )

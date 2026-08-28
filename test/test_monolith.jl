@@ -13,7 +13,8 @@ const MONO_PIT = PitConfig(; T_amb=300.0)
     @test all(isfinite, mono.Tcore) && all(isfinite, mono.Tpit)
     @test mono.Tcore[end] > mono.Tcore[1] + 30
     @test mono.m_fuel[end] < mono.m_fuel[1]
-    @test all(mono.pv_pit .>= mono.pv_base)  # the meat only adds vapor
+    # the meat adds vapor while evaporating and removes it while condensing
+    @test all((mono.pv_pit .- mono.pv_base) .* sign.(mono.j_evap) .>= -1e-9)
 
     # Picard converges TOWARD the monolith as K grows; the residual left at
     # K=8 is the exchange-grid interpolation, not the coupling truncation
