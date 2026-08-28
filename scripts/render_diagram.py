@@ -121,7 +121,7 @@ box(
     "Calibration on the real cook",
     [
         "NumPyro model_real: masked AR(1) likelihood",
-        "Gauss–Newton / Fisher from the Jacobian (131 s)",
+        "Gauss–Newton / Fisher from the Jacobian (130 s)",
         "NUTS, dense metric seeded from the Fisher",
     ],
 )

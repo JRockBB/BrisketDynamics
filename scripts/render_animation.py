@@ -25,8 +25,8 @@ REPO = Path(__file__).resolve().parents[1]
 def main():
     """Render the animated-cook GIF from the calibrated real-cook replay.
 
-    Re-solves the coupled cook directly in Julia (2 Picard iterations, so
-    the full meat fields are available), then animates three panels: the
+    Re-solves the cook with ``monolith_solve`` directly in Julia (the full
+    meat fields are not Tesseract outputs), then animates three panels: the
     temperature profile through the slab, the normalized water and
     un-rendered-fat profiles, and the pit/core/surface time series with the
     observed core data, a moving time cursor, and a status line (doneness,
@@ -47,7 +47,7 @@ def main():
     theta = [m[n] for n, _ in THETA_SITES]
     phi = list(phi_full(m))
 
-    # --- Julia: 2 Picard iterations of the coupled cook, full meat fields ---
+    # --- Julia: the monolith solve, full meat fields ---
     import juliacall
 
     jl = juliacall.newmodule("Anim")
@@ -60,20 +60,16 @@ def main():
     t = log["t"]
     cfg_pit = jl.PitConfig(Tpit0=log["meta"]["tpit0_K"], T_amb=300.0)
     cfg_meat = jl.MeatConfig(T0=log["meta"]["tcore0_K"])
-    q = np.zeros(len(t))
-    for _ in range(2):
-        pit = jl.pit_solve(
-            jv(phi), jv(log["u"]), jv(t), jv(q), jv(t), jv(t), cfg=cfg_pit
-        )
-        meat = jl.meat_solve(jv(theta), pit.Tpit, jv(t), jv(t), cfg=cfg_meat)
-        q = np.asarray(meat.q_meat).copy()
+    sol = jl.monolith_solve(
+        jv(theta), jv(phi), jv(log["u"]), jv(t), jv(t), cfg=cfg_meat, pit=cfg_pit
+    )
 
-    tpit = np.asarray(pit.Tpit).copy() - 273.15
-    T = np.asarray(meat.T_field).copy() - 273.15  # nx × nt
-    W = np.asarray(meat.W_field).copy()  # dry-basis
-    C = np.asarray(meat.C_field).copy()
-    F = np.asarray(meat.F_field).copy()  # un-rendered fat, dry-basis
-    j_evap = np.asarray(meat.j_evap).copy() * 1e6  # mg/m2/s
+    tpit = np.asarray(sol.Tpit).copy() - 273.15
+    T = np.asarray(sol.T_field).copy() - 273.15  # nx × nt
+    W = np.asarray(sol.W_field).copy()  # dry-basis
+    C = np.asarray(sol.C_field).copy()
+    F = np.asarray(sol.F_field).copy()  # un-rendered fat, dry-basis
+    j_evap = np.asarray(sol.j_evap).copy() * 1e6  # mg/m2/s
     W0 = float(cfg_meat.W0)
     F0 = float(cfg_meat.F0)
     nx, nt = T.shape
@@ -136,12 +132,14 @@ def main():
     )
     wcrit = 0.40 / W0
     axW.axhline(wcrit, color="tab:blue", lw=0.6, ls=":")
-    axW.annotate(
-        "evaporation throttles below this",
-        (0.02, wcrit + 0.03),
+    axW.text(
+        0.02,
+        0.85,
+        f"dotted: evaporation throttles below W/W₀ = {wcrit:.2f}",
         fontsize=7,
         color="tab:blue",
-        bbox={"fc": "white", "ec": "none", "alpha": 0.7, "pad": 0.5},
+        va="center",
+        transform=axW.transAxes,
     )
 
     axS.plot(th, tpit, color="tab:orange", lw=1, alpha=0.8, label="pit")
@@ -166,7 +164,7 @@ def main():
         ylim=(15, 145),
         title='the calibrated cook (Mache/TVWBB, 18.5" WSM)',
     )
-    axS.legend(fontsize=8, loc="lower right")
+    axS.legend(fontsize=8, loc="lower right", framealpha=1).set_zorder(6)
     txt = axS.text(
         0.02,
         0.97,

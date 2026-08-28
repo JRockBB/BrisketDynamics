@@ -108,14 +108,18 @@ stall break, the climb to 90 °C (core rms 3.3 K).
 
 - **Gauss–Newton MAP** (`scripts/run_gn_map.py`): Levenberg–Marquardt over
   the 14 physics latents in numpyro's unconstrained space on the whitened
-  AR(1) residuals, from a cold start at the prior medians: F = 5412 → 131.97
-  in 19 iterations, **131 s**. The Adam-plus-adjoint MAP that took hours
+  AR(1) residuals, from a cold start at the prior medians: F = 5412 → 132.0
+  in 13 iterations, **130 s**. The Adam-plus-adjoint MAP that took hours
   scores 136.03 under the same objective with ‖∇F‖ = 40 — the LM optimum is
   4 nats better, the difference lying along the ridges below.
 - **Curvature.** The Fisher information (Jᵀ Σ⁻¹ J + prior) from the same
-  Jacobian gives posterior widths that agree with a finite-difference Laplace
-  Hessian of the composed pipeline to 0.8–1.4× on every coordinate. Both say
-  the same thing the corners show: the meat side is pinned (L, k_m, h_c to a
+  Jacobian is the posterior curvature used everywhere — the Laplace draws,
+  the NUTS metric, the robust-control draws. A finite-difference Hessian of
+  the potential at the same point is indefinite (min eigenvalue −20 against
+  a max of 1.7·10⁵; 8 of 18 directions below a 10⁻⁴ floor): second
+  differences of an adaptive solve are noise along the ridges, which is the
+  quiet argument for exact derivatives. The Fisher says what the corners
+  show: the meat side is pinned (L, k_m, h_c to a
   few percent), the pit side only along ridges — UA ∝ ΔH_eff (loss vs heat
   release) and r_max vs u_leak (burn rate vs leak dilution), the fingerprint
   of closed-loop data.
@@ -126,9 +130,9 @@ stall break, the climb to 90 °C (core rms 3.3 K).
   target, and the rest carries it into the band.
 - **NUTS on the monolith** (`scripts/run_nuts_mono.py`): `model_real` on the
   Tesseract, initialized at the LM MAP with a dense mass matrix seeded from
-  the Gauss–Newton Fisher covariance (ridge widths included; seeding from the
-  floored FD-Laplace Hessian understated them 3–6× and every trajectory hit
-  the tree-depth cap), one chain per process. *[chains running at submission
+  the Gauss–Newton Fisher covariance (ridge widths included; a metric from a
+  floored finite-difference Hessian understated them 3–6× and every
+  trajectory hit the tree-depth cap), one chain per process. *[chains running at submission
   time; r̂ / ESS / divergences to be quoted as-is from
   `scripts/merge_nuts_mono.py`]*
 - **Variational inference, and what it taught us.** ADVI with a full-rank

@@ -9,7 +9,7 @@ Gaps: `docs/model_gaps.md`.
 1. **NUTS on the monolith** — `uv run python ../scripts/run_nuts_mono.py
    --chain N` per chain (Fisher-seeded dense metric, LM-MAP init, progress
    bar), then `scripts/merge_nuts_mono.py` for split-r̂ / ESS / divergences
-   and the width comparison against Fisher, ADVI and FD-Laplace. Quote the
+   and the width comparison against Fisher, ADVI and the Gauss–Newton Laplace. Quote the
    diagnostics as-is. The identifiability claim to check: meat side pinned,
    pit side only along ridges (UA ∝ ΔH_eff, r_max vs u_leak).
 2. **Submission** — post the form / LinkedIn / forum drafts in

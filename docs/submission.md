@@ -41,11 +41,11 @@ Jacobian one chunked pass — so tesseract-jax gives JAX both reverse and forwar
 mode through the same interface.
 
 The derivatives do real work. A Gauss–Newton MAP on a digitized real 19-hour
-overnight cook (18.5" WSM) converges from the prior medians in 19 iterations
-and two minutes, tracking the pit hold to ~1.6 K rms and reproducing the
-core's rise, stall and break; the Fisher information from the same Jacobian
-matches a finite-difference Laplace Hessian to within 0.8–1.4× and shows
-which physics the data pins (the meat's) and which it identifies only along
+overnight cook (18.5" WSM) converges from the prior medians in 13 iterations
+and about two minutes, tracking the pit hold to ~1.6 K rms and reproducing
+the core's rise, stall and break; the Fisher information from the same
+Jacobian — the curvature a finite-difference Hessian cannot resolve at that
+optimum — shows which physics the data pins (the meat's) and which it identifies only along
 ridges (the pit's: heat loss vs heat release, burn rate vs leak). The plan —
 cook length, wrap time, pull time and vent schedule optimized jointly against
 a KCBS-weighted quality objective scored at serve — lands on a 20 h cook that
@@ -135,8 +135,9 @@ gives `jax.grad` for Optax/NUTS and `jacfwd` for Gauss–Newton through the same
 interface. The two-Tesseract version is in the history with the numbers.
 
 **What the derivatives do.** Gauss–Newton MAP on the real cook from the prior
-medians in 19 iterations / 131 s; Fisher widths vs an FD-Laplace Hessian
-within 0.8–1.4×; a duration × wrap × pull × vent plan scored at serve (13 cook
+medians in 13 iterations / 130 s; a Laplace on the Gauss–Newton curvature
+(a finite-difference Hessian is indefinite there); a duration × wrap × pull ×
+vent plan scored at serve (13 cook
 lengths in 69 min); receding-horizon MPC replanning vents, crutch and pull
 hourly (4 cooks in 58 min) that absorbs a 15 K cold front the open-loop plan
 does not survive; robust control over posterior draws.

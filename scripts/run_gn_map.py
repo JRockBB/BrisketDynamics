@@ -1,14 +1,14 @@
-"""Gauss–Newton MAP + Fisher covariance on the real cook from the monolith.
+"""Gauss-Newton MAP + Fisher covariance on the real cook from the monolith.
 
-Levenberg–Marquardt over the 14 physics latents in the unconstrained space,
-noise parameters (σ, ρ) fixed at the adjoint MAP's values, from a cold start
+Levenberg-Marquardt over the 14 physics latents in the unconstrained space,
+noise parameters (σ, ρ) fixed at the previous MAP's values, from a cold start
 at the prior medians; then the Fisher information (Jᵀ Σ⁻¹ J + prior
-curvature) at the optimum, compared with the finite-difference Laplace
-Hessian of the composed pipeline (data/calibration/laplace_hess_real.npz)
-on the same 14 coordinates.
+curvature) at the optimum.
 
 Run from app/:  uv run python -u ../scripts/run_gn_map.py [--warm]
-Writes data/calibration/gn_map_real.json.
+Writes data/calibration/map_real.json (the MAP every downstream script
+reads), data/calibration/gn_map_real.json (fit diagnostics, Fisher widths)
+and figures/cooklog_fit_map.png.
 """
 
 import argparse
@@ -24,14 +24,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 from brisket_app import cooklog
 from brisket_app.calibrate import phi_full
 from brisket_app.monolith import (
-    N_PHYS,
     NAMES,
+    NOISE_NAMES,
     SITES,
     Whitened,
     effective_sigma,
     from_z,
     levenberg_marquardt,
-    objective,
+    model_mean,
     to_z,
 )
 
@@ -51,23 +51,22 @@ def prior_median_z():
 
 
 def main():
-    """Run LM from the cold start, then compare Fisher and FD-Laplace widths."""
+    """Run LM, report the Fisher widths, write the MAP and the fit figure."""
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--map",
         default="map_real.json",
-        help="adjoint MAP json (noise params + reference)",
+        help="previous MAP json (noise params; warm start); overwritten",
     )
     ap.add_argument(
         "--warm",
         action="store_true",
-        help="start from the adjoint MAP instead of the priors",
+        help="start from the previous MAP instead of the priors",
     )
     ap.add_argument("--iters", type=int, default=30)
     args = ap.parse_args()
     cal = REPO / "data" / "calibration"
     m = json.loads((cal / args.map).read_text())
-    x_map = np.concatenate([[m[n] for n, _ in SITES[:7]], phi_full(m)])
     log = cooklog.load(dt_min=10.0)
     wh = Whitened.build(log, *effective_sigma(m))
     print(
@@ -75,47 +74,31 @@ def main():
         flush=True,
     )
 
-    t0 = time.perf_counter()
-    z_ref = to_z(x_map)
-    F_ref, g_ref, _H_ref, w_ref = objective(z_ref, wh, log)
-    print(
-        f"adjoint MAP as reference: F={F_ref:.3f}  0.5|w|^2={0.5 * w_ref @ w_ref:.3f}  "
-        f"|g|={np.linalg.norm(g_ref):.3g}  (first Jacobian {time.perf_counter() - t0:.0f} s incl. compile)",
-        flush=True,
-    )
-
-    z0 = z_ref if args.warm else prior_median_z()
+    if args.warm:
+        z0 = to_z(np.concatenate([[m[n] for n in NAMES[:7]], phi_full(m)]))
+    else:
+        z0 = prior_median_z()
     print(
         "LM from",
-        "the adjoint MAP" if args.warm else "the prior medians (cold start)",
+        "the previous MAP" if args.warm else "the prior medians (cold start)",
         flush=True,
     )
     t0 = time.perf_counter()
     z, F, H, hist = levenberg_marquardt(z0, wh, log, iters=args.iters)
     wall = time.perf_counter() - t0
     x = from_z(z)
-    print(
-        f"LM done: {len(hist) - 1} iterations, {wall:.0f} s, F={F:.3f} (reference {F_ref:.3f})",
-        flush=True,
-    )
+    print(f"LM done: {len(hist) - 1} iterations, {wall:.0f} s, F={F:.3f}", flush=True)
 
     cov = np.linalg.inv(H)
     sd = np.sqrt(np.diag(cov))
-    print(
-        f"{'site':10s} {'GN-MAP':>11s} {'adjoint MAP':>12s} {'ratio':>7s} {'sd(z) Fisher':>13s}",
-        flush=True,
-    )
+    print(f"{'site':10s} {'GN-MAP':>11s} {'sd(z) Fisher':>13s}", flush=True)
     for i, n in enumerate(NAMES):
-        print(
-            f"{n:10s} {x[i]:11.4g} {x_map[i]:12.4g} {x[i] / x_map[i]:7.3f} {sd[i]:13.3f}"
-        )
+        print(f"{n:10s} {x[i]:11.4g} {sd[i]:13.3f}")
 
-    # the FD Laplace Hessian of the composed pipeline, same coordinates
     out = {
         "x": dict(zip(NAMES, map(float, x), strict=True)),
         "z": dict(zip(NAMES, map(float, z), strict=True)),
         "F": F,
-        "F_reference": F_ref,
         "iterations": len(hist) - 1,
         "wall_s": wall,
         "history": hist,
@@ -123,31 +106,43 @@ def main():
         "cold_start": not args.warm,
         "noise_from": args.map,
     }
-    hess = cal / "laplace_hess_real.npz"
-    if hess.exists():
-        c = np.load(hess)
-        Hl = 0.5 * (c["H"] + c["H"].T)
-        # laplace_hess_real.npz is in sorted-site order; pick the 14 physics rows
-        names_sorted = sorted(
-            NAMES + ["sigma_pit", "sigma_core", "rho_pit", "rho_core"]
-        )
-        idx = [names_sorted.index(n) for n in NAMES]
-        Hl_phys = Hl[np.ix_(idx, idx)]  # noise params fixed: the conditional block
-        lam = np.linalg.eigvalsh(Hl_phys)
-        Hl_reg = (
-            Hl_phys
-            if lam.min() > 0
-            else Hl_phys + (1e-6 * lam.max() - lam.min()) * np.eye(N_PHYS)
-        )
-        sd_l = np.sqrt(np.diag(np.linalg.inv(Hl_reg)))
-        print(
-            f"\n{'site':10s} {'sd(z) Fisher':>13s} {'sd(z) FD-Laplace':>17s} {'ratio':>7s}"
-        )
-        for i, n in enumerate(NAMES):
-            print(f"{n:10s} {sd[i]:13.3f} {sd_l[i]:17.3f} {sd[i] / sd_l[i]:7.2f}")
-        out["sd_z_fd_laplace"] = dict(zip(NAMES, map(float, sd_l), strict=True))
     (cal / "gn_map_real.json").write_text(json.dumps(out, indent=2))
     print("wrote data/calibration/gn_map_real.json")
+
+    params = dict(zip(NAMES, map(float, x), strict=True))
+    params.update({k: float(m[k]) for k in NOISE_NAMES})
+    (cal / args.map).write_text(json.dumps(params, indent=2))
+    print(f"wrote data/calibration/{args.map}")
+
+    mu, _ = model_mean(x, log, jac=False)
+    nt = len(log["t"])
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    th = log["t"] / 3600.0
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharex=True)
+    for ax, s, o, mk, name in [
+        (axes[0], mu[:nt], log["obs_pit"], log["mask_pit"], "pit"),
+        (axes[1], mu[nt:], log["obs_core"], log["mask_core"], "core"),
+    ]:
+        ax.plot(
+            th[mk],
+            o[mk] - 273.15,
+            ".",
+            ms=2.5,
+            color="k",
+            alpha=0.5,
+            label="observed (Mache/TVWBB)",
+        )
+        ax.plot(th, s - 273.15, color="tab:orange", label="model @ MAP")
+        ax.set(xlabel="time [h]", ylabel="temperature [C]", title=name)
+        ax.legend(fontsize=8)
+    fig.suptitle("Real cook - Gauss-Newton MAP fit")
+    fig.tight_layout()
+    fig.savefig(REPO / "figures" / "cooklog_fit_map.png", dpi=140)
+    print("wrote figures/cooklog_fit_map.png")
 
 
 if __name__ == "__main__":

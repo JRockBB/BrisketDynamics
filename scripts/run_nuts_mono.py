@@ -2,9 +2,9 @@
 
 The model is `calibrate.model_real` on the monolith Tesseract; every
 leapfrog step costs one forward-mode Jacobian over the 14 physics latents
-(~2.5 s on the real-cook grid). Initialised at the Gauss-Newton MAP (physics) and the adjoint MAP
-(noise), dense mass matrix seeded from the finite-difference Laplace
-Hessian and adapted during warmup.
+(~2.5 s on the real-cook grid). Initialised at the Gauss-Newton MAP, dense
+mass matrix seeded from the Fisher covariance (noise block from the
+finite-difference Hessian of run_laplace.py) and adapted during warmup.
 
 Run from app/:  uv run python -u ../scripts/run_nuts_mono.py --chain 0
 Writes data/calibration/nuts_mono_real/chain{c}.npz (+ meta json) after
@@ -30,7 +30,6 @@ from brisket_app.monolith import (
     NAMES,
     NOISE_NAMES,
     fisher_inverse_mass,
-    laplace_inverse_mass,
 )
 from numpyro.infer import MCMC, NUTS, init_to_value
 
@@ -53,7 +52,7 @@ def main():
         "--mass",
         default="fisher",
         help="'fisher' (Gauss-Newton covariance at the init, noise block from "
-        "laplace_hess_real.npz), a Laplace-Hessian npz name, or '' = identity",
+        "laplace_hess_real.npz) or '' = identity",
     )
     args = ap.parse_args()
     seed = args.chain if args.seed is None else args.seed
@@ -79,8 +78,6 @@ def main():
             noise,
             hess if hess.exists() else None,
         )
-    elif args.mass:
-        inv_mass = laplace_inverse_mass(cal / args.mass)
     else:
         inv_mass = None
     kernel = NUTS(

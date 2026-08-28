@@ -36,7 +36,7 @@ End-to-end, same scripts, one import swapped:
 |---|---|---|
 | fullplan scan, 13 cook lengths, schedule + wrap + pull each | 4.5 h | 69 min |
 | MPC demo, 4 cooks, hourly replans incl. the pull | ~2 h per replan under the disturbance | 58 min total |
-| Gauss–Newton MAP from the prior medians | — (Adam + adjoint, hours) | 131 s |
+| Gauss–Newton MAP from the prior medians | — (Adam + adjoint, hours) | 130 s |
 | robust control: E[J] over 8 draws, 30 held-out evaluations | ~2 h | 34 min |
 | the whole chain (fullplan → MPC → robust) | days | 2 h 42 min |
 
@@ -62,30 +62,31 @@ shared stencil.
 ## Gauss–Newton MAP and Fisher covariance (`scripts/run_gn_map.py`)
 
 Levenberg–Marquardt over the 14 physics latents in the unconstrained
-space, noise parameters fixed at the adjoint MAP's values, whitened AR(1)
+space, noise parameters fixed at the previous MAP's values, whitened AR(1)
 residuals (222 of them) from the forward Jacobian. Cold start at the prior
 medians:
 
 | | F = ½‖w‖² − log p(z) | wall |
 |---|---|---|
 | prior medians | 5412 | — |
-| after 19 LM iterations | 131.97 | 131 s |
+| after 13 LM iterations | 132.01 | 130 s |
 | the adjoint MAP, evaluated under the same objective | 136.03 (‖∇F‖ = 40) | hours of Adam + adjoints |
 
-The two optima differ along the ridges (D_eff ×1.5, h_c ×1.3, C_th ×0.62,
-r_max ×0.76, u_leak ×1.38), where the Fisher sd in z is 0.15–0.6; the 4-nat
-gap is part K = 2 truncation, part unconverged Adam. The Fisher widths
-(Jᵀ Σ⁻¹ J + prior) match the finite-difference Laplace Hessian's conditional
-block to 0.8–1.4× on every coordinate. `data/calibration/gn_map_real.json`
-carries the optimum, the iteration history and both width sets.
+The two optima differ along the ridges (D_eff ×1.5, h_c ×1.35, C_th ×0.64,
+r_max ×0.77, u_leak ×1.37), where the Fisher sd in z is 0.1–0.6; the 4-nat
+gap is part K = 2 truncation, part unconverged Adam.
 
-## What it unlocks
+A finite-difference Hessian of the potential at this optimum is indefinite
+(min eigenvalue −20 against a max of 1.7·10⁵; 8 of 18 directions below a
+10⁻⁴ floor): second differences of an adaptive solve are noise along the
+ridges. The Fisher information (Jᵀ Σ⁻¹ J + prior) from the exact Jacobian is
+the curvature used everywhere — the Laplace draws (`scripts/run_laplace.py`,
+finite differences only for the four noise coordinates), the NUTS metric,
+the robust-control draws. `data/calibration/gn_map_real.json` carries the
+optimum, the iteration history and the Fisher widths.
 
-- Gauss–Newton / Levenberg–Marquardt MAP from the residual Jacobian; the
-  Fisher information Jᵀ Σ⁻¹ J as the Laplace covariance (positive
-  semi-definite, no finite differences, no eigenvalue floor).
-- log-density gradients Jᵀ Σ⁻¹ r for HMC at the cost of one Jacobian.
-- Control Jacobians w.r.t. the damper knots, wrap and pull by the same
-  route (`p` carries them), and exact Hessians via nested duals.
+## What it leaves open
+
+- Exact Hessians via nested duals (control and calibration).
 - The acausal component version (pit, fuel bed, wrap, rest, ambient as
   ports; the slab as a generated component) with this file as its oracle.

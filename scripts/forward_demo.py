@@ -31,7 +31,7 @@ from brisket_app.coupled import (
 def main():
     """Run the 12-h coupled cook at default parameters and render the demo figure.
 
-    Runs ``coupled_cook`` (monolith) at THETA_DEFAULT/PHI_DEFAULT with a
+    Runs ``coupled_cook`` at THETA_DEFAULT/PHI_DEFAULT with a
     flat damper of 0.4, prints the wall time and the Picard convergence
     residual max|dT_pit|, and writes figures/forward_cook.png: three stacked
     panels of pit/surface/core temperature (showing the stall), evaporative
@@ -50,7 +50,7 @@ def main():
         grids,
     )
     dt = time.perf_counter() - t0
-    print(f"coupled forward (monolith): {dt:.1f} s wall")
+    print(f"coupled forward: {dt:.1f} s wall")
 
     th = np.asarray(grids.tknots) / HR
     to_c = lambda x: np.asarray(x) - 273.15
@@ -62,7 +62,7 @@ def main():
     ax.plot(th, to_c(out["tcore"]), label="core (probe)", color="tab:blue", lw=2)
     ax.set_ylabel("temperature [°C]")
     ax.legend()
-    ax.set_title("Coupled 12-h cook, damper = 0.4 (monolith)")
+    ax.set_title("Coupled 12-h cook, damper = 0.4")
 
     ax = axes[1]
     ax.plot(th, 1e6 * np.asarray(out["j_evap"]), color="tab:cyan")

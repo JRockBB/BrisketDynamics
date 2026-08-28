@@ -62,7 +62,7 @@ def main():
         cols["Fisher"] = json.loads(gn.read_text())["sd_z_fisher"]
     for label, f in (
         ("ADVI", "vi_samples_real.npz"),
-        ("Laplace-FD", "laplace_samples_real.npz"),
+        ("Laplace-GN", "laplace_samples_real.npz"),
     ):
         if (cal / f).exists():
             cols[label] = sd_z(dict(np.load(cal / f)))

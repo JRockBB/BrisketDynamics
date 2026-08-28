@@ -265,8 +265,8 @@ def fisher_inverse_mass(x_map, log: dict, noise: dict, hess_npz=None) -> np.ndar
     The 14 physics coordinates get the Gauss-Newton covariance
     (Jᵀ Σ⁻¹ J + prior curvature)⁻¹ in the unconstrained space — ridge widths
     included, no eigenvalue floor; the 4 noise coordinates get the
-    conditional block of the finite-difference Laplace Hessian when
-    ``hess_npz`` is given, else the prior's scale. Assembled in numpyro's
+    noise block of run_laplace.py's precision (finite-differenced) when
+    ``hess_npz`` is given, else the identity. Assembled in numpyro's
     sorted-site order with no cross terms between the two groups.
     """
     wh = Whitened.build(log, *effective_sigma(noise))
@@ -288,17 +288,3 @@ def fisher_inverse_mass(x_map, log: dict, noise: dict, hess_npz=None) -> np.ndar
     else:
         M[np.ix_(nidx, nidx)] = np.eye(len(nidx))
     return M
-
-
-def laplace_inverse_mass(hess_npz, floor_rel: float = 1e-4) -> np.ndarray:
-    """Dense inverse mass matrix from a finite-difference Laplace Hessian.
-
-    The npz (from run_laplace.py) holds the 18×18 Hessian of the potential in
-    numpyro's sorted-site order; eigenvalues below ``floor_rel`` of the
-    largest are floored so flat ridges do not blow the metric up.
-    """
-    c = np.load(hess_npz)
-    H = 0.5 * (c["H"] + c["H"].T)
-    lam, V = np.linalg.eigh(H)
-    lam_reg = np.maximum(np.abs(lam), floor_rel * lam.max())
-    return (V / lam_reg) @ V.T
