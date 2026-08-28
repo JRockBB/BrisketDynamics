@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .control import ControlConfig, optimize_schedule
+from .control import ControlConfig, optimize_schedule, safety_report
 from .coupled import HR, CookGrids, coupled_cook
 
 
@@ -117,6 +117,7 @@ def plan_duration(
         w_ret = float(np.asarray(sim["w_retained"]))
         juicy = float(np.asarray(sim["juiciness"]))
         l_end = float(np.asarray(sim["l_star"])[-1])
+        safety = safety_report(sim["tsurf"], sim["tcore"], grids.tknots, cc)
         records.append(
             {
                 "t_f_h": float(th_f),
@@ -132,6 +133,9 @@ def plan_duration(
                 "t_pull": float(t_pull),
                 "t_pull_h": float(t_pull / HR) if t_pull < 1.0e8 else None,
                 "rest": rest,
+                "safety_ok": safety["ok"],
+                "F_core": safety["F_core"],
+                "danger_h_core": safety["danger_h_core"],
             }
         )
         log(
@@ -143,6 +147,7 @@ def plan_duration(
             + (f"  pull@{t_pull / HR:.2f} h" if t_pull < 1.0e8 else "")
             + f"  iters={hist.get('n_iter_run', len(hist['losses']))}"
             + ("" if hist.get("converged", True) else " (cap)")
+            + ("" if safety["ok"] else "  UNSAFE (raw safety residuals fail)")
         )
     return records
 
@@ -152,15 +157,19 @@ def optimal_duration(records, plateau_frac: float = 0.02) -> dict:
 
     The *shortest* duration whose objective is within `plateau_frac` of the
     best: if quality saturates ("anything >= X h is perfect"), the optimum
-    is the plateau's left edge, not an arbitrary interior point.
+    is the plateau's left edge, not an arbitrary interior point. Durations
+    whose raw safety residuals fail (``safety_ok``) are rejected; if none
+    passes, the pick is over all of them and carries ``safety_ok=False``.
     """
-    js = np.array([r["j_quality"] for r in records])
+    safe = [r for r in records if r.get("safety_ok", True)]
+    pool = safe or records
+    js = np.array([r["j_quality"] for r in pool])
     j_best = float(js.min())
     tol = abs(j_best) * plateau_frac + 1e-9
-    for r, j in zip(records, js, strict=True):
+    for r, j in zip(pool, js, strict=True):
         if j <= j_best + tol:
             return r
-    return records[int(np.argmin(js))]
+    return pool[int(np.argmin(js))]
 
 
 def chance_of_done(

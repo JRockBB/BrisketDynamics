@@ -82,14 +82,15 @@ class ControlConfig:
     w_smooth: float = 0.01
     # --- food safety: SOFT PENALTIES, not a certification ---
     # Pasteurization is a time-temperature CURVE, not a threshold. The
-    # z-value equivalence integrates SURFACE lethality
-    #     F = integral 10^((T_s - T_ref)/z) dt   [T_ref-equivalent seconds]
-    # FSIS Appendix A requires the stated condition in all parts of the
-    # product; this model assumes INTACT MUSCLE (surface pathogens) and
-    # does not evaluate the cold spot. Both terms are weighted softplus
-    # penalties an optimizer can trade against quality — they are not
-    # hard constraints, do not reject unsafe plans, and are not a
-    # food-safety certification. See safety_report() for raw residuals.
+    # z-value equivalence integrates lethality
+    #     F = integral 10^((T - T_ref)/z) dt   [T_ref-equivalent seconds]
+    # on the SURFACE (intact-muscle contamination) and on the CORE node —
+    # the cold spot of the symmetric slab, the last point to heat — since
+    # FSIS Appendix A requires the condition in all parts of the product.
+    # Danger-zone dwell is checked on both as well. The terms are weighted
+    # softplus penalties an optimizer can trade against quality; the
+    # fullplan scan rejects cook lengths whose raw residuals fail
+    # (safety_report), the MPC only penalizes. Not a certification.
     leth_t_ref: float = 333.15  # 60 C
     leth_z: float = 6.0  # z-value [K]
     leth_f_req: float = 720.0  # 60 C-equivalent seconds (~7-log)
@@ -139,27 +140,58 @@ def _plateau_stop(losses, cc: ControlConfig) -> bool:
     return best_recent > best_before - cc.tol_rel * abs(best_before)
 
 
-def safety_report(tsurf, t, cc: ControlConfig, leth_banked=0.0, danger_banked_h=0.0):
-    """Raw surface lethality / danger-zone dwell vs the configured thresholds.
+def _softplus_np(x):
+    return np.log1p(np.exp(-np.abs(x))) + np.maximum(x, 0.0)
 
-    Soft objective penalties are NOT a certification; this reports the
-    residuals. Assumes intact muscle (surface pathogens); the cold-spot
-    field is not evaluated.
+
+def lethality_dwell(temps, t_s, cc: ControlConfig, xp=np):
+    """Lethality F [T_ref-equivalent s] and danger-zone dwell [h] of a temperature trace.
+
+    `xp` is numpy or jax.numpy; the integrals are trapezoids on `t_s` [s].
     """
-    ts = np.asarray(tsurf, dtype=np.float64)
-    tt = np.asarray(t, dtype=np.float64)
-    F = leth_banked + float(
-        np.trapezoid(10.0 ** ((ts - cc.leth_t_ref) / cc.leth_z), tt)
+    F = xp.trapezoid(10.0 ** ((temps - cc.leth_t_ref) / cc.leth_z), t_s)
+    lo = 1.0 / (1.0 + xp.exp(-(temps - cc.t_danger_lo) / 2.0))
+    hi = 1.0 / (1.0 + xp.exp(-(cc.t_danger_hi - temps) / 2.0))
+    return F, xp.trapezoid(lo * hi, t_s / 3600.0)
+
+
+def safety_penalty(F, dwell_h, cc: ControlConfig, xp=np):
+    """Soft penalties: lethality short of the requirement (log scale), dwell past the cap."""
+    sp = jax.nn.softplus if xp is jnp else _softplus_np
+    leth = (
+        cc.w_lethality * sp((xp.log10(cc.leth_f_req) - xp.log10(F + 1e-9)) / 0.2) ** 2
     )
-    in_zone = 1.0 / (1.0 + np.exp(-(ts - cc.t_danger_lo) / 2.0))
-    in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - ts) / 2.0))
-    danger_h = danger_banked_h + float(np.trapezoid(in_zone, tt / 3600.0))
+    dwell = cc.w_dwell * sp((dwell_h - cc.danger_cap_h) / 0.5) ** 2
+    return leth + dwell
+
+
+def safety_report(tsurf, tcore, t, cc: ControlConfig, banked: dict | None = None):
+    """Raw lethality / danger-zone dwell of the surface and the core vs the thresholds.
+
+    The core node is the cold spot of the symmetric slab. `banked` carries
+    an executed cook's integrals (keys leth_f, danger_h, leth_f_core,
+    danger_h_core) into the whole-cook accounting. Soft objective
+    penalties are NOT a certification; this reports the residuals.
+    """
+    b = banked or {}
+    tt = np.asarray(t, dtype=np.float64)
+    F_s, d_s = lethality_dwell(np.asarray(tsurf, dtype=np.float64), tt, cc)
+    F_c, d_c = lethality_dwell(np.asarray(tcore, dtype=np.float64), tt, cc)
+    F_s = float(F_s) + b.get("leth_f", 0.0)
+    F_c = float(F_c) + b.get("leth_f_core", 0.0)
+    d_s = float(d_s) + b.get("danger_h", 0.0)
+    d_c = float(d_c) + b.get("danger_h_core", 0.0)
+    lethality_ok = bool(F_s >= cc.leth_f_req and F_c >= cc.leth_f_req)
+    dwell_ok = bool(d_s <= cc.danger_cap_h and d_c <= cc.danger_cap_h)
     return {
-        "F_s": F,
-        "danger_h": danger_h,
-        "lethality_ok": F >= cc.leth_f_req,
-        "dwell_ok": danger_h <= cc.danger_cap_h,
-        "assumption": "intact muscle; surface lethality; soft penalties",
+        "F_s": F_s,
+        "F_core": F_c,
+        "danger_h": d_s,
+        "danger_h_core": d_c,
+        "lethality_ok": lethality_ok,
+        "dwell_ok": dwell_ok,
+        "ok": lethality_ok and dwell_ok,
+        "assumption": "1D slab: core node is the cold spot; soft penalties, not a certification",
     }
 
 
@@ -175,6 +207,8 @@ def objective(
     ics=None,
     leth_banked: float = 0.0,
     danger_banked_h: float = 0.0,
+    leth_banked_core: float = 0.0,
+    danger_banked_core_h: float = 0.0,
     t_wrap_override: float | None = None,
     t_pull: float = 1.0e9,
     rest: dict | None = None,
@@ -183,8 +217,8 @@ def objective(
     """Scalar quality objective of one simulated cook (lower is better).
 
     KCBS-weighted appearance/taste/tenderness bands plus operational terms
-    and the food-safety *soft penalties* (surface lethality + danger-zone
-    dwell; intact-muscle assumption — see ControlConfig / safety_report).
+    and the food-safety *soft penalties* (lethality + danger-zone dwell on
+    the surface and on the core node — see ControlConfig / safety_report).
     With ``t_pull`` inside the horizon the quality terms are evaluated at
     SERVE (the horizon end) — after the rest's carryover, continued
     collagen conversion and juice redistribution — while the operational
@@ -216,6 +250,8 @@ def objective(
         Danger-zone dwell already spent by the executed cook [h]; same
         whole-cook accounting as leth_banked (the 4 h cap is cumulative,
         not per-replan).
+    leth_banked_core, danger_banked_core_h : float, optional
+        The same two integrals on the core node.
     t_wrap_override : float, optional
         Bypass the z_w mapping with an explicit wrap time [s], possibly
         negative (wrap in the past). Used by post-wrap MPC replans: the
@@ -303,19 +339,14 @@ def objective(
     m_at_pull = jnp.interp(jnp.minimum(t_pull, t_s[-1]), t_s, sim["m_fuel"])
     fuel_frac = (sim["m_fuel"][0] - m_at_pull) / cc.m0_ref
 
-    # food safety (unconditional): lethality curve + growth-phase dwell,
-    # through the rest as well (a long board rest re-enters the zone)
-    Ts = sim["tsurf"]
-    F = leth_banked + jnp.trapezoid(10.0 ** ((Ts - cc.leth_t_ref) / cc.leth_z), t_s)
-    leth_pen = (
-        cc.w_lethality
-        * jax.nn.softplus((jnp.log10(cc.leth_f_req) - jnp.log10(F + 1e-9)) / 0.2) ** 2
-    )
-    in_zone = jax.nn.sigmoid((Ts - cc.t_danger_lo) / 2.0) * jax.nn.sigmoid(
-        (cc.t_danger_hi - Ts) / 2.0
-    )
-    danger_h = danger_banked_h + jnp.trapezoid(in_zone, t_s / 3600.0)
-    dwell_pen = cc.w_dwell * jax.nn.softplus((danger_h - cc.danger_cap_h) / 0.5) ** 2
+    # food safety (unconditional): lethality curve + growth-phase dwell on
+    # the surface and on the core node (the slab's cold spot), through the
+    # rest as well (a long board rest re-enters the zone)
+    F_s, d_s = lethality_dwell(sim["tsurf"], t_s, cc, jnp)
+    F_c, d_c = lethality_dwell(sim["tcore"], t_s, cc, jnp)
+    safety = safety_penalty(
+        leth_banked + F_s, danger_banked_h + d_s, cc, jnp
+    ) + safety_penalty(leth_banked_core + F_c, danger_banked_core_h + d_c, cc, jnp)
 
     return (
         cc.w_appearance * appearance
@@ -324,8 +355,7 @@ def objective(
         + cc.w_surf * surf_term
         + cc.w_fuel * fuel_frac
         + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
-        + leth_pen
-        + dwell_pen
+        + safety
     )
 
 
@@ -444,6 +474,8 @@ def optimize_schedule(
     z_w_pin: float = 8.0,
     leth_banked: float = 0.0,
     danger_banked_h: float = 0.0,
+    leth_banked_core: float = 0.0,
+    danger_banked_core_h: float = 0.0,
     t_wrap_override: float | None = None,
     t_pull: float = 1.0e9,
     rest: dict | None = None,
@@ -499,6 +531,8 @@ def optimize_schedule(
                 ics=ics,
                 leth_banked=leth_banked,
                 danger_banked_h=danger_banked_h,
+                leth_banked_core=leth_banked_core,
+                danger_banked_core_h=danger_banked_core_h,
                 t_wrap_override=t_wrap_override,
                 t_pull=t_pull,
                 rest=rest,

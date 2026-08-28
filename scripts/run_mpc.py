@@ -460,11 +460,10 @@ def main():
             + (f"  pull {tp / HR:.2f} h" if tp is not None else "")
         )
         print(f"    components: {jj}")
-        sr = safety_report(r["tsurf"], r["t"], cc)
+        sr = safety_report(r["tsurf"], r["tcore"], r["t"], cc)
         print(
-            f"    safety (surface, intact-muscle): "
-            f"F={sr['F_s']:.1f}s ok={sr['lethality_ok']}  "
-            f"dwell={sr['danger_h']:.2f}h ok={sr['dwell_ok']}"
+            f"    safety: surface F={sr['F_s']:.3g}s dwell={sr['danger_h']:.2f}h; "
+            f"core F={sr['F_core']:.3g}s dwell={sr['danger_h_core']:.2f}h; ok={sr['ok']}"
         )
 
     out = REPO / "data" / "control"

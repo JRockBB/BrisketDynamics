@@ -39,9 +39,14 @@ CC = ControlConfig(opt_wrap=True)
 def records_from_json(d: dict) -> tuple[list, dict]:
     """Rebuild the scan records and the chosen cook from fullplan_result.json."""
     records = [
-        {"t_f_h": tf, "j_quality": j, "t_wrap_h": tw, "t_pull_h": tp}
-        for tf, j, tw, tp in zip(
-            d["durations_h"], d["j_quality"], d["t_wrap_h"], d["t_pull_h"], strict=True
+        {"t_f_h": tf, "j_quality": j, "t_wrap_h": tw, "t_pull_h": tp, "safety_ok": ok}
+        for tf, j, tw, tp, ok in zip(
+            d["durations_h"],
+            d["j_quality"],
+            d["t_wrap_h"],
+            d["t_pull_h"],
+            d.get("safety_ok", [True] * len(d["durations_h"])),
+            strict=True,
         )
     ]
     best = {
@@ -134,6 +139,9 @@ def main():
                     "w_retained": [r["w_retained"] for r in records],
                     "juiciness": [r["juiciness"] for r in records],
                     "l_star_end": [r["l_star_end"] for r in records],
+                    "safety_ok": [bool(r["safety_ok"]) for r in records],
+                    "F_core": [r["F_core"] for r in records],
+                    "danger_h_core": [r["danger_h_core"] for r in records],
                     "best_t_f_h": best["t_f_h"],
                     "best_t_wrap_h": best["t_wrap_h"],
                     "best_t_pull_h": best["t_pull_h"],
@@ -166,11 +174,11 @@ def main():
         f"{t_pull_h:.2f} h, rest {cook_h - t_pull_h:.2f} h, serve at {cook_h:.1f} h "
         f"— doneness {doneness:.3f}, juiciness {juiciness:.3f}, bark L* {l_end:.1f}"
     )
-    sr = safety_report(sim["tsurf"], best["grids"].tknots, CC)
+    sr = safety_report(sim["tsurf"], sim["tcore"], best["grids"].tknots, CC)
     print(
-        f"safety (surface, intact-muscle assumption): "
-        f"F={sr['F_s']:.1f}s (ok={sr['lethality_ok']})  "
-        f"dwell={sr['danger_h']:.2f}h (ok={sr['dwell_ok']})"
+        f"safety (soft penalties, not a certification): surface F={sr['F_s']:.3g}s "
+        f"dwell={sr['danger_h']:.2f}h; core F={sr['F_core']:.3g}s "
+        f"dwell={sr['danger_h_core']:.2f}h; ok={sr['ok']}"
     )
     th = np.asarray(best["grids"].tknots) / HR
 

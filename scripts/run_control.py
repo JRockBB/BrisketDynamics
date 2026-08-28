@@ -86,11 +86,11 @@ def main():
         f"optimized: core doneness {c1:.3f}, J {hist['losses'][0]:.2f} -> "
         f"{hist.get('best_loss', hist['losses'][-1]):.2f} in {hist['wall_s']:.0f} s"
     )
-    sr = safety_report(after["tsurf"], grids.tknots, cc)
+    sr = safety_report(after["tsurf"], after["tcore"], grids.tknots, cc)
     print(
-        f"safety (surface, intact-muscle assumption): "
-        f"F={sr['F_s']:.1f}s (ok={sr['lethality_ok']})  "
-        f"dwell={sr['danger_h']:.2f}h (ok={sr['dwell_ok']})"
+        f"safety (soft penalties, not a certification): surface F={sr['F_s']:.3g}s "
+        f"dwell={sr['danger_h']:.2f}h; core F={sr['F_core']:.3g}s "
+        f"dwell={sr['danger_h_core']:.2f}h; ok={sr['ok']}"
     )
 
     out_dir = REPO / "data" / "control"

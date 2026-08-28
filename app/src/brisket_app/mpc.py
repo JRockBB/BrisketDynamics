@@ -22,7 +22,12 @@ from dataclasses import dataclass, replace
 import jax.numpy as jnp
 import numpy as np
 
-from .control import ControlConfig, optimize_schedule
+from .control import (
+    ControlConfig,
+    lethality_dwell,
+    optimize_schedule,
+    safety_penalty,
+)
 from .coupled import HR, CookGrids, coupled_cook
 
 
@@ -46,8 +51,10 @@ class CookState:
     t0_meat: float = 281.15
     bark_b0: float = float("nan")  # NaN = fresh (0)
     bark_s0: float = float("nan")
-    leth_f: float = 0.0  # banked lethality [60C-equivalent s] of executed cook
-    danger_h: float = 0.0  # banked danger-zone dwell [h] of executed cook
+    leth_f: float = 0.0  # banked surface lethality [60C-equivalent s] of executed cook
+    danger_h: float = 0.0  # banked surface danger-zone dwell [h] of executed cook
+    leth_f_core: float = 0.0  # the same two on the core node (cold spot)
+    danger_h_core: float = 0.0
 
     @classmethod
     def fresh(cls, tpit0=293.15, m0=7.0, a0=1.0, t0_meat=281.15):
@@ -130,6 +137,8 @@ def advance_plant(
         # owns the ControlConfig and therefore the correct constants
         leth_f=state.leth_f,
         danger_h=state.danger_h,
+        leth_f_core=state.leth_f_core,
+        danger_h_core=state.danger_h_core,
     )
     return new, {
         k: np.asarray(sim[k]) for k in ("tpit", "tcore", "tsurf", "m_fuel", "ignited")
@@ -217,14 +226,10 @@ def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
     surf_over = sp((tsurf - cc.t_surf_max) / cc.dT_soft)
     fuel_frac = out.get("fuel_frac", 0.0)
 
-    F = np.trapezoid(10.0 ** ((tsurf - cc.leth_t_ref) / cc.leth_z), t)
-    leth = (
-        cc.w_lethality * sp((np.log10(cc.leth_f_req) - np.log10(F + 1e-9)) / 0.2) ** 2
+    tcore = np.asarray(out["tcore"])
+    safety = safety_penalty(*lethality_dwell(tsurf, t, cc), cc) + safety_penalty(
+        *lethality_dwell(tcore, t, cc), cc
     )
-    in_zone = 1.0 / (1.0 + np.exp(-(tsurf - cc.t_danger_lo) / 2.0))
-    in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - tsurf) / 2.0))
-    danger_h = np.trapezoid(in_zone, t / 3600.0)
-    dwell = cc.w_dwell * sp((danger_h - cc.danger_cap_h) / 0.5) ** 2
 
     # smoothness over the executed per-segment means (hourly steps)
     u_pit = u[in_pit]
@@ -238,7 +243,7 @@ def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
         "surf": cc.w_surf * float(np.mean(surf_over[in_pit] ** 2)),
         "fuel": cc.w_fuel * float(fuel_frac),
         "smooth": smooth,
-        "safety": float(leth + dwell),
+        "safety": float(safety),
     }
     comp["J"] = sum(comp.values())
     return comp
@@ -295,6 +300,8 @@ def plan(
         z_w_pin=z_w_pin,
         leth_banked=state.leth_f,
         danger_banked_h=state.danger_h,
+        leth_banked_core=state.leth_f_core,
+        danger_banked_core_h=state.danger_h_core,
         t_wrap_override=t_wrap_override,
         t_pull=t_pull,
         rest=rest,
@@ -405,13 +412,12 @@ def run_cook(
         # here would silently disagree with a customized ControlConfig)
         nseg_t = len(seg_traj["tpit"])
         tseg = np.linspace(0.0, dt_seg, nseg_t)
-        ts_seg = np.asarray(seg_traj["tsurf"])
-        state.leth_f += float(
-            np.trapezoid(10.0 ** ((ts_seg - cc.leth_t_ref) / cc.leth_z), tseg)
-        )
-        in_zone = 1.0 / (1.0 + np.exp(-(ts_seg - cc.t_danger_lo) / 2.0))
-        in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - ts_seg) / 2.0))
-        state.danger_h += float(np.trapezoid(in_zone, tseg / 3600.0))
+        F_s, d_s = lethality_dwell(np.asarray(seg_traj["tsurf"]), tseg, cc)
+        F_c, d_c = lethality_dwell(np.asarray(seg_traj["tcore"]), tseg, cc)
+        state.leth_f += float(F_s)
+        state.danger_h += float(d_s)
+        state.leth_f_core += float(F_c)
+        state.danger_h_core += float(d_c)
         traj["t"].extend((t_seg_start + tseg).tolist())
         for k in ("tpit", "tcore", "tsurf"):
             traj[k].extend(seg_traj[k].tolist())

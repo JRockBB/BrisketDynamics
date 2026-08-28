@@ -68,6 +68,12 @@ def test_cumulative_safety_banking(clients, theta_phi):
     # segment joints
     assert st.leth_f == pytest.approx(leth_ref, rel=0.05)
     assert st.danger_h == pytest.approx(danger_ref, rel=0.05)
+    # the cold spot is banked the same way and is the slower of the two
+    tc = np.asarray(out["tcore"])
+    leth_core_ref = float(np.trapezoid(10.0 ** ((tc - cc.leth_t_ref) / cc.leth_z), t))
+    assert st.leth_f_core == pytest.approx(leth_core_ref, rel=0.05)
+    assert st.leth_f_core <= st.leth_f
+    assert st.danger_h_core >= st.danger_h
 
 
 def test_custom_safety_constants_reach_banking(clients, theta_phi):
