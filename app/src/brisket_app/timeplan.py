@@ -118,6 +118,8 @@ def plan_duration(
         juicy = float(np.asarray(sim["juiciness"]))
         l_end = float(np.asarray(sim["l_star"])[-1])
         safety = safety_report(sim["tsurf"], sim["tcore"], grids.tknots, cc)
+        # smoke ring in physical millimetres: material depth × final stretch
+        ring_mm = 1e3 * float(sim["ring"]) * float(sim["l_thick"][-1]) / float(theta[3])
         records.append(
             {
                 "t_f_h": float(th_f),
@@ -133,6 +135,7 @@ def plan_duration(
                 "t_pull": float(t_pull),
                 "t_pull_h": float(t_pull / HR) if t_pull < 1.0e8 else None,
                 "rest": rest,
+                "ring_mm": ring_mm,
                 "safety_ok": safety["ok"],
                 "F_core": safety["F_core"],
                 "danger_h_core": safety["danger_h_core"],
@@ -142,7 +145,7 @@ def plan_duration(
             f"  cook {th_f:4.1f} h  "
             f"J={records[-1]['j_quality']:7.3f}  "
             f"doneness={c_end:.3f}  juiciness={juicy:.3f}  "
-            f"(water {w_ret:.3f})  L*={l_end:.1f}"
+            f"(water {w_ret:.3f})  L*={l_end:.1f}  ring={ring_mm:.1f}mm"
             + (f"  wrap@{t_wrap / HR:.2f} h" if cc.opt_wrap else "")
             + (f"  pull@{t_pull / HR:.2f} h" if t_pull < 1.0e8 else "")
             + f"  iters={hist.get('n_iter_run', len(hist['losses']))}"

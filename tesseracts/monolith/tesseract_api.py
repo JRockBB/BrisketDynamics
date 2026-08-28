@@ -79,13 +79,14 @@ def _init():
     jl.seval(
         """
         function _mono_kw(abstol, reltol, tpit0, t_amb, m0, t0, T0f, W0f, C0f, F0f,
-                          b0, s0, rest_t, rest_h, rest_eps, rest_eta, n_shrink,
+                          b0, s0, r0, rest_t, rest_h, rest_eps, rest_eta, n_shrink,
                           afr, y_w, pan, omega)
             cfg = MeatConfig(T0=t0, T_rest=rest_t, h_rest=rest_h, ε_rest=rest_eps,
                              η_rest=rest_eta, n_shrink=n_shrink)
             pit = PitConfig(T_amb=t_amb, Tpit0=tpit0, m0=m0)
             hum = Humidity(afr=afr, y_w=y_w, pan_kg_s=pan, omega_amb=omega)
-            return (; cfg, pit, hum, abstol, reltol, T0f, W0f, C0f, F0f, B0=b0, S0=s0)
+            return (; cfg, pit, hum, abstol, reltol, T0f, W0f, C0f, F0f, B0=b0, S0=s0,
+                    R0=r0)
         end
         function _mono_apply(θ, φ, u, utk, tsave, t_wrap, t_pull, kwargs...)
             kw = _mono_kw(kwargs...)
@@ -94,7 +95,7 @@ def _init():
                     o.q_meat, o.C_field_final, o.w_retained, o.bark_b, o.bark_s,
                     o.l_star, o.juiciness, o.fat_rendered, o.l_thick, o.pv_pit,
                     o.pv_base, o.evap_w, o.drip_w, o.drip_f, o.T_field[:, end],
-                    o.W_field[:, end], o.F_field[:, end])
+                    o.W_field[:, end], o.F_field[:, end], o.ring[end])
         end
         function _mono_jac(θ, φ, u, utk, tsave, t_wrap, t_pull, sel, kwargs...)
             kw = _mono_kw(kwargs...)
@@ -116,7 +117,7 @@ with filelock.FileLock(
     _on_julia_thread(_init)
 
 NX = 40  # spatial nodes (MeatConfig default)
-N_THETA, N_PHI = 7, 7
+N_THETA, N_PHI = 8, 7
 # the stacked differentiable outputs, in monolith_stack order
 STACK_SERIES = (
     "tpit",
@@ -192,6 +193,10 @@ class InputSchema(BaseModel):
     )
     bark_s0: Float64 = Field(
         default=float("nan"), description="Initial bark S (NaN = 0)"
+    )
+    ring0: Float64 = Field(
+        default=float("nan"),
+        description="Initial smoke-ring depth, material coordinate [m] (NaN = 0)",
     )
     rest_t: float = Field(
         default=293.15, description="Rest environment temperature [K]"
@@ -271,6 +276,10 @@ class OutputSchema(BaseModel):
     f_field_final: Array[(NX,), Float64] = Field(
         description="Final fat field (handoff)"
     )
+    ring: Array[(), Float64] = Field(
+        description="Final smoke-ring depth, material coordinate [m] (handoff; "
+        "× l_thick[-1]/L for the physical depth)"
+    )
 
 
 SOFT_FAIL = os.environ.get("BRISKET_SOFT_FAIL", "0") == "1"
@@ -340,6 +349,7 @@ def _packed(inputs: InputSchema):
         _own(inputs.f_field0),
         float(inputs.bark_b0),
         float(inputs.bark_s0),
+        float(inputs.ring0),
         float(inputs.rest_t),
         float(inputs.rest_h),
         float(inputs.rest_eps),
@@ -427,6 +437,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
             np.full(NX, _SENTINEL_T),
             zx,
             zx,
+            0.0,
         ]
     keys = (
         "tpit",
@@ -453,6 +464,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
         "t_field_final",
         "w_field_final",
         "f_field_final",
+        "ring",
     )
     return OutputSchema(**dict(zip(keys, vals, strict=True)))
 
@@ -472,6 +484,7 @@ def abstract_eval(abstract_inputs):
     out.update(
         {"t_field_final": vec(NX), "w_field_final": vec(NX), "f_field_final": vec(NX)}
     )
+    out["ring"] = sc
     return out
 
 

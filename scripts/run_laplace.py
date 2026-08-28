@@ -2,7 +2,7 @@
 
 The Hessian of the potential in numpyro's unconstrained space, by
 `jax.hessian` of a surrogate model whose μ is the Tesseract's tangent model
-μ₀ + J (x − x₀) at the MAP: the 14 × 14 physics block is the Gauss-Newton
+μ₀ + J (x − x₀) at the MAP: the 15 × 15 physics block is the Gauss-Newton
 curvature Jᵀ Σ⁻¹ J + prior (the solve's second derivatives dropped), the
 noise block and the physics × noise cross block are exact, and numpyro
 applies the constrained→unconstrained chain rule. No finite differences.
@@ -31,7 +31,7 @@ from brisket_app import calibrate, cooklog
 from brisket_app.calibrate import phi_full
 from brisket_app.clients import monolith_client
 from brisket_app.coupled import CookGrids
-from brisket_app.monolith import ALL_NAMES_SORTED, NAMES, model_mean
+from brisket_app.monolith import ALL_NAMES_SORTED, N_THETA, NAMES, model_mean
 from brisket_app.plots import corner_plot, posterior_predictive_plot
 from jax.flatten_util import ravel_pytree
 from numpyro.distributions import biject_to
@@ -80,7 +80,7 @@ def main():
         for k, v in json.loads((cal / args.init_json).read_text()).items()
         if not k.startswith("_")
     }
-    x0 = np.concatenate([[init[k] for k in NAMES[:7]], phi_full(init)])
+    x0 = np.concatenate([[init[k] for k in NAMES[:N_THETA]], phi_full(init)])
 
     t0 = time.perf_counter()
     mu0, J = model_mean(x0, log)

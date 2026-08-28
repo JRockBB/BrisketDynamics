@@ -202,9 +202,11 @@ end
         F0f=seg1.F_field[:, end],
         B0=seg1.bark_b[end],
         S0=seg1.bark_s[end],
+        R0=seg1.ring[end],
     )
 
     @test abs(seg2.Tcore[end] - whole.Tcore[end]) < 0.05        # K
+    @test abs(seg2.ring[end] - whole.ring[end]) < 1e-4          # m
     @test abs(seg2.w_retained - whole.w_retained) < 1e-3
     @test abs(seg2.fat_rendered - whole.fat_rendered) < 1e-3
     @test abs(seg2.juiciness - whole.juiciness) < 2e-3
@@ -456,4 +458,52 @@ end
     # and it is a transient: once the surface passes the dew point the pit
     # dries it again
     @test humid.j_evap[end] > 0
+end
+
+@testset "draft convection h_c(u), k_m(u)" begin
+    θ = MEAT_θ_DEFAULT
+    cfg = MeatConfig()
+    hr = 3600.0
+    tk = collect(0.0:600.0:6hr)
+    n = length(tk)
+    Tpit = fill(383.15, n)
+    # the reference airflow reproduces the unscaled coefficients exactly
+    ref = meat_solve(θ, Tpit, tk, tk)
+    at_ref = meat_solve(θ, Tpit, tk, tk; airflow_knots=fill(cfg.g_ref, n))
+    @test ref.Tsurf == at_ref.Tsurf
+    # more draft: stronger convection heats the surface faster and dries it more
+    open = meat_solve(θ, Tpit, tk, tk; airflow_knots=fill(1.0, n))
+    closed = meat_solve(θ, Tpit, tk, tk; airflow_knots=fill(0.25, n))
+    i1 = findfirst(t -> t >= 1hr, tk)
+    @test open.Tsurf[i1] > closed.Tsurf[i1]
+    @test sum(open.j_evap) > sum(closed.j_evap)
+    # m_conv = 0 switches the dependence off
+    θ0 = copy(θ)
+    θ0[8] = 0.0
+    a = meat_solve(θ0, Tpit, tk, tk; airflow_knots=fill(1.0, n))
+    b = meat_solve(θ0, Tpit, tk, tk; airflow_knots=fill(0.25, n))
+    @test a.Tsurf == b.Tsurf
+end
+
+@testset "smoke ring (NO penetration front)" begin
+    θ = MEAT_θ_DEFAULT
+    cfg = MeatConfig()
+    hr = 3600.0
+    tk = collect(0.0:600.0:8hr)
+    n = length(tk)
+    Tpit = fill(383.15, n)
+    lit = fill(1.2e-4, n)
+    out = meat_solve(θ, Tpit, tk, tk; smoke_knots=lit)
+    r = out.ring
+    @test r[1] == 0.0 && all(diff(r) .>= -1e-12)          # monotone growth from zero
+    @test 1e-3 < r[end] < 1.5e-2                          # millimetres, not metres
+    # the front stalls once the meat at its depth passes the denaturation gate
+    i4, i8 = findfirst(t -> t >= 4hr, tk), n
+    @test r[i8] - r[i4] < 0.1 * r[i4]
+    # no fire, foil from the start, or a wrapped cook: no ring
+    @test all(meat_solve(θ, Tpit, tk, tk).ring .== 0.0)
+    @test maximum(meat_solve(θ, Tpit, tk, tk; smoke_knots=lit, t_wrap=-6hr).ring) < 1e-4
+    # the surface must be wet for uptake: a dried-out surface stops it
+    cfg_dry = MeatConfig(; a_dry=1.5)  # the wet switch never opens
+    @test maximum(meat_solve(θ, Tpit, tk, tk; cfg=cfg_dry, smoke_knots=lit).ring) < 1e-4
 end

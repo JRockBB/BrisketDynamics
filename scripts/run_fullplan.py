@@ -139,6 +139,7 @@ def main():
                     "w_retained": [r["w_retained"] for r in records],
                     "juiciness": [r["juiciness"] for r in records],
                     "l_star_end": [r["l_star_end"] for r in records],
+                    "ring_mm": [r["ring_mm"] for r in records],
                     "safety_ok": [bool(r["safety_ok"]) for r in records],
                     "F_core": [r["F_core"] for r in records],
                     "danger_h_core": [r["danger_h_core"] for r in records],
@@ -172,7 +173,8 @@ def main():
     print(
         f"THE COOK: {cook_h:.0f} h — wrap at {t_wrap_h:.2f} h, pull at "
         f"{t_pull_h:.2f} h, rest {cook_h - t_pull_h:.2f} h, serve at {cook_h:.1f} h "
-        f"— doneness {doneness:.3f}, juiciness {juiciness:.3f}, bark L* {l_end:.1f}"
+        f"— doneness {doneness:.3f}, juiciness {juiciness:.3f}, bark L* {l_end:.1f}, "
+        f"smoke ring {1e3 * float(sim['ring']) * float(sim['l_thick'][-1]) / float(theta[3]):.1f} mm"
     )
     sr = safety_report(sim["tsurf"], sim["tcore"], best["grids"].tknots, CC)
     print(

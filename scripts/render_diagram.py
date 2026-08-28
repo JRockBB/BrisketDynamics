@@ -183,7 +183,7 @@ ax.text(
 )
 box(0.2, 0.25, 8.7, 2.1, FILL_JL, GREEN, "", [])
 centered(
-    4.55, 2.15, "monolith_solve — one stiff FBDF solve of 165 ODEs", 10.5, bold=True
+    4.55, 2.15, "monolith_solve — one stiff FBDF solve of 166 ODEs", 10.5, bold=True
 )
 centered(
     4.55,

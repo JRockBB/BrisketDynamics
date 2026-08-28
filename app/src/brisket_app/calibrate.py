@@ -49,6 +49,11 @@ THETA_SITES = [
     # sigma so W_eq stays positive with the fixed actin amplitude.
     ("k_e", dist.LogNormal(np.log(5.6e-4), 0.5)),
     ("a_myosin", dist.LogNormal(np.log(0.20), 0.4)),
+    # draft exponent: h_c, k_m ∝ (g/g_ref)^m_conv. Forced convection over a
+    # slab runs 0.5 (laminar) to 0.8 (turbulent); the closed-loop log's fan
+    # duty varies through the night, so the data has some say, expect a
+    # ridge with h_c.
+    ("m_conv", dist.Beta(6.0, 4.0)),
 ]
 PHI_SITES = [
     ("C_th", dist.LogNormal(np.log(15e3), 0.5)),
@@ -310,7 +315,7 @@ def model_real(
 def model_real_linear(obs_pit, obs_core, pit_runs, core_runs, mu0, jac, x0):
     """`model_real` with the solve replaced by its tangent model at x₀.
 
-    μ̂(x) = μ₀ + J (x − x₀) over the 14 physics latents x = (theta, phi),
+    μ̂(x) = μ₀ + J (x − x₀) over the 15 physics latents x = (theta, phi),
     J from the Tesseract's ``jacobian``. Same sample sites and likelihood
     as `model_real`, so `jax.hessian` of this model's potential at x₀ is
     the Gauss-Newton Hessian of `model_real`'s: the physics block drops the

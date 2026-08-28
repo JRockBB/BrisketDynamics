@@ -1,7 +1,7 @@
 """Gauss-Newton / Fisher machinery for the real cook on the monolith Tesseract.
 
 `model_mean` returns the pit and core trajectories on the cook-log grid and
-their Jacobian w.r.t. the 14 physics latents through the Tesseract's
+their Jacobian w.r.t. the 15 physics latents through the Tesseract's
 ``apply`` and ``jacobian`` endpoints (one coupled solve, forward mode);
 `Whitened` turns the masked AR(1) likelihood into a least-squares residual so
 Levenberg-Marquardt and the Fisher information apply directly. Parameters
@@ -27,9 +27,10 @@ from .clients import monolith_client
 
 SITES = (
     THETA_SITES + PHI_SITES + PHI_SITES_IGNITION
-)  # monolith order, 14 physics latents
+)  # monolith order, 15 physics latents
 NAMES = [n for n, _ in SITES]
 N_PHYS = len(SITES)
+N_THETA = len(THETA_SITES)
 T_AMB = 300.0
 NOISE_NAMES = ["sigma_pit", "sigma_core", "rho_pit", "rho_core"]
 # numpyro flattens the unconstrained params dict in sorted-key order
@@ -39,8 +40,8 @@ ALL_NAMES_SORTED = sorted(NAMES + NOISE_NAMES)
 def _inputs(x, log: dict) -> dict:
     x = np.asarray(x, dtype=float)
     return {
-        "theta": x[:7],
-        "phi": x[7:],
+        "theta": x[:N_THETA],
+        "phi": x[N_THETA:],
         "u_knots": np.asarray(log["u"], dtype=float),
         "u_tknots": np.asarray(log["t"], dtype=float),
         "tsave": np.asarray(log["t"], dtype=float),
@@ -262,7 +263,7 @@ def levenberg_marquardt(
 def fisher_inverse_mass(x_map, log: dict, noise: dict, hess_npz=None) -> np.ndarray:
     """Dense inverse mass matrix from the Fisher information at the MAP.
 
-    The 14 physics coordinates get the Gauss-Newton covariance
+    The 15 physics coordinates get the Gauss-Newton covariance
     (Jᵀ Σ⁻¹ J + prior curvature)⁻¹ in the unconstrained space — ridge widths
     included, no eigenvalue floor; the 4 noise coordinates get the
     noise block of run_laplace.py's Gauss-Newton Hessian (exact in the

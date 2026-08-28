@@ -9,7 +9,7 @@ Tesseract path (`meat_rhs_core!`), so the two pipelines integrate the same
 physics and differ only in how the coupling is closed.
 
 State `x = [T(nx) | W(nx) | C(nx) | F(nx) | B | S | T_pit | m_fuel | ignited]`,
-parameters `p = [θ(7) | φ(7) | u_knots | t_wrap | t_pull]`.
+parameters `p = [θ(8) | φ(7) | u_knots | t_wrap | t_pull]`.
 
 ```julia
 out = monolith_solve(θ, φ, u_knots, u_tknots, tsave; pit=PitConfig(T_amb=300.0))
@@ -26,7 +26,7 @@ trajectory and `pv_base`; it accepts ForwardDiff duals, which is what
 | | wall |
 |---|---|
 | monolith forward solve | 0.045 s |
-| monolith Jacobian, 230 × 14, forward mode | 2.5 s |
+| monolith Jacobian, 230 × 15, forward mode | 2.5 s |
 | Picard K=2 (pit + meat, twice) | 0.32 s |
 | continuous adjoint gradient of the same residuals (Tesseract path, measured 2026-08-27) | ~50 s |
 
@@ -61,7 +61,7 @@ shared stencil.
 
 ## Gauss–Newton MAP and Fisher covariance (`scripts/run_gn_map.py`)
 
-Levenberg–Marquardt over the 14 physics latents in the unconstrained
+Levenberg–Marquardt over the 15 physics latents in the unconstrained
 space, noise parameters fixed at the previous MAP's values, whitened AR(1)
 residuals (222 of them) from the forward Jacobian. Cold start at the prior
 medians:

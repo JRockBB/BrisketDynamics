@@ -1,7 +1,7 @@
 """NUTS on the monolith: one chain per process, checkpointed every step.
 
 The model is `calibrate.model_real` on the monolith Tesseract; every
-leapfrog step costs one forward-mode Jacobian over the 14 physics latents
+leapfrog step costs one forward-mode Jacobian over the 15 physics latents
 (~2.5 s on the real-cook grid). Initialised at the Gauss-Newton MAP, dense
 mass matrix seeded from the Fisher covariance (noise block from
 run_laplace.py's Hessian) and adapted during warmup.
@@ -34,6 +34,7 @@ from brisket_app.calibrate import phi_full
 from brisket_app.clients import monolith_client
 from brisket_app.monolith import (
     ALL_NAMES_SORTED,
+    N_THETA,
     NAMES,
     NOISE_NAMES,
     fisher_inverse_mass,
@@ -108,8 +109,8 @@ def main():
     noise = json.loads((cal / args.init_noise).read_text())
     init = {n: float(gn["x"][n]) for n in NAMES} if "x" in gn else {}
     if not init:  # a plain MAP json
-        init = {n: float(gn[n]) for n in NAMES[:7]}
-        init.update(dict(zip(NAMES[7:], phi_full(gn), strict=True)))
+        init = {n: float(gn[n]) for n in NAMES[:N_THETA]}
+        init.update(dict(zip(NAMES[N_THETA:], phi_full(gn), strict=True)))
     init.update({n: float(noise[n]) for n in NOISE_NAMES})
 
     log = cooklog.load(dt_min=10.0)

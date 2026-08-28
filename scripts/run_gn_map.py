@@ -1,6 +1,6 @@
 """Gauss-Newton MAP + Fisher covariance on the real cook from the monolith.
 
-Levenberg-Marquardt over the 14 physics latents in the unconstrained space,
+Levenberg-Marquardt over the 15 physics latents in the unconstrained space,
 noise parameters (σ, ρ) fixed at the previous MAP's values, from a cold start
 at the prior medians; then the Fisher information (Jᵀ Σ⁻¹ J + prior
 curvature) at the optimum.
@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 from brisket_app import cooklog
 from brisket_app.calibrate import phi_full
 from brisket_app.monolith import (
+    N_THETA,
     NAMES,
     NOISE_NAMES,
     SITES,
@@ -75,7 +76,7 @@ def main():
     )
 
     if args.warm:
-        z0 = to_z(np.concatenate([[m[n] for n in NAMES[:7]], phi_full(m)]))
+        z0 = to_z(np.concatenate([[m[n] for n in NAMES[:N_THETA]], phi_full(m)]))
     else:
         z0 = prior_median_z()
     print(

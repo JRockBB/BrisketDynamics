@@ -7,7 +7,7 @@ conditioning pitfalls we hit (which are themselves informative).
 ## Level 1 — Julia derivatives vs FD (`test/test_monolith.jl`)
 
 The monolith is differentiated in forward mode (ForwardDiff through the
-FBDF solve): `monolith_jacobian` (residual Jacobian over the 14 physics
+FBDF solve): `monolith_jacobian` (residual Jacobian over the 15 physics
 latents) and `monolith_stack_jacobian` / `monolith_stack_jvp` (the
 Tesseract's `jacobian` / `jacobian_vector_product` endpoints over the
 stacked outputs w.r.t. θ, φ, the damper knots, the wrap and the pull).

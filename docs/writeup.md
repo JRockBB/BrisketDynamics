@@ -26,18 +26,18 @@ physics: the lumped charcoal pit (energy balance, fuel burn with a smooth
 burnout taper, Minion-method ignition spread), the 1D slab heat–moisture PDE of
 the brisket (denaturation-driven water expulsion, fat rendering, collagen
 kinetics, Maillard and smoke-deposition bark states), and the quasi-steady pit
-humidity balance, integrated together as a 165-ODE stiff system (method of
+humidity balance, integrated together as a 166-ODE stiff system (method of
 lines, FBDF). Its inputs are the meat and pit parameters, the damper schedule,
 the wrap and pull times, initial conditions (including the full meat field
 for state handoff) and the rest-environment constants; its outputs are the
 trajectories and the terminal quality vector.
 
 **How it differentiates.** Forward mode through the solve (ForwardDiff): the
-parameter count is small (14 physics latents, ~27 control knots) and the
+parameter count is small (15 physics latents, ~27 control knots) and the
 forward solve is ~0.05 s, so
 - `jacobian_vector_product` is one Dual solve,
 - `vector_jacobian_product` and `jacobian` are one chunked pass over the
-  requested inputs (a 230 × 14 residual Jacobian in 2.5 s; a 27-column
+  requested inputs (a 230 × 15 residual Jacobian in 2.5 s; a 27-column
   control Jacobian in ~2 s at an 8 h horizon).
 
 tesseract-jax consumes all three, so JAX has reverse *and* forward mode
@@ -107,7 +107,7 @@ control input; lid events are masked. The fit tracks the pit hold within
 stall break, the climb to 90 °C (core rms 3.3 K).
 
 - **Gauss–Newton MAP** (`scripts/run_gn_map.py`): Levenberg–Marquardt over
-  the 14 physics latents in numpyro's unconstrained space on the whitened
+  the 15 physics latents in numpyro's unconstrained space on the whitened
   AR(1) residuals, from a cold start at the prior medians: F = 5412 → 132.0
   in 13 iterations, **130 s**. The Adam-plus-adjoint MAP that took hours
   scores 136.03 under the same objective with ‖∇F‖ = 40 — the LM optimum is

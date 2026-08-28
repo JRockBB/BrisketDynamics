@@ -11,17 +11,11 @@ Shrinkage, rest / carryover and pit humidity are modelled
 
 ## Tier 2 — corrupts specific claims
 
-Food safety on the cold spot and condensation are modelled; their residues
-are under *Limitations* below.
-
-5. **\(h_c\) independent of damper.** Airflow changes convection, not just
-   pit temperature. Control authority is thermally mediated only.
-   Needs the open-loop characterization burn to identify an `h_c(u)` map.
+Food safety on the cold spot, condensation, draft convection and the
+smoke ring are modelled; their residues are under *Limitations* below.
 
 6. **Point vs flat.** Homogeneous slab. Two muscles, different
    fat/thickness, burnt ends, and slice variance are unmodeled.
-
-8. **No smoke ring.** NO/myoglobin chemistry is unmodeled.
 
 9. **No 3D / edges.** Edges cook faster; burnt ends exist.
 
@@ -47,6 +41,16 @@ or uncalibrated:
   coefficient both ways and the condensate absorbed into the surface
   node's water (no film, no run-off); it acts through the dew-point
   crossing in the first half hour, which no probe in the cook log sees.
+- **Draft convection.** One exponent for heat and mass transfer, the
+  same at every damper position, quoted at a fixed reference draft; the
+  draft velocity itself is never measured, so \(m_{\mathrm{conv}}\) is
+  identified only through the fan-duty variation of a closed-loop log
+  and sits on a ridge with \(h_c\). The open-loop characterization burn
+  would pin it.
+- **Smoke ring.** A penetration-depth model, not the chemistry: one
+  effective diffusivity, a denaturation gate at 62 °C, "lit" as the whole
+  dependence on the fire, and constants at literature scale with no ring
+  measurement behind them. An output, never a term in the objective.
 - **Purge sink.** Softplus still removes \(\sim k_e \delta_e \ln 2\) water
   at \(W = W_{\mathrm{eq}}\). Calibrated \(k_e\) absorbs the offset.
 - **Shrinkage.** Isotropic (`n_shrink = 1/3`); the anisotropy is a config

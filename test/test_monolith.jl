@@ -28,9 +28,9 @@ const MONO_PIT = PitConfig(; T_amb=300.0)
     end
     @info "monolith vs Picard(K): max|ΔT_pit|, max|ΔT_core| [K]" d[1] d[2] d[4] d[8]
     @test d[8][1] < d[2][1]
-    @test d[8][2] < d[2][2]
+    @test d[8][2] < d[1][2]  # the core sits on the interpolation floor by K = 2
     @test d[8][1] < 2.0
-    @test d[8][2] < 2.0
+    @test d[8][2] < 0.5
 
     # cost: one coupled solve vs the two-pass exchange (both warm)
     t_mono = @elapsed monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
@@ -42,17 +42,17 @@ end
     θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
     f = o -> vcat(o.Tpit, o.Tcore)
     t_j = @elapsed J = monolith_jacobian(f, θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
-    @test size(J) == (2 * length(MONO_TSAVE), 14)
+    @test size(J) == (2 * length(MONO_TSAVE), 15)
     @test all(isfinite, J)
     @info "wall: 14-column forward Jacobian $(round(t_j; digits=2)) s (incl. compile)"
     x = vcat(θ, φ)
-    for (j, name) in ((1, "D_eff"), (3, "h_c"), (9, "UA"), (12, "u_leak"))
+    for (j, name) in ((1, "D_eff"), (3, "h_c"), (8, "m_conv"), (10, "UA"), (13, "u_leak"))
         h = 1e-3 * abs(x[j])
         xp, xm = copy(x), copy(x)
         xp[j] += h
         xm[j] -= h
-        fp = f(monolith_solve(xp[1:7], xp[8:14], MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT))
-        fm = f(monolith_solve(xm[1:7], xm[8:14], MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT))
+        fp = f(monolith_solve(xp[1:8], xp[9:15], MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT))
+        fm = f(monolith_solve(xm[1:8], xm[9:15], MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT))
         fd = (fp .- fm) ./ (2h)
         err = maximum(abs.(J[:, j] .- fd)) / (maximum(abs.(fd)) + 1e-12)
         @info "FD gate $name: relative error $(round(err; sigdigits=3))"
@@ -65,12 +65,12 @@ end
     θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
     nu = length(MONO_U)
     tw, tp = 3 * 3600.0, 7 * 3600.0
-    sel = [1, 9, 15, 14 + nu + 1, 14 + nu + 2]  # D_eff, UA, u_knots[1], t_wrap, t_pull
+    sel = [1, 10, 16, 15 + nu + 1, 15 + nu + 2]  # D_eff, UA, u_knots[1], t_wrap, t_pull
     J = monolith_stack_jacobian(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, tw, tp, sel; pit=MONO_PIT)
     o = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp)
     @test size(J) == (length(monolith_stack(o)), length(sel))
     @test all(isfinite, J)
-    dv = zeros(14 + nu + 2)
+    dv = zeros(15 + nu + 2)
     dv[sel] .= [1e-9, 2.0, 0.1, 600.0, 600.0]
     d = monolith_stack_jvp(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, tw, tp, dv; pit=MONO_PIT)
     ref = J * dv[sel]

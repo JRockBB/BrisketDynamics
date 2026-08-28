@@ -51,6 +51,7 @@ class CookState:
     t0_meat: float = 281.15
     bark_b0: float = float("nan")  # NaN = fresh (0)
     bark_s0: float = float("nan")
+    ring0: float = float("nan")  # smoke-ring depth, material coordinate [m]
     leth_f: float = 0.0  # banked surface lethality [60C-equivalent s] of executed cook
     danger_h: float = 0.0  # banked surface danger-zone dwell [h] of executed cook
     leth_f_core: float = 0.0  # the same two on the core node (cold spot)
@@ -75,6 +76,7 @@ def _ics(state: CookState, t_amb: float) -> dict:
         "f_field0": state.f_field0,
         "bark_b0": state.bark_b0,
         "bark_s0": state.bark_s0,
+        "ring0": state.ring0,
     }
     if state.t_field0.size == 0:
         ics["t0_meat"] = state.t0_meat
@@ -133,6 +135,7 @@ def advance_plant(
         f_field0=np.asarray(sim["f_field_final"]),
         bark_b0=float(sim["bark_b"][-1]),
         bark_s0=float(sim["bark_s"][-1]),
+        ring0=float(sim["ring"]),
         # safety banking (leth_f / danger_h) is applied by run_cook, which
         # owns the ControlConfig and therefore the correct constants
         leth_f=state.leth_f,
@@ -688,8 +691,10 @@ def run_cook(
     b_end = 0.0 if np.isnan(state.bark_b0) else float(state.bark_b0)
     s_end = 0.0 if np.isnan(state.bark_s0) else float(state.bark_s0)
     l_star = L0_BARK - DL_B * b_end - DL_S * s_end
+    ring = 0.0 if np.isnan(state.ring0) else float(state.ring0)
     out = {k: np.asarray(v) for k, v in traj.items()} | {
         "final_state": state,
+        "ring": ring,
         "doneness": doneness,
         "juiciness": juiciness,
         "fat_rendered": fat_rendered,

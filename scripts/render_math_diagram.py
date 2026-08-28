@@ -144,7 +144,7 @@ box(
     6.65,
     MEAT_FC,
     MEAT_EC,
-    "MEAT — 1-D PDE + kinetics ($x\\in[0,L]$, 162 ODEs after MOL)",
+    "MEAT — 1-D PDE + kinetics ($x\\in[0,L]$, 163 ODEs after MOL)",
     [],
 )
 # interior transport
@@ -175,7 +175,7 @@ box(
     "surface boundary ($x = L$; wrap blend $s$)",
     [
         r"$j = (1-\eta_e\, s)\,k_m\,\frac{\varphi(W_s)\,\mathrm{sp}_\delta(\Delta p) - \mathrm{sp}_\delta(-\Delta p)}{R_v T_s}\,,\quad \Delta p = p_{sat}(T_s) - p_v\,,\quad -\rho_d D_{e\!f\!f}\,\partial_x W|_s = j$",
-        r"$k\,\partial_x T|_s = h_c\,(1-\eta_h\, s)\,(T_p - T_s) + \varepsilon(s)\,\sigma_{SB}\,(T_p^4 - T_s^4) - \lambda\,j$",
+        r"$k\,\partial_x T|_s = h_c(u)\,(1-\eta_h\, s)\,(T_p - T_s) + \varepsilon(s)\,\sigma_{SB}\,(T_p^4 - T_s^4) - \lambda\,j\,,\qquad h_c(u), k_m(u) \propto (g(u)/g_{ref})^{m_{conv}}$",
         r"$\varepsilon(s) = \varepsilon\,(1-s) + \varepsilon_{wrap}\,s\qquad q_{surf} = k\,\partial_x T|_s + \lambda\,j$",
     ],
     size=10,
@@ -192,7 +192,7 @@ box(
     "bark states (surface)",
     [
         r"$\dot B = k_B(T_s)\,g(a_w)\,(1-B)\qquad\quad L^* = L_0^* - \Delta_B B - \Delta_S S$",
-        r"$\dot S = k_{dep}\,\mathrm{wet}(a_w)\;\dot m_b\;(1-s)\,(1-S)$",
+        r"$\dot S = k_{dep}\,\mathrm{wet}(a_w)\;\dot m_b\;(1-s)\,(1-S)\qquad \dot r = \frac{D_{ring}\,\Theta}{r + r_0}\,\sigma\!\left(\frac{T_{den} - T(L-r)}{\delta}\right)$",
     ],
     size=10,
     lw=1.2,

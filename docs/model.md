@@ -33,13 +33,29 @@ ever enters the derivatives.
 | $T_p, m, a$ | pit states: gas temperature [K], fuel mass [kg], ignited bed fraction |
 
 **Latents.** θ = $[D_{\mathrm{eff}}, k_m, h_c, L, k_{\mathrm{mult}},
-k_e, a_{\mathrm{myo}}]$ (moisture transport, evaporative mass transfer,
-convection, half-thickness, conductivity multiplier, expulsion rate,
-myosin water-holding amplitude). φ = $[C_{th}, UA, r_{\max},
-\Delta H_{e\!f\!f}, u_{\mathrm{leak}}, k_{\mathrm{spr}}, a_0]$ (thermal
-mass, loss coefficient, max burn rate, effective heat of combustion, leak
-floor, ignition spread rate, initial ignited fraction). Code names:
-`a_myosin`, `k_spread`, `dH_eff`.
+k_e, a_{\mathrm{myo}}, m_{\mathrm{conv}}]$ (moisture transport, evaporative
+mass transfer, convection, half-thickness, conductivity multiplier,
+expulsion rate, myosin water-holding amplitude, draft exponent). φ =
+$[C_{th}, UA, r_{\max}, \Delta H_{e\!f\!f}, u_{\mathrm{leak}},
+k_{\mathrm{spr}}, a_0]$ (thermal mass, loss coefficient, max burn rate,
+effective heat of combustion, leak floor, ignition spread rate, initial
+ignited fraction). Code names: `a_myosin`, `m_conv`, `k_spread`, `dH_eff`.
+
+**Draft convection.** The damper moves air as well as heat: the surface
+transfer coefficients are quoted at a reference draft $g_{\mathrm{ref}}$
+(mid-damper, 0.5) and scale with the pit's airflow $g(u)$ as
+
+$$
+h_c(u) = h_c\,\Big(\frac{g(u)}{g_{\mathrm{ref}}}\Big)^{m_{\mathrm{conv}}},
+\qquad
+k_m(u) = k_m\,\Big(\frac{g(u)}{g_{\mathrm{ref}}}\Big)^{m_{\mathrm{conv}}},
+$$
+
+the same exponent for heat and mass transfer (Chilton–Colburn analogy);
+forced convection over a slab runs $m \approx 0.5$ (laminar) to $0.8$
+(turbulent), prior Beta(6, 4). A closed-loop cook log varies the fan duty
+all night, so the data has some say in $m_{\mathrm{conv}}$; expect a ridge
+with $h_c$.
 
 **Derived functions** (each defined where it first appears below)
 
@@ -78,7 +94,7 @@ weight $\beta_{\mathrm{fat}}$; rest constants $T_r, h_r, \varepsilon_r,
 fixed slab) and component densities $\rho_{\mathrm{sol}}, \rho_f,
 \rho_w$.
 
-## 1. Meat: 1-D heat–moisture–kinetics PDE (162 ODEs after MOL)
+## 1. Meat: 1-D heat–moisture–kinetics PDE (163 ODEs after MOL)
 
 Half-slab $x \in [0, L]$, symmetry at the center $x=0$ (probe location),
 convective/radiative/evaporative boundary at the surface $x=L$. Method of
@@ -123,7 +139,7 @@ W_{\mathrm{eq}}(T) = W_0\Big(1
 $$
 
 **Surface boundary** ($x = L$) — the stall mechanism, with the wrap blend
-$s$. The surface mass flux is mass-transfer-limited (θ: $k_m$, $h_c$) and
+$s$. The surface mass flux is mass-transfer-limited (θ: $k_m(u)$, $h_c(u)$) and
 two-sided: evaporation, gated by moisture availability, when the surface's
 saturation pressure exceeds the pit's vapor pressure, condensation —
 ungated: a cold surface below the dew point condenses whatever its water
@@ -176,7 +192,7 @@ two more differentiable meat forcings; `pv_pit` is an output.
 
 $$
 k\,\partial_x T|_s
-= h_c\,(1 - \eta_h\, s)\,(T_p - T_s)
+= h_c(u)\,(1 - \eta_h\, s)\,(T_p - T_s)
 + \varepsilon(s)\,\sigma_{SB}\,(T_p^4 - T_s^4)
 - \lambda\, j,
 \qquad
@@ -317,6 +333,29 @@ $$
 with the algebraically closed cook-loss budget (tested to $10^{-8}$):
 water lost $= \int j\,dt/(\rho_d L)$ (evaporated) $+$ drip (purge), fat
 lost $= \eta_{\mathrm{drain}} F_0 f_{\mathrm{rend}}$ (tallow catch).
+
+**Smoke ring** (output only; not in the objective). NO from the fire
+dissolves into the wet surface and penetrates inward; it binds myoglobin as
+the pink nitrosyl complex only where the meat has not yet passed the
+myoglobin denaturation temperature, so the ring is a diffusion front that
+stops when it meets the denaturation front. One surface-anchored state,
+the ring depth $r$ in the material coordinate:
+
+$$
+\frac{dr}{dt} = \frac{D_{\mathrm{ring}}\,\Theta(t)}{r + r_0}\;
+\sigma\!\Big(\frac{T_{\mathrm{den}} - T(L - r, t)}{\delta_{\mathrm{den}}}\Big),
+\qquad
+\Theta = \mathrm{wet}(a_w)\,\frac{\dot m_b}{\dot m_b + \dot m_0}\,(1 - s)\,(1 - p),
+$$
+
+($r\,dr = D\,\Theta\,dt$ is the penetration depth of a diffusing species
+under a gated surface source; the pit-gas NO concentration is set by the
+air–fuel ratio, so the fire enters only as "lit"; foil and the board stop
+uptake). $D_{\mathrm{ring}} = 1.5\cdot10^{-9}$ m²/s (effective, NO-assisted
+— nitrite alone diffuses at $2$–$3\cdot10^{-10}$), $T_{\mathrm{den}} = 62$ °C,
+$r_0 = 0.5$ mm. The physical depth is $r$ times the final stretch
+$l(t_f)/L$. Literature-scale constants with no ring measurement behind
+them (`docs/model_gaps.md`).
 
 ## 2. Pit: lumped 3-state ODE
 

@@ -32,7 +32,7 @@ the same scans went from hours to minutes.
 Real barbecue is a coupled multi-physics control problem: a charcoal pit with
 its own thermal and fuel dynamics drives a brisket whose internal heat
 conduction and moisture transport produce the famous "stall" — a multi-hour
-plateau caused by evaporative cooling. The physics is Julia: a 165-ODE stiff
+plateau caused by evaporative cooling. The physics is Julia: a 166-ODE stiff
 system (method of lines, FBDF) integrating pit, meat and pit humidity
 together, with smoothed switches so the stall emerges and breaks
 differentiably. It is exposed as one Tesseract whose derivative endpoints are
@@ -128,7 +128,7 @@ ForwardDiff Jacobian transposed), coupled two-way in JAX by a K = 2 Picard
 iteration unrolled in the graph. It worked and verified. Then I built the
 coupled system as one Julia solve and measured the seam: 0.27 K of coupling
 truncation on the real cook, and 20× per gradient (a continuous adjoint with
-115 cotangent injections vs a 14-column forward-mode Jacobian at 2.5 s). The
+115 cotangent injections vs a 15-column forward-mode Jacobian at 2.5 s). The
 monolith Tesseract exposes `jacobian_vector_product` (one Dual solve),
 `vector_jacobian_product` and `jacobian` (one chunked pass), so tesseract-jax
 gives `jax.grad` for Optax/NUTS and `jacfwd` for Gauss–Newton through the same

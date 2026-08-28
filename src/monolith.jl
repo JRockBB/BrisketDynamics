@@ -51,7 +51,7 @@ end
 """
     make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
 
-Build the in-place coupled RHS over `x = [meat(4·nx + 2) | T_pit, m_fuel,
+Build the in-place coupled RHS over `x = [meat(4·nx + 3) | T_pit, m_fuel,
 ignited]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull]`; the damper
 schedule is interpolated from `nu` knots on the uniform grid
 `u_t0 + (i-1)·u_dt`.
@@ -59,11 +59,11 @@ schedule is interpolated from `nu` knots on the uniform grid
 function make_monolith_rhs(
     cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_t0::Float64, u_dt::Float64, nu::Int
 )
-    nm = 4 * cfg.nx + 2
+    nm = 4 * cfg.nx + 3
     n_s, n_a, v0 = shrink_exponents(cfg)
     return function mono_rhs!(dx, x, p, t)
-        θ = (p[1], p[2], p[3], p[4], p[5], p[6], p[7])
-        C_th, UA, r_max, ΔH_eff, u_leak, k_spread = p[8], p[9], p[10], p[11], p[12], p[13]
+        θ = (p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8])
+        C_th, UA, r_max, ΔH_eff, u_leak, k_spread = p[9], p[10], p[11], p[12], p[13], p[14]
         u_knots = @view p[(MONO_NP + 1):(MONO_NP + nu)]
         t_wrap = p[MONO_NP + nu + 1]
         t_pull = p[MONO_NP + nu + 2]
@@ -76,7 +76,8 @@ function make_monolith_rhs(
         um = @view x[1:nm]
         dum = @view dx[1:nm]
         q_meat = meat_rhs_core!(
-            dum, um, t, θ, Tp, ṁ, pv_base, 1 / mair, t_wrap, t_pull, cfg, n_s, n_a, v0
+            dum, um, t, θ, Tp, ṁ, pv_base, 1 / mair, airflow, t_wrap, t_pull, cfg, n_s,
+            n_a, v0,
         )
         a_c = clamp(a, zero(a), one(a))
         dx[nm + 1] = (ΔH_eff * ṁ - UA * (Tp - pit.T_amb) - q_meat) / C_th
@@ -102,13 +103,14 @@ function _monolith_solve_arr(
     F0f=Float64[],
     B0=NaN,
     S0=NaN,
+    R0=NaN,
 )
     u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
     rhs! = make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
     Tp = promote_type(eltype(p), Float64)
     # a0 = φ[7] participates in x0 so forward mode carries its sensitivity
     x0 = vcat(
-        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0)),
+        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0)),
         [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP]],
     )
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
@@ -129,7 +131,7 @@ function _monolith_outputs(
     A, p, cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_tknots, tsave, nu::Int
 )
     nx = cfg.nx
-    nm = 4nx + 2
+    nm = 4nx + 3
     nt = length(tsave)
     θ = p[1:MEAT_NP]
     r_max, u_leak = p[MEAT_NP + 3], p[MEAT_NP + 5]
@@ -147,6 +149,9 @@ function _monolith_outputs(
     mdot = getindex.(alg, 2)
     imair_ts = 1 ./ getindex.(alg, 3)
     pv_base_ts = getindex.(alg, 4)
+    g_fac = (getindex.(alg, 1) ./ cfg.g_ref) .^ θ[8]
+    h_ts = θ[3] .* g_fac
+    km_ts = θ[2] .* g_fac
 
     Tsurf = A[nx, :]
     Wsurf = A[2nx, :]
@@ -159,18 +164,19 @@ function _monolith_outputs(
     a_ts = (vec(wfv' * Vmat) ./ ((nx - 1) * v0)) .^ n_a
     c_ts = mixing_coefficient.(a_ts, imair_ts, Ref(cfg))
     j_evap = surface_j_blended.(
-        Tsurf, Wsurf, θ[3], θ[2], s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg)
+        Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg)
     )
     pv_pit =
         pv_base_ts .+
         c_ts .* evap_flux_fb.(
-            Tsurf, Wsurf, (1 .- cfg.η_evap .* s_ts) .* θ[2], pv_base_ts, c_ts, Ref(cfg)
+            Tsurf, Wsurf, (1 .- cfg.η_evap .* s_ts) .* km_ts, pv_base_ts, c_ts, Ref(cfg)
         )
     q_meat =
         cfg.A_meat .* a_ts .*
-        surface_q_pit_blended.(Tpit, Tsurf, θ[3], s_ts, pl_ts, Ref(cfg))
+        surface_q_pit_blended.(Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
     bark_b = A[4nx + 1, :]
     bark_s = A[4nx + 2, :]
+    ring = A[4nx + 3, :]
     w_retained = fv_mean(A[(nx + 1):2nx, end]) / cfg.W0
     F_mean = fv_mean(A[(3nx + 1):4nx, end])
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
@@ -186,6 +192,7 @@ function _monolith_outputs(
         Tcore=A[1, :],
         bark_b,
         bark_s,
+        ring,
         l_star=l_star_bark.(bark_b, bark_s, Ref(cfg)),
         j_evap,
         q_meat,
@@ -209,7 +216,7 @@ end
 
 """
     monolith_solve(θ, φ, u_knots, u_tknots, tsave; cfg, pit, hum, t_wrap,
-                   t_pull, T0f, W0f, C0f, F0f, B0, S0, abstol, reltol)
+                   t_pull, T0f, W0f, C0f, F0f, B0, S0, R0, abstol, reltol)
 
 One coupled solve of pit + meat + humidity. Same inputs as the composed
 Tesseract pipeline (`coupled_cook`), same outputs plus the pit trajectory
@@ -225,7 +232,7 @@ and `pv_base`; accepts ForwardDiff-dual `θ`/`φ`/`u_knots`.
 # Keyword Arguments
 - `cfg::MeatConfig`, `pit::PitConfig`, `hum::Humidity`: Configurations.
 - `t_wrap, t_pull::Real`: Wrap and pull times [s]. [Default=never]
-- `T0f, W0f, C0f, F0f, B0, S0`: Meat field / bark ICs for a state handoff
+- `T0f, W0f, C0f, F0f, B0, S0, R0`: Meat field / bark / ring ICs for a state handoff
   (see [`meat_solve`](@ref)). [Default=uniform]
 - `abstol, reltol::Float64`: Solver tolerances. [Default=1e-6]
 
@@ -249,6 +256,7 @@ function monolith_solve(
     F0f::AbstractVector=Float64[],
     B0::Real=NaN,
     S0::Real=NaN,
+    R0::Real=NaN,
     abstol=1e-6,
     reltol=1e-6,
 )
@@ -270,7 +278,8 @@ function monolith_solve(
     )
     nu = length(u_knots)
     A = _monolith_solve_arr(
-        p, cfg, pit, hum, u_tknots, tsave, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0, S0
+        p, cfg, pit, hum, u_tknots, tsave, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0, S0,
+        R0,
     )
     return _monolith_outputs(A, p, cfg, pit, hum, u_tknots, tsave, nu)
 end
@@ -403,7 +412,8 @@ function picard_cook(
             φ, u_knots, u_tknots, q, tsave, tsave;
             cfg=pit, abstol=min(abstol, 1e-8), reltol=min(reltol, 1e-8),
         )
-        mair = hum.afr .* φ[3] .* (φ[5] .+ (1 - φ[5]) .* u_tk)
+        airflow = φ[5] .+ (1 - φ[5]) .* u_tk
+        mair = hum.afr .* φ[3] .* airflow
         pv_base =
             (hum.p_atm / EPS_W) .*
             (hum.omega_amb .+ (hum.y_w .* pito.mdot .+ hum.pan_kg_s) ./ mair)
@@ -411,6 +421,7 @@ function picard_cook(
             θ, pito.Tpit, tsave, tsave;
             cfg, abstol, reltol, t_wrap, t_pull,
             smoke_knots=pito.mdot, pv_base_knots=pv_base, imair_knots=1 ./ mair,
+            airflow_knots=airflow,
         )
         q = meato.q_meat
     end

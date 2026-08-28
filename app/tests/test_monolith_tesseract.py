@@ -35,13 +35,14 @@ def test_apply_shapes(case):
         assert np.asarray(out[k]).shape == (nt,) and np.all(np.isfinite(out[k]))
     assert np.asarray(out["c_field_final"]).shape == (40,)
     assert 0.0 < float(out["juiciness"]) < 2.0
+    assert 0.0 <= float(out["ring"]) < 0.02
     assert float(out["tcore"][-1]) > float(out["tcore"][0]) + 20.0
 
 
 def test_jvp_matches_jacobian(case):
     tx, inputs, _ = case
     J = tx.jacobian(inputs, ["theta", "u_knots", "t_pull"], ["tcore", "juiciness"])
-    dtheta = np.zeros(7)
+    dtheta = np.zeros(8)
     dtheta[0] = 1e-9
     du = np.array([0.1, 0.0, -0.05, 0.0])
     tangent = {"theta": dtheta, "u_knots": du, "t_pull": np.asarray(600.0)}

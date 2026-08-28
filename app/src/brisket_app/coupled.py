@@ -75,6 +75,7 @@ ICS_KEYS = (
     "f_field0",
     "bark_b0",
     "bark_s0",
+    "ring0",
 )
 
 
@@ -150,8 +151,8 @@ def coupled_cook(
 # because it lumps in pressure-driven juice expulsion/wicking, the mechanism
 # that actually keeps a brisket surface wet through the stall.
 THETA_DEFAULT = np.array(
-    [7.0e-9, 0.0018, 10.0, 0.03, 1.0, 5.6e-4, 0.20]
-)  # D_eff, k_m, h_c, L, k_mult, k_e, a_myosin
+    [7.0e-9, 0.0018, 10.0, 0.03, 1.0, 5.6e-4, 0.20, 0.6]
+)  # D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv
 # C_th, UA, r_max, dH_eff, u_leak, k_spread, a0 — a0=1 makes the ignition
 # dynamics inert (exactly the pre-ignition-state model)
 PHI_DEFAULT = np.array([15e3, 20.0, 3e-4, 1.2e7, 0.2, 3e-4, 1.0])

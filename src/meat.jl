@@ -6,7 +6,7 @@
 # x = L (surface). Method of lines on nx uniform nodes; states are the fields
 # T [K], W [kg water / kg dry matter], collagen conversion C ∈ [0, 1], and
 # un-rendered fat F [kg fat / kg dry matter], plus the two surface bark
-# states — 4·nx + 2 ODEs.
+# states — 4·nx + 3 ODEs.
 #
 # Differentiation: forward mode (ForwardDiff) through the coupled monolith
 # (src/monolith.jl). The RHS is written branch-free (see interpolation.jl,
@@ -23,6 +23,7 @@ Base.@kwdef struct MeatConfig
     δW::Float64 = 0.05          # smoothing width of the availability sigmoid
     p_v_pit::Float64 = 2000.0   # pit vapor pressure [Pa] when no humidity forcing is supplied
     δp::Float64 = 100.0         # softclamp scale on the vapor-pressure deficit [Pa]
+    g_ref::Float64 = 0.5        # draft airflow at which h_c and k_m are quoted (mid-damper)
     Ea::Float64 = 173e3         # collagen denaturation activation energy [J mol⁻¹]
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
@@ -79,6 +80,16 @@ Base.@kwdef struct MeatConfig
     L0_bark::Float64 = 52.0     # initial (rubbed, raw) surface lightness L*
     dL_B::Float64 = 20.0        # max L* drop from Maillard browning
     dL_S::Float64 = 10.0        # max L* drop from smoke deposition
+    # smoke ring (docs/model.md): NO from the fire dissolves into the wet
+    # surface and penetrates as a diffusion front, fixing myoglobin (the
+    # pink nitrosyl complex) only where the meat has not yet passed the
+    # myoglobin denaturation temperature. Literature-scale constants, no
+    # ring measurement to check them against (docs/model_gaps.md).
+    D_ring::Float64 = 1.5e-9    # effective NO penetration diffusivity [m²/s]
+    T_ring::Float64 = 335.15    # myoglobin denaturation (~62 C): fixation stops above
+    δ_ring::Float64 = 3.0       # width of the denaturation gate [K]
+    r_ring0::Float64 = 5e-4     # surface layer NO enters directly [m] (front regularization)
+    mdot_ring::Float64 = 2e-5   # burn rate at which the fire counts as lit [kg/s]
     # Moisture physics (docs/moisture_plan.md; gap audit Tier 1 #1/#2).
     # Fat rendering: tallow melts ~32-49 C, drains (cell rupture) from
     # ~54 C; k_f0 sets an hours-scale render time in the BBQ band.
@@ -102,14 +113,16 @@ Base.@kwdef struct MeatConfig
     δ_actin::Float64 = 4.0
 end
 
-# θ = [D_eff, k_m, h_c, L, k_mult, k_e, a_myosin] — the meat-side latent
-# parameter vector. k_e (expulsion relaxation rate) and a_myosin (W_eq drop
+# θ = [D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv] — the meat-side
+# latent parameter vector. m_conv is the draft exponent: h_c and k_m scale
+# with the pit airflow as (g/g_ref)^m_conv (forced convection, heat–mass
+# analogy), so the damper is a convection lever as well as a heat lever. k_e (expulsion relaxation rate) and a_myosin (W_eq drop
 # at the myosin denaturation step) joined θ 2026-08-21: with them frozen at
 # literature values the real-cook refit plateaued at loss 495 vs 245 — the
 # five original knobs were compensating for expulsion kinetics the log can
 # see (they shape the stall entry). cfg.k_e / cfg.a_myosin remain as the
 # uncalibrated defaults for cfg-only call paths.
-const MEAT_NP = 7
+const MEAT_NP = 8
 
 # Default wrap time: far beyond any horizon. logistic((t − 1e9)/δ_wrap) is
 # EXACTLY 0.0 (tanh saturates), so the unwrapped model is recovered bitwise
@@ -532,22 +545,25 @@ function collagen_rate(T, cfg::MeatConfig)
 end
 
 """
-    meat_rhs_core!(du, u, t, θ, Tpit, smoke, pv_base, imair, t_wrap, t_pull,
-                   cfg, n_s, n_a, v0)
+    meat_rhs_core!(du, u, t, θ, Tpit, smoke, pv_base, imair, airflow, t_wrap,
+                   t_pull, cfg, n_s, n_a, v0)
 
 The meat right-hand side under the INSTANTANEOUS forcings at time `t` —
-pit temperature, burn rate (smoke), base vapor pressure and inverse air
-mass flow — shared by the knot-forced Tesseract path ([`make_meat_rhs`](@ref))
+pit temperature, burn rate (smoke), base vapor pressure, inverse air mass
+flow and draft airflow — shared by the knot-forced Tesseract path ([`make_meat_rhs`](@ref))
 and the coupled monolith ([`make_monolith_rhs`](@ref)). States:
-`[T(nx) | W(nx) | C(nx) | F(nx) | B | S]`. Bark states are pure
+`[T(nx) | W(nx) | C(nx) | F(nx) | B | S | R]` (R the smoke-ring depth in
+the material coordinate). Bark and ring states are pure
 integrators; fat F is a pure sink; the ONE quality-physics feedback is the
 expulsion sink in dW (denaturation purge).
 
 # Arguments
-- `du, u`: Derivative and state vectors (length 4·nx + 2).
+- `du, u`: Derivative and state vectors (length 4·nx + 3).
 - `t::Number`: Time [s].
-- `θ`: The meat latents as a 7-tuple `(D_eff, k_m, h_c, L, k_mult, k_e, a_myosin)`.
-- `Tpit, smoke, pv_base, imair::Number`: Forcings at `t`.
+- `θ`: The meat latents as an 8-tuple
+  `(D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv)`.
+- `Tpit, smoke, pv_base, imair, airflow::Number`: Forcings at `t`; `airflow`
+  is the pit's normalized draft `g(u) = u_leak + (1 − u_leak) u`.
 - `t_wrap, t_pull::Number`: Wrap and pull times [s].
 - `cfg::MeatConfig`: Physical configuration.
 - `n_s, n_a, v0`: [`shrink_exponents`](@ref) of `cfg` (hoisted by the caller).
@@ -557,10 +573,17 @@ expulsion sink in dW (denaturation purge).
   scaled, pit part only) — the pit's coupling input.
 """
 function meat_rhs_core!(
-    du, u, t, θ, Tpit, smoke, pv_base, imair, t_wrap, t_pull, cfg::MeatConfig, n_s, n_a, v0
+    du, u, t, θ, Tpit, smoke, pv_base, imair, airflow, t_wrap, t_pull, cfg::MeatConfig,
+    n_s, n_a, v0,
 )
     nx = cfg.nx
-    D_eff, k_m, h_c, L, k_mult, k_e, a_myosin = θ
+    D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv = θ
+    # draft convection: h_c and k_m are quoted at cfg.g_ref and scale with
+    # the airflow as (g/g_ref)^m_conv — the same exponent for heat and mass
+    # transfer (Chilton–Colburn analogy)
+    g_fac = (airflow / cfg.g_ref)^m_conv
+    h_c = h_c * g_fac
+    k_m = k_m * g_fac
 
     # material (dry-matter) coordinate: Δξ is the raw node spacing; the
     # physical spacing is st·Δξ with the local thickness stretch
@@ -661,7 +684,32 @@ function meat_rhs_core!(
     du[4nx + 2] =
         cfg.k_dep * wet_blend(aw, cfg) * max(smoke, zero(smoke)) * (1 - s) * (1 - pl) *
         (1 - S)
+    # smoke ring: NO uptake needs a wet surface, a lit fire, no foil and
+    # the pit (the pit gas NO concentration is set by the air–fuel ratio,
+    # so "lit" is the whole dependence on the burn rate); the front
+    # advances by diffusion, r·dr = D Θ dt, and only where the meat at the
+    # front is still below the myoglobin denaturation temperature
+    R = u[4nx + 3]
+    fire = max(smoke, zero(smoke)) / (max(smoke, zero(smoke)) + cfg.mdot_ring)
+    Θ = wet_blend(aw, cfg) * fire * (1 - s) * (1 - pl)
+    T_front = temperature_at_depth(T, R, Δξ, nx)
+    du[4nx + 3] =
+        cfg.D_ring * Θ * logistic((cfg.T_ring - T_front) / cfg.δ_ring) / (R + cfg.r_ring0)
     return cfg.A_meat * a_area * q_pit
+end
+
+"""
+    temperature_at_depth(T, r, Δξ, nx)
+
+Temperature at material depth `r` below the surface node `nx`, by linear
+interpolation between grid nodes (piecewise-linear in `r`, clamped to the
+slab).
+"""
+function temperature_at_depth(T, r, Δξ, nx)
+    η = clamp(r / Δξ, zero(r / Δξ), (nx - 1) * one(r / Δξ))
+    k = min(floor(Int, η), nx - 2)
+    f = η - k
+    return (1 - f) * T[nx - k] + f * T[nx - k - 1]
 end
 
 """
@@ -673,19 +721,20 @@ Build the in-place MOL right-hand side. The parameter vector is
 in `p` is what exposes the VJP w.r.t. the boundary-condition trajectory.
 """
 function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
-    # p = [θ(7) | Tpit_knots(nk) | smoke_knots(nk) | pv_base_knots(nk) |
-    # imair_knots(nk) | t_wrap | t_pull]: the pit forcings (temperature,
-    # burn rate for smoke, base vapor pressure, inverse air mass flow) share
-    # one knot grid; the two scalar switch times are the p-tail (explicit
+    # p = [θ(8) | Tpit_knots(nk) | smoke_knots(nk) | pv_base_knots(nk) |
+    # imair_knots(nk) | airflow_knots(nk) | t_wrap | t_pull]: the pit
+    # forcings (temperature, burn rate for smoke, base vapor pressure,
+    # inverse air mass flow, draft airflow) share one knot grid; the two scalar switch times are the p-tail (explicit
     # index arithmetic everywhere — see meat_vjp). The body lives in
     # meat_rhs_core!, shared with the coupled monolith.
     n_s, n_a, v0 = shrink_exponents(cfg)
     return function meat_rhs!(du, u, p, t)
-        θ = (p[1], p[2], p[3], p[4], p[5], p[6], p[7])
+        θ = (p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8])
         knots = @view p[(MEAT_NP + 1):(MEAT_NP + nk)]
         smoke_knots = @view p[(MEAT_NP + nk + 1):(MEAT_NP + 2nk)]
         pvb_knots = @view p[(MEAT_NP + 2nk + 1):(MEAT_NP + 3nk)]
         imair_knots = @view p[(MEAT_NP + 3nk + 1):(MEAT_NP + 4nk)]
+        airflow_knots = @view p[(MEAT_NP + 4nk + 1):(MEAT_NP + 5nk)]
         meat_rhs_core!(
             du,
             u,
@@ -695,8 +744,9 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
             lininterp(t, tk0, tkdt, smoke_knots),
             lininterp(t, tk0, tkdt, pvb_knots),
             lininterp(t, tk0, tkdt, imair_knots),
-            p[MEAT_NP + 4nk + 1],
-            p[MEAT_NP + 4nk + 2],
+            lininterp(t, tk0, tkdt, airflow_knots),
+            p[MEAT_NP + 5nk + 1],
+            p[MEAT_NP + 5nk + 2],
             cfg,
             n_s,
             n_a,
@@ -709,7 +759,7 @@ end
 """
     _meat_u0(cfg::MeatConfig)
 
-Uniform initial state `[T | W | C | F | B, S]` (length 4·nx + 2) at the
+Uniform initial state `[T | W | C | F | B, S, R]` (length 4·nx + 3) at the
 config defaults: cold meat, full moisture, zero conversion, full fat, no
 bark.
 
@@ -730,7 +780,7 @@ function _meat_u0(cfg::MeatConfig)
 end
 
 """
-    _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0)
+    _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0)
 
 Initial state from full fields (receding-horizon state handoff). Empty
 vectors / NaN scalars fall back to the uniform defaults.
@@ -751,11 +801,11 @@ bark restarting at zero would zero the appearance/smoke terms mid-cook.
 - `S0::Real`: Smoke deposition state IC. [Default=NaN ⇒ 0]
 
 # Returns
-- `u0::Vector{Float64}`: Initial state vector (length 4·nx + 2).
+- `u0::Vector{Float64}`: Initial state vector (length 4·nx + 3).
 """
 function _meat_u0(
     cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector, C0f::AbstractVector;
-    F0f::AbstractVector = Float64[], B0::Real = NaN, S0::Real = NaN,
+    F0f::AbstractVector = Float64[], B0::Real = NaN, S0::Real = NaN, R0::Real = NaN,
 )
     T = isempty(T0f) ? fill(cfg.T0, cfg.nx) : collect(float.(T0f))
     W = isempty(W0f) ? fill(cfg.W0, cfg.nx) : collect(float.(W0f))
@@ -765,7 +815,10 @@ function _meat_u0(
         length(T) == cfg.nx && length(W) == cfg.nx && length(C) == cfg.nx &&
         length(F) == cfg.nx
     ) || throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
-    return vcat(T, W, C, F, [isnan(B0) ? 0.0 : float(B0), isnan(S0) ? 0.0 : float(S0)])
+    return vcat(
+        T, W, C, F,
+        [isnan(B0) ? 0.0 : float(B0), isnan(S0) ? 0.0 : float(S0), isnan(R0) ? 0.0 : float(R0)],
+    )
 end
 
 """
@@ -789,7 +842,8 @@ optionally continuing through the rest after `t_pull` (docs/tier1_plan.md).
 - `T0f, W0f, C0f, F0f::AbstractVector`: Optional full-field initial
   conditions (receding-horizon handoff); empty ⇒ uniform defaults.
   [Default=empty]
-- `B0, S0::Real`: Bark-state ICs for the handoff; NaN ⇒ 0. [Default=NaN]
+- `B0, S0, R0::Real`: Bark-state and smoke-ring ICs for the handoff; NaN ⇒ 0.
+  [Default=NaN]
 - `t_wrap::Real`: Texas-crutch wrap time [s]; `WRAP_NEVER` ⇒ bitwise
   unwrapped. [Default=WRAP_NEVER]
 - `smoke_knots::AbstractVector`: Smoke-flux forcing [kg/s] on the `tknots`
@@ -802,6 +856,9 @@ optionally continuing through the rest after `t_pull` (docs/tier1_plan.md).
 - `imair_knots::AbstractVector`: Inverse pit air mass flow [s/kg] on the
   `tknots` grid — the meat's vapor is diluted by it; empty ⇒ zeros (no
   self-humidification). [Default=empty]
+- `airflow_knots::AbstractVector`: Normalized draft airflow `g(u)` on the
+  `tknots` grid — scales `h_c`, `k_m` as `(g/g_ref)^m_conv`; empty ⇒
+  `cfg.g_ref` (no scaling). [Default=empty]
 
 # Returns
 - `out::NamedTuple`: Tesseract outputs (`Tsurf`, `Tcore`, `bark_b`, `bark_s`,
@@ -826,25 +883,29 @@ function meat_solve(
     F0f::AbstractVector=Float64[],
     B0::Real=NaN,
     S0::Real=NaN,
+    R0::Real=NaN,
     t_wrap::Real=WRAP_NEVER,
     smoke_knots::AbstractVector=Float64[],
     t_pull::Real=PULL_NEVER,
     pv_base_knots::AbstractVector=Float64[],
     imair_knots::AbstractVector=Float64[],
+    airflow_knots::AbstractVector=Float64[],
 )
     nx = cfg.nx
-    sk, pvb, im = _forcing_knots(cfg, tknots, smoke_knots, pv_base_knots, imair_knots)
+    sk, pvb, im, af = _forcing_knots(
+        cfg, tknots, smoke_knots, pv_base_knots, imair_knots, airflow_knots
+    )
     length(θ) == MEAT_NP || throw(
         ArgumentError(
             "θ must have length $MEAT_NP = [D_eff, k_m, h_c, L, k_mult, k_e, " *
             "a_myosin]; got $(length(θ))",
         ),
     )
-    p = vcat(θ, Tpit_knots, sk, pvb, im, float(t_wrap), float(t_pull))
+    p = vcat(θ, Tpit_knots, sk, pvb, im, af, float(t_wrap), float(t_pull))
     any(isnan, p) && throw(
         ArgumentError(
             "meat solve got NaN inputs at indices $(findall(isnan, p)) of p " *
-            "(θ|Tpit|smoke|pv_base|imair|t_wrap|t_pull)",
+            "(θ|Tpit|smoke|pv_base|imair|airflow|t_wrap|t_pull)",
         ),
     )
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
@@ -853,7 +914,7 @@ function meat_solve(
     # 8 h/49-knot fixture); backward unaffected
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!,
-        _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0),
+        _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0),
         (float(tsave[1]), float(tsave[end])),
         p,
     )
@@ -873,6 +934,7 @@ function meat_solve(
     pl_ts = pull_blend.(tsave, float(t_pull), Ref(cfg))
     bark_b = A[4nx + 1, :]
     bark_s = A[4nx + 2, :]
+    ring = A[4nx + 3, :]
     w_retained = fv_mean(A[(nx + 1):2nx, end]) / cfg.W0
     F_mean = fv_mean(A[(3nx + 1):4nx, end])
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
@@ -883,14 +945,16 @@ function meat_solve(
     a_ts = (vec(wfv' * Vmat) ./ ((nx - 1) * v0)) .^ n_a
     pv_base_ts = Mts * pvb
     c_ts = mixing_coefficient.(a_ts, Mts * im, Ref(cfg))
+    g_fac = ((Mts * af) ./ cfg.g_ref) .^ θ[8]
+    h_ts, km_ts = θ[3] .* g_fac, θ[2] .* g_fac
     j_evap = surface_j_blended.(
-        Tsurf, Wsurf, θ[3], θ[2], s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg)
+        Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg)
     )
     # the pit vapor pressure the surface saw: base plus the meat's own vapor
     pv_pit =
         pv_base_ts .+
         c_ts .*
-        evap_flux_fb.(Tsurf, Wsurf, (1 .- cfg.η_evap .* s_ts) .* θ[2], pv_base_ts, c_ts, Ref(cfg))
+        evap_flux_fb.(Tsurf, Wsurf, (1 .- cfg.η_evap .* s_ts) .* km_ts, pv_base_ts, c_ts, Ref(cfg))
     dts = diff(collect(float.(tsave)))
     ja = j_evap .* a_ts
     evap_w = sum((ja[1:(end - 1)] .+ ja[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
@@ -899,10 +963,11 @@ function meat_solve(
         Tcore=A[1, :],
         bark_b,
         bark_s,
+        ring,
         l_star=l_star_bark.(bark_b, bark_s, Ref(cfg)),
         j_evap,
         q_meat=cfg.A_meat .* a_ts .*
-               surface_q_pit_blended.(Tpit_ts, Tsurf, θ[3], s_ts, pl_ts, Ref(cfg)),
+               surface_q_pit_blended.(Tpit_ts, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg)),
         C_field_final=A[(2nx + 1):3nx, end],
         w_retained,
         juiciness=w_retained + cfg.β_fat * R_ret / cfg.W0,
@@ -927,7 +992,9 @@ Materialize the optional forcing knot vectors on the `tknots` grid: empty
 smoke ⇒ zeros, empty base vapor pressure ⇒ `cfg.p_v_pit`, empty inverse
 air flow ⇒ zeros (no dilution term). Length mismatches fail loudly.
 """
-function _forcing_knots(cfg::MeatConfig, tknots, smoke_knots, pv_base_knots, imair_knots)
+function _forcing_knots(
+    cfg::MeatConfig, tknots, smoke_knots, pv_base_knots, imair_knots, airflow_knots
+)
     nk = length(tknots)
     fillk(v, default, name) = begin
         k = isempty(v) ? fill(default, nk) : collect(float.(v))
@@ -940,5 +1007,6 @@ function _forcing_knots(cfg::MeatConfig, tknots, smoke_knots, pv_base_knots, ima
         fillk(smoke_knots, 0.0, "smoke_knots"),
         fillk(pv_base_knots, cfg.p_v_pit, "pv_base_knots"),
         fillk(imair_knots, 0.0, "imair_knots"),
+        fillk(airflow_knots, cfg.g_ref, "airflow_knots"),
     )
 end
