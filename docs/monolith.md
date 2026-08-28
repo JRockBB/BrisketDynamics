@@ -37,6 +37,8 @@ End-to-end, same scripts, one import swapped:
 | fullplan scan, 13 cook lengths, schedule + wrap + pull each | 4.5 h | 69 min |
 | MPC demo, 4 cooks, hourly replans incl. the pull | ~2 h per replan under the disturbance | 58 min total |
 | Gauss–Newton MAP from the prior medians | — (Adam + adjoint, hours) | 131 s |
+| robust control: E[J] over 8 draws, 30 held-out evaluations | ~2 h | 34 min |
+| the whole chain (fullplan → MPC → robust) | days | 2 h 42 min |
 
 | Picard vs monolith | max ΔT_pit | max ΔT_core |
 |---|---|---|

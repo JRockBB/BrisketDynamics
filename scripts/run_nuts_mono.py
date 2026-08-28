@@ -75,7 +75,7 @@ def main():
     )
     n_blocks = max(1, -(-args.samples // args.block))
     mcmc = MCMC(
-        kernel, num_warmup=args.warmup, num_samples=args.block, progress_bar=False
+        kernel, num_warmup=args.warmup, num_samples=args.block, progress_bar=True
     )
     print(
         f"chain {args.chain} seed {seed}: warmup {args.warmup}, samples {args.samples} in "

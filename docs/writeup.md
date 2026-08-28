@@ -171,9 +171,14 @@ doneness 0.965, J = 1.117. Without the front MPC reproduces the plan
 (J = 1.139 vs 1.140), the principle-of-optimality check.
 
 **Control under calibrated uncertainty** (`figures/control_robust_mono.png`):
-re-optimizing the expected plan objective over 8 posterior draws, evaluated on
-30 held-out draws against the plan-optimal schedule. *[numbers pending; the
-run follows MPC in the regeneration chain]*
+re-optimizing the expected plan objective over 8 posterior draws (34 min on
+the monolith), evaluated on 30 held-out draws against the plan-optimal
+schedule. The hedge moves the wrap earlier (8.20 → 7.95 h) and the pull later
+(18.15 → 18.52 h) and halves the spread: J 1.163 ± 0.074 (worst 1.39) against
+1.230 ± 0.164 (worst 1.75); doneness 0.958 ± 0.025 (minimum 0.895) against
+0.934 ± 0.034 (minimum 0.854); juiciness unchanged within noise. The
+schedules themselves are nearly identical — under this posterior the hedge
+is in the two event times, not the vents.
 
 **The bark model** (`figures/bark_model.png`): Maillard browning (first-order
 in lightness, Arrhenius × a water-activity bell via a smooth sorption isotherm)
