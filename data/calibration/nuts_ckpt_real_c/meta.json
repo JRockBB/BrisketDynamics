@@ -1,1 +1,0 @@
-{"config": {"warmup": 200, "samples": 200, "max_tree_depth": 6, "real": true, "chain": "c", "seed": 2, "init_json": "C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\data\\calibration\\init_chain_c.json"}, "done": true}

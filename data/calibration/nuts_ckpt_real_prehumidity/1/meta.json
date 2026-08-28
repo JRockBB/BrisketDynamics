@@ -1,1 +1,0 @@
-{"config": {"warmup": 300, "samples": 300, "max_tree_depth": 6, "real": true, "n_chains": 2, "seed": 0, "init_json": null}, "done": false, "chain": 1}
