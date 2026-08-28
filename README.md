@@ -82,10 +82,10 @@ uv run python ../scripts/run_fullplan.py        # duration x wrap x schedule
 uv run python ../scripts/render_animation.py    # animated calibrated cook
 ```
 
-`run_nuts_mono.py` runs one chain per process and saves samples in blocks as
-they land (`data/calibration/nuts_mono_real/`; `merge_nuts_mono.py` pools the
-chains and reports r̂ / ESS). ADVI (`run_vi.py`) checkpoints the SVI state and
-resumes when re-run.
+`run_nuts_mono.py` runs one chain per process and pickles the kernel state
+**every 5 steps, warmup included** (`data/calibration/nuts_mono_real/`) —
+re-run the same command to resume; `merge_nuts_mono.py` pools the chains and
+reports r̂ / ESS. ADVI (`run_vi.py`) checkpoints the SVI state the same way.
 
 ## Containers (Linux/WSL2 + Docker)
 
