@@ -70,23 +70,22 @@ uv run pytest tests/ -q                   # boundary tests + composed FD gradien
 # each result is one script (run from app/):
 uv run python ../scripts/forward_demo.py        # coupled 12-h cook figure
 uv run python ../scripts/run_map.py             # synthetic MAP + recovery table
-uv run python ../scripts/run_nuts.py            # NUTS (checkpointed; resumable by re-running)
 uv run python ../scripts/run_control.py         # damper-schedule optimization
 uv run python ../scripts/run_robust_control.py  # control under posterior uncertainty
 uv run python ../scripts/replay_cooklog.py      # real cook, uncalibrated replay
-uv run python ../scripts/run_map_real.py        # real cook MAP calibration
+uv run python ../scripts/run_gn_map.py          # real cook Gauss-Newton MAP + Fisher
 uv run python ../scripts/run_vi.py --real       # real cook ADVI (evening-scale; checkpointed)
-uv run python ../scripts/run_nuts.py --real     # real cook NUTS (long; checkpointed)
+uv run python ../scripts/run_nuts_mono.py --chain 0   # real cook NUTS, one chain per process (long)
 uv run python ../scripts/run_mpc.py             # receding-horizon MPC demo
 uv run python ../scripts/run_bark.py            # bark model forward validation
 uv run python ../scripts/run_fullplan.py        # duration x wrap x schedule
 uv run python ../scripts/render_animation.py    # animated calibrated cook
 ```
 
-NUTS runs checkpoint **every 5 steps including warmup** (power-loss-proof;
-survived four battery deaths during development) — re-run the same command to
-resume. ADVI (`run_vi.py`) checkpoints the SVI state the same way; it is
-the overnight calibration path and does not replace NUTS.
+`run_nuts_mono.py` runs one chain per process and saves samples in blocks as
+they land (`data/calibration/nuts_mono_real/`; `merge_nuts_mono.py` pools the
+chains and reports r̂ / ESS). ADVI (`run_vi.py`) checkpoints the SVI state and
+resumes when re-run.
 
 ## Containers (Linux/WSL2 + Docker)
 
