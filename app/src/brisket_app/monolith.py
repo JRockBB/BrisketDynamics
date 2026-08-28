@@ -259,6 +259,37 @@ def levenberg_marquardt(
     return z, F, H, hist
 
 
+def fisher_inverse_mass(x_map, log: dict, noise: dict, hess_npz=None) -> np.ndarray:
+    """Dense inverse mass matrix from the Fisher information at the MAP.
+
+    The 14 physics coordinates get the Gauss-Newton covariance
+    (Jᵀ Σ⁻¹ J + prior curvature)⁻¹ in the unconstrained space — ridge widths
+    included, no eigenvalue floor; the 4 noise coordinates get the
+    conditional block of the finite-difference Laplace Hessian when
+    ``hess_npz`` is given, else the prior's scale. Assembled in numpyro's
+    sorted-site order with no cross terms between the two groups.
+    """
+    wh = Whitened.build(log, *effective_sigma(noise))
+    _F, _g, H, _w = objective(to_z(x_map), wh, log)
+    cov_phys = np.linalg.inv(H)
+    n = len(ALL_NAMES_SORTED)
+    M = np.zeros((n, n))
+    idx = [ALL_NAMES_SORTED.index(k) for k in NAMES]
+    M[np.ix_(idx, idx)] = cov_phys
+    nidx = [ALL_NAMES_SORTED.index(k) for k in NOISE_NAMES]
+    if hess_npz is not None:
+        c = np.load(hess_npz)
+        Hl = 0.5 * (c["H"] + c["H"].T)
+        Hn = Hl[np.ix_(nidx, nidx)]
+        lam = np.linalg.eigvalsh(Hn)
+        if lam.min() <= 0:
+            Hn = Hn + (1e-3 * lam.max() - lam.min()) * np.eye(len(nidx))
+        M[np.ix_(nidx, nidx)] = np.linalg.inv(Hn)
+    else:
+        M[np.ix_(nidx, nidx)] = np.eye(len(nidx))
+    return M
+
+
 def laplace_inverse_mass(hess_npz, floor_rel: float = 1e-4) -> np.ndarray:
     """Dense inverse mass matrix from a finite-difference Laplace Hessian.
 

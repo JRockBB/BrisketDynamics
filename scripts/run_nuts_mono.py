@@ -29,6 +29,7 @@ from brisket_app.monolith import (
     ALL_NAMES_SORTED,
     NAMES,
     NOISE_NAMES,
+    fisher_inverse_mass,
     laplace_inverse_mass,
 )
 from numpyro.infer import MCMC, NUTS, init_to_value
@@ -45,10 +46,15 @@ def main():
     ap.add_argument("--warmup", type=int, default=300)
     ap.add_argument("--samples", type=int, default=300)
     ap.add_argument("--block", type=int, default=25, help="samples per saved block")
-    ap.add_argument("--max-tree-depth", type=int, default=6)
+    ap.add_argument("--max-tree-depth", type=int, default=5)
     ap.add_argument("--init-physics", default="gn_map_real.json")
     ap.add_argument("--init-noise", default="map_real.json")
-    ap.add_argument("--mass", default="laplace_hess_real.npz", help="'' = identity")
+    ap.add_argument(
+        "--mass",
+        default="fisher",
+        help="'fisher' (Gauss-Newton covariance at the init, noise block from "
+        "laplace_hess_real.npz), a Laplace-Hessian npz name, or '' = identity",
+    )
     args = ap.parse_args()
     seed = args.chain if args.seed is None else args.seed
     cal = REPO / "data" / "calibration"
@@ -65,7 +71,18 @@ def main():
 
     log = cooklog.load(dt_min=10.0)
     model = calibrate.bound_model_real(log, monolith_client())
-    inv_mass = laplace_inverse_mass(cal / args.mass) if args.mass else None
+    if args.mass == "fisher":
+        hess = cal / "laplace_hess_real.npz"
+        inv_mass = fisher_inverse_mass(
+            np.array([init[n] for n in NAMES]),
+            log,
+            noise,
+            hess if hess.exists() else None,
+        )
+    elif args.mass:
+        inv_mass = laplace_inverse_mass(cal / args.mass)
+    else:
+        inv_mass = None
     kernel = NUTS(
         model,
         dense_mass=True,
@@ -79,7 +96,7 @@ def main():
     )
     print(
         f"chain {args.chain} seed {seed}: warmup {args.warmup}, samples {args.samples} in "
-        f"{n_blocks} blocks of {args.block}; mass {'laplace' if args.mass else 'identity'}; "
+        f"{n_blocks} blocks of {args.block}; mass {args.mass or 'identity'}; "
         f"order {ALL_NAMES_SORTED}",
         flush=True,
     )
