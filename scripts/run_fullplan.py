@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
 from brisket_app.clients import monolith_client
 from brisket_app.control import ControlConfig, safety_report
-from brisket_app.coupled import HR, check_picard, coupled_cook
+from brisket_app.coupled import HR, coupled_cook
 from brisket_app.timeplan import _grids_for, optimal_duration, plan_duration
 
 REPO = Path(__file__).resolve().parents[1]
@@ -155,7 +155,6 @@ def main():
         rest=best.get("rest"),
     )
     sim = {k: np.asarray(v) for k, v in sim.items()}
-    check_picard(sim)
     doneness = float(sim["c_field_final"][0])
     juiciness = float(sim["juiciness"])
     l_end = float(sim["l_star"][-1])

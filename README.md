@@ -11,33 +11,33 @@ Real BBQ is a coupled multi-physics control problem: a charcoal pit with its own
 thermal dynamics drives heat into a brisket whose internal physics — coupled heat
 conduction and moisture transport with surface evaporation — produce the famous
 **stall**, a multi-hour plateau in internal temperature caused by evaporative
-cooling. This repo composes two Julia [Tesseracts](https://github.com/pasteurlabs/tesseract-core)
+cooling. This repo wraps the whole coupled physics as one Julia [Tesseract](https://github.com/pasteurlabs/tesseract-core)
 into one end-to-end differentiable function orchestrated from JAX:
 
 | Component | Physics | States | Differentiation strategy |
 |---|---|---|---|
-| **Meat Tesseract** | 1D slab heat + moisture PDE (denaturation expulsion + fat rendering), smoothed evaporative surface BC, collagen kinetics, bark states (Maillard + smoke deposition) | T, W, C, F × 40 nodes + B, S (162 ODEs, stiff, FBDF) | SciMLSensitivity **continuous adjoint** (`InterpolatingAdjoint` + `EnzymeVJP`) |
-| **Pit Tesseract** | Lumped charcoal pit: energy balance + fuel burn + Minion ignition spread | T_pit, m_fuel, ignited fraction (Tsit5) | **Exact dense ForwardDiff Jacobian**, transposed |
+| **Monolith Tesseract** | Pit ODE (energy balance + fuel burn + Minion ignition spread) + 1D slab heat-moisture PDE (denaturation expulsion, fat rendering, smoothed evaporative surface BC, collagen kinetics, Maillard + smoke bark states) + quasi-steady pit humidity, as ONE stiff system | T, W, C, F × 40 nodes + B, S + T_pit, m_fuel, ignited (165 ODEs, FBDF) | **Forward-mode ForwardDiff**: `jacobian_vector_product` = one Dual solve, `vector_jacobian_product` / `jacobian` = one chunked pass over the requested inputs |
 
-The two are coupled **two-way** (pit temperature → meat boundary condition;
-meat evaporative + sensible load → pit energy balance) via K=2 whole-horizon
-Picard iteration, unrolled in JAX — so `jax.grad` of the composed cook crosses
-the Julia↔JAX Tesseract VJP boundary four times, and the gradients are exact
-for the unrolled map. To our knowledge (survey of pasteurlabs/mosaic, the
-official examples, and the si-tesseract forum) this is the first public example
-of a SciMLSensitivity continuous adjoint exposed as a Tesseract
-`vector_jacobian_product`.
+Pit temperature → meat boundary condition and meat evaporative + sensible
+load → pit energy balance are integrated together in one stiff solve, so
+there is no coupling truncation. Derivatives are forward-mode through the
+solve: a JVP is one Dual solve, a VJP or full Jacobian one chunked pass —
+which is what makes Gauss–Newton calibration, Fisher covariances and
+second-order control affordable ([docs/monolith.md](docs/monolith.md)). The
+two-Tesseract composition this replaced (meat adjoint + pit Jacobian, K=2
+Picard in JAX) is in the git history; its measured seam cost is in the same
+doc.
 
 ## Results
 
 | | |
 |---|---|
-| **Gradient correctness** | 3-level FD verification: Julia suite (physics + adjoint-vs-FD, including a mid-cook state VJP) and the app suite (composed `jax.grad` gate, bark chain, MPC invariants). See [docs/verification.md](docs/verification.md) |
+| **Gradient correctness** | 3-level FD verification: Julia suite (physics; monolith Jacobian / JVP vs FD; Picard→monolith convergence) and the app suite (composed `jax.grad` gate, bark chain, MPC invariants). See [docs/verification.md](docs/verification.md) |
 | **Synthetic calibration** | MAP + NUTS on the coupled model; the k_m–h_c ridge is the stall's cooling/heating trade-off ([corner](figures/corner.png), [predictive band](figures/posterior_predictive.png)) |
 | **Real-cook capstone** | 19-h WSM cook (digitized with provenance): pit hold tracked ±3 °C, core stall **and** stall break reproduced ([fit](figures/cooklog_fit_map.png), [data](data/cook_log/PROVENANCE.md)). NUTS posterior: [corner](figures/corner_real.png), [predictive band](figures/posterior_predictive_real.png) |
 | **Optimal control** | doneness 0.26 → **0.900** on target, surface under bark limit ([before/after](figures/control_before_after.png)) |
 | **Robust control** | expected-objective schedule vs MAP-optimal, evaluated on posterior draws ([comparison](figures/control_robust.png)) |
-| **MPC** | receding-horizon replan from the full meat field (T/W/C/F/B/S) handed through the Tesseracts ([demo](figures/mpc_demo.png)) |
+| **MPC** | receding-horizon replan from the full meat field (T/W/C/F/B/S) handed through the Tesseract ([demo](figures/mpc_demo.png)) |
 | **Cook-time planning** | quality scan over duration (9 h pre-color → 17 h with bark). The chance layer reports an **empirical fraction over N draws**, not a 95% certification ([figure](figures/timeplan.png)) |
 | **Differentiable Texas crutch** | wrap time optimized jointly with the vents against predicted bark color ([figure](figures/wraptime.png)) |
 | **Mechanistic bark model** | Maillard + smoke deposition as meat states, smoke flux = pit burn rate; hot-fast vs low-slow vs wrap reproduced ([figure](figures/bark_model.png)) |
@@ -47,8 +47,8 @@ of a SciMLSensitivity continuous adjoint exposed as a Tesseract
 ## Layout
 
 ```
-src/, test/            Julia package: solvers, adjoint VJPs, physics + gradient tests
-tesseracts/{meat,pit}/ Tesseract APIs (Pydantic schemas + juliacall bridge, threading notes)
+src/, test/            Julia package: component solvers, the coupled monolith, physics + derivative tests
+tesseracts/monolith/   Tesseract API (Pydantic schemas + juliacall bridge, threading notes)
 app/                   uv-managed Python: JAX orchestrator, NumPyro calibration,
                        Optax control, plots; boundary + composed-gradient tests
 scripts/               one script per result (see below) + container build
@@ -59,7 +59,7 @@ figures/               all generated figures
 
 ## Reproducing (native, no Docker)
 
-Requires Julia ≥ 1.10 and [uv](https://docs.astral.sh/uv/). The Tesseracts run
+Requires Julia ≥ 1.10 and [uv](https://docs.astral.sh/uv/). The Tesseract runs
 in-process via `Tesseract.from_tesseract_api` (LocalClient); everything below
 runs on a laptop (Windows included).
 

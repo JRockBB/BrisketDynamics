@@ -1,9 +1,8 @@
 """NUTS on the monolith: one chain per process, blocks of samples saved as they land.
 
-The model is `calibrate.model_real` with the composed Tesseract pipeline
-replaced by the monolith (`brisket_app.monolith.bound_model_mono`); every
-leapfrog step costs one forward-mode Jacobian (~2.5 s on the real-cook
-grid). Initialised at the Gauss-Newton MAP (physics) and the adjoint MAP
+The model is `calibrate.model_real` on the monolith Tesseract; every
+leapfrog step costs one forward-mode Jacobian over the 14 physics latents
+(~2.5 s on the real-cook grid). Initialised at the Gauss-Newton MAP (physics) and the adjoint MAP
 (noise), dense mass matrix seeded from the finite-difference Laplace
 Hessian and adapted during warmup.
 
@@ -23,14 +22,13 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 import jax
-from brisket_app import cooklog
+from brisket_app import calibrate, cooklog
 from brisket_app.calibrate import phi_full
+from brisket_app.clients import monolith_client
 from brisket_app.monolith import (
     ALL_NAMES_SORTED,
     NAMES,
     NOISE_NAMES,
-    bound_model_mono,
-    call_counts,
     laplace_inverse_mass,
 )
 from numpyro.infer import MCMC, NUTS, init_to_value
@@ -51,7 +49,6 @@ def main():
     ap.add_argument("--init-physics", default="gn_map_real.json")
     ap.add_argument("--init-noise", default="map_real.json")
     ap.add_argument("--mass", default="laplace_hess_real.npz", help="'' = identity")
-    ap.add_argument("--tol", type=float, default=1e-6, help="solver abstol = reltol")
     args = ap.parse_args()
     seed = args.chain if args.seed is None else args.seed
     cal = REPO / "data" / "calibration"
@@ -67,7 +64,7 @@ def main():
     init.update({n: float(noise[n]) for n in NOISE_NAMES})
 
     log = cooklog.load(dt_min=10.0)
-    model = bound_model_mono(log, progress_every=50, tol=args.tol)
+    model = calibrate.bound_model_real(log, monolith_client())
     inv_mass = laplace_inverse_mass(cal / args.mass) if args.mass else None
     kernel = NUTS(
         model,
@@ -125,7 +122,6 @@ def main():
                     "mean_num_steps": float(np.mean(extras["num_steps"])),
                     "divergences": int(np.sum(extras["diverging"])),
                     "mean_accept": float(np.mean(extras["accept_prob"])),
-                    "calls": call_counts(),
                     "done": n >= args.samples,
                 },
                 indent=2,

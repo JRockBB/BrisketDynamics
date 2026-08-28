@@ -11,6 +11,5 @@ const PIT_φ_GRAD = [15e3, 20.0, 3e-4, 1.2e7, 0.2, 3e-4, 0.85]
 @testset "BrisketDynamics.jl" begin
     include("test_meat.jl")
     include("test_pit.jl")
-    include("test_gradients.jl")
     include("test_monolith.jl")
 end

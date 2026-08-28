@@ -1,8 +1,7 @@
-"""Local (no-Docker) Tesseract clients for the two Julia components.
+"""Local (no-Docker) client for the monolith Tesseract.
 
-`Tesseract.from_tesseract_api` imports the API module in-process, so both
-Tesseracts share one Julia runtime (separate juliacall modules over the same
-BrisketDynamics package). This is the fast native dev loop; the containerized
+`Tesseract.from_tesseract_api` imports the API module in-process (one Julia
+runtime, one juliacall module over the BrisketDynamics package). This is the fast native dev loop; the containerized
 path (`Tesseract.from_image`) is wired in for the packaged submission.
 """
 
@@ -67,23 +66,6 @@ def _serialize_calls(t: Tesseract) -> Tesseract:
     return t
 
 
-def meat_client() -> Tesseract:
-    """Return the process-wide meat Tesseract client (created on first call).
-
-    Returns
-    -------
-    Tesseract
-        In-process client for the stiff meat-PDE endpoint (call-serialized).
-    """
-    if "meat" not in _cache:
-        _cache["meat"] = _serialize_calls(
-            Tesseract.from_tesseract_api(
-                REPO_ROOT / "tesseracts" / "meat" / "tesseract_api.py"
-            )
-        )
-    return _cache["meat"]
-
-
 def monolith_client() -> Tesseract:
     """Return the process-wide monolith Tesseract client (created on first call).
 
@@ -100,20 +82,3 @@ def monolith_client() -> Tesseract:
             )
         )
     return _cache["monolith"]
-
-
-def pit_client() -> Tesseract:
-    """Return the process-wide pit Tesseract client (created on first call).
-
-    Returns
-    -------
-    Tesseract
-        In-process client for the lumped pit-ODE endpoint (call-serialized).
-    """
-    if "pit" not in _cache:
-        _cache["pit"] = _serialize_calls(
-            Tesseract.from_tesseract_api(
-                REPO_ROOT / "tesseracts" / "pit" / "tesseract_api.py"
-            )
-        )
-    return _cache["pit"]

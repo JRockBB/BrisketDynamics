@@ -603,6 +603,6 @@ def jacobian(inputs: InputSchema, jac_inputs: set[str], jac_outputs: set[str]):
                 blk = blk[0]
             if name in ("t_wrap", "t_pull"):
                 blk = blk[..., 0]
-            blocks[name] = np.ascontiguousarray(blk)
+            blocks[name] = np.array(blk, dtype=np.float64)
         out[k] = blocks
     return out

@@ -411,21 +411,3 @@ end
     @test maximum(fb.pv_pit) > 3500.0
     @test all(nofb.pv_pit .== 3000.0)
 end
-
-@testset "adjoint abort watch" begin
-    # the backward solve reports a first-step abort / maxiters stop only as
-    # a warning; the watch must flag exactly those and pass everything else
-    for (msg, expect) in (
-        ("At t=1.0, dt was forced below floating point epsilon 1e-12. Aborting.", true),
-        ("Interrupted. Larger maxiters is needed.", true),
-        ("some unrelated warning", false),
-    )
-        hit = Ref(false)
-        Base.CoreLogging.with_logger(
-            BrisketDynamics._AdjointAbortWatch(Base.CoreLogging.NullLogger(), hit)
-        ) do
-            @warn msg
-        end
-        @test hit[] == expect
-    end
-end

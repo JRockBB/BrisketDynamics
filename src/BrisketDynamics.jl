@@ -4,9 +4,7 @@ using SciMLBase: ODEProblem, solve
 using SciMLBase: SciMLBase
 using OrdinaryDiffEqBDF: FBDF
 using OrdinaryDiffEqTsit5: Tsit5
-using SciMLSensitivity: InterpolatingAdjoint, GaussAdjoint, ReverseDiffVJP, EnzymeVJP
 using ForwardDiff
-using Zygote
 
 include("thermophysics.jl")
 include("interpolation.jl")
@@ -16,14 +14,12 @@ include("monolith.jl")
 
 export MeatConfig,
     meat_solve,
-    meat_vjp,
     wrap_blend,
     WRAP_NEVER,
     PULL_NEVER,
     pull_blend,
     PitConfig,
     pit_solve,
-    pit_vjp,
     Humidity,
     monolith_solve,
     monolith_jacobian,

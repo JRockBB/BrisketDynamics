@@ -129,7 +129,6 @@ def plan_duration(
                 "t_wrap": float(t_wrap) if cc.opt_wrap else 1.0e9,
                 "t_wrap_h": (t_wrap / HR) if cc.opt_wrap else None,
                 "l_star_end": l_end,
-                "picard_dT": float(np.asarray(sim["picard_dT"])),
                 "t_pull": float(t_pull),
                 "t_pull_h": float(t_pull / HR) if t_pull < 1.0e8 else None,
                 "rest": rest,
@@ -144,12 +143,6 @@ def plan_duration(
             + (f"  pull@{t_pull / HR:.2f} h" if t_pull < 1.0e8 else "")
             + f"  iters={hist.get('n_iter_run', len(hist['losses']))}"
             + ("" if hist.get("converged", True) else " (cap)")
-            + (
-                f"  Picard {records[-1]['picard_dT']:.2f} K"
-                if np.isfinite(records[-1]["picard_dT"])
-                and records[-1]["picard_dT"] > 2.0
-                else ""
-            )
         )
     return records
 

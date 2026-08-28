@@ -11,11 +11,7 @@
 # EXACTLY to the fully-lit two-state model — synthetic results predating this
 # state remain valid by construction.
 #
-# Differentiation: deliberately a *different* strategy than the meat PDE.
-# The system is tiny (3 states) and non-stiff, so the exact dense Jacobian
-# over the full input vector via ForwardDiff (chunked forward mode) is cheap;
-# the VJP endpoint returns Jᵀv̄. This makes the composed pipeline a genuine
-# adjoint(meat) + forward(pit) composition across the Tesseract boundary.
+# Differentiation: forward mode through the coupled monolith (src/monolith.jl).
 # a0 lives in φ (not the config) so calibration can sample it with gradients.
 
 Base.@kwdef struct PitConfig
@@ -154,35 +150,6 @@ function _pit_mdot_row(A, p, cfg::PitConfig, u_tknots, tsave, nu::Int)
 end
 
 """
-    _pit_outputs_arr(p, cfg::PitConfig, u_tknots, q_tknots, tsave, nu::Int;
-                     abstol, reltol)
-
-States plus burn rate as one 4 × nt array — the single vector-valued function
-the ForwardDiff Jacobian path differentiates.
-
-# Arguments
-- `p::AbstractVector`: Full parameter vector (φ | u_knots | qmeat_knots).
-- `cfg::PitConfig`: Pit configuration.
-- `u_tknots::AbstractVector`: Damper knot times [s].
-- `q_tknots::AbstractVector`: Heat-load knot times [s].
-- `tsave::AbstractVector`: Save times [s].
-- `nu::Int`: Number of damper knots.
-
-# Keyword Arguments
-- `abstol::Float64`: ODE absolute tolerance. [Default=1e-8]
-- `reltol::Float64`: ODE relative tolerance. [Default=1e-8]
-
-# Returns
-- `B::Matrix`: 4 × nt array (rows: T_pit, m_fuel, ignited, mdot).
-"""
-function _pit_outputs_arr(
-    p, cfg::PitConfig, u_tknots, q_tknots, tsave, nu::Int; abstol=1e-8, reltol=1e-8
-)
-    A = _pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol)
-    return vcat(A, transpose(_pit_mdot_row(A, p, cfg, u_tknots, tsave, nu)))
-end
-
-"""
     pit_solve(φ, u_knots, u_tknots, qmeat_knots, q_tknots, tsave; cfg, abstol, reltol)
 
 Forward pit solve over the damper schedule and meat heat-load forcing.
@@ -236,62 +203,5 @@ function pit_solve(
     mdot = _pit_mdot_row(A, p, cfg, u_tknots, tsave, length(u_knots))
     return (
         Tpit=A[1, :], m_fuel=A[2, :], ignited=A[3, :], mdot=mdot, t=collect(float.(tsave))
-    )
-end
-
-"""
-    pit_vjp(φ, u_knots, u_tknots, qmeat_knots, q_tknots, tsave, cot; cfg, abstol, reltol)
-
-Vector–Jacobian product of the pit outputs w.r.t. `(φ, u_knots, qmeat_knots)`
-via the full ForwardDiff Jacobian: `Jᵀv̄`. Exact to solver tolerance — no
-adjoint ODE is involved (see the module header for why forward mode is the
-right differentiation strategy for this component).
-
-# Arguments
-- `φ::AbstractVector`: Pit latents (length `PIT_NP`).
-- `u_knots::AbstractVector`: Damper schedule values on `u_tknots`.
-- `u_tknots::AbstractVector`: Damper knot times [s].
-- `qmeat_knots::AbstractVector`: Meat heat-load trajectory [W] on `q_tknots`.
-- `q_tknots::AbstractVector`: Heat-load knot times [s].
-- `tsave::AbstractVector`: Save times [s].
-- `cot`: NamedTuple of output cotangents with any subset of the keys
-  `:Tpit`, `:m_fuel`, `:mdot` (each length nt); missing keys are zero.
-
-# Keyword Arguments
-- `cfg::PitConfig`: Pit configuration. [Default=PitConfig()]
-- `abstol::Float64`: ODE absolute tolerance. [Default=1e-8]
-- `reltol::Float64`: ODE relative tolerance. [Default=1e-8]
-
-# Returns
-- `g::NamedTuple`: `(; dφ, du_knots, dqmeat_knots)` gradients.
-"""
-function pit_vjp(
-    φ::AbstractVector,
-    u_knots::AbstractVector,
-    u_tknots::AbstractVector,
-    qmeat_knots::AbstractVector,
-    q_tknots::AbstractVector,
-    tsave::AbstractVector,
-    cot;
-    cfg::PitConfig=PitConfig(),
-    abstol=1e-8,
-    reltol=1e-8,
-)
-    _pit_check_lengths(u_knots, u_tknots, qmeat_knots, q_tknots)
-    nu, nq, nt = length(u_knots), length(qmeat_knots), length(tsave)
-    v = vcat(φ, u_knots, qmeat_knots)
-    f = p -> vec(_pit_outputs_arr(p, cfg, u_tknots, q_tknots, tsave, nu; abstol, reltol))
-    J = ForwardDiff.jacobian(f, v)            # (4nt) × (PIT_NP+nu+nq)
-    z = zeros(nt)
-    # column order matches vec(4×nt): [T₁,m₁,a₁,ṁ₁, T₂,m₂,a₂,ṁ₂, ...]; the
-    # ignited fraction is a diagnostic with no external cotangent.
-    v̄ = vec(
-        transpose(hcat(get(cot, :Tpit, z), get(cot, :m_fuel, z), z, get(cot, :mdot, z)))
-    )
-    g = transpose(J) * v̄
-    return (
-        dφ=g[1:PIT_NP],
-        du_knots=g[(PIT_NP + 1):(PIT_NP + nu)],
-        dqmeat_knots=g[(PIT_NP + nu + 1):(PIT_NP + nu + nq)],
     )
 end

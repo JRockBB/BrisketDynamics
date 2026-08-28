@@ -19,7 +19,7 @@ import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
 from brisket_app.clients import monolith_client
 from brisket_app.control import ControlConfig, optimize_schedule, safety_report
-from brisket_app.coupled import HR, CookGrids, check_picard, coupled_cook
+from brisket_app.coupled import HR, CookGrids, coupled_cook
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -86,7 +86,6 @@ def main():
         f"optimized: core doneness {c1:.3f}, J {hist['losses'][0]:.2f} -> "
         f"{hist.get('best_loss', hist['losses'][-1]):.2f} in {hist['wall_s']:.0f} s"
     )
-    check_picard(after)
     sr = safety_report(after["tsurf"], grids.tknots, cc)
     print(
         f"safety (surface, intact-muscle assumption): "

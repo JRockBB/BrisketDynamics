@@ -24,7 +24,6 @@ from brisket_app.coupled import (
     PHI_DEFAULT,
     THETA_DEFAULT,
     CookGrids,
-    check_picard,
     coupled_cook,
 )
 
@@ -52,7 +51,6 @@ def main():
     )
     dt = time.perf_counter() - t0
     print(f"coupled forward (monolith): {dt:.1f} s wall")
-    check_picard(out)
 
     th = np.asarray(grids.tknots) / HR
     to_c = lambda x: np.asarray(x) - 273.15

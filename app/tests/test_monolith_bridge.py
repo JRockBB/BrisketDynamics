@@ -1,17 +1,17 @@
-"""The monolith bridge: the numpyro model's gradient equals the whitened LM gradient."""
+"""calibrate.model_real on the monolith: its gradient equals the whitened LM gradient."""
 
 import json
 from pathlib import Path
 
 import jax
 import numpy as np
-from brisket_app import cooklog
+from brisket_app import calibrate, cooklog
+from brisket_app.clients import monolith_client
 from brisket_app.monolith import (
     ALL_NAMES_SORTED,
     NAMES,
     NOISE_NAMES,
     Whitened,
-    bound_model_mono,
     effective_sigma,
     from_z,
     objective,
@@ -27,8 +27,8 @@ def test_model_mono_gradient_matches_lm_objective():
     """d(potential)/dz for the physics sites == the LM objective's gradient.
 
     Same Jacobian, two code paths (numpyro's AR(1) sites through the
-    custom_vjp vs the explicit whitening); at fixed noise parameters the
-    dependence on the physics latents is identical up to float error.
+    Tesseract VJP vs the explicit whitening); at fixed noise parameters the
+    dependence on the physics latents is identical up to solver jitter.
     """
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
     log = cooklog.load(dt_min=10.0)
@@ -38,7 +38,7 @@ def test_model_mono_gradient_matches_lm_objective():
     init.update({n: float(m[n]) for n in NOISE_NAMES})
     mi = initialize_model(
         jax.random.PRNGKey(0),
-        bound_model_mono(log),
+        calibrate.bound_model_real(log, monolith_client()),
         init_strategy=init_to_value(values=init),
     )
     g_np = jax.grad(mi.potential_fn)(mi.param_info.z)

@@ -1,6 +1,6 @@
 # Piecewise-linear interpolation on a *uniform* knot grid, implemented as a
 # branch-free hat-basis sum. The operation sequence is independent of `t`
-# (no data-dependent index lookup), which makes it safe inside a ReverseDiff
+# (no data-dependent index lookup), which makes it safe under any AD backend
 # *compiled* tape — a `searchsorted`-style implementation would freeze the
 # branch taken at tape-compile time and produce silently wrong adjoints.
 
@@ -38,7 +38,7 @@ end
 Dense hat-basis interpolation matrix with plain `Float64` entries such that
 `M * vals` interpolates the knots at all times `ts` at once. Used on the
 output/observable path where a matrix–vector product is far friendlier to
-Zygote than a scalar loop.
+forward-mode AD than a scalar loop.
 
 # Arguments
 - `ts::AbstractVector`: Evaluation times [s].

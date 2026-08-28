@@ -52,7 +52,7 @@ logistic(x) = (1 + tanh(x / 2)) / 2
 
 Smooth non-negative clamp `scale·softplus(x/scale)`: ≈ `max(0, x)` for
 |x| ≫ scale, smooth near 0. Overflow-safe and free of Julia-level branching
-(`max`/`abs` are scalar AD primitives), so it is safe inside a ReverseDiff
+(`max`/`abs` are scalar AD primitives), so it is safe under AD
 compiled tape and under Enzyme.
 
 # Arguments
