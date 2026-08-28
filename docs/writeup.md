@@ -163,7 +163,7 @@ the foil's residual evaporation balances the pit's heat input — the level of
 that second plateau is set by the wrap's evaporation-suppression constant,
 which is literature-fixed pending a wrapped-cook log.
 
-**Receding-horizon MPC** (`figures/mpc_demo_mono.png`): the calibrated smoker
+**Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
 as plant, the 20 h plan under defense, hourly replans from the measured state
 (full T/W/C/F/B/S-field handoff through the Tesseract), replanning the
 schedule, the wrap and the pull; both events execute like the real thing —
@@ -174,7 +174,7 @@ MPC re-times the crutch 8.2 → 7.8 h and the pull 18.15 → 17.49 h and lands a
 doneness 0.965, J = 1.117. Without the front MPC reproduces the plan
 (J = 1.139 vs 1.140), the principle-of-optimality check.
 
-**Control under calibrated uncertainty** (`figures/control_robust_mono.png`):
+**Control under calibrated uncertainty** (`figures/control_robust.png`):
 re-optimizing the expected plan objective over 8 posterior draws (34 min on
 the monolith), evaluated on 30 held-out draws against the plan-optimal
 schedule. The hedge moves the wrap earlier (8.20 → 7.95 h) and the pull later

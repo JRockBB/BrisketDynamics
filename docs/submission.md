@@ -2,7 +2,7 @@
 
 Author notes (not posted): fill the NUTS-on-monolith diagnostics from
 `scripts/merge_nuts_mono.py` and the robust-control numbers from
-`data/control/schedule_robust_mono.json` where marked. Repo:
+`data/control/schedule_robust.json` where marked. Repo:
 https://github.com/JRock95/BrisketDynamics. User-owned: hackathon
 registration (tally.so/r/kdx2ej, required for prize eligibility).
 
@@ -65,7 +65,7 @@ cannot identify the pit's fast dynamics) — is documented in the repo.
 **Key artifacts:** `docs/writeup.md` (six-criteria writeup) ·
 `docs/monolith.md` (the seam, measured) · `figures/cooklog_fit_map.png` ·
 `figures/corner_laplace_real.png` · `figures/fullplan.png` ·
-`figures/mpc_demo_mono.png` · `figures/control_robust_mono.png` ·
+`figures/mpc_demo.png` · `figures/control_robust.png` ·
 `figures/bark_model.png` · `docs/verification.md`
 
 ---
@@ -106,7 +106,7 @@ Repo: https://github.com/JRock95/BrisketDynamics
 #TesseractHackathon #DifferentiableProgramming #JuliaLang #JAX
 #BayesianInference #BBQ
 
-[Attach: figures/mpc_demo_mono.png]
+[Attach: figures/mpc_demo.png]
 [Tag: Pasteur Labs & ISI; Tesseract]
 
 ---
