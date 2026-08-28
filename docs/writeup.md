@@ -126,7 +126,9 @@ stall break, the climb to 90 °C (core rms 3.3 K).
   target, and the rest carries it into the band.
 - **NUTS on the monolith** (`scripts/run_nuts_mono.py`): `model_real` on the
   Tesseract, initialized at the LM MAP with a dense mass matrix seeded from
-  the Laplace Hessian, one chain per process. *[chains running at submission
+  the Gauss–Newton Fisher covariance (ridge widths included; seeding from the
+  floored FD-Laplace Hessian understated them 3–6× and every trajectory hit
+  the tree-depth cap), one chain per process. *[chains running at submission
   time; r̂ / ESS / divergences to be quoted as-is from
   `scripts/merge_nuts_mono.py`]*
 - **Variational inference, and what it taught us.** ADVI with a full-rank
