@@ -49,6 +49,26 @@ Jacobian matches central differences to ~1e-4 relative on D_eff, h_c, UA
 and u_leak. The existing meat / pit / adjoint suites run unchanged on the
 shared stencil.
 
+## Gauss–Newton MAP and Fisher covariance (`scripts/run_gn_map.py`)
+
+Levenberg–Marquardt over the 14 physics latents in the unconstrained
+space, noise parameters fixed at the adjoint MAP's values, whitened AR(1)
+residuals (222 of them) from the forward Jacobian. Cold start at the prior
+medians:
+
+| | F = ½‖w‖² − log p(z) | wall |
+|---|---|---|
+| prior medians | 5412 | — |
+| after 19 LM iterations | 131.97 | 131 s |
+| the adjoint MAP, evaluated under the same objective | 136.03 (|∇F| = 40) | hours of Adam + adjoints |
+
+The two optima differ along the ridges (D_eff ×1.5, h_c ×1.3, C_th ×0.62,
+r_max ×0.76, u_leak ×1.38), where the Fisher sd in z is 0.15–0.6; the 4-nat
+gap is part K = 2 truncation, part unconverged Adam. The Fisher widths
+(Jᵀ Σ⁻¹ J + prior) match the finite-difference Laplace Hessian's conditional
+block to 0.8–1.4× on every coordinate. `data/calibration/gn_map_real.json`
+carries the optimum, the iteration history and both width sets.
+
 ## What it unlocks
 
 - Gauss–Newton / Levenberg–Marquardt MAP from the residual Jacobian; the
