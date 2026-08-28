@@ -99,8 +99,7 @@ def corner_plot(
 def posterior_predictive_plot(
     samples: dict,
     data: dict,
-    meat_tx,
-    pit_tx,
+    tx,
     grids,
     out_path: Path,
     n_draws: int = 30,
@@ -149,10 +148,8 @@ def posterior_predictive_plot(
             theta,
             phi,
             jnp.asarray(data["u_knots"]),
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
-            K=2,
             ics=ics,
         )
         cores.append(np.asarray(sim["tcore"]))

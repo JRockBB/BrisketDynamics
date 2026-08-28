@@ -339,7 +339,7 @@ def main():
 
     from brisket_app import mpc
     from brisket_app.calibrate import THETA_SITES, phi_full
-    from brisket_app.clients import meat_client, pit_client
+    from brisket_app.clients import monolith_client
     from brisket_app.control import ControlConfig, safety_report
     from brisket_app.coupled import CookGrids
 
@@ -347,7 +347,7 @@ def main():
     m = json.loads(params_path.read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
-    mpc.set_clients(meat_client(), pit_client())
+    mpc.set_clients(monolith_client())
     print(f"plant: {params_path.name}", flush=True)
 
     cold_front = lambda t: T_AMB_COLD if t >= T_DIST else T_AMB_BASE

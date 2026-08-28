@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.control import ControlConfig, optimize_schedule, safety_report
 from brisket_app.coupled import HR, CookGrids, check_picard, coupled_cook
 
@@ -46,7 +46,7 @@ def main():
     phi = phi_full(m)
     print(f"MAP params from {map_file.name}: theta={theta}, phi={phi}")
 
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
     grids = CookGrids(dt_exchange=600.0, n_u=16)
     cc = ControlConfig(n_iter=args.iters)
 
@@ -54,10 +54,8 @@ def main():
         jnp.asarray(theta),
         jnp.asarray(phi),
         jnp.full(grids.n_u, args.u_init),
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
-        K=2,
     )
     c0 = float(baseline["c_field_final"][0])
     print(
@@ -68,8 +66,7 @@ def main():
     u_opt, hist = optimize_schedule(
         theta,
         phi,
-        meat_tx,
-        pit_tx,
+        tx,
         grids=grids,
         cc=cc,
         u_init=args.u_init,
@@ -81,10 +78,8 @@ def main():
         jnp.asarray(theta),
         jnp.asarray(phi),
         jnp.asarray(u_opt),
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
-        K=2,
     )
     c1 = float(after["c_field_final"][0])
     print(

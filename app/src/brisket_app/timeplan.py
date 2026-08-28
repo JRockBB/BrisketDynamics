@@ -35,8 +35,7 @@ def _grids_for(t_f: float) -> CookGrids:
 def plan_duration(
     theta,
     phi,
-    meat_tx,
-    pit_tx,
+    tx,
     durations_h,
     cc: ControlConfig | None = None,
     ics: dict | None = None,
@@ -84,8 +83,7 @@ def plan_duration(
         u_opt, hist = optimize_schedule(
             theta,
             phi,
-            meat_tx,
-            pit_tx,
+            tx,
             grids=grids,
             cc=cc,
             u_init=u_init,
@@ -108,10 +106,8 @@ def plan_duration(
             np.asarray(theta),
             np.asarray(phi),
             np.asarray(u_opt),
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
-            K=2,
             ics=ics,
             t_wrap=t_wrap if cc.opt_wrap else 1.0e9,
             t_pull=t_pull,
@@ -146,6 +142,8 @@ def plan_duration(
             f"(water {w_ret:.3f})  L*={l_end:.1f}"
             + (f"  wrap@{t_wrap / HR:.2f} h" if cc.opt_wrap else "")
             + (f"  pull@{t_pull / HR:.2f} h" if t_pull < 1.0e8 else "")
+            + f"  iters={hist.get('n_iter_run', len(hist['losses']))}"
+            + ("" if hist.get("converged", True) else " (cap)")
             + (
                 f"  Picard {records[-1]['picard_dT']:.2f} K"
                 if np.isfinite(records[-1]["picard_dT"])
@@ -176,8 +174,7 @@ def chance_of_done(
     record,
     thetas,
     phis,
-    meat_tx,
-    pit_tx,
+    tx,
     c_serveable: float = 0.85,
     ics: dict | None = None,
     log=print,
@@ -199,10 +196,8 @@ def chance_of_done(
             np.asarray(thetas[i]),
             np.asarray(phis[i]),
             np.asarray(u_opt),
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
-            K=2,
             ics=ics,
             t_wrap=t_wrap,
             t_pull=t_pull,

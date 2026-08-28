@@ -10,7 +10,7 @@ handful of short coupled solves.
 import numpy as np
 import pytest
 from brisket_app import mpc
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.control import ControlConfig
 from brisket_app.coupled import HR, CookGrids, coupled_cook
 
@@ -19,7 +19,7 @@ T_AMB = 300.0
 
 @pytest.fixture(scope="module")
 def clients():
-    mpc.set_clients(meat_client(), pit_client())
+    mpc.set_clients(monolith_client())
     return mpc._CLIENTS
 
 
@@ -100,9 +100,8 @@ def test_wrap_continuity_across_segments(clients, theta_phi):
         np.asarray(theta),
         np.asarray(phi),
         np.full(4, 0.5),
-        *mpc._CLIENTS,
+        mpc._CLIENTS,
         grids,
-        K=2,
         ics={"tpit0": 293.15, "t_amb": T_AMB, "t0_meat": 281.15},
         t_wrap=t_wrap,
     )
@@ -153,7 +152,7 @@ def test_nowrap_objective_matches_wrap_never(clients, theta_phi):
     from brisket_app.control import ControlConfig, objective
 
     theta, phi = theta_phi
-    meat_tx, pit_tx = clients
+    tx = clients
     grids = CookGrids(t_end=2 * HR, dt_exchange=600.0, n_u=4)
     z = jnp.zeros(grids.n_u)
     z_w = jnp.asarray(8.0)
@@ -165,8 +164,7 @@ def test_nowrap_objective_matches_wrap_never(clients, theta_phi):
             z_w,
             jnp.asarray(theta),
             jnp.asarray(phi),
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
             cc,
             tols,
@@ -178,8 +176,7 @@ def test_nowrap_objective_matches_wrap_never(clients, theta_phi):
             z_w,
             jnp.asarray(theta),
             jnp.asarray(phi),
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
             cc,
             tols,

@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 import jax
 import jax.numpy as jnp
 from brisket_app import calibrate, cooklog
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.coupled import CookGrids
 from brisket_app.plots import corner_plot, posterior_predictive_plot
 from jax.flatten_util import ravel_pytree
@@ -56,9 +56,9 @@ def main():
     args = ap.parse_args()
     cal = REPO / "data" / "calibration"
 
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
     log = cooklog.load(dt_min=10.0)
-    model = calibrate.bound_model_real(log, meat_tx, pit_tx)
+    model = calibrate.bound_model_real(log, tx)
     init = {
         k: float(v)
         for k, v in json.loads((cal / args.init_json).read_text()).items()
@@ -185,8 +185,7 @@ def main():
     posterior_predictive_plot(
         stacked,
         pp_data,
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
         REPO / "figures" / "posterior_predictive_laplace_real.png",
         ics=ics,

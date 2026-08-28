@@ -20,7 +20,7 @@ from .coupled import HR, CookGrids, coupled_cook
 # calibration has to *move* to find these, not just sit at the prior mode.
 # (k_e/a_myosin truths offset likewise since joining theta 2026-08-21).
 # Regenerating this dataset: from app/,
-#   uv run python -c "from brisket_app.clients import meat_client, pit_client; from brisket_app import synth; synth.save(synth.generate(*[meat_client(), pit_client()]))"
+#   uv run python -c "from brisket_app.clients import monolith_client; from brisket_app import synth; synth.save(synth.generate(*[monolith_client()]))"
 # then `uv run python ../scripts/run_map.py`. Do not mix with 5-parameter artifacts.
 THETA_TRUE = np.array([1.0e-8, 0.0014, 12.5, 0.026, 1.15, 7.3e-4, 0.26])
 # ignition entries inert (a0 = 1): synthetic cooks start fully lit
@@ -37,8 +37,7 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "synthetic"
 
 
 def generate(
-    meat_tx,
-    pit_tx,
+    tx,
     grids: CookGrids | None = None,
     seed: int = 20260810,
     tols: dict | None = None,
@@ -60,10 +59,8 @@ def generate(
         jnp.asarray(THETA_TRUE),
         jnp.asarray(PHI_TRUE),
         jnp.asarray(U_COOK),
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
-        K=2,
         **tols,
     )
     rng = np.random.default_rng(seed)
@@ -98,7 +95,7 @@ def save(data: dict, name: str = "cook01") -> Path:
         "t_end_h": float(data["t"][-1] / HR),
         "dt_exchange_s": float(data["t"][1] - data["t"][0]),
         "note": "Synthetic cook log from coupled_cook at THETA_TRUE/PHI_TRUE "
-        "(K=2, tol 1e-8) + iid Gaussian noise. Generating code: synth.py.",
+        "(tol 1e-8) + iid Gaussian noise. Generating code: synth.py.",
     }
     (DATA_DIR / f"{name}.json").write_text(json.dumps(meta, indent=2))
     return npz_path

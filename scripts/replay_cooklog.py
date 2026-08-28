@@ -15,7 +15,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 import jax.numpy as jnp
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.cooklog import load
 from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids, coupled_cook
 
@@ -34,15 +34,13 @@ ics = {
     "t_amb": 300.0,
     "t0_meat": log["meta"]["tcore0_K"],
 }
-meat_tx, pit_tx = meat_client(), pit_client()
+tx = monolith_client()
 out = coupled_cook(
     jnp.asarray(THETA_DEFAULT),
     jnp.asarray(PHI_DEFAULT),
     jnp.asarray(log["u"]),
-    meat_tx,
-    pit_tx,
+    tx,
     grids,
-    K=2,
     ics=ics,
 )
 

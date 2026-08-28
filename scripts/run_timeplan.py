@@ -23,7 +23,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 from brisket_app.calibrate import PHI_SITES, PHI_SITES_IGNITION, THETA_SITES, phi_full
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.timeplan import chance_of_done, optimal_duration, plan_duration
 
 REPO = Path(__file__).resolve().parents[1]
@@ -58,10 +58,10 @@ def main():
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
 
     print("quality scan over cook lengths (inner: 60-iter asymmetric+juicy opt)")
-    records = plan_duration(theta, phi, meat_tx, pit_tx, DURATIONS_H, ics=ICS)
+    records = plan_duration(theta, phi, tx, DURATIONS_H, ics=ICS)
     best = optimal_duration(records)
     t_star = best["t_f_h"]
     print(
@@ -103,7 +103,7 @@ def main():
     ps, draws = [], []
     for rec in records:
         p, done = chance_of_done(
-            rec, thetas, phis, meat_tx, pit_tx, c_serveable=C_SERVEABLE, ics=ICS
+            rec, thetas, phis, tx, c_serveable=C_SERVEABLE, ics=ICS
         )
         ps.append(p)
         draws.append(done)

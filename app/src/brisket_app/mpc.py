@@ -107,9 +107,8 @@ def advance_plant(
         jnp.asarray(theta),
         jnp.asarray(_with_a0(phi, state.a0)),
         jnp.asarray(u_seg),
-        *_CLIENTS,
+        _CLIENTS,
         grids,
-        K=2,
         ics=_ics(state, t_amb),
         t_wrap=t_wrap_seg,
         t_pull=t_pull_seg,
@@ -245,10 +244,10 @@ def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
     return comp
 
 
-def set_clients(meat_tx, pit_tx):
+def set_clients(tx):
     """Install the module-level Tesseract clients used by plan/advance."""
     global _CLIENTS
-    _CLIENTS = (meat_tx, pit_tx)
+    _CLIENTS = tx
 
 
 def plan(
@@ -281,12 +280,11 @@ def plan(
     grids = CookGrids(
         t_end=t_remaining, dt_exchange=min(600.0, t_remaining / 4), n_u=n_u
     )
-    meat_tx, pit_tx = _CLIENTS
+    tx = _CLIENTS
     u_opt, hist = optimize_schedule(
         theta,
         _with_a0(phi, state.a0),
-        meat_tx,
-        pit_tx,
+        tx,
         grids=grids,
         # iters is a CAP; the plateau rule in optimize_schedule stops the
         # warm-started replan when converged (usually well before the cap).
@@ -351,6 +349,7 @@ def run_cook(
     u_incumbent_grids=None,
     t_pull_init_abs: float | None = None,
     rest: dict | None = None,
+    replan_iters: int = 200,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
@@ -359,6 +358,8 @@ def run_cook(
     incumbent, re-timed every replan and executed under ``wrap_commit``)
     and rests under the ``rest`` preset to serve, where the terminal
     quality is read. No pull = the meat stays in the pit to serve.
+    ``replan_iters`` caps each replan's optimizer iterations; the plateau
+    rule (ControlConfig.tol_rel / patience) is the convergence stop.
 
     mode='mpc' replans each dt_replan interval from the advanced plant
     state (full-field handoff); mode='openloop' executes u_openloop
@@ -493,6 +494,7 @@ def run_cook(
                 replace(cc_seg, opt_pull=replan_pull),
                 kf.x,
                 u_init=u_init,
+                iters=replan_iters,
                 z_w_init=zw0,
                 z_w_pin=zw_pin,
                 t_wrap_override=tw_override,
@@ -627,9 +629,8 @@ def run_cook(
                 jnp.asarray(theta),
                 jnp.asarray(_with_a0(phi_model, state_before.a0)),
                 jnp.asarray(u_seg),
-                *_CLIENTS,
+                _CLIENTS,
                 pred_grids,
-                K=2,
                 ics=_ics(state_before, kf.x),
                 t_wrap=tw_seg,
             )

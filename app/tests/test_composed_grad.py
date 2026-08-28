@@ -1,6 +1,6 @@
 """GATE A: composed finite-difference gradient check of the full coupled
-pipeline — jax.grad through pit → meat → pit → meat (K=2 Picard, two Julia
-Tesseracts, two different AD strategies) vs central finite differences.
+pipeline — jax.grad through the monolith Tesseract (one coupled Julia
+solve, forward-mode derivatives) vs central finite differences.
 
 Float64 everywhere, tight ODE tolerances (1e-8) so FD truncation dominates.
 Pass: max relative error ≤ 5e-3. Expected: ≤ 1e-4.
@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids, coupled_cook
 
 GATE_TOL = 5e-3
@@ -38,10 +38,10 @@ TOLS = {"abstol": 1e-10, "reltol": 1e-10}
 
 @pytest.fixture(scope="module")
 def loss_fn():
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
 
     def loss(theta, phi, u_knots):
-        out = coupled_cook(theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2, **TOLS)
+        out = coupled_cook(theta, phi, u_knots, tx, GRIDS, **TOLS)
         return (
             1e-3 * jnp.sum((out["tcore"] - 340.0) ** 2)
             + 1e-3 * jnp.sum((out["tpit"] - 390.0) ** 2)
@@ -133,12 +133,10 @@ def test_grad_u(loss_fn, grad_and_args, i):
 
 @pytest.fixture(scope="module")
 def wrap_loss_fn():
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
 
     def loss(theta, phi, u_knots, t_wrap):
-        out = coupled_cook(
-            theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2, t_wrap=t_wrap, **TOLS
-        )
+        out = coupled_cook(theta, phi, u_knots, tx, GRIDS, t_wrap=t_wrap, **TOLS)
         return (
             1e-3 * jnp.sum((out["tcore"] - 340.0) ** 2)
             + 1e-3 * jnp.sum((out["tpit"] - 390.0) ** 2)
@@ -183,10 +181,10 @@ def test_wrap_default_backward_compat(loss_fn, wrap_loss_fn):
 
 
 def test_bark_smoke_path():
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
 
     def loss(theta, phi, u_knots):
-        out = coupled_cook(theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2, **TOLS)
+        out = coupled_cook(theta, phi, u_knots, tx, GRIDS, **TOLS)
         return jnp.sum(out["l_star"])
 
     theta = jnp.asarray(THETA_DEFAULT)
@@ -207,12 +205,10 @@ def test_bark_smoke_path():
 
 @pytest.fixture(scope="module")
 def pull_loss_fn():
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
 
     def loss(theta, phi, u_knots, t_pull):
-        out = coupled_cook(
-            theta, phi, u_knots, meat_tx, pit_tx, GRIDS, K=2, t_pull=t_pull, **TOLS
-        )
+        out = coupled_cook(theta, phi, u_knots, tx, GRIDS, t_pull=t_pull, **TOLS)
         return (
             1e-3 * jnp.sum((out["tcore"] - 340.0) ** 2)
             + 1e-3 * jnp.sum((out["tpit"] - 390.0) ** 2)

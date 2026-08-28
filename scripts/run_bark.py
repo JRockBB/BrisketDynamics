@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.coupled import HR, CookGrids, coupled_cook
 
 REPO = Path(__file__).resolve().parents[1]
@@ -28,7 +28,7 @@ GRIDS = CookGrids(t_end=14 * HR, dt_exchange=600.0, n_u=8)
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 
 
-def run(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
+def run(theta, phi, u, tx, t_wrap=1.0e9):
     """Simulate one cook style through the full coupled pipeline.
 
     Parameters
@@ -39,7 +39,7 @@ def run(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
         Pit parameters (here the MAP-real fit).
     u : float
         Constant damper fraction in [0, 1], held on all GRIDS control knots.
-    meat_tx, pit_tx
+    tx
         Tesseract clients for the meat and pit solvers.
     t_wrap : float, optional
         Texas-crutch wrap time [s]; the default 1e9 means never wrap.
@@ -54,10 +54,8 @@ def run(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
         jnp.asarray(theta),
         jnp.asarray(phi),
         jnp.asarray(np.full(GRIDS.n_u, u)),
-        meat_tx,
-        pit_tx,
+        tx,
         GRIDS,
-        K=2,
         ics=ICS,
         t_wrap=t_wrap,
     )
@@ -77,7 +75,7 @@ def main():
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
     th = np.asarray(GRIDS.tknots) / HR
 
     styles = {
@@ -85,10 +83,7 @@ def main():
         "hot-and-fast (u=0.55)": {"u": 0.55},
         "low-slow + wrap @ 5 h": {"u": 0.18, "t_wrap": 5 * HR},
     }
-    sims = {
-        name: run(theta, phi, **kw, meat_tx=meat_tx, pit_tx=pit_tx)
-        for name, kw in styles.items()
-    }
+    sims = {name: run(theta, phi, **kw, tx=tx) for name, kw in styles.items()}
 
     out = {}
     for name, s in sims.items():

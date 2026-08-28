@@ -168,8 +168,7 @@ def objective(
     z_w,
     theta,
     phi,
-    meat_tx,
-    pit_tx,
+    tx,
     grids,
     cc: ControlConfig,
     tols,
@@ -199,7 +198,7 @@ def objective(
         Unconstrained wrap-time variable; t_wrap = t_end * sigmoid(z_w).
     theta, phi : jnp.ndarray
         Meat / pit parameter vectors.
-    meat_tx, pit_tx : Tesseract
+    tx : Tesseract
         Solver endpoints.
     grids : CookGrids
         Time discretization.
@@ -256,10 +255,8 @@ def objective(
         theta,
         phi,
         u,
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
-        K=2,
         ics=ics,
         t_wrap=t_wrap,
         t_pull=t_pull,
@@ -335,8 +332,7 @@ def objective(
 def optimize_schedule_expected(
     thetas,
     phis,
-    meat_tx,
-    pit_tx,
+    tx,
     grids: CookGrids | None = None,
     cc: ControlConfig | None = None,
     tols: dict | None = None,
@@ -375,8 +371,7 @@ def optimize_schedule_expected(
                     z_w,
                     ths[i],
                     phs[i],
-                    meat_tx,
-                    pit_tx,
+                    tx,
                     grids,
                     cc,
                     tols,
@@ -437,8 +432,7 @@ def optimize_schedule_expected(
 def optimize_schedule(
     theta,
     phi,
-    meat_tx,
-    pit_tx,
+    tx,
     grids: CookGrids | None = None,
     cc: ControlConfig | None = None,
     tols: dict | None = None,
@@ -498,8 +492,7 @@ def optimize_schedule(
                 zw,
                 th,
                 ph,
-                meat_tx,
-                pit_tx,
+                tx,
                 grids,
                 cc,
                 tols,

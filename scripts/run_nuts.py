@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 import jax
 from brisket_app import calibrate, cooklog, synth
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.coupled import CookGrids
 from brisket_app.plots import corner_plot, posterior_predictive_plot
 
@@ -118,7 +118,9 @@ def _run_one_chain(kernel, postprocess, step, chain_dir, cfg, chain_id, total):
     def save(st, done: bool = False):
         with open(state_file, "wb") as f:
             pickle.dump(jax.device_get(st), f)
-        meta_file.write_text(json.dumps({"config": cfg, "done": done, "chain": chain_id}))
+        meta_file.write_text(
+            json.dumps({"config": cfg, "done": done, "chain": chain_id})
+        )
         if samples:
             np.savez(
                 samples_file,
@@ -177,16 +179,16 @@ def _setup_kernel(cfg):
     import numpyro
     from numpyro.infer import NUTS
 
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
     if cfg["real"]:
         log = cooklog.load(dt_min=10.0)
-        model = calibrate.bound_model_real(log, meat_tx, pit_tx)
+        model = calibrate.bound_model_real(log, tx)
         map_file = REPO / "data" / "calibration" / "map_real.json"
         data = None
     else:
         log = None
         data = synth.load("cook01")
-        model = calibrate._bound_model(data, meat_tx, pit_tx)
+        model = calibrate._bound_model(data, tx)
         map_file = REPO / "data" / "calibration" / "map_result.json"
     if cfg["init_json"]:
         map_file = Path(cfg["init_json"])
@@ -211,8 +213,7 @@ def _setup_kernel(cfg):
         "kernel": kernel,
         "postprocess": kernel.postprocess_fn((), {}),
         "step": jax.jit(lambda s: kernel.sample(s, (), {})),
-        "meat_tx": meat_tx,
-        "pit_tx": pit_tx,
+        "tx": tx,
         "log": log,
         "data": data,
     }
@@ -318,7 +319,7 @@ def main():
     )
 
     s = _setup_kernel(cfg)
-    meat_tx, pit_tx, log, data = s["meat_tx"], s["pit_tx"], s["log"], s["data"]
+    tx, log, data = s["tx"], s["log"], s["data"]
 
     if args.real:
         grids = CookGrids(
@@ -342,14 +343,11 @@ def main():
             + [n for n, _ in calibrate.PHI_SITES_IGNITION]
             + [n for n, _ in calibrate.RHO_SITES]
         )
-        corner_plot(
-            stacked, REPO / "figures" / "corner_real.png", names=real_names
-        )
+        corner_plot(stacked, REPO / "figures" / "corner_real.png", names=real_names)
         posterior_predictive_plot(
             stacked,
             pp_data,
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
             REPO / "figures" / "posterior_predictive_real.png",
             ics=ics,
@@ -379,8 +377,7 @@ def main():
         posterior_predictive_plot(
             stacked,
             data,
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
             REPO / "figures" / "posterior_predictive.png",
         )

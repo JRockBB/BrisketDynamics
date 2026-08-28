@@ -19,7 +19,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 from brisket_app import calibrate, synth
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 
 RESULTS = Path(__file__).resolve().parents[1] / "data" / "calibration"
 
@@ -40,13 +40,13 @@ def main():
     ap.add_argument("--regen-data", action="store_true")
     args = ap.parse_args()
 
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
 
     data_file = synth.DATA_DIR / "cook01.npz"
     if args.regen_data or not data_file.exists():
         print("== generating synthetic cook log ==")
         t0 = time.perf_counter()
-        data = synth.generate(meat_tx, pit_tx)
+        data = synth.generate(tx)
         path = synth.save(data)
         print(f"wrote {path} ({time.perf_counter() - t0:.1f} s)")
     data = synth.load("cook01")
@@ -57,7 +57,7 @@ def main():
 
     if not args.skip_timing:
         print("== timing one log-density gradient (post-warmup) ==")
-        s = calibrate.time_gradient(data, meat_tx, pit_tx)
+        s = calibrate.time_gradient(data, tx)
         est = args.steps * s / 60
         print(f"s/gradient = {s:.2f}  ->  MAP({args.steps} steps) ~ {est:.0f} min")
         print(
@@ -65,9 +65,7 @@ def main():
         )
 
     print(f"== MAP: {args.steps} steps, lr={args.lr} ==")
-    map_params, losses = calibrate.run_map(
-        data, meat_tx, pit_tx, num_steps=args.steps, lr=args.lr
-    )
+    map_params, losses = calibrate.run_map(data, tx, num_steps=args.steps, lr=args.lr)
     print(calibrate.recovery_table(map_params, data))
 
     RESULTS.mkdir(parents=True, exist_ok=True)

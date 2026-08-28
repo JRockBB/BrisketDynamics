@@ -26,7 +26,7 @@ from brisket_app.calibrate import (
     PHI_SITES_IGNITION,
     THETA_SITES,
 )
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.control import ControlConfig, objective, optimize_schedule_expected
 from brisket_app.coupled import HR, CookGrids, coupled_cook
 
@@ -134,7 +134,7 @@ def main():
     t_f = best["best_t_f_h"] * HR
     t_pull_map = best["best_t_pull_h"] * HR if best.get("best_t_pull_h") else 1.0e9
 
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
     grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=len(u_map))
     # opt_wrap / opt_pull: the posterior-EXPECTED wrap and pull moments are
     # decision variables too — does parameter uncertainty hedge them
@@ -145,8 +145,7 @@ def main():
     u_rob, hist = optimize_schedule_expected(
         th_opt,
         ph_opt,
-        meat_tx,
-        pit_tx,
+        tx,
         grids=grids,
         cc=cc,
         tols=TOLS,
@@ -177,8 +176,7 @@ def main():
                 jnp.asarray(logit(tw / t_f)),
                 jnp.asarray(th),
                 jnp.asarray(ph),
-                meat_tx,
-                pit_tx,
+                tx,
                 grids,
                 cc,
                 TOLS,
@@ -190,10 +188,8 @@ def main():
             jnp.asarray(th),
             jnp.asarray(ph),
             jnp.asarray(u),
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
-            K=2,
             ics=ICS,
             t_wrap=tw,
             t_pull=tp,

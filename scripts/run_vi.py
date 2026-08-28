@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 import jax
 import numpyro
 from brisket_app import calibrate, cooklog, synth
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.coupled import CookGrids
 from brisket_app.plots import corner_plot, posterior_predictive_plot
 from numpyro.infer import SVI, Trace_ELBO
@@ -76,14 +76,14 @@ def main():
     tag = "_real" if args.real else ""
     CKPT = REPO / "data" / "calibration" / f"vi_ckpt{tag}"
 
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
     if args.real:
         log = cooklog.load(dt_min=10.0)
-        model = calibrate.bound_model_real(log, meat_tx, pit_tx)
+        model = calibrate.bound_model_real(log, tx)
         map_file = REPO / "data" / "calibration" / "map_real.json"
     else:
         data = synth.load("cook01")
-        model = calibrate._bound_model(data, meat_tx, pit_tx)
+        model = calibrate._bound_model(data, tx)
         map_file = REPO / "data" / "calibration" / "map_result.json"
     if args.init_json:
         map_file = Path(args.init_json)
@@ -183,8 +183,7 @@ def main():
         posterior_predictive_plot(
             stacked,
             pp_data,
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
             REPO / "figures" / "posterior_predictive_vi_real.png",
             ics=ics,
@@ -214,8 +213,7 @@ def main():
         posterior_predictive_plot(
             stacked,
             data,
-            meat_tx,
-            pit_tx,
+            tx,
             grids,
             REPO / "figures" / "posterior_predictive_vi.png",
         )

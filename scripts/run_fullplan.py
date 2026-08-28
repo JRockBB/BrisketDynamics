@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.control import ControlConfig, safety_report
 from brisket_app.coupled import HR, check_picard, coupled_cook
 from brisket_app.timeplan import _grids_for, optimal_duration, plan_duration
@@ -33,7 +33,7 @@ REPO = Path(__file__).resolve().parents[1]
 # The objective is the default ControlConfig (KCBS-weighted quality +
 # safety); override weights there.
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
-CC = ControlConfig(opt_wrap=True, n_iter=60)
+CC = ControlConfig(opt_wrap=True)
 
 
 def records_from_json(d: dict) -> tuple[list, dict]:
@@ -112,7 +112,7 @@ def main():
     m = json.loads(params_path.read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
     print(f"params: {params_path.name}", flush=True)
 
     if args.replot:
@@ -120,9 +120,7 @@ def main():
         print(f"replotting {result_name}", flush=True)
     else:
         print("full composition scan: cook length x wrap x pull x schedule")
-        records = plan_duration(
-            theta, phi, meat_tx, pit_tx, durations_h, cc=CC, ics=ICS
-        )
+        records = plan_duration(theta, phi, tx, durations_h, cc=CC, ics=ICS)
         best = optimal_duration(records)
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(
@@ -149,10 +147,8 @@ def main():
         jnp.asarray(theta),
         jnp.asarray(phi),
         jnp.asarray(best["u_opt"]),
-        meat_tx,
-        pit_tx,
+        tx,
         best["grids"],
-        K=2,
         ics=ICS,
         t_wrap=best["t_wrap_h"] * HR,
         t_pull=best["t_pull"],

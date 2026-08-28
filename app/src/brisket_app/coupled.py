@@ -3,9 +3,11 @@
 The single function consumed unchanged by Bayesian calibration (NumPyro)
 and optimal control (Optax).
 
-Coupling scheme: whole-horizon Picard iteration, K=2 fixed passes, unrolled —
-the model is *defined* as the unrolled map, so JAX reverse-mode through the
-composed Tesseract VJPs is the exact gradient of what we simulate.
+``coupled_cook`` is one solve of the monolith Tesseract (pit + meat +
+humidity together, forward-mode derivatives). ``coupled_cook_picard`` is the
+two-Tesseract composition it replaced: whole-horizon Picard iteration, K=2
+fixed passes, unrolled, differentiated through the composed VJPs; kept as
+the measured reference (docs/monolith.md).
 """
 
 from dataclasses import dataclass, field
@@ -63,7 +65,7 @@ class CookGrids:
         return len(self.tknots)
 
 
-def coupled_cook(
+def coupled_cook_picard(
     theta,
     phi,
     u_knots,
@@ -218,6 +220,90 @@ def coupled_cook(
     }
 
 
+ICS_KEYS = (
+    "tpit0",
+    "t_amb",
+    "m0",
+    "t0_meat",
+    "t_field0",
+    "w_field0",
+    "c_field0",
+    "f_field0",
+    "bark_b0",
+    "bark_s0",
+)
+
+
+def coupled_cook(
+    theta,
+    phi,
+    u_knots,
+    tx,
+    grids: CookGrids,
+    abstol: float = 1e-6,
+    reltol: float = 1e-6,
+    ics: dict | None = None,
+    t_wrap=1.0e9,
+    t_pull=1.0e9,
+    rest: dict | None = None,
+    humidity: Humidity | None = None,
+):
+    """Simulate the coupled pit-brisket system in ONE solve, differentiably.
+
+    The monolith Tesseract integrates pit, meat and humidity together (no
+    exchange grid, no Picard truncation) and exposes forward-mode jvp / vjp
+    / jacobian endpoints, so this is differentiable w.r.t. theta, phi,
+    u_knots, t_wrap and t_pull through tesseract-jax in both modes.
+    Same inputs and outputs as ``coupled_cook_picard`` (the two-Tesseract
+    composition it replaces), plus the pit trajectory diagnostics
+    ``pv_base``; ``picard_dT`` is NaN (there is no coupling residual).
+
+    Parameters
+    ----------
+    theta, phi : array-like
+        Meat (7) and pit (7) parameters; phi[6] = a0 carries the ignition
+        state for receding-horizon handoff.
+    u_knots : array-like
+        Damper schedule on ``grids.u_tknots``.
+    tx : Tesseract
+        The monolith client (``brisket_app.clients.monolith_client``).
+    grids : CookGrids
+        Save grid (``tknots``) and damper knots.
+    ics : dict, optional
+        Initial conditions: any of ICS_KEYS (pit state, meat state fields,
+        bark states).
+    t_wrap, t_pull : float
+        Wrap and pull times [s]; 1e9 = never.
+    rest : dict, optional
+        Rest-environment overrides (``rest_t/rest_h/rest_eps/rest_eta``).
+    humidity : Humidity, optional
+        Pit vapor-balance constants.
+    """
+    ics = ics or {}
+    humidity = humidity or Humidity()
+    out = apply_tesseract(
+        tx,
+        {
+            "theta": theta,
+            "phi": phi,
+            "u_knots": u_knots,
+            "u_tknots": jnp.asarray(grids.u_tknots),
+            "tsave": jnp.asarray(grids.tknots),
+            "t_wrap": jnp.asarray(t_wrap),
+            "t_pull": jnp.asarray(t_pull),
+            "abstol": abstol,
+            "reltol": reltol,
+            "afr": humidity.afr,
+            "y_w": humidity.y_w,
+            "pan_kg_s": humidity.pan_kg_s,
+            "omega_amb": humidity.omega_amb,
+            **{k: ics[k] for k in ICS_KEYS if k in ics},
+            **(rest or {}),
+        },
+    )
+    return {**out, "picard_dT": jnp.nan}
+
+
 # Default parameters (shared with the Julia test suite). D_eff is an *effective*
 # moisture transport coefficient — above molecular-diffusion literature values
 # because it lumps in pressure-driven juice expulsion/wicking, the mechanism
@@ -235,8 +321,11 @@ PICARD_WARN_K = 2.0
 def check_picard(sim, log=print, threshold: float = PICARD_WARN_K):
     """Log the K-pass residual; warn when coupling truncation exceeds `threshold`."""
     d = float(np.asarray(sim.get("picard_dT", np.nan)))
+    if not np.isfinite(d):
+        log("coupling: exact (monolith, one solve)")
+        return d
     msg = f"Picard residual max|dT_pit| = {d:.3f} K"
-    if np.isfinite(d) and d > threshold:
+    if d > threshold:
         log(f"WARNING: {msg} exceeds {threshold} K (K=2 coupling not converged)")
     else:
         log(msg)

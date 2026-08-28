@@ -296,6 +296,74 @@ function monolith_jacobian(f, θ, φ, u_knots, u_tknots, tsave; kw...)
     return ForwardDiff.jacobian(g, x, cfgj)
 end
 
+# --- stacked differentiable outputs (the Tesseract's derivative endpoints) ----
+
+"""
+    monolith_stack(o)
+
+The differentiable outputs of [`monolith_solve`](@ref) as one vector, in
+the order `Tpit, Tcore, Tsurf, m_fuel, j_evap, q_meat, bark_b, bark_s,
+l_star, l_thick` (each nt), `C_field_final` (nx), then the scalars
+`w_retained, juiciness, fat_rendered`.
+"""
+function monolith_stack(o)
+    return vcat(
+        o.Tpit, o.Tcore, o.Tsurf, o.m_fuel, o.j_evap, o.q_meat, o.bark_b, o.bark_s,
+        o.l_star, o.l_thick, o.C_field_final, [o.w_retained, o.juiciness, o.fat_rendered],
+    )
+end
+
+"""
+    _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull; kw...)
+
+`(g, v0)`: the stacked outputs as a function of the full input vector
+`v = [θ; φ; u_knots; t_wrap; t_pull]`, and the vector's value.
+"""
+function _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull; kw...)
+    nθ, nφ, nu = length(θ), length(φ), length(u_knots)
+    v0 = vcat(float.(θ), float.(φ), float.(u_knots), float(t_wrap), float(t_pull))
+    g(v) = monolith_stack(
+        monolith_solve(
+            v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)], u_tknots,
+            tsave; t_wrap=v[end - 1], t_pull=v[end], kw...,
+        ),
+    )
+    return g, v0
+end
+
+"""
+    monolith_stack_jacobian(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, sel; kw...)
+
+Forward-mode Jacobian of [`monolith_stack`](@ref) w.r.t. the entries `sel`
+(1-based indices into `[θ; φ; u_knots; t_wrap; t_pull]`): one chunked
+ForwardDiff pass per ~12 selected inputs. Keyword arguments go to
+[`monolith_solve`](@ref).
+"""
+function monolith_stack_jacobian(
+    θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, sel::AbstractVector{<:Integer}; kw...
+)
+    g, v0 = _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull; kw...)
+    sel = collect(Int, sel)
+    function gs(vs)
+        v = convert(Vector{eltype(vs)}, copy(v0))
+        v[sel] .= vs
+        return g(v)
+    end
+    return ForwardDiff.jacobian(gs, v0[sel])
+end
+
+"""
+    monolith_stack_jvp(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, dv; kw...)
+
+Directional derivative of [`monolith_stack`](@ref) along the full-length
+tangent `dv` — one Dual solve.
+"""
+function monolith_stack_jvp(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, dv; kw...)
+    g, v0 = _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull; kw...)
+    dv = collect(Float64, dv)
+    return ForwardDiff.derivative(t -> g(v0 .+ t .* dv), 0.0)
+end
+
 """
     picard_cook(θ, φ, u_knots, u_tknots, tsave; K, cfg, pit, hum, t_wrap,
                 t_pull, abstol, reltol)

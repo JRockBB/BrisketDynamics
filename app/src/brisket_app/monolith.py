@@ -12,6 +12,7 @@ Fisher covariance is comparable with the Laplace one.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -45,17 +46,19 @@ NOISE_NAMES = ["sigma_pit", "sigma_core", "rho_pit", "rho_core"]
 # numpyro flattens the unconstrained params dict in sorted-key order
 ALL_NAMES_SORTED = sorted(NAMES + NOISE_NAMES)
 
-# juliacall must be driven from the thread that initialised it; every Julia
-# call goes through this one worker (XLA host callbacks run on other threads)
-_EXEC = None
+# juliacall must be driven from the ONE thread that initialised it, process
+# wide: the Tesseracts own that thread (sys._brisket_julia_executor), and the
+# bridge shares it — a second executor deadlocks the moment both are loaded
+_EXEC_ATTR = "_brisket_julia_executor"
 _CALLS = {"mu": 0, "jac": 0, "t0": None}
 
 
 def _jl(fn, *args):
-    global _EXEC
-    if _EXEC is None:
-        _EXEC = ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall")
-    return _EXEC.submit(fn, *args).result()
+    ex = getattr(sys, _EXEC_ATTR, None)
+    if ex is None:
+        ex = ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall")
+        setattr(sys, _EXEC_ATTR, ex)
+    return ex.submit(fn, *args).result()
 
 
 @lru_cache(maxsize=1)
@@ -117,8 +120,11 @@ def model_mean(x, log: dict, jac: bool = True, tol: float = 1e-6):
             bool(jac),
             float(tol),
         )
-        return np.asarray(mu, dtype=float), (
-            np.asarray(J, dtype=float) if jac else None
+        # copies ON the Julia thread: np.asarray over a Julia array is a
+        # zero-copy view of Julia memory, and releasing such a view from an
+        # XLA thread makes Julia's GC wait on the parked Julia thread forever
+        return np.array(mu, dtype=np.float64, copy=True), (
+            np.array(J, dtype=np.float64, copy=True) if jac else None
         )
 
     _CALLS["jac" if jac else "mu"] += 1

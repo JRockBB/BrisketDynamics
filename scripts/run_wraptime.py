@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 import jax.numpy as jnp
 from brisket_app.calibrate import THETA_SITES, phi_full
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.control import ControlConfig, optimize_schedule
 from brisket_app.coupled import HR, CookGrids, coupled_cook
 
@@ -32,7 +32,7 @@ ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 ITERS = 60
 
 
-def simulate(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
+def simulate(theta, phi, u, tx, t_wrap=1.0e9):
     """Run one coupled cook on the module grids and return NumPy outputs.
 
     Parameters
@@ -43,7 +43,7 @@ def simulate(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
         Pit parameters (here the MAP-real fit).
     u : array_like
         Damper schedule on the GRIDS control knots, values in [0, 1].
-    meat_tx, pit_tx
+    tx
         Tesseract clients for the meat and pit solvers.
     t_wrap : float, optional
         Texas-crutch wrap time [s]; the default 1e9 means never wrap.
@@ -57,10 +57,8 @@ def simulate(theta, phi, u, meat_tx, pit_tx, t_wrap=1.0e9):
         jnp.asarray(theta),
         jnp.asarray(phi),
         jnp.asarray(u),
-        meat_tx,
-        pit_tx,
+        tx,
         GRIDS,
-        K=2,
         ics=ICS,
         t_wrap=t_wrap,
     )
@@ -120,15 +118,13 @@ def main():
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
     tk = np.asarray(GRIDS.tknots)
 
     print("1) no-wrap optimum (juiciness- and bark-aware)")
     cc0 = ControlConfig(n_iter=ITERS)
-    u0, _ = optimize_schedule(
-        theta, phi, meat_tx, pit_tx, grids=GRIDS, cc=cc0, u_init=0.5, ics=ICS
-    )
-    sim0 = simulate(theta, phi, u0, meat_tx, pit_tx)
+    u0, _ = optimize_schedule(theta, phi, tx, grids=GRIDS, cc=cc0, u_init=0.5, ics=ICS)
+    sim0 = simulate(theta, phi, u0, tx)
     m0 = metrics(sim0, tk)
     print(f"   no-wrap: {m0}")
 
@@ -139,8 +135,7 @@ def main():
         u, h = optimize_schedule(
             theta,
             phi,
-            meat_tx,
-            pit_tx,
+            tx,
             grids=GRIDS,
             cc=cc,
             u_init=u0,
@@ -155,7 +150,7 @@ def main():
             best = (u, h)
     u_w, h_w = best
     t_wrap = h_w["t_wrap"]
-    sim_w = simulate(theta, phi, u_w, meat_tx, pit_tx, t_wrap=t_wrap)
+    sim_w = simulate(theta, phi, u_w, tx, t_wrap=t_wrap)
     m_w = metrics(sim_w, tk)
     print(f"   optimal wrap at {t_wrap / HR:.2f} h: {m_w}")
 
@@ -173,8 +168,7 @@ def main():
                 jnp.asarray(zw),
                 jnp.asarray(theta),
                 jnp.asarray(phi),
-                meat_tx,
-                pit_tx,
+                tx,
                 GRIDS,
                 cc,
                 {"abstol": 1e-6, "reltol": 1e-6},

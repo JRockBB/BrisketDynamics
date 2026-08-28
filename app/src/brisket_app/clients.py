@@ -84,6 +84,24 @@ def meat_client() -> Tesseract:
     return _cache["meat"]
 
 
+def monolith_client() -> Tesseract:
+    """Return the process-wide monolith Tesseract client (created on first call).
+
+    Returns
+    -------
+    Tesseract
+        In-process client for the whole coupled cook (pit + meat + humidity in
+        one solve; forward-mode jvp / vjp / jacobian endpoints), call-serialized.
+    """
+    if "monolith" not in _cache:
+        _cache["monolith"] = _serialize_calls(
+            Tesseract.from_tesseract_api(
+                REPO_ROOT / "tesseracts" / "monolith" / "tesseract_api.py"
+            )
+        )
+    return _cache["monolith"]
+
+
 def pit_client() -> Tesseract:
     """Return the process-wide pit Tesseract client (created on first call).
 

@@ -21,7 +21,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 from brisket_app.calibrate import THETA_SITES, phi_full
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.control import ControlConfig, optimize_schedule
 from brisket_app.coupled import HR
 from brisket_app.timeplan import _grids_for
@@ -52,8 +52,7 @@ def main():
     u_opt, hist = optimize_schedule(
         theta,
         phi,
-        meat_client(),
-        pit_client(),
+        monolith_client(),
         grids=grids,
         cc=cc,
         u_init=u0,

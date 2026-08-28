@@ -17,7 +17,7 @@ import jax
 import jax.numpy as jnp
 import numpyro
 from brisket_app import calibrate, cooklog
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.coupled import HR, CookGrids, check_picard, coupled_cook
 from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDelta
@@ -47,8 +47,8 @@ def main():
     args = ap.parse_args()
 
     log = cooklog.load(dt_min=10.0)
-    meat_tx, pit_tx = meat_client(), pit_client()
-    m = calibrate.bound_model_real(log, meat_tx, pit_tx)
+    tx = monolith_client()
+    m = calibrate.bound_model_real(log, tx)
 
     if args.init:
         init_vals = {
@@ -84,10 +84,8 @@ def main():
         jnp.asarray(theta),
         jnp.asarray(phi),
         jnp.asarray(log["u"]),
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
-        K=2,
         ics=ics,
     )
     check_picard(sim)

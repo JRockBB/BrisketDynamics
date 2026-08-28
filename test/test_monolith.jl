@@ -58,3 +58,29 @@ end
         @test err < 2e-2
     end
 end
+
+@testset "monolith: stacked Jacobian and JVP (the Tesseract's derivative endpoints)" begin
+    using BrisketDynamics: monolith_stack, monolith_stack_jacobian, monolith_stack_jvp
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    nu = length(MONO_U)
+    tw, tp = 3 * 3600.0, 7 * 3600.0
+    sel = [1, 9, 15, 14 + nu + 1, 14 + nu + 2]  # D_eff, UA, u_knots[1], t_wrap, t_pull
+    J = monolith_stack_jacobian(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, tw, tp, sel; pit=MONO_PIT)
+    o = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp)
+    @test size(J) == (length(monolith_stack(o)), length(sel))
+    @test all(isfinite, J)
+    dv = zeros(14 + nu + 2)
+    dv[sel] .= [1e-9, 2.0, 0.1, 600.0, 600.0]
+    d = monolith_stack_jvp(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, tw, tp, dv; pit=MONO_PIT)
+    ref = J * dv[sel]
+    # a 1-partial and a 5-partial Dual solve take slightly different adaptive
+    # steps (the error norm includes the partials); the pit / heat-load rows
+    # differ by ~1e-3 of the largest entry
+    @test maximum(abs.(d .- ref)) / (maximum(abs.(ref)) + 1e-12) < 5e-3
+    h = 60.0
+    fp = monolith_stack(monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp + h))
+    fm = monolith_stack(monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp - h))
+    fd = (fp .- fm) ./ (2h)
+    @test maximum(abs.(J[:, 5] .- fd)) / (maximum(abs.(fd)) + 1e-12) < 2e-2
+    @test abs(J[end - 1, 5]) > 0  # juiciness at serve moves with the pull
+end

@@ -108,7 +108,7 @@ def phi_full(params: dict) -> np.ndarray:
     return np.array(base + ign)
 
 
-def model(obs_pit, obs_core, u_knots, meat_tx, pit_tx, grids, tols):
+def model(obs_pit, obs_core, u_knots, tx, grids, tols):
     """NumPyro model for the synthetic cook (fully lit, unmasked Gaussian).
 
     Samples theta/phi/noise scales from the priors, runs the coupled
@@ -122,7 +122,7 @@ def model(obs_pit, obs_core, u_knots, meat_tx, pit_tx, grids, tols):
         Observed pit / core temperature traces [K] on the exchange grid.
     u_knots : array-like
         Damper schedule (control input, replayed open-loop).
-    meat_tx, pit_tx : Tesseract
+    tx : Tesseract
         The two solver endpoints.
     grids : CookGrids
         Time discretization of the coupled cook.
@@ -140,17 +140,14 @@ def model(obs_pit, obs_core, u_knots, meat_tx, pit_tx, grids, tols):
     sigma_pit = numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
     sigma_core = numpyro.sample("sigma_core", dist.HalfNormal(2.0))
 
-    sim = coupled_cook(
-        theta, phi, jnp.asarray(u_knots), meat_tx, pit_tx, grids, K=2, **tols
-    )
+    sim = coupled_cook(theta, phi, jnp.asarray(u_knots), tx, grids, **tols)
     numpyro.sample("pit", dist.Normal(sim["tpit"], sigma_pit), obs=obs_pit)
     numpyro.sample("core", dist.Normal(sim["tcore"], sigma_core), obs=obs_core)
 
 
 def _bound_model(
     data: dict,
-    meat_tx,
-    pit_tx,
+    tx,
     grids: CookGrids | None = None,
     tols: dict | None = None,
 ):
@@ -165,8 +162,7 @@ def _bound_model(
         jnp.asarray(data["obs_pit"]),
         jnp.asarray(data["obs_core"]),
         data["u_knots"],
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
         tols,
     )
@@ -269,8 +265,7 @@ def model_real(
     core_runs,
     u_knots,
     ics,
-    meat_tx,
-    pit_tx,
+    tx,
     grids,
     tols,
 ):
@@ -290,9 +285,7 @@ def model_real(
     rho_pit = numpyro.sample("rho_pit", RHO_SITES[0][1])
     rho_core = numpyro.sample("rho_core", RHO_SITES[1][1])
 
-    sim = coupled_cook(
-        theta, phi, jnp.asarray(u_knots), meat_tx, pit_tx, grids, K=2, ics=ics, **tols
-    )
+    sim = coupled_cook(theta, phi, jnp.asarray(u_knots), tx, grids, ics=ics, **tols)
     for k, run in enumerate(pit_runs):
         idx = jnp.array(run)
         ar1_observe(f"pit{k}", obs_pit[idx], sim["tpit"][idx], sigma_pit, rho_pit)
@@ -301,7 +294,7 @@ def model_real(
         ar1_observe(f"core{k}", obs_core[idx], sim["tcore"][idx], sigma_core, rho_core)
 
 
-def bound_model_real(log: dict, meat_tx, pit_tx, tols: dict | None = None):
+def bound_model_real(log: dict, tx, tols: dict | None = None):
     """Bind model_real to a loaded cook log (see cooklog.load)."""
     grids = CookGrids(
         t_end=float(log["t"][-1]),
@@ -322,20 +315,19 @@ def bound_model_real(log: dict, meat_tx, pit_tx, tols: dict | None = None):
         contiguous_runs(log["mask_core"]),
         log["u"],
         ics,
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
         tols,
     )
 
 
-def time_gradient(data, meat_tx, pit_tx, **kw) -> float:
+def time_gradient(data, tx, **kw) -> float:
     """Time one log-density gradient at calibration settings.
 
     Seconds per `jax.value_and_grad` of the potential — the number the
     NUTS go/no-go checkpoint runs on (ladder in the plan).
     """
-    m = _bound_model(data, meat_tx, pit_tx, **kw)
+    m = _bound_model(data, tx, **kw)
     from numpyro.infer.util import initialize_model
 
     info = initialize_model(jax.random.PRNGKey(0), m)
@@ -430,11 +422,9 @@ def draw_vi_posterior(guide, params: dict, n: int, seed: int = 1) -> dict:
     return {k: np.asarray(v).reshape(n) for k, v in raw.items()}
 
 
-def run_map(
-    data, meat_tx, pit_tx, num_steps: int = 300, lr: float = 2e-2, seed: int = 0, **kw
-):
+def run_map(data, tx, num_steps: int = 300, lr: float = 2e-2, seed: int = 0, **kw):
     """MAP via SVI + AutoDelta. Returns (params_dict, losses)."""
-    m = _bound_model(data, meat_tx, pit_tx, **kw)
+    m = _bound_model(data, tx, **kw)
     guide = AutoDelta(m)
     svi = SVI(m, guide, numpyro.optim.Adam(lr), Trace_ELBO())
     result = svi.run(jax.random.PRNGKey(seed), num_steps, progress_bar=True)
@@ -444,8 +434,7 @@ def run_map(
 
 def run_nuts(
     data,
-    meat_tx,
-    pit_tx,
+    tx,
     num_warmup: int = 300,
     num_samples: int = 300,
     max_tree_depth: int = 6,
@@ -463,7 +452,7 @@ def run_nuts(
     ----------
     data : dict
         Synthetic cook data (see synth.load).
-    meat_tx, pit_tx : Tesseract
+    tx : Tesseract
         Solver endpoints.
     num_warmup, num_samples : int
         NUTS phase lengths.
@@ -481,7 +470,7 @@ def run_nuts(
     numpyro.infer.MCMC
         The completed sampler (samples via `.get_samples()`).
     """
-    m = _bound_model(data, meat_tx, pit_tx, **kw)
+    m = _bound_model(data, tx, **kw)
     kernel = NUTS(
         m,
         max_tree_depth=max_tree_depth,

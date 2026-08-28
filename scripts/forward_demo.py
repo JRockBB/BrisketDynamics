@@ -18,7 +18,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from brisket_app.clients import meat_client, pit_client
+from brisket_app.clients import monolith_client
 from brisket_app.coupled import (
     HR,
     PHI_DEFAULT,
@@ -32,7 +32,7 @@ from brisket_app.coupled import (
 def main():
     """Run the 12-h coupled cook at default parameters and render the demo figure.
 
-    Runs ``coupled_cook`` (K=2 Picard) at THETA_DEFAULT/PHI_DEFAULT with a
+    Runs ``coupled_cook`` (monolith) at THETA_DEFAULT/PHI_DEFAULT with a
     flat damper of 0.4, prints the wall time and the Picard convergence
     residual max|dT_pit|, and writes figures/forward_cook.png: three stacked
     panels of pit/surface/core temperature (showing the stall), evaporative
@@ -40,20 +40,18 @@ def main():
     temperature and core collagen conversion.
     """
     grids = CookGrids()
-    meat_tx, pit_tx = meat_client(), pit_client()
+    tx = monolith_client()
 
     t0 = time.perf_counter()
     out = coupled_cook(
         jnp.asarray(THETA_DEFAULT),
         jnp.asarray(PHI_DEFAULT),
         jnp.full(grids.n_u, 0.4),
-        meat_tx,
-        pit_tx,
+        tx,
         grids,
-        K=2,
     )
     dt = time.perf_counter() - t0
-    print(f"coupled forward (K=2): {dt:.1f} s wall")
+    print(f"coupled forward (monolith): {dt:.1f} s wall")
     check_picard(out)
 
     th = np.asarray(grids.tknots) / HR
@@ -66,7 +64,7 @@ def main():
     ax.plot(th, to_c(out["tcore"]), label="core (probe)", color="tab:blue", lw=2)
     ax.set_ylabel("temperature [°C]")
     ax.legend()
-    ax.set_title("Coupled 12-h cook, damper = 0.4 (K=2 Picard)")
+    ax.set_title("Coupled 12-h cook, damper = 0.4 (monolith)")
 
     ax = axes[1]
     ax.plot(th, 1e6 * np.asarray(out["j_evap"]), color="tab:cyan")
