@@ -12,18 +12,25 @@ Fisher covariance is comparable with the Laplace one.
 from __future__ import annotations
 
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 
+import jax
+import jax.numpy as jnp
 import numpy as np
+import numpyro
 import numpyro.distributions as dist
 
 from .calibrate import (
     PHI_SITES,
     PHI_SITES_IGNITION,
+    RHO_SITES,
     SIGMA_FLOOR_K,
     THETA_SITES,
+    ar1_observe,
     contiguous_runs,
 )
 
@@ -34,6 +41,21 @@ SITES = (
 NAMES = [n for n, _ in SITES]
 N_PHYS = len(SITES)
 T_AMB = 300.0
+NOISE_NAMES = ["sigma_pit", "sigma_core", "rho_pit", "rho_core"]
+# numpyro flattens the unconstrained params dict in sorted-key order
+ALL_NAMES_SORTED = sorted(NAMES + NOISE_NAMES)
+
+# juliacall must be driven from the thread that initialised it; every Julia
+# call goes through this one worker (XLA host callbacks run on other threads)
+_EXEC = None
+_CALLS = {"mu": 0, "jac": 0, "t0": None}
+
+
+def _jl(fn, *args):
+    global _EXEC
+    if _EXEC is None:
+        _EXEC = ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall")
+    return _EXEC.submit(fn, *args).result()
 
 
 @lru_cache(maxsize=1)
@@ -47,15 +69,15 @@ def julia():
     jl.seval("using BrisketDynamics")
     jl.seval(
         """
-        function resid_jac(θ, φ, u, tsave, tpit0, t_amb, t0_meat, want_jac::Bool)
+        function resid_jac(θ, φ, u, tsave, tpit0, t_amb, t0_meat, want_jac::Bool, tol)
             θ = collect(Float64, θ); φ = collect(Float64, φ)
             u = collect(Float64, u); tsave = collect(Float64, tsave)
             pit = PitConfig(; T_amb=t_amb, Tpit0=tpit0)
             cfg = MeatConfig(; T0=t0_meat)
             f = o -> vcat(o.Tpit, o.Tcore)
-            μ = f(monolith_solve(θ, φ, u, tsave, tsave; pit, cfg))
-            J = want_jac ? monolith_jacobian(f, θ, φ, u, tsave, tsave; pit, cfg) :
-                zeros(0, 0)
+            kw = (; pit, cfg, abstol=tol, reltol=tol)
+            μ = f(monolith_solve(θ, φ, u, tsave, tsave; kw...))
+            J = want_jac ? monolith_jacobian(f, θ, φ, u, tsave, tsave; kw...) : zeros(0, 0)
             return μ, J
         end
         """
@@ -63,7 +85,7 @@ def julia():
     return jl
 
 
-def model_mean(x, log: dict, jac: bool = True):
+def model_mean(x, log: dict, jac: bool = True, tol: float = 1e-6):
     """μ = [T_pit(t); T_core(t)] on the log grid at physics params `x`, and dμ/dx.
 
     Parameters
@@ -75,19 +97,129 @@ def model_mean(x, log: dict, jac: bool = True):
         `cooklog.load` output.
     jac : bool
         Also return the (2·nt × 14) forward-mode Jacobian.
+    tol : float
+        Solver abstol = reltol. The Jacobian of an adaptive solve jitters at
+        ~4e-5 relative under last-bit input changes at 1e-6 (5e-7 at 1e-8,
+        for 3.7x the cost); near an optimum the gradient of the potential
+        cancels O(1e3) terms, so that jitter reads as ~0.5 % there.
     """
     x = np.asarray(x, dtype=float)
-    mu, J = julia().resid_jac(
-        x[:7],
-        x[7:],
-        np.asarray(log["u"], dtype=float),
-        np.asarray(log["t"], dtype=float),
-        float(log["meta"]["tpit0_K"]),
-        T_AMB,
-        float(log["meta"]["tcore0_K"]),
-        bool(jac),
+
+    def call():
+        mu, J = julia().resid_jac(
+            x[:7],
+            x[7:],
+            np.asarray(log["u"], dtype=float),
+            np.asarray(log["t"], dtype=float),
+            float(log["meta"]["tpit0_K"]),
+            T_AMB,
+            float(log["meta"]["tcore0_K"]),
+            bool(jac),
+            float(tol),
+        )
+        return np.asarray(mu, dtype=float), (
+            np.asarray(J, dtype=float) if jac else None
+        )
+
+    _CALLS["jac" if jac else "mu"] += 1
+    return _jl(call)
+
+
+def call_counts() -> dict:
+    """Return the monolith forward / Jacobian evaluation counts for this process."""
+    return dict(_CALLS)
+
+
+# --- the monolith as a JAX function -------------------------------------------
+
+
+def make_mono_mu(log: dict, progress_every: int = 0, log_fn=print, tol: float = 1e-6):
+    """Return μ(x) = [T_pit(t); T_core(t)] as a JAX-differentiable function.
+
+    The forward pass is a host callback into Julia; the VJP contracts the
+    cotangent with the forward-mode Jacobian (one 14-column pass). With
+    ``progress_every`` > 0 a line with the evaluation counts and the wall
+    time is printed every that many Jacobian evaluations.
+    """
+    nt = len(log["t"])
+    mu_shape = jax.ShapeDtypeStruct((2 * nt,), jnp.float64)
+    jac_shape = jax.ShapeDtypeStruct((2 * nt, N_PHYS), jnp.float64)
+
+    def _mu_np(x):
+        return model_mean(np.asarray(x), log, jac=False, tol=tol)[0]
+
+    def _jac_np(x):
+        J = model_mean(np.asarray(x), log, jac=True, tol=tol)[1]
+        if progress_every and _CALLS["jac"] % progress_every == 0:
+            if _CALLS["t0"] is None:
+                _CALLS["t0"] = time.perf_counter()
+            log_fn(
+                f"  monolith: {_CALLS['jac']} Jacobians, {_CALLS['mu']} forwards, "
+                f"{(time.perf_counter() - _CALLS['t0']) / 60:.1f} min",
+                flush=True,
+            )
+        return J
+
+    def _primal(x):
+        return jax.pure_callback(_mu_np, mu_shape, x)
+
+    mono_mu = jax.custom_vjp(_primal)
+
+    def _fwd(x):
+        return _primal(x), x
+
+    def _bwd(x, ct):
+        J = jax.pure_callback(_jac_np, jac_shape, x)
+        return (J.T @ ct,)
+
+    mono_mu.defvjp(_fwd, _bwd)
+    return mono_mu
+
+
+def model_mono(log, mono_mu, pit_runs, core_runs):
+    """`calibrate.model_real` with the monolith in place of the composed pipeline."""
+    nt = len(log["t"])
+    theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
+    phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES + PHI_SITES_IGNITION])
+    sigma_pit = SIGMA_FLOOR_K + numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
+    sigma_core = SIGMA_FLOOR_K + numpyro.sample("sigma_core", dist.HalfNormal(2.0))
+    rho_pit = numpyro.sample("rho_pit", RHO_SITES[0][1])
+    rho_core = numpyro.sample("rho_core", RHO_SITES[1][1])
+    mu = mono_mu(jnp.concatenate([theta, phi]))
+    tpit, tcore = mu[:nt], mu[nt:]
+    obs_pit = jnp.asarray(log["obs_pit"])
+    obs_core = jnp.asarray(log["obs_core"])
+    for k, run in enumerate(pit_runs):
+        idx = jnp.array(run)
+        ar1_observe(f"pit{k}", obs_pit[idx], tpit[idx], sigma_pit, rho_pit)
+    for k, run in enumerate(core_runs):
+        idx = jnp.array(run)
+        ar1_observe(f"core{k}", obs_core[idx], tcore[idx], sigma_core, rho_core)
+
+
+def bound_model_mono(log: dict, progress_every: int = 0, tol: float = 1e-6):
+    """Bind `model_mono` to a loaded cook log (masks precomputed, monolith wrapped)."""
+    return partial(
+        model_mono,
+        log,
+        make_mono_mu(log, progress_every=progress_every, tol=tol),
+        contiguous_runs(np.asarray(log["mask_pit"])),
+        contiguous_runs(np.asarray(log["mask_core"])),
     )
-    return np.asarray(mu, dtype=float), (np.asarray(J, dtype=float) if jac else None)
+
+
+def laplace_inverse_mass(hess_npz, floor_rel: float = 1e-4) -> np.ndarray:
+    """Dense inverse mass matrix from a finite-difference Laplace Hessian.
+
+    The npz (from run_laplace.py) holds the 18×18 Hessian of the potential in
+    numpyro's sorted-site order; eigenvalues below ``floor_rel`` of the
+    largest are floored so flat ridges do not blow the metric up.
+    """
+    c = np.load(hess_npz)
+    H = 0.5 * (c["H"] + c["H"].T)
+    lam, V = np.linalg.eigh(H)
+    lam_reg = np.maximum(np.abs(lam), floor_rel * lam.max())
+    return (V / lam_reg) @ V.T
 
 
 # --- unconstrained parameterization and priors -------------------------------
