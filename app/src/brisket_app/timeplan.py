@@ -160,6 +160,11 @@ def plan_duration(
         safety = safety_report(sim["tsurf"], sim["tcore"], grids.tknots, cc)
         # smoke ring in physical millimetres: material depth × final stretch
         ring_mm = 1e3 * float(sim["ring"]) * float(sim["l_thick"][-1]) / float(theta[3])
+        # the optimizer parks an unused event beyond the horizon: a chimney
+        # after the pull, or a spritz train starting after the wrap or the
+        # pull, never fires and is recorded as none
+        adds = t_add < t_pull
+        spritzes = t_spritz < min(t_wrap if cc.opt_wrap else 1.0e9, t_pull)
         records.append(
             {
                 "t_f_h": float(th_f),
@@ -175,14 +180,14 @@ def plan_duration(
                 "t_pull": float(t_pull),
                 "t_pull_h": float(t_pull / HR) if t_pull < 1.0e8 else None,
                 "rest": rest,
-                "t_add": float(t_add),
-                "t_add_h": float(t_add / HR) if t_add < 1.0e8 else None,
-                "t_spritz": float(t_spritz),
+                "t_add": float(t_add) if adds else 1.0e9,
+                "t_add_h": float(t_add / HR) if adds else None,
+                "t_spritz": float(t_spritz) if spritzes else 1.0e9,
                 "dt_spritz": float(dt_spritz),
-                "t_spritz_h": float(t_spritz / HR) if t_spritz < 1.0e8 else None,
-                "dt_spritz_min": float(dt_spritz / 60.0),
+                "t_spritz_h": float(t_spritz / HR) if spritzes else None,
+                "dt_spritz_min": float(dt_spritz / 60.0) if spritzes else None,
                 "spritz_dose": float(spritz_dose),
-                "spritz_dose_gm2": float(1e3 * spritz_dose),
+                "spritz_dose_gm2": float(1e3 * spritz_dose) if spritzes else None,
                 "ring_mm": ring_mm,
                 "safety_ok": safety["ok"],
                 "F_core": safety["F_core"],
@@ -196,12 +201,12 @@ def plan_duration(
             f"(water {w_ret:.3f})  L*={l_end:.1f}  ring={ring_mm:.1f}mm"
             + (f"  wrap@{t_wrap / HR:.2f} h" if cc.opt_wrap else "")
             + (f"  pull@{t_pull / HR:.2f} h" if t_pull < 1.0e8 else "")
-            + (f"  chimney@{t_add / HR:.2f} h" if t_add < 1.0e8 else "")
+            + (f"  chimney@{t_add / HR:.2f} h" if adds else "  no chimney")
             + (
                 f"  spritz@{t_spritz / HR:.2f} h/{dt_spritz / 60:.0f} min/"
                 f"{1e3 * spritz_dose:.0f} g/m²"
-                if t_spritz < 1.0e8
-                else ""
+                if spritzes
+                else "  no spritz"
             )
             + f"  iters={hist.get('n_iter_run', len(hist['losses']))}"
             + ("" if hist.get("converged", True) else " (cap)")
