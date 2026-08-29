@@ -34,6 +34,23 @@ REPO = Path(__file__).resolve().parents[1]
 HR = 3600.0
 T_DIST = 2 * HR  # before the planned ~3.5 h wrap: exercises wrap re-timing
 T_AMB_BASE, T_AMB_COLD = 300.0, 285.0
+
+
+def _fired_add(r):
+    """Tell whether the chimney fires: only before the pull, never after."""
+    ta, tp = r.get("t_add_exec_abs"), r.get("t_pull_exec_abs")
+    return ta is not None and np.isfinite(ta) and (tp is None or ta < tp)
+
+
+def _fired_spritz(r):
+    """Tell whether the spritz train fires: only before the wrap and the pull."""
+    ts = r.get("t_spritz_exec_abs")
+    tw = r.get("t_wrap_exec_abs", r.get("t_wrap_abs"))
+    tp = r.get("t_pull_exec_abs")
+    stop = min([x for x in (tw, tp) if x is not None], default=np.inf)
+    return ts is not None and np.isfinite(ts) and ts < stop
+
+
 SERIES = (
     ("reference (no cold front)", ":", "C0"),
     ("open-loop", "--", "C1"),
@@ -247,7 +264,7 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
         zip(cooks, SERIES, shorts, strict=True)
     ):
         ta = r.get("t_add_exec_abs")
-        if ta is not None and np.isfinite(ta):
+        if _fired_add(r):
             axes[1].axvline(ta / HR, color=color, lw=1.0, ls=":")
             axes[1].text(
                 ta / HR + 0.15,
@@ -261,7 +278,7 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
                 bbox={"fc": "white", "ec": "none", "alpha": 0.8, "pad": 1},
             )
         ts = r.get("t_spritz_exec_abs")
-        if ts is not None and np.isfinite(ts):
+        if _fired_spritz(r):
             axes[2].axvline(ts / HR, color=color, lw=1.0, ls=":")
             axes[2].text(
                 ts / HR + 0.15,
@@ -524,14 +541,14 @@ def main():
             + (f"  pull {tp / HR:.2f} h" if tp is not None else "")
             + (
                 f"  chimney {r['t_add_exec_abs'] / HR:.2f} h"
-                if r.get("t_add_exec_abs") is not None
-                else ""
+                if _fired_add(r)
+                else "  no chimney"
             )
             + (
                 f"  spritz from {r['t_spritz_exec_abs'] / HR:.2f} h every "
                 f"{(r.get('dt_spritz') or 0.0) / 60:.0f} min"
-                if r.get("t_spritz_exec_abs") is not None
-                else ""
+                if _fired_spritz(r)
+                else "  no spritz"
             )
         )
         print(f"    components: {jj}")
