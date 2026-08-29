@@ -80,32 +80,36 @@ def _init():
         """
         function _mono_kw(abstol, reltol, tpit0, t_amb, m0, t0, T0f, W0f, C0f, F0f,
                           b0, s0, r0, rest_t, rest_h, rest_eps, rest_eta, n_shrink,
-                          afr, y_w, pan, omega)
+                          afr, y_w, pan, omega, n_meat)
             cfg = MeatConfig(T0=t0, T_rest=rest_t, h_rest=rest_h, ε_rest=rest_eps,
-                             η_rest=rest_eta, n_shrink=n_shrink)
+                             η_rest=rest_eta, n_shrink=n_shrink, n_meat=n_meat)
             pit = PitConfig(T_amb=t_amb, Tpit0=tpit0, m0=m0)
             hum = Humidity(afr=afr, y_w=y_w, pan_kg_s=pan, omega_amb=omega)
             return (; cfg, pit, hum, abstol, reltol, T0f, W0f, C0f, F0f, B0=b0, S0=s0,
                     R0=r0)
         end
-        function _mono_apply(θ, φ, u, utk, tsave, t_wrap, t_pull, kwargs...)
+        function _mono_apply(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
+                             dt_spritz, kwargs...)
             kw = _mono_kw(kwargs...)
-            o = monolith_solve(θ, φ, u, utk, tsave; t_wrap, t_pull, kw...)
+            o = monolith_solve(θ, φ, u, utk, tsave; t_wrap, t_pull, t_add, t_spritz,
+                               dt_spritz, kw...)
             return (o.Tpit, o.Tcore, o.Tsurf, o.m_fuel, o.ignited, o.mdot, o.j_evap,
                     o.q_meat, o.C_field_final, o.w_retained, o.bark_b, o.bark_s,
                     o.l_star, o.juiciness, o.fat_rendered, o.l_thick, o.pv_pit,
                     o.pv_base, o.evap_w, o.drip_w, o.drip_f, o.T_field[:, end],
-                    o.W_field[:, end], o.F_field[:, end], o.ring[end])
+                    o.W_field[:, end], o.F_field[:, end], o.ring[end], o.spritz_w)
         end
-        function _mono_jac(θ, φ, u, utk, tsave, t_wrap, t_pull, sel, kwargs...)
+        function _mono_jac(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
+                           dt_spritz, sel, kwargs...)
             kw = _mono_kw(kwargs...)
-            return monolith_stack_jacobian(θ, φ, u, utk, tsave, t_wrap, t_pull,
-                                           collect(Int, sel); kw...)
+            return monolith_stack_jacobian(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add,
+                                           t_spritz, dt_spritz, collect(Int, sel); kw...)
         end
-        function _mono_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, dv, kwargs...)
+        function _mono_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
+                           dt_spritz, dv, kwargs...)
             kw = _mono_kw(kwargs...)
-            return monolith_stack_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull,
-                                      collect(Float64, dv); kw...)
+            return monolith_stack_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add,
+                                      t_spritz, dt_spritz, collect(Float64, dv); kw...)
         end
         """
     )
@@ -133,7 +137,16 @@ STACK_SERIES = (
 )
 STACK_FIELDS = ("c_field_final",)
 STACK_SCALARS = ("w_retained", "juiciness", "fat_rendered")
-DIFF_INPUTS = ("theta", "phi", "u_knots", "t_wrap", "t_pull")
+DIFF_INPUTS = (
+    "theta",
+    "phi",
+    "u_knots",
+    "t_wrap",
+    "t_pull",
+    "t_add",
+    "t_spritz",
+    "dt_spritz",
+)
 
 
 def _jvec(x) -> "juliacall.VectorValue":
@@ -170,6 +183,17 @@ class InputSchema(BaseModel):
     t_pull: Differentiable[Array[(), Float64]] = Field(
         default=1.0e9, description="Pull time [s]; 1e9 = never (the meat then rests)"
     )
+    t_add: Differentiable[Array[(), Float64]] = Field(
+        default=1.0e9,
+        description="Mid-cook fuel addition time [s] (one chimney); 1e9 = none",
+    )
+    t_spritz: Differentiable[Array[(), Float64]] = Field(
+        default=1.0e9, description="First spritz [s]; 1e9 = no spritzing"
+    )
+    dt_spritz: Differentiable[Array[(), Float64]] = Field(
+        default=3600.0, description="Spritz interval [s]"
+    )
+    n_meat: float = Field(default=1.0, description="Identical briskets sharing the pit")
     abstol: float = Field(default=1e-6, description="Solver absolute tolerance")
     reltol: float = Field(default=1e-6, description="Solver relative tolerance")
     tpit0: float = Field(default=293.15, description="Initial pit temperature [K]")
@@ -280,6 +304,9 @@ class OutputSchema(BaseModel):
         description="Final smoke-ring depth, material coordinate [m] (handoff; "
         "× l_thick[-1]/L for the physical depth)"
     )
+    spritz_w: Array[(), Float64] = Field(
+        description="Water added by spritzing (dry-basis mean)"
+    )
 
 
 SOFT_FAIL = os.environ.get("BRISKET_SOFT_FAIL", "0") == "1"
@@ -317,7 +344,7 @@ def _own(x) -> np.ndarray:
 
 
 def _packed(inputs: InputSchema):
-    """Positional Julia arguments: (θ, φ, u, utk, tsave, t_wrap, t_pull) + config tail."""
+    """Positional Julia arguments: (θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz) + config tail."""
     theta, phi, u, utk, tsave = (
         _own(inputs.theta),
         _own(inputs.phi),
@@ -335,6 +362,9 @@ def _packed(inputs: InputSchema):
         tsave,
         float(np.asarray(inputs.t_wrap)),
         float(np.asarray(inputs.t_pull)),
+        float(np.asarray(inputs.t_add)),
+        float(np.asarray(inputs.t_spritz)),
+        float(np.asarray(inputs.dt_spritz)),
     )
     tail = (
         float(inputs.abstol),
@@ -359,12 +389,13 @@ def _packed(inputs: InputSchema):
         float(inputs.y_w),
         float(inputs.pan_kg_s),
         float(inputs.omega_amb),
+        float(inputs.n_meat),
     )
     return head, tail
 
 
 def _jl_args(head, tail):
-    theta, phi, u, utk, tsave, t_wrap, t_pull = head
+    theta, phi, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz = head
     jt = [_jvec(v) if isinstance(v, np.ndarray) else v for v in tail]
     return [
         _jvec(theta),
@@ -374,6 +405,9 @@ def _jl_args(head, tail):
         _jvec(tsave),
         t_wrap,
         t_pull,
+        t_add,
+        t_spritz,
+        dt_spritz,
     ], jt
 
 
@@ -386,13 +420,17 @@ def _stack_layout(nt: int) -> list[tuple[str, int]]:
 
 
 def _input_slices(nu: int) -> dict[str, slice]:
-    """0-based column ranges of each differentiable input in [θ; φ; u; t_wrap; t_pull]."""
+    """Column ranges of each differentiable input in [θ; φ; u; t_wrap; t_pull; t_add; t_spritz; dt_spritz]."""
+    b = N_THETA + N_PHI + nu
     return {
         "theta": slice(0, N_THETA),
         "phi": slice(N_THETA, N_THETA + N_PHI),
-        "u_knots": slice(N_THETA + N_PHI, N_THETA + N_PHI + nu),
-        "t_wrap": slice(N_THETA + N_PHI + nu, N_THETA + N_PHI + nu + 1),
-        "t_pull": slice(N_THETA + N_PHI + nu + 1, N_THETA + N_PHI + nu + 2),
+        "u_knots": slice(N_THETA + N_PHI, b),
+        "t_wrap": slice(b, b + 1),
+        "t_pull": slice(b + 1, b + 2),
+        "t_add": slice(b + 2, b + 3),
+        "t_spritz": slice(b + 3, b + 4),
+        "dt_spritz": slice(b + 4, b + 5),
     }
 
 
@@ -438,6 +476,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
             zx,
             zx,
             0.0,
+            0.0,
         ]
     keys = (
         "tpit",
@@ -465,6 +504,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
         "w_field_final",
         "f_field_final",
         "ring",
+        "spritz_w",
     )
     return OutputSchema(**dict(zip(keys, vals, strict=True)))
 
@@ -485,6 +525,7 @@ def abstract_eval(abstract_inputs):
         {"t_field_final": vec(NX), "w_field_final": vec(NX), "f_field_final": vec(NX)}
     )
     out["ring"] = sc
+    out["spritz_w"] = sc
     return out
 
 
@@ -573,7 +614,7 @@ def jacobian_vector_product(
     """J·tangent over the requested inputs (one Dual solve)."""
     nu = len(inputs.u_knots)
     sl = _input_slices(nu)
-    dv = np.zeros(N_THETA + N_PHI + nu + 2)
+    dv = np.zeros(N_THETA + N_PHI + nu + 5)
     for n in DIFF_INPUTS:
         if n in jvp_inputs and n in tangent_vector:
             dv[sl[n]] = np.atleast_1d(_own(tangent_vector[n])).reshape(-1)
@@ -617,7 +658,7 @@ def jacobian(inputs: InputSchema, jac_inputs: set[str], jac_outputs: set[str]):
             blk = rows[:, a:b]
             if k in STACK_SCALARS:
                 blk = blk[0]
-            if name in ("t_wrap", "t_pull"):
+            if name in ("t_wrap", "t_pull", "t_add", "t_spritz", "dt_spritz"):
                 blk = blk[..., 0]
             blocks[name] = np.array(blk, dtype=np.float64)
         out[k] = blocks

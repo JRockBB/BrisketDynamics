@@ -507,3 +507,32 @@ end
     cfg_dry = MeatConfig(; a_dry=1.5)  # the wet switch never opens
     @test maximum(meat_solve(θ, Tpit, tk, tk; cfg=cfg_dry, smoke_knots=lit).ring) < 1e-4
 end
+
+@testset "spritz policy" begin
+    θ = MEAT_θ_DEFAULT
+    cfg = MeatConfig()
+    hr = 3600.0
+    tk = collect(0.0:300.0:8hr)
+    n = length(tk)
+    Tpit = fill(383.15, n)
+    lit = fill(1.2e-4, n)
+    dry = meat_solve(θ, Tpit, tk, tk; smoke_knots=lit)
+    wet = meat_solve(θ, Tpit, tk, tk; smoke_knots=lit, t_spritz=2hr, dt_spritz=1800.0)
+    # every pulse wets the surface: the surface water jumps up at 2 h, 2.5 h, …
+    Ws = wet.W_field[end, :]
+    i = findfirst(t -> t >= 2hr + 5 * 60, tk)
+    @test Ws[i] > Ws[i - 2]
+    @test wet.spritz_w > 0 && dry.spritz_w == 0
+    # the water it costs: a cooler surface, a longer stall, more smoke on a wet surface
+    i6 = findfirst(t -> t >= 6hr, tk)
+    @test wet.Tsurf[i6] < dry.Tsurf[i6]
+    @test wet.Tcore[end] < dry.Tcore[end]
+    @test wet.bark_s[end] > dry.bark_s[end]
+    # spritzing stops at the wrap
+    wrapped = meat_solve(θ, Tpit, tk, tk; smoke_knots=lit, t_spritz=2hr, dt_spritz=1800.0, t_wrap=4hr)
+    Ww = wrapped.W_field[end, :]
+    i5 = findfirst(t -> t >= 5hr, tk)
+    @test maximum(diff(Ww[i5:end])) < 0.5 * maximum(diff(Ws[1:i5]))
+    # never = the default, bitwise
+    @test meat_solve(θ, Tpit, tk, tk; smoke_knots=lit, t_spritz=BrisketDynamics.SPRITZ_NEVER).Tsurf == dry.Tsurf
+end

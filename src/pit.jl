@@ -19,6 +19,23 @@ Base.@kwdef struct PitConfig
     Tpit0::Float64 = 293.15    # initial pit temperature [K] (cold start)
     m0::Float64 = 7.0          # initial charcoal load [kg] (full WSM ring)
     m_taper::Float64 = 0.5     # fuel mass scale for the smooth burn-out taper [kg]
+    m_chimney::Float64 = 1.4   # fuel added per mid-cook addition (one lit chimney) [kg]
+    τ_add::Float64 = 300.0     # duration of dumping a chimney [s]
+end
+
+# Default fuel-addition time: beyond any horizon, the pulse is exactly 0.
+const ADD_NEVER = 1.0e9
+
+"""
+    fuel_add_rate(t, t_add, cfg::PitConfig)
+
+Mass rate of a mid-cook fuel addition [kg/s]: one chimney `cfg.m_chimney`
+dumped over `cfg.τ_add` as a smooth unit-area pulse (a logistic derivative)
+centred at `t_add`; `t_add = ADD_NEVER` is exactly zero everywhere.
+"""
+function fuel_add_rate(t, t_add, cfg::PitConfig)
+    s = logistic((t - t_add) / cfg.τ_add)
+    return cfg.m_chimney * s * (1 - s) / cfg.τ_add
 end
 
 # φ = [C_th, UA, r_max, ΔH_eff, u_leak, k_spread, a0]
@@ -51,6 +68,7 @@ function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::I
         k_spread = p[6]
         u_knots = @view p[(PIT_NP + 1):(PIT_NP + u_nk)]
         q_knots = @view p[(PIT_NP + u_nk + 1):(PIT_NP + u_nk + q_nk)]
+        t_add = p[PIT_NP + u_nk + q_nk + 1]
 
         u = clamp(lininterp(t, u_t0, u_dt, u_knots), 0, 1)
         q_meat = lininterp(t, q_t0, q_dt, q_knots)
@@ -59,9 +77,12 @@ function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::I
         Tp, m, a = x[1], x[2], x[3]
         a = clamp(a, zero(a), one(a))
         ṁ = r_max * airflow * a * tanh(max(m, zero(m)) / cfg.m_taper)
+        # a lit chimney adds fuel AND ignited bed: the ignited fraction of
+        # the (larger) bed moves toward 1 at the rate the mass arrives
+        ṁ_add = fuel_add_rate(t, t_add, cfg)
         dx[1] = (ΔH_eff * ṁ - UA * (Tp - cfg.T_amb) - q_meat) / C_th
-        dx[2] = -ṁ
-        dx[3] = k_spread * a * (1 - a) * airflow
+        dx[2] = -ṁ + ṁ_add
+        dx[3] = k_spread * a * (1 - a) * airflow + (1 - a) * ṁ_add / max(m, cfg.m_taper)
         return nothing
     end
 end
@@ -166,6 +187,8 @@ Forward pit solve over the damper schedule and meat heat-load forcing.
 - `cfg::PitConfig`: Pit configuration. [Default=PitConfig()]
 - `abstol::Float64`: ODE absolute tolerance. [Default=1e-8]
 - `reltol::Float64`: ODE relative tolerance. [Default=1e-8]
+- `t_add::Real`: Mid-cook fuel addition time [s] (one chimney, see
+  [`fuel_add_rate`](@ref)); `ADD_NEVER` = none. [Default=ADD_NEVER]
 
 # Returns
 - `out::NamedTuple`: `(; Tpit [K], m_fuel [kg], ignited, mdot [kg/s], t [s])`
@@ -196,9 +219,10 @@ function pit_solve(
     cfg::PitConfig=PitConfig(),
     abstol=1e-8,
     reltol=1e-8,
+    t_add::Real=ADD_NEVER,
 )
     _pit_check_lengths(u_knots, u_tknots, qmeat_knots, q_tknots)
-    p = vcat(φ, u_knots, qmeat_knots)
+    p = vcat(φ, u_knots, qmeat_knots, float(t_add))
     A = _pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol)
     mdot = _pit_mdot_row(A, p, cfg, u_tknots, tsave, length(u_knots))
     return (

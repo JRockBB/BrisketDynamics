@@ -10,9 +10,9 @@ famous **stall**: a multi-hour plateau in internal temperature caused by
 evaporative cooling. We built the physics in Julia, wrapped the whole coupled
 system as one Tesseract with forward-mode derivative endpoints, and used the
 derivatives from JAX for: Gauss–Newton and NUTS Bayesian calibration on a real
-19-hour cook log, a duration × wrap × pull × damper-schedule plan scored at
+19-hour cook log, a duration × wrap × pull × chimney × spritz × damper-schedule plan scored at
 serve, robust control in expectation over the posterior, and receding-horizon
-MPC that re-times the wrap and the pull. We also built it the other way first —
+MPC that re-times the wrap, the pull, the chimney and the spritz policy. We also built it the other way first —
 two composed Tesseracts with an adjoint on one side and a Jacobian on the
 other — and measured what that seam cost before moving the boundary. This
 document follows the six judging criteria in order.
@@ -30,7 +30,8 @@ the pit's vapor pressure, draft-scaled convection, Maillard and
 smoke-deposition bark states, a smoke-ring front), and the quasi-steady pit
 humidity balance, integrated together as a 166-ODE stiff system (method of
 lines, FBDF). Its inputs are the meat and pit parameters, the damper schedule,
-the wrap and pull times, initial conditions (including the full meat field
+the wrap, pull and fuel-addition times, the spritz policy, the number of
+briskets, initial conditions (including the full meat field
 for state handoff) and the rest-environment constants; its outputs are the
 trajectories and the terminal quality vector.
 
@@ -174,7 +175,8 @@ which is literature-fixed pending a wrapped-cook log.
 **Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
 as plant, the 20 h plan under defense, hourly replans from the measured state
 (full T/W/C/F/B/S-field handoff through the Tesseract), replanning the
-schedule, the wrap and the pull; both events execute like the real thing —
+schedule, the wrap, the pull, the chimney and the spritz policy; the
+irreversible events execute like the real thing —
 candidate, commit gate, irreversible — and the plant rests to serve. At
 t = 2 h a cold front drops ambient by 15 K that the controller's model does
 not know. Executed blindly, the plan finishes at doneness 0.55 (J = 15.5);

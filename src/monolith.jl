@@ -67,6 +67,9 @@ function make_monolith_rhs(
         u_knots = @view p[(MONO_NP + 1):(MONO_NP + nu)]
         t_wrap = p[MONO_NP + nu + 1]
         t_pull = p[MONO_NP + nu + 2]
+        t_add = p[MONO_NP + nu + 3]
+        t_spritz = p[MONO_NP + nu + 4]
+        dt_spritz = p[MONO_NP + nu + 5]
 
         Tp, m, a = x[nm + 1], x[nm + 2], x[nm + 3]
         ud = lininterp(t, u_t0, u_dt, u_knots)
@@ -76,13 +79,15 @@ function make_monolith_rhs(
         um = @view x[1:nm]
         dum = @view dx[1:nm]
         q_meat = meat_rhs_core!(
-            dum, um, t, θ, Tp, ṁ, pv_base, 1 / mair, airflow, t_wrap, t_pull, cfg, n_s,
-            n_a, v0,
+            dum, um, t, θ, Tp, ṁ, pv_base, 1 / mair, airflow, t_wrap, t_pull, t_spritz,
+            dt_spritz, cfg, n_s, n_a, v0,
         )
         a_c = clamp(a, zero(a), one(a))
+        ṁ_add = fuel_add_rate(t, t_add, pit)
         dx[nm + 1] = (ΔH_eff * ṁ - UA * (Tp - pit.T_amb) - q_meat) / C_th
-        dx[nm + 2] = -ṁ
-        dx[nm + 3] = k_spread * a_c * (1 - a_c) * airflow
+        dx[nm + 2] = -ṁ + ṁ_add
+        dx[nm + 3] =
+            k_spread * a_c * (1 - a_c) * airflow + (1 - a_c) * ṁ_add / max(m, pit.m_taper)
         return nothing
     end
 end
@@ -138,6 +143,7 @@ function _monolith_outputs(
     u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
     uk = @view p[(MONO_NP + 1):(MONO_NP + nu)]
     t_wrap, t_pull = p[MONO_NP + nu + 1], p[MONO_NP + nu + 2]
+    t_spritz, dt_spritz = p[MONO_NP + nu + 4], p[MONO_NP + nu + 5]
 
     Tpit = A[nm + 1, :]
     m_fuel = A[nm + 2, :]
@@ -172,7 +178,7 @@ function _monolith_outputs(
             Tsurf, Wsurf, (1 .- cfg.η_evap .* s_ts) .* km_ts, pv_base_ts, c_ts, Ref(cfg)
         )
     q_meat =
-        cfg.A_meat .* a_ts .*
+        cfg.A_meat * cfg.n_meat .* a_ts .*
         surface_q_pit_blended.(Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
     bark_b = A[4nx + 1, :]
     bark_s = A[4nx + 2, :]
@@ -183,6 +189,8 @@ function _monolith_outputs(
     dts = diff(collect(float.(tsave)))
     ja = j_evap .* a_ts
     evap_w = sum((ja[1:(end - 1)] .+ ja[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
+    jsp = spritz_rate.(tsave, t_spritz, dt_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts
+    spritz_w = sum((jsp[1:(end - 1)] .+ jsp[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
     return (;
         Tpit,
         m_fuel,
@@ -201,7 +209,8 @@ function _monolith_outputs(
         juiciness=w_retained + cfg.β_fat * R_ret / cfg.W0,
         fat_rendered=(cfg.F0 - F_mean) / cfg.F0,
         evap_w,
-        drip_w=(cfg.W0 - w_retained * cfg.W0) - evap_w,
+        spritz_w,
+        drip_w=(cfg.W0 - w_retained * cfg.W0) + spritz_w - evap_w,
         drip_f=cfg.η_drain * (cfg.F0 - F_mean),
         l_thick,
         pv_pit,
@@ -216,7 +225,8 @@ end
 
 """
     monolith_solve(θ, φ, u_knots, u_tknots, tsave; cfg, pit, hum, t_wrap,
-                   t_pull, T0f, W0f, C0f, F0f, B0, S0, R0, abstol, reltol)
+                   t_pull, t_add, t_spritz, dt_spritz, T0f, W0f, C0f, F0f, B0, S0, R0,
+                   abstol, reltol)
 
 One coupled solve of pit + meat + humidity. Same inputs as the composed
 Tesseract pipeline (`coupled_cook`), same outputs plus the pit trajectory
@@ -232,6 +242,9 @@ and `pv_base`; accepts ForwardDiff-dual `θ`/`φ`/`u_knots`.
 # Keyword Arguments
 - `cfg::MeatConfig`, `pit::PitConfig`, `hum::Humidity`: Configurations.
 - `t_wrap, t_pull::Real`: Wrap and pull times [s]. [Default=never]
+- `t_add::Real`: Mid-cook fuel addition (one chimney) [s]. [Default=never]
+- `t_spritz, dt_spritz::Real`: Spritz policy — first spritz and interval [s].
+  [Default=never, 3600]
 - `T0f, W0f, C0f, F0f, B0, S0, R0`: Meat field / bark / ring ICs for a state handoff
   (see [`meat_solve`](@ref)). [Default=uniform]
 - `abstol, reltol::Float64`: Solver tolerances. [Default=1e-6]
@@ -250,6 +263,9 @@ function monolith_solve(
     hum::Humidity=Humidity(),
     t_wrap::Real=WRAP_NEVER,
     t_pull::Real=PULL_NEVER,
+    t_add::Real=ADD_NEVER,
+    t_spritz::Real=SPRITZ_NEVER,
+    dt_spritz::Real=3600.0,
     T0f::AbstractVector=Float64[],
     W0f::AbstractVector=Float64[],
     C0f::AbstractVector=Float64[],
@@ -269,11 +285,14 @@ function monolith_solve(
             "u_knots length $(length(u_knots)) != u_tknots length $(length(u_tknots))",
         ),
     )
-    p = vcat(θ, φ, u_knots, float(t_wrap), float(t_pull))
+    p = vcat(
+        θ, φ, u_knots, float(t_wrap), float(t_pull), float(t_add), float(t_spritz),
+        float(dt_spritz),
+    )
     any(isnan, p) && throw(
         ArgumentError(
             "monolith solve got NaN inputs at indices $(findall(isnan, p)) of p " *
-            "(θ|φ|u|t_wrap|t_pull)",
+            "(θ|φ|u|t_wrap|t_pull|t_add|t_spritz|dt_spritz)",
         ),
     )
     nu = length(u_knots)
@@ -323,25 +342,33 @@ function monolith_stack(o)
 end
 
 """
-    _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull; kw...)
+    _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add,
+                   t_spritz, dt_spritz; kw...)
 
 `(g, v0)`: the stacked outputs as a function of the full input vector
 `v = [θ; φ; u_knots; t_wrap; t_pull]`, and the vector's value.
 """
-function _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull; kw...)
+function _mono_stack_fn(
+    θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz; kw...
+)
     nθ, nφ, nu = length(θ), length(φ), length(u_knots)
-    v0 = vcat(float.(θ), float.(φ), float.(u_knots), float(t_wrap), float(t_pull))
+    v0 = vcat(
+        float.(θ), float.(φ), float.(u_knots), float(t_wrap), float(t_pull), float(t_add),
+        float(t_spritz), float(dt_spritz),
+    )
     g(v) = monolith_stack(
         monolith_solve(
             v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)], u_tknots,
-            tsave; t_wrap=v[end - 1], t_pull=v[end], kw...,
+            tsave; t_wrap=v[end - 4], t_pull=v[end - 3], t_add=v[end - 2],
+            t_spritz=v[end - 1], dt_spritz=v[end], kw...,
         ),
     )
     return g, v0
 end
 
 """
-    monolith_stack_jacobian(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, sel; kw...)
+    monolith_stack_jacobian(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add,
+                            t_spritz, dt_spritz, sel; kw...)
 
 Forward-mode Jacobian of [`monolith_stack`](@ref) w.r.t. the entries `sel`
 (1-based indices into `[θ; φ; u_knots; t_wrap; t_pull]`): one chunked
@@ -349,9 +376,12 @@ ForwardDiff pass per ~12 selected inputs. Keyword arguments go to
 [`monolith_solve`](@ref).
 """
 function monolith_stack_jacobian(
-    θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, sel::AbstractVector{<:Integer}; kw...
+    θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz,
+    sel::AbstractVector{<:Integer}; kw...,
 )
-    g, v0 = _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull; kw...)
+    g, v0 = _mono_stack_fn(
+        θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz; kw...
+    )
     sel = collect(Int, sel)
     function gs(vs)
         v = convert(Vector{eltype(vs)}, copy(v0))
@@ -362,13 +392,18 @@ function monolith_stack_jacobian(
 end
 
 """
-    monolith_stack_jvp(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, dv; kw...)
+    monolith_stack_jvp(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add,
+                       t_spritz, dt_spritz, dv; kw...)
 
 Directional derivative of [`monolith_stack`](@ref) along the full-length
 tangent `dv` — one Dual solve.
 """
-function monolith_stack_jvp(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, dv; kw...)
-    g, v0 = _mono_stack_fn(θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull; kw...)
+function monolith_stack_jvp(
+    θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz, dv; kw...
+)
+    g, v0 = _mono_stack_fn(
+        θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz; kw...
+    )
     dv = collect(Float64, dv)
     return ForwardDiff.derivative(t -> g(v0 .+ t .* dv), 0.0)
 end
@@ -399,6 +434,9 @@ function picard_cook(
     hum::Humidity=Humidity(),
     t_wrap::Real=WRAP_NEVER,
     t_pull::Real=PULL_NEVER,
+    t_add::Real=ADD_NEVER,
+    t_spritz::Real=SPRITZ_NEVER,
+    dt_spritz::Real=3600.0,
     abstol=1e-6,
     reltol=1e-6,
 )
@@ -410,7 +448,7 @@ function picard_cook(
     for _ in 1:K
         pito = pit_solve(
             φ, u_knots, u_tknots, q, tsave, tsave;
-            cfg=pit, abstol=min(abstol, 1e-8), reltol=min(reltol, 1e-8),
+            cfg=pit, abstol=min(abstol, 1e-8), reltol=min(reltol, 1e-8), t_add,
         )
         airflow = φ[5] .+ (1 - φ[5]) .* u_tk
         mair = hum.afr .* φ[3] .* airflow
@@ -421,7 +459,7 @@ function picard_cook(
             θ, pito.Tpit, tsave, tsave;
             cfg, abstol, reltol, t_wrap, t_pull,
             smoke_knots=pito.mdot, pv_base_knots=pv_base, imair_knots=1 ./ mair,
-            airflow_knots=airflow,
+            airflow_knots=airflow, t_spritz, dt_spritz,
         )
         q = meato.q_meat
     end

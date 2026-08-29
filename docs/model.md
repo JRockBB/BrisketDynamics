@@ -217,6 +217,24 @@ variable; $t_{\mathrm{wrap}} = 10^9$ puts the logistic blend at numerical
 zero over any cook horizon (Python no-wrap is `WRAP_NEVER = 1e9 + 0\cdot z_w`
 so the unused wrap logit stays in the tape).
 
+**Spritz.** A spritz policy — first spritz $t_{\mathrm{sp}}$, interval
+$\Delta_{\mathrm{sp}}$ — lands a dose $m_{\mathrm{sp}}$ (0.05 kg/m², a
+spray bottle's worth) of water at $T_{\mathrm{sp}}$ (20 °C) on the surface
+over $\tau_{\mathrm{sp}}$ (1 min) at $t_{\mathrm{sp}} + k\Delta_{\mathrm{sp}}$
+while the meat is in the pit and unwrapped:
+
+$$
+j_{\mathrm{sp}} = m_{\mathrm{sp}}\,\frac{\sigma'\big((t - t_{\mathrm{sp}} - k^*\Delta_{\mathrm{sp}})/\tau_{\mathrm{sp}}\big)}{\tau_{\mathrm{sp}}}\,(1-s)\,(1-p),
+\qquad k^* = \max\big(\mathrm{round}((t - t_{\mathrm{sp}})/\Delta_{\mathrm{sp}}),\,0\big),
+$$
+
+entering the surface water balance as $-\rho_d D_{\mathrm{eff}}\,\partial_x
+W|_s = j - j_{\mathrm{sp}}$ and the energy balance as
+$-c_w\,(T_s - T_{\mathrm{sp}})\,j_{\mathrm{sp}}$ (warming the water); its
+evaporation then runs through the two-sided flux like condensate — the
+wet surface takes smoke, the evaporation cools it and lengthens the
+stall. Both policy parameters are differentiable decisions.
+
 **Rest / carryover (pull).** A second blend of the same construction,
 $p(t) = \sigma\!\left((t - t_{\mathrm{pull}})/\delta_p\right)$
 ($\delta_p = 300$ s), swaps the surface environment from the pit to the
@@ -364,7 +382,7 @@ $g(u) = u_{\mathrm{leak}} + (1 - u_{\mathrm{leak}})\,u$ (the leak floor
 means closing the damper never kills the fire):
 
 $$
-\dot m = -\,\dot m_b,\qquad
+\dot m = -\,\dot m_b + \dot m_{\mathrm{add}}(t),\qquad
 \dot m_b = r_{\max}\, g(u)\, a\,
 \tanh\!\Big(\frac{\max(m,0)}{m_t}\Big),
 $$
@@ -373,8 +391,17 @@ $$
 C_{th}\,\dot T_p = \Delta H_{e\!f\!f}\,\dot m_b
 - UA\,(T_p - T_{\mathrm{amb}}) - q_{\mathrm{meat}},
 \qquad
-\dot a = k_{\mathrm{spr}}\, a\,(1-a)\, g(u),\quad a(0) = a_0 .
+\dot a = k_{\mathrm{spr}}\, a\,(1-a)\, g(u)
++ (1-a)\,\frac{\dot m_{\mathrm{add}}}{\max(m, m_t)},\quad a(0) = a_0 .
 $$
+
+**Fuel addition.** One lit chimney of mass $m_{\mathrm{ch}}$ (1.4 kg) is
+dumped over $\tau_{\mathrm{add}}$ (5 min) at $t_{\mathrm{add}}$ as a
+smooth unit-area pulse, $\dot m_{\mathrm{add}} = m_{\mathrm{ch}}\,
+\sigma'\big((t - t_{\mathrm{add}})/\tau_{\mathrm{add}}\big)/\tau_{\mathrm{add}}$;
+lit coals also move the ignited fraction of the (now larger) bed toward 1.
+$t_{\mathrm{add}}$ is a differentiable decision (never = beyond the
+horizon, exactly zero). The lid-open temperature dip is not modelled.
 
 At $a_0 = 1$ the spread term vanishes and the two-state model is
 recovered exactly. $\dot m_b$ is exported (exact algebraic recompute at
@@ -384,7 +411,9 @@ save times) as the smoke-flux forcing to the bark model.
 
 Pit, meat and the quasi-steady humidity balance are integrated together as
 one stiff system (`src/monolith.jl`): the pit sees the meat's instantaneous
-heat load $q_{\mathrm{meat}} = A(t)\, q_{\mathrm{surf}}$ and the meat sees
+heat load $q_{\mathrm{meat}} = n_{\mathrm{meat}}\,A(t)\, q_{\mathrm{surf}}$
+($n_{\mathrm{meat}}$ identical briskets sharing the pit; their vapor scales
+the humidity balance the same way) and the meat sees
 the instantaneous $T_p$, $\dot m_b$ and $p_{v,\mathrm{base}}$. There is no
 exchange grid and no truncation; derivatives are forward-mode
 (ForwardDiff) through the solve and exposed as the monolith Tesseract's
@@ -396,10 +425,14 @@ with the pass count (docs/monolith.md).
 ## 4. The quality objective (KCBS-weighted; every term overridable)
 
 Decision variables: damper knots $z \mapsto u = \sigma(z)$, wrap
-$z_w \mapsto t_{\mathrm{wrap}} = t_f\,\sigma(z_w)$, and pull
+$z_w \mapsto t_{\mathrm{wrap}} = t_f\,\sigma(z_w)$, pull
 $z_p \mapsto t_{\mathrm{pull}} = t_f\,\sigma(z_p)$ (the meat rests from the
 pull to serve, $t_f + t_{\mathrm{rest}}$, where the quality terms are
-evaluated). Below
+evaluated), the chimney $z_a \mapsto t_{\mathrm{add}} = t_f\,\sigma(z_a)$
+and the spritz policy $z_s \mapsto t_{\mathrm{sp}} = t_f\,\sigma(z_s)$,
+$z_d \mapsto \Delta_{\mathrm{sp}} = \Delta_{\min} + (\Delta_{\max} -
+\Delta_{\min})\,\sigma(z_d)$ (20 min – 2 h). Fuel is priced at the pull as
+load + chimney − remaining. Below
 $\mathrm{sp}(x) = \mathrm{sp}_1(x) = \log(1+e^x)$, and the category
 weights are $(w_{\mathrm{app}}, w_{\mathrm{taste}}, w_{\mathrm{tend}}) =
 (0.14,\, 0.57,\, 0.29)$ — the normalized multipliers KCBS judging

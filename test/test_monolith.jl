@@ -65,23 +65,45 @@ end
     θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
     nu = length(MONO_U)
     tw, tp = 3 * 3600.0, 7 * 3600.0
-    sel = [1, 10, 16, 15 + nu + 1, 15 + nu + 2]  # D_eff, UA, u_knots[1], t_wrap, t_pull
-    J = monolith_stack_jacobian(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, tw, tp, sel; pit=MONO_PIT)
-    o = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp)
+    ta, ts, dts = 5 * 3600.0, 2 * 3600.0, 1800.0
+    sel = [1, 10, 16, 15 + nu + 1, 15 + nu + 2, 15 + nu + 3, 15 + nu + 4, 15 + nu + 5]  # D_eff, UA, u_knots[1], t_wrap, t_pull, t_add, t_spritz, dt_spritz
+    J = monolith_stack_jacobian(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, tw, tp, ta, ts, dts, sel; pit=MONO_PIT)
+    o = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp, t_add=ta, t_spritz=ts, dt_spritz=dts)
     @test size(J) == (length(monolith_stack(o)), length(sel))
     @test all(isfinite, J)
-    dv = zeros(15 + nu + 2)
-    dv[sel] .= [1e-9, 2.0, 0.1, 600.0, 600.0]
-    d = monolith_stack_jvp(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, tw, tp, dv; pit=MONO_PIT)
+    dv = zeros(15 + nu + 5)
+    dv[sel] .= [1e-9, 2.0, 0.1, 600.0, 600.0, 600.0, 600.0, 300.0]
+    d = monolith_stack_jvp(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, tw, tp, ta, ts, dts, dv; pit=MONO_PIT)
     ref = J * dv[sel]
     # a 1-partial and a 5-partial Dual solve take slightly different adaptive
     # steps (the error norm includes the partials); the pit / heat-load rows
     # differ by ~1e-3 of the largest entry
     @test maximum(abs.(d .- ref)) / (maximum(abs.(ref)) + 1e-12) < 5e-3
     h = 60.0
-    fp = monolith_stack(monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp + h))
-    fm = monolith_stack(monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp - h))
+    fp = monolith_stack(monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp + h, t_add=ta, t_spritz=ts, dt_spritz=dts))
+    fm = monolith_stack(monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_wrap=tw, t_pull=tp - h, t_add=ta, t_spritz=ts, dt_spritz=dts))
     fd = (fp .- fm) ./ (2h)
     @test maximum(abs.(J[:, 5] .- fd)) / (maximum(abs.(fd)) + 1e-12) < 2e-2
     @test abs(J[end - 1, 5]) > 0  # juiciness at serve moves with the pull
+end
+
+@testset "monolith: fuel addition, spritz policy and multi-meat load" begin
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    hr = 3600.0
+    base = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
+    # a chimney at 3 h: the bed gains its mass over the dump and nothing else
+    # changes while the fire is nowhere near burning out
+    add = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_add=3hr)
+    i2, i4 = findfirst(t -> t >= 2hr, MONO_TSAVE), findfirst(t -> t >= 4hr, MONO_TSAVE)
+    @test abs(add.m_fuel[i2] - base.m_fuel[i2]) < 1e-3  # pulse tail
+    @test isapprox(add.m_fuel[i4] - base.m_fuel[i4], MONO_PIT.m_chimney; rtol=2e-2)  # a lit chimney burns a little faster
+    @test add.ignited[end] >= base.ignited[end] - 1e-9
+    # the spritz policy wets the surface at each pulse and cools it
+    sp = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, t_spritz=2hr, dt_spritz=1800.0)
+    @test sp.spritz_w > 0 && base.spritz_w == 0
+    @test sp.Tsurf[end] < base.Tsurf[end]
+    # multi-meat: two briskets pull the pit down and humidify it
+    two = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, cfg=MeatConfig(; n_meat=2.0))
+    @test two.Tpit[i4] < base.Tpit[i4]
+    @test two.pv_pit[i4] > base.pv_pit[i4]
 end

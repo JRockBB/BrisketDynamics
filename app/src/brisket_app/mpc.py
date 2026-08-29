@@ -101,6 +101,9 @@ def advance_plant(
     t_wrap_seg: float = 1.0e9,
     t_pull_seg: float = 1.0e9,
     rest: dict | None = None,
+    t_add_seg: float = 1.0e9,
+    t_spritz_seg: float = 1.0e9,
+    dt_spritz_seg: float = 3600.0,
 ) -> tuple[CookState, dict]:
     """Run the plant one interval; return (new state, trajectories).
 
@@ -122,6 +125,9 @@ def advance_plant(
         t_wrap=t_wrap_seg,
         t_pull=t_pull_seg,
         rest=rest,
+        t_add=t_add_seg,
+        t_spritz=t_spritz_seg,
+        dt_spritz=dt_spritz_seg,
         **tols,
     )
     new = CookState(
@@ -273,6 +279,14 @@ def plan(
     z_p_init: float | None = None,
     rest: dict | None = None,
     t_pull: float = 1.0e9,
+    z_a_init: float | None = None,
+    t_add: float = 1.0e9,
+    t_add_override: float | None = None,
+    z_s_init: float | None = None,
+    z_d_init: float | None = None,
+    t_spritz: float = 1.0e9,
+    dt_spritz: float = 3600.0,
+    t_spritz_override: float | None = None,
 ):
     """Re-optimize the remaining-horizon plan from the current state.
 
@@ -309,6 +323,14 @@ def plan(
         t_pull=t_pull,
         rest=rest,
         z_p_init=z_p_init,
+        z_a_init=z_a_init,
+        t_add=t_add,
+        t_add_override=t_add_override,
+        z_s_init=z_s_init,
+        z_d_init=z_d_init,
+        t_spritz=t_spritz,
+        dt_spritz=dt_spritz,
+        t_spritz_override=t_spritz_override,
     )
     return u_opt, grids, hist
 
@@ -341,6 +363,45 @@ def wrap_commit(cand, incumbent, t0, dt_seg, j_best, j_start, tol_rel) -> bool:
     return float(j_best) < float(j_start) - float(tol_rel) * abs(float(j_start))
 
 
+def _adopt_event(cand, last_cand, t0, dt_seg, hist, cc, candidates):
+    """Adopt one replan's candidate moment for an irreversible event.
+
+    Execution is gated by ``wrap_commit``; a candidate due this segment that
+    does not commit is deferred to the next segment so ridge noise cannot
+    fire it. Appends the (t, cand, incumbent, j_best, j_start, commit)
+    record and returns the adopted absolute time.
+    """
+    losses = np.asarray(hist.get("losses", []), dtype=float)
+    j_best = hist.get("best_loss")
+    j_start = float(losses[0]) if losses.size else j_best
+    commit = wrap_commit(cand, last_cand, t0, dt_seg, j_best, j_start, cc.tol_rel)
+    candidates.append(
+        (
+            t0,
+            cand,
+            np.nan if last_cand is None else float(last_cand),
+            np.nan if j_best is None else float(j_best),
+            np.nan if j_start is None else float(j_start),
+            float(commit),
+        )
+    )
+    if commit:
+        return cand
+    if wrap_due(cand, t0, dt_seg):
+        return t0 + dt_seg
+    return cand
+
+
+def _seed_event(active, last_cand, t_abs, t_now, t_remaining):
+    """Warm-start (z0, fixed time) of an event for a replan: z0 from the last candidate when the decision is live, else the fixed remaining-horizon time."""
+    if active and last_cand is not None:
+        frac = np.clip((last_cand - t_now) / t_remaining, 1e-3, 1 - 1e-3)
+        return float(np.log(frac / (1 - frac))), 1.0e9
+    if t_abs is not None:
+        return None, max(0.0, t_abs - t_now)
+    return None, 1.0e9
+
+
 def run_cook(
     theta,
     phi_plant,
@@ -360,6 +421,9 @@ def run_cook(
     t_pull_init_abs: float | None = None,
     rest: dict | None = None,
     replan_iters: int = 200,
+    t_add_init_abs: float | None = None,
+    t_spritz_init_abs: float | None = None,
+    dt_spritz_init: float | None = None,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
@@ -409,6 +473,23 @@ def run_cook(
     m_at_pull: float | None = None
     pull_history: list[tuple[float, float]] = []
     pull_candidates: list[tuple] = []
+    # the chimney (one, irreversible) and the spritz policy (its start is
+    # irreversible; the interval is re-optimized every replan)
+    replan_add = mode == "mpc" and cc.opt_add
+    t_add_abs: float | None = t_add_init_abs
+    last_add_cand: float | None = t_add_init_abs
+    added = False
+    t_add_exec_abs: float | None = None
+    add_history: list[tuple[float, float]] = []
+    add_candidates: list[tuple] = []
+    replan_spritz = mode == "mpc" and cc.opt_spritz
+    t_spritz_abs: float | None = t_spritz_init_abs
+    last_spritz_cand: float | None = t_spritz_init_abs
+    spritzing = False
+    t_spritz_exec_abs: float | None = None
+    dt_spritz_cur = float(dt_spritz_init) if dt_spritz_init else 3600.0
+    spritz_history: list[tuple[float, float, float]] = []
+    spritz_candidates: list[tuple] = []
 
     def record_segment(seg_traj, t_seg_start, dt_seg, u_trace):
         # safety banking with the CONFIGURED constants (hard-coded 60C/6K
@@ -495,12 +576,34 @@ def run_cook(
                 zp0 = float(np.log(frac_p / (1 - frac_p)))
             elif t_pull_abs is not None:
                 tp_fixed = max(0.0, t_pull_abs - state.t)
+            za0, ta_fixed = _seed_event(
+                replan_add and not added, last_add_cand, t_add_abs, state.t, t_remaining
+            )
+            ta_override = (t_add_exec_abs - state.t) if added else None
+            zs0, ts_fixed = _seed_event(
+                replan_spritz and not spritzing,
+                last_spritz_cand,
+                t_spritz_abs,
+                state.t,
+                t_remaining,
+            )
+            ts_override = (t_spritz_exec_abs - state.t) if spritzing else None
+            fd = (dt_spritz_cur - cc.dt_spritz_min) / (
+                cc.dt_spritz_max - cc.dt_spritz_min
+            )
+            fd = float(np.clip(fd, 1e-3, 1 - 1e-3))
+            zd0 = float(np.log(fd / (1 - fd)))
             u_plan, plan_grids, hist = plan(
                 theta,
                 phi_model,
                 state,
                 t_remaining,
-                replace(cc_seg, opt_pull=replan_pull),
+                replace(
+                    cc_seg,
+                    opt_pull=replan_pull,
+                    opt_add=replan_add and not added,
+                    opt_spritz=replan_spritz,
+                ),
                 kf.x,
                 u_init=u_init,
                 iters=replan_iters,
@@ -510,62 +613,53 @@ def run_cook(
                 z_p_init=zp0,
                 rest=rest,
                 t_pull=tp_fixed,
+                z_a_init=za0,
+                t_add=ta_fixed,
+                t_add_override=ta_override,
+                z_s_init=zs0,
+                z_d_init=zd0,
+                t_spritz=ts_fixed,
+                dt_spritz=dt_spritz_cur,
+                t_spritz_override=ts_override,
             )
+            # each live decision: the planned moment tracks the candidate,
+            # execution is gated by wrap_commit (deferral on ridge noise)
             if cc.opt_wrap and not wrapped:
-                incumbent = last_cand
                 cand = state.t + float(hist["t_wrap"])
-                losses = np.asarray(hist.get("losses", []), dtype=float)
-                j_best = hist.get("best_loss")
-                j_start = float(losses[0]) if losses.size else j_best
-                commit = wrap_commit(
-                    cand, incumbent, state.t, dt_seg, j_best, j_start, cc.tol_rel
-                )
-                wrap_candidates.append(
-                    (
-                        state.t,
-                        cand,
-                        np.nan if incumbent is None else float(incumbent),
-                        np.nan if j_best is None else float(j_best),
-                        np.nan if j_start is None else float(j_start),
-                        float(commit),
-                    )
+                t_wrap_abs = _adopt_event(
+                    cand, last_cand, state.t, dt_seg, hist, cc, wrap_candidates
                 )
                 last_cand = cand
-                if commit:
-                    t_wrap_abs = cand
-                elif wrap_due(cand, state.t, dt_seg):
-                    # candidate would fire this hour but did not commit:
-                    # defer so execution cannot wrap on ridge noise
-                    t_wrap_abs = state.t + dt_seg
-                else:
-                    t_wrap_abs = cand
                 wrap_history.append((state.t, t_wrap_abs))
             if replan_pull:
                 cand_p = state.t + float(hist["t_pull"])
-                losses = np.asarray(hist.get("losses", []), dtype=float)
-                j_best = hist.get("best_loss")
-                j_start = float(losses[0]) if losses.size else j_best
-                commit_p = wrap_commit(
-                    cand_p, last_pull_cand, state.t, dt_seg, j_best, j_start, cc.tol_rel
-                )
-                pull_candidates.append(
-                    (
-                        state.t,
-                        cand_p,
-                        np.nan if last_pull_cand is None else float(last_pull_cand),
-                        np.nan if j_best is None else float(j_best),
-                        np.nan if j_start is None else float(j_start),
-                        float(commit_p),
-                    )
+                t_pull_abs = _adopt_event(
+                    cand_p, last_pull_cand, state.t, dt_seg, hist, cc, pull_candidates
                 )
                 last_pull_cand = cand_p
-                if commit_p:
-                    t_pull_abs = cand_p
-                elif wrap_due(cand_p, state.t, dt_seg):
-                    t_pull_abs = state.t + dt_seg  # deferred, like the wrap
-                else:
-                    t_pull_abs = cand_p
                 pull_history.append((state.t, t_pull_abs))
+            if replan_add and not added:
+                cand_a = state.t + float(hist["t_add"])
+                t_add_abs = _adopt_event(
+                    cand_a, last_add_cand, state.t, dt_seg, hist, cc, add_candidates
+                )
+                last_add_cand = cand_a
+                add_history.append((state.t, t_add_abs))
+            if replan_spritz:
+                dt_spritz_cur = float(hist["dt_spritz"])
+                if not spritzing:
+                    cand_s = state.t + float(hist["t_spritz"])
+                    t_spritz_abs = _adopt_event(
+                        cand_s,
+                        last_spritz_cand,
+                        state.t,
+                        dt_seg,
+                        hist,
+                        cc,
+                        spritz_candidates,
+                    )
+                    last_spritz_cand = cand_s
+                spritz_history.append((state.t, t_spritz_abs, dt_spritz_cur))
             u_prev_plan, _prev_grids = u_plan, plan_grids
             prev_plan_t0 = state.t
 
@@ -577,6 +671,23 @@ def run_cook(
             dt_seg = t_f - state.t
         else:
             tp_seg = 1.0e9
+        # the chimney and the spritz policy: executed when due, then modelled
+        # continuously from their true moments (negative segment-relative
+        # times), like the wrap
+        if added:
+            ta_seg = t_add_exec_abs - state.t
+        elif wrap_due(t_add_abs, state.t, dt_seg) and not (
+            pull_now and t_add_abs > t_pull_abs
+        ):
+            ta_seg = max(0.0, t_add_abs - state.t)
+        else:
+            ta_seg = 1.0e9
+        if spritzing:
+            ts_seg = t_spritz_exec_abs - state.t
+        elif wrap_due(t_spritz_abs, state.t, dt_seg):
+            ts_seg = max(0.0, t_spritz_abs - state.t)
+        else:
+            ts_seg = 1.0e9
         # execute the first dt_seg of the plan, sampled at exchange
         # resolution — a 2-point interp coarsened every plan into pit
         # overshoot (reference executed-J 1.162 vs its model-J 1.005,
@@ -617,6 +728,9 @@ def run_cook(
             t_wrap_seg=tw_seg,
             t_pull_seg=tp_seg,
             rest=rest,
+            t_add_seg=ta_seg,
+            t_spritz_seg=ts_seg,
+            dt_spritz_seg=dt_spritz_cur,
         )
         if pull_now:
             pulled = True
@@ -642,6 +756,9 @@ def run_cook(
                 pred_grids,
                 ics=_ics(state_before, kf.x),
                 t_wrap=tw_seg,
+                t_add=ta_seg,
+                t_spritz=ts_seg,
+                dt_spritz=dt_spritz_cur,
             )
             innov = float(seg_traj["tpit"][-1]) - float(np.asarray(pred["tpit"])[-1])
             # phi = [C_th, UA, ...]: the lag linearization uses the model's
@@ -652,6 +769,12 @@ def run_cook(
             t_amb_hat_hist.append((state.t, kf.x, kf.p))
         if tw_seg < 1.0e8 and not wrapped:
             wrapped = True  # irreversible from here on
+        if ta_seg < 1.0e8 and not added:
+            added = True
+            t_add_exec_abs = t_seg_start + ta_seg
+        if ts_seg < 1.0e8 and not spritzing:
+            spritzing = True
+            t_spritz_exec_abs = t_seg_start + ts_seg
         if pull_now:
             in_pit = tt < tp_seg
             u_pit = float(np.mean(u_seg[in_pit])) if np.any(in_pit) else 0.0
@@ -668,11 +791,27 @@ def run_cook(
             f"T_amb={t_amb - 273.15:.0f} C  "
             f"T_amb_hat={kf.x - 273.15:.1f}±{np.sqrt(kf.p):.1f} C"
             + (f"  PULLED at {t_pull_exec_abs / HR:.2f} h -> rest" if pull_now else "")
+            + (
+                f"  CHIMNEY at {t_add_exec_abs / HR:.2f} h"
+                if added and t_add_exec_abs >= t_seg_start
+                else ""
+            )
+            + (
+                f"  SPRITZ from {t_spritz_exec_abs / HR:.2f} h every "
+                f"{dt_spritz_cur / 60:.0f} min"
+                if spritzing and t_spritz_exec_abs >= t_seg_start
+                else ""
+            )
         )
 
     doneness = float(state.c_field0[0])
     m_end = state.m0 if m_at_pull is None else m_at_pull
-    fuel_frac = (m0_start - m_end) / m0_start
+    m_added = (
+        cc.m_chimney
+        if added and (t_pull_exec_abs is None or t_add_exec_abs < t_pull_exec_abs)
+        else 0.0
+    )
+    fuel_frac = (m0_start + m_added - m_end) / m0_start
     # terminal quality vector from the final plant state (constants mirror
     # MeatConfig: W0/F0/beta_fat/eta_drain and the L* map)
     W0, F0, BETA_FAT, ETA_DRAIN = 2.33, 0.22, 1.8, 0.5
@@ -713,5 +852,14 @@ def run_cook(
     out["t_pull_exec_abs"] = t_pull_exec_abs
     out["pull_history"] = pull_history
     out["pull_candidates"] = pull_candidates
+    out["added"] = added
+    out["t_add_exec_abs"] = t_add_exec_abs
+    out["add_history"] = add_history
+    out["add_candidates"] = add_candidates
+    out["spritzing"] = spritzing
+    out["t_spritz_exec_abs"] = t_spritz_exec_abs
+    out["dt_spritz"] = dt_spritz_cur
+    out["spritz_history"] = spritz_history
+    out["spritz_candidates"] = spritz_candidates
     out["t_amb_hat_hist"] = t_amb_hat_hist
     return out

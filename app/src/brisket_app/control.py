@@ -26,6 +26,13 @@ from .coupled import CookGrids, coupled_cook
 DELTA_PULL_S = 300.0
 # initial pull logit: sigmoid(2.2) ≈ 0.9 of the cook horizon
 PULL_Z_INIT = 2.2
+# fuel addition / spritz start: t = t_end * sigmoid(z), same map as the
+# pull, initialised late in the horizon (a near-null decision the gradient
+# can pull earlier); the spritz interval is a bounded sigmoid map
+ADD_Z_INIT = 2.2
+SPRITZ_Z_INIT = 2.2
+SPRITZ_DT_Z_INIT = 0.0
+TAU_ADD_S = 300.0  # PitConfig.τ_add: the chimney dump duration
 
 
 @dataclass(frozen=True)
@@ -119,6 +126,14 @@ class ControlConfig:
     # rests from the pull to the end of the horizon (serve), so the quality
     # terms are scored at serve
     opt_pull: bool = True
+    # mid-cook fuel addition (one chimney, PitConfig.m_chimney) and the
+    # spritz policy (first spritz + interval): t = t_end * sigmoid(z) inside
+    # the horizon, never beyond it — the same construction as wrap and pull
+    opt_add: bool = True
+    m_chimney: float = 1.4  # [kg] PitConfig.m_chimney; added fuel is priced at the pull
+    opt_spritz: bool = True
+    dt_spritz_min: float = 1200.0  # [s] spritz interval bounds
+    dt_spritz_max: float = 7200.0
     lr: float = 0.05
     n_iter: int = 200  # iteration CAP; convergence stop below usually binds
     # plateau stop: quit when the best loss has not improved by more than
@@ -213,6 +228,14 @@ def objective(
     t_pull: float = 1.0e9,
     rest: dict | None = None,
     z_p=None,
+    t_add: float = 1.0e9,
+    z_a=None,
+    t_add_override: float | None = None,
+    t_spritz: float = 1.0e9,
+    dt_spritz: float = 3600.0,
+    z_s=None,
+    z_d=None,
+    t_spritz_override: float | None = None,
 ):
     """Scalar quality objective of one simulated cook (lower is better).
 
@@ -287,6 +310,26 @@ def objective(
         t_pull = grids.t_end * jax.nn.sigmoid(z_p)
     elif z_p is not None:
         t_pull = t_pull + 0.0 * z_p
+    # the chimney and the spritz policy: overrides (possibly negative =
+    # already executed) bypass the maps, like the wrap
+    if t_add_override is not None:
+        t_add = t_add_override
+    elif cc.opt_add and z_a is not None:
+        t_add = grids.t_end * jax.nn.sigmoid(z_a)
+    elif z_a is not None:
+        t_add = t_add + 0.0 * z_a
+    if t_spritz_override is not None:
+        t_spritz = t_spritz_override
+    elif cc.opt_spritz and z_s is not None:
+        t_spritz = grids.t_end * jax.nn.sigmoid(z_s)
+    elif z_s is not None:
+        t_spritz = t_spritz + 0.0 * z_s
+    if cc.opt_spritz and z_d is not None:
+        dt_spritz = cc.dt_spritz_min + (cc.dt_spritz_max - cc.dt_spritz_min) * (
+            jax.nn.sigmoid(z_d)
+        )
+    elif z_d is not None:
+        dt_spritz = dt_spritz + 0.0 * z_d
     sim = coupled_cook(
         theta,
         phi,
@@ -297,6 +340,9 @@ def objective(
         t_wrap=t_wrap,
         t_pull=t_pull,
         rest=rest,
+        t_add=t_add,
+        t_spritz=t_spritz,
+        dt_spritz=dt_spritz,
         **tols,
     )
 
@@ -337,7 +383,9 @@ def objective(
     in_pit = 1.0 - jax.nn.sigmoid((t_s - t_pull) / DELTA_PULL_S)
     surf_term = jnp.sum(in_pit * surf_over**2) / jnp.sum(in_pit)
     m_at_pull = jnp.interp(jnp.minimum(t_pull, t_s[-1]), t_s, sim["m_fuel"])
-    fuel_frac = (sim["m_fuel"][0] - m_at_pull) / cc.m0_ref
+    # fuel burned = load + chimney (if it arrived before the pull) - fuel at the pull
+    m_added = cc.m_chimney * jax.nn.sigmoid((t_pull - t_add) / TAU_ADD_S)
+    fuel_frac = (sim["m_fuel"][0] + m_added - m_at_pull) / cc.m0_ref
 
     # food safety (unconditional): lethality curve + growth-phase dwell on
     # the surface and on the core node (the slab's cold spot), through the
@@ -359,6 +407,55 @@ def objective(
     )
 
 
+def _mask_decision_grads(grads, cc: ControlConfig):
+    """Zero the gradients of decisions that are switched off (z, z_w, z_p, z_a, z_s, z_d)."""
+    g, g_w, g_p, g_a, g_s, g_d = grads
+    if not cc.opt_wrap:
+        g_w = jnp.zeros_like(g_w)
+    if not cc.opt_pull:
+        g_p = jnp.zeros_like(g_p)
+    if not cc.opt_add:
+        g_a = jnp.zeros_like(g_a)
+    if not cc.opt_spritz:
+        g_s, g_d = jnp.zeros_like(g_s), jnp.zeros_like(g_d)
+    return [g, g_w, g_p, g_a, g_s, g_d]
+
+
+def _decisions(
+    cc: ControlConfig,
+    grids,
+    z_a,
+    z_s,
+    z_d,
+    t_add,
+    t_spritz,
+    dt_spritz,
+    t_add_override=None,
+    t_spritz_override=None,
+):
+    """Map the optimized chimney / spritz variables back to times [s]."""
+    if t_add_override is not None:
+        ta = float(t_add_override)
+    elif cc.opt_add:
+        ta = float(grids.t_end * jax.nn.sigmoid(z_a))
+    else:
+        ta = float(t_add)
+    if t_spritz_override is not None:
+        ts = float(t_spritz_override)
+    elif cc.opt_spritz:
+        ts = float(grids.t_end * jax.nn.sigmoid(z_s))
+    else:
+        ts = float(t_spritz)
+    if cc.opt_spritz:
+        td = float(
+            cc.dt_spritz_min
+            + (cc.dt_spritz_max - cc.dt_spritz_min) * jax.nn.sigmoid(z_d)
+        )
+    else:
+        td = float(dt_spritz)
+    return ta, ts, td
+
+
 def optimize_schedule_expected(
     thetas,
     phis,
@@ -374,6 +471,12 @@ def optimize_schedule_expected(
     t_pull: float = 1.0e9,
     rest: dict | None = None,
     ics: dict | None = None,
+    z_a_init: float | None = None,
+    z_s_init: float | None = None,
+    z_d_init: float | None = None,
+    t_add: float = 1.0e9,
+    t_spritz: float = 1.0e9,
+    dt_spritz: float = 3600.0,
 ):
     """Optimize the damper schedule against the EXPECTED objective.
 
@@ -392,7 +495,7 @@ def optimize_schedule_expected(
     phis = jnp.asarray(phis)
     n = thetas.shape[0]
 
-    def expected_obj(z, z_w, z_p, ths, phs):
+    def expected_obj(z, z_w, z_p, z_a, z_s, z_d, ths, phs):
         # differentiate w.r.t. ALL differentiable inputs (see optimize_schedule)
         return (
             sum(
@@ -409,6 +512,12 @@ def optimize_schedule_expected(
                     t_pull=t_pull,
                     rest=rest,
                     z_p=z_p,
+                    t_add=t_add,
+                    z_a=z_a,
+                    t_spritz=t_spritz,
+                    dt_spritz=dt_spritz,
+                    z_s=z_s,
+                    z_d=z_d,
                 )
                 for i in range(n)
             )
@@ -421,38 +530,49 @@ def optimize_schedule_expected(
         z_w_init = 0.0 if cc.opt_wrap else 8.0
     z_w = jnp.asarray(z_w_init)
     z_p = jnp.asarray(PULL_Z_INIT if z_p_init is None else z_p_init)
+    z_a = jnp.asarray(ADD_Z_INIT if z_a_init is None else z_a_init)
+    z_s = jnp.asarray(SPRITZ_Z_INIT if z_s_init is None else z_s_init)
+    z_d = jnp.asarray(SPRITZ_DT_Z_INIT if z_d_init is None else z_d_init)
     opt = optax.adam(cc.lr)
-    state = opt.init((z, z_w, z_p))
-    val_grad = jax.jit(jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3, 4)))
+    vars_ = (z, z_w, z_p, z_a, z_s, z_d)
+    state = opt.init(vars_)
+    val_grad = jax.jit(
+        jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3, 4, 5, 6, 7))
+    )
 
     losses = []
     best_loss = np.inf
-    best_z, best_z_w, best_z_p = z, z_w, z_p
+    best = vars_
     t0 = time.perf_counter()
     for i in range(cc.n_iter):
-        loss, (g, g_w, g_p, _, _) = val_grad(z, z_w, z_p, thetas, phis)
+        loss, (*grads, _, _) = val_grad(*vars_, thetas, phis)
         lf = float(loss)
         losses.append(lf)
         if np.isfinite(lf) and lf < best_loss:
-            best_loss, best_z, best_z_w, best_z_p = lf, z, z_w, z_p
-        if not cc.opt_wrap:
-            g_w = jnp.zeros_like(g_w)
-        if not cc.opt_pull:
-            g_p = jnp.zeros_like(g_p)
-        updates, state = opt.update((g, g_w, g_p), state, (z, z_w, z_p))
-        z, z_w, z_p = optax.apply_updates((z, z_w, z_p), updates)
+            best_loss, best = lf, vars_
+        grads = _mask_decision_grads(grads, cc)
+        updates, state = opt.update(tuple(grads), state, vars_)
+        vars_ = optax.apply_updates(vars_, updates)
+        z = vars_[0]
         if callback and (i % log_every == 0 or i == cc.n_iter - 1):
             callback(i, lf, np.asarray(jax.nn.sigmoid(z)))
         if _plateau_stop(losses, cc):
             break
+    best_z, best_z_w, best_z_p, best_z_a, best_z_s, best_z_d = best
     tw = float(grids.t_end * jax.nn.sigmoid(best_z_w)) if cc.opt_wrap else 1.0e9
     tp = float(grids.t_end * jax.nn.sigmoid(best_z_p)) if cc.opt_pull else t_pull
+    ta, ts, td = _decisions(
+        cc, grids, best_z_a, best_z_s, best_z_d, t_add, t_spritz, dt_spritz
+    )
     return np.asarray(jax.nn.sigmoid(best_z)), {
         "losses": np.asarray(losses),
         "wall_s": time.perf_counter() - t0,
         "grids": grids,
         "t_wrap": tw,
         "t_pull": tp,
+        "t_add": ta,
+        "t_spritz": ts,
+        "dt_spritz": td,
         "best_loss": best_loss,
         "converged": _plateau_stop(losses, cc),
         "n_iter_run": len(losses),
@@ -480,6 +600,14 @@ def optimize_schedule(
     t_pull: float = 1.0e9,
     rest: dict | None = None,
     z_p_init: float | None = None,
+    z_a_init: float | None = None,
+    z_s_init: float | None = None,
+    z_d_init: float | None = None,
+    t_add: float = 1.0e9,
+    t_add_override: float | None = None,
+    t_spritz: float = 1.0e9,
+    dt_spritz: float = 3600.0,
+    t_spritz_override: float | None = None,
 ):
     """Optimize the damper schedule at fixed (theta, phi) with Adam.
 
@@ -504,8 +632,12 @@ def optimize_schedule(
     # the physics.
     z_w = jnp.asarray(z_w_init if cc.opt_wrap else z_w_pin)
     z_p = jnp.asarray(PULL_Z_INIT if z_p_init is None else z_p_init)
+    z_a = jnp.asarray(ADD_Z_INIT if z_a_init is None else z_a_init)
+    z_s = jnp.asarray(SPRITZ_Z_INIT if z_s_init is None else z_s_init)
+    z_d = jnp.asarray(SPRITZ_DT_Z_INIT if z_d_init is None else z_d_init)
     opt = optax.adam(cc.lr)
-    state = opt.init((z, z_w, z_p))
+    vars_ = (z, z_w, z_p, z_a, z_s, z_d)
+    state = opt.init(vars_)
     # Two deliberate choices here:
     # 1. Differentiate w.r.t. ALL differentiable Tesseract inputs (z via u,
     #    z_w via t_wrap, theta, phi) and discard the gradients you don't
@@ -519,7 +651,7 @@ def optimize_schedule(
     #    exhibited the race across thousands of calls.
     val_grad = jax.jit(
         jax.value_and_grad(
-            lambda zz, zw, zp, th, ph: objective(
+            lambda zz, zw, zp, za, zs, zd, th, ph: objective(
                 zz,
                 zw,
                 th,
@@ -537,14 +669,22 @@ def optimize_schedule(
                 t_pull=t_pull,
                 rest=rest,
                 z_p=zp,
+                t_add=t_add,
+                z_a=za,
+                t_add_override=t_add_override,
+                t_spritz=t_spritz,
+                dt_spritz=dt_spritz,
+                z_s=zs,
+                z_d=zd,
+                t_spritz_override=t_spritz_override,
             ),
-            argnums=(0, 1, 2, 3, 4),
+            argnums=(0, 1, 2, 3, 4, 5, 6, 7),
         )
     )
 
     losses, schedules = [], []
     best_loss = np.inf
-    best_z, best_z_w, best_z_p = z, z_w, z_p
+    best = vars_
     t0 = time.perf_counter()
     for i in range(cc.n_iter):
         # Single retry: a rare timing-dependent race in the local-client
@@ -552,28 +692,26 @@ def optimize_schedule(
         # tesseract api raises a clear error). One retry has always sufficed;
         # two consecutive failures is a real bug worth surfacing.
         try:
-            loss, (g, g_w, g_p, _g_theta, _g_phi) = val_grad(z, z_w, z_p, theta, phi)
+            loss, (*grads, _g_theta, _g_phi) = val_grad(*vars_, theta, phi)
         except RuntimeError as e:
             if "DEGENERATE" not in str(e) and "BoundsError" not in str(e):
                 raise
             print(f"  iter {i}: degenerate-input race, retrying once ({e})", flush=True)
-            loss, (g, g_w, g_p, _g_theta, _g_phi) = val_grad(z, z_w, z_p, theta, phi)
+            loss, (*grads, _g_theta, _g_phi) = val_grad(*vars_, theta, phi)
         lf = float(loss)
         losses.append(lf)
         if np.isfinite(lf) and lf < best_loss:
-            best_loss, best_z, best_z_w, best_z_p = lf, z, z_w, z_p
-        if not cc.opt_wrap:
-            g_w = jnp.zeros_like(g_w)
-        if not cc.opt_pull:
-            g_p = jnp.zeros_like(g_p)
-        updates, state = opt.update((g, g_w, g_p), state, (z, z_w, z_p))
-        z, z_w, z_p = optax.apply_updates((z, z_w, z_p), updates)
+            best_loss, best = lf, vars_
+        grads = _mask_decision_grads(grads, cc)
+        updates, state = opt.update(tuple(grads), state, vars_)
+        vars_ = optax.apply_updates(vars_, updates)
         if i % log_every == 0 or i == cc.n_iter - 1:
-            schedules.append(np.asarray(jax.nn.sigmoid(best_z)))
+            schedules.append(np.asarray(jax.nn.sigmoid(best[0])))
             if callback:
-                callback(i, lf, np.asarray(jax.nn.sigmoid(best_z)))
+                callback(i, lf, np.asarray(jax.nn.sigmoid(best[0])))
         if _plateau_stop(losses, cc):
             break
+    best_z, best_z_w, best_z_p, best_z_a, best_z_s, best_z_d = best
     if t_wrap_override is not None:
         tw = float(t_wrap_override)
     elif cc.opt_wrap:
@@ -581,11 +719,26 @@ def optimize_schedule(
     else:
         tw = 1.0e9
     tp = float(grids.t_end * jax.nn.sigmoid(best_z_p)) if cc.opt_pull else t_pull
+    ta, ts, td = _decisions(
+        cc,
+        grids,
+        best_z_a,
+        best_z_s,
+        best_z_d,
+        t_add,
+        t_spritz,
+        dt_spritz,
+        t_add_override,
+        t_spritz_override,
+    )
     return np.asarray(jax.nn.sigmoid(best_z)), {
         "losses": np.asarray(losses),
         "schedules": np.asarray(schedules),
         "t_wrap": tw,
         "t_pull": tp,
+        "t_add": ta,
+        "t_spritz": ts,
+        "dt_spritz": td,
         "best_loss": best_loss,
         "wall_s": time.perf_counter() - t0,
         "grids": grids,

@@ -22,8 +22,9 @@ A charcoal smoker and a brisket — a lumped pit ODE, a stiff 1D heat–moisture
 PDE with the evaporative stall, and the pit's humidity — as one Julia
 Tesseract with forward-mode `jvp` / `vjp` / `jacobian` endpoints, driven from
 JAX for Gauss–Newton and NUTS calibration on a real 19-hour cook log, a
-duration × wrap × pull × vent plan scored at serve, robust control over the
-posterior, and receding-horizon MPC that re-times the wrap and the pull. We
+duration × wrap × pull × chimney × spritz × vent plan scored at serve, robust
+control over the posterior, and receding-horizon MPC that re-times the wrap,
+the pull, the chimney and the spritz policy. We
 built it first as two composed Tesseracts (adjoint + Jacobian, Picard-coupled
 in JAX), measured the seam, and moved the boundary to the edge of the physics:
 the same scans went from hours to minutes.
@@ -50,7 +51,8 @@ ridges (the pit's: heat loss vs heat release, burn rate vs leak). The plan —
 cook length, wrap time, pull time and vent schedule optimized jointly against
 a KCBS-weighted quality objective scored at serve — lands on a 20 h cook that
 wraps at 8.2 h and pulls at 18.15 h. Receding-horizon MPC replans the
-schedule, the wrap and the pull hourly from the full meat field; hit with a
+schedule, the wrap, the pull, the chimney and the spritz policy hourly from
+the full meat field; hit with a
 15 K cold front it has never seen, it re-times the crutch and the pull and
 serves at doneness 0.965 where the open-loop plan ends at 0.55.
 
@@ -137,8 +139,8 @@ interface. The two-Tesseract version is in the history with the numbers.
 **What the derivatives do.** Gauss–Newton MAP on the real cook from the prior
 medians in 13 iterations / 130 s; a Laplace on the Gauss–Newton curvature
 (a finite-difference Hessian is indefinite there); a duration × wrap × pull ×
-vent plan scored at serve (13 cook
-lengths in 69 min); receding-horizon MPC replanning vents, crutch and pull
+chimney × spritz × vent plan scored at serve (13 cook
+lengths in 69 min); receding-horizon MPC replanning vents, crutch, pull, chimney and spritz
 hourly (4 cooks in 58 min) that absorbs a 15 K cold front the open-loop plan
 does not survive; robust control over posterior draws.
 

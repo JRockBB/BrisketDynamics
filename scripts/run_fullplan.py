@@ -38,22 +38,31 @@ CC = ControlConfig(opt_wrap=True)
 
 def records_from_json(d: dict) -> tuple[list, dict]:
     """Rebuild the scan records and the chosen cook from fullplan_result.json."""
-    records = [
-        {"t_f_h": tf, "j_quality": j, "t_wrap_h": tw, "t_pull_h": tp, "safety_ok": ok}
-        for tf, j, tw, tp, ok in zip(
-            d["durations_h"],
-            d["j_quality"],
-            d["t_wrap_h"],
-            d["t_pull_h"],
-            d.get("safety_ok", [True] * len(d["durations_h"])),
-            strict=True,
-        )
-    ]
+    n = len(d["durations_h"])
+    cols = {
+        "t_f_h": d["durations_h"],
+        "j_quality": d["j_quality"],
+        "t_wrap_h": d["t_wrap_h"],
+        "t_pull_h": d["t_pull_h"],
+        "safety_ok": d.get("safety_ok", [True] * n),
+        "t_add_h": d.get("t_add_h", [None] * n),
+        "t_spritz_h": d.get("t_spritz_h", [None] * n),
+        "dt_spritz_min": d.get("dt_spritz_min", [None] * n),
+    }
+    records = [{k: v[i] for k, v in cols.items()} for i in range(n)]
     best = {
         "t_f_h": d["best_t_f_h"],
         "t_wrap_h": d["best_t_wrap_h"],
         "t_pull_h": d["best_t_pull_h"],
         "t_pull": d["best_t_pull_h"] * HR if d["best_t_pull_h"] else 1.0e9,
+        "t_add_h": d.get("best_t_add_h"),
+        "t_add": d["best_t_add_h"] * HR if d.get("best_t_add_h") else 1.0e9,
+        "t_spritz_h": d.get("best_t_spritz_h"),
+        "t_spritz": d["best_t_spritz_h"] * HR if d.get("best_t_spritz_h") else 1.0e9,
+        "dt_spritz_min": d.get("best_dt_spritz_min"),
+        "dt_spritz": (
+            d["best_dt_spritz_min"] * 60.0 if d.get("best_dt_spritz_min") else 3600.0
+        ),
         "u_opt": np.asarray(d["best_u"]),
         "grids": _grids_for(d["best_t_f_h"] * HR),
         "rest": None,
@@ -135,6 +144,9 @@ def main():
                     "j_quality": [r["j_quality"] for r in records],
                     "t_wrap_h": [r["t_wrap_h"] for r in records],
                     "t_pull_h": [r["t_pull_h"] for r in records],
+                    "t_add_h": [r["t_add_h"] for r in records],
+                    "t_spritz_h": [r["t_spritz_h"] for r in records],
+                    "dt_spritz_min": [r["dt_spritz_min"] for r in records],
                     "doneness": [r["doneness"] for r in records],
                     "w_retained": [r["w_retained"] for r in records],
                     "juiciness": [r["juiciness"] for r in records],
@@ -146,6 +158,11 @@ def main():
                     "best_t_f_h": best["t_f_h"],
                     "best_t_wrap_h": best["t_wrap_h"],
                     "best_t_pull_h": best["t_pull_h"],
+                    "best_t_add_h": best["t_add_h"],
+                    "best_t_spritz_h": best["t_spritz_h"],
+                    "best_dt_spritz_min": best["dt_spritz_min"]
+                    if best["t_spritz_h"]
+                    else None,
                     "best_u": best["u_opt"].tolist(),
                 },
                 indent=2,
@@ -160,6 +177,9 @@ def main():
         best["grids"],
         ics=ICS,
         t_wrap=best["t_wrap_h"] * HR,
+        t_add=best.get("t_add", 1.0e9),
+        t_spritz=best.get("t_spritz", 1.0e9),
+        dt_spritz=best.get("dt_spritz", 3600.0),
         t_pull=best["t_pull"],
         rest=best.get("rest"),
     )
@@ -175,6 +195,20 @@ def main():
         f"{t_pull_h:.2f} h, rest {cook_h - t_pull_h:.2f} h, serve at {cook_h:.1f} h "
         f"— doneness {doneness:.3f}, juiciness {juiciness:.3f}, bark L* {l_end:.1f}, "
         f"smoke ring {1e3 * float(sim['ring']) * float(sim['l_thick'][-1]) / float(theta[3]):.1f} mm"
+    )
+    print(
+        "fuel and water: "
+        + (
+            f"chimney at {best['t_add_h']:.2f} h"
+            if best.get("t_add_h")
+            else "no fuel added"
+        )
+        + "; "
+        + (
+            f"spritz every {best['dt_spritz_min']:.0f} min from {best['t_spritz_h']:.2f} h"
+            if best.get("t_spritz_h")
+            else "no spritz"
+        )
     )
     sr = safety_report(sim["tsurf"], sim["tcore"], best["grids"].tknots, CC)
     print(
@@ -253,6 +287,24 @@ def main():
             color=MUTED,
             fontsize=10,
             ha="right",
+        )
+    if best.get("t_add_h"):
+        ax.axvline(best["t_add_h"], color=MUTED, lw=1.0, ls=":")
+        ax.annotate(
+            f"chimney {best['t_add_h']:.1f} h",
+            (best["t_add_h"] + 0.15, 15),
+            color=MUTED,
+            fontsize=9,
+            ha="left",
+        )
+    if best.get("t_spritz_h"):
+        ax.annotate(
+            f"spritz every {best['dt_spritz_min']:.0f} min from {best['t_spritz_h']:.1f} h",
+            (0.02, 0.04),
+            xycoords="axes fraction",
+            color=MUTED,
+            fontsize=9,
+            ha="left",
         )
     ax.set(
         xlabel="time [h]",

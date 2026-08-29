@@ -72,6 +72,9 @@ def save_mpc_traces(path, ref, ol, mp0, mp, t_dist_h, wrap_mode):
         payload[f"{tag}_t_wrap_abs"] = _nan(r.get("t_wrap_abs"))
         payload[f"{tag}_t_wrap_exec_abs"] = _nan(r.get("t_wrap_exec_abs"))
         payload[f"{tag}_t_pull_exec_abs"] = _nan(r.get("t_pull_exec_abs"))
+        payload[f"{tag}_t_add_exec_abs"] = _nan(r.get("t_add_exec_abs"))
+        payload[f"{tag}_t_spritz_exec_abs"] = _nan(r.get("t_spritz_exec_abs"))
+        payload[f"{tag}_dt_spritz"] = _nan(r.get("dt_spritz"))
         hist = np.asarray(r.get("wrap_history") or [], dtype=float)
         if hist.size == 0:
             hist = np.zeros((0, 2))
@@ -123,6 +126,9 @@ def load_mpc_traces(path):
             else np.nan
         )
         r["t_pull_exec_abs"] = None if np.isnan(tp) else tp
+        for key in ("t_add_exec_abs", "t_spritz_exec_abs", "dt_spritz"):
+            v = float(z[f"{tag}_{key}"]) if f"{tag}_{key}" in names else np.nan
+            r[key] = None if np.isnan(v) else v
         if f"{tag}_wrap_history" in names:
             r["wrap_history"] = [
                 tuple(row) for row in np.asarray(z[f"{tag}_wrap_history"])
@@ -235,6 +241,36 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
                 "alpha": 0.95,
             },
         )
+    # the chimney (pit panel) and the spritz policy (damper panel)
+    for i, (r, (_name, _ls, color), short) in enumerate(
+        zip(cooks, SERIES, shorts, strict=True)
+    ):
+        ta = r.get("t_add_exec_abs")
+        if ta is not None and np.isfinite(ta):
+            axes[1].axvline(ta / HR, color=color, lw=1.0, ls=":")
+            axes[1].text(
+                ta / HR,
+                0.96 - 0.09 * i,
+                f"{short} chimney {ta / HR:.1f} h",
+                transform=axes[1].get_xaxis_transform(),
+                ha="left",
+                va="top",
+                fontsize=7.5,
+                color=color,
+            )
+        ts = r.get("t_spritz_exec_abs")
+        if ts is not None and np.isfinite(ts):
+            axes[2].axvline(ts / HR, color=color, lw=1.0, ls=":")
+            axes[2].text(
+                ts / HR,
+                0.96 - 0.09 * i,
+                f"{short} spritz {ts / HR:.1f} h / {r.get('dt_spritz', 0.0) / 60:.0f} min",
+                transform=axes[2].get_xaxis_transform(),
+                ha="left",
+                va="top",
+                fontsize=7.5,
+                color=color,
+            )
     axes[0].set(xlabel="time [h]", ylabel="core [°C]")
     axes[1].set(xlabel="time [h]", ylabel="pit [°C]", title="pit temperature")
     axes[2].set(
@@ -364,6 +400,11 @@ def main():
     u0_plan = np.asarray(b["best_u"] if "best_u" in b else b["u_opt"])
     t_pull_star = b.get("best_t_pull_h")
     T_PULL = float(t_pull_star) * HR if t_pull_star else None
+    T_ADD = float(b["best_t_add_h"]) * HR if b.get("best_t_add_h") else None
+    T_SPRITZ = float(b["best_t_spritz_h"]) * HR if b.get("best_t_spritz_h") else None
+    DT_SPRITZ = (
+        float(b["best_dt_spritz_min"]) * 60.0 if b.get("best_dt_spritz_min") else None
+    )
     print(f"using plan {plan_path.name}")
     # every cook pulls (open-loop at the plan's pull, MPC when it decides)
     # and rests to serve at T_F
@@ -372,10 +413,21 @@ def main():
         f"plan under defense: the {T_F / HR:.0f} h cook — "
         f"wrap at {t_wrap_star / HR:.2f} h"
         + (f", pull at {T_PULL / HR:.2f} h" if T_PULL else "")
+        + (f", chimney at {T_ADD / HR:.2f} h" if T_ADD else "")
+        + (
+            f", spritz every {DT_SPRITZ / 60:.0f} min from {T_SPRITZ / HR:.2f} h"
+            if T_SPRITZ
+            else ""
+        )
         + f", serve at {T_F / HR:.1f} h, "
         f"u in [{u0_plan.min():.2f}, {u0_plan.max():.2f}]"
     )
-    pull_kw = {"t_pull_init_abs": T_PULL}
+    pull_kw = {
+        "t_pull_init_abs": T_PULL,
+        "t_add_init_abs": T_ADD,
+        "t_spritz_init_abs": T_SPRITZ,
+        "dt_spritz_init": DT_SPRITZ,
+    }
 
     print("reference (no disturbance):")
     ref = mpc.run_cook(
@@ -458,6 +510,17 @@ def main():
             f"{cc.c_target}-{cc.c_overdone})  juiciness {r['juiciness']:.3f}  "
             f"L* {r['l_star_end']:.1f}  smoke {r['smoke_end']:.2f}"
             + (f"  pull {tp / HR:.2f} h" if tp is not None else "")
+            + (
+                f"  chimney {r['t_add_exec_abs'] / HR:.2f} h"
+                if r.get("t_add_exec_abs") is not None
+                else ""
+            )
+            + (
+                f"  spritz from {r['t_spritz_exec_abs'] / HR:.2f} h every "
+                f"{(r.get('dt_spritz') or 0.0) / 60:.0f} min"
+                if r.get("t_spritz_exec_abs") is not None
+                else ""
+            )
         )
         print(f"    components: {jj}")
         sr = safety_report(r["tsurf"], r["tcore"], r["t"], cc)

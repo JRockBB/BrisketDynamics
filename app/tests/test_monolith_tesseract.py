@@ -22,6 +22,9 @@ def case():
         "tsave": grids.tknots,
         "t_wrap": 0.75 * HR,
         "t_pull": 1.5 * HR,
+        "t_add": 1.0 * HR,
+        "t_spritz": 0.5 * HR,
+        "dt_spritz": 1800.0,
         "t_amb": 300.0,
     }
     return monolith_client(), inputs, grids
@@ -41,19 +44,28 @@ def test_apply_shapes(case):
 
 def test_jvp_matches_jacobian(case):
     tx, inputs, _ = case
-    J = tx.jacobian(inputs, ["theta", "u_knots", "t_pull"], ["tcore", "juiciness"])
+    ins = ["theta", "u_knots", "t_pull", "t_add", "t_spritz", "dt_spritz"]
+    J = tx.jacobian(inputs, ins, ["tcore", "juiciness"])
     dtheta = np.zeros(8)
     dtheta[0] = 1e-9
     du = np.array([0.1, 0.0, -0.05, 0.0])
-    tangent = {"theta": dtheta, "u_knots": du, "t_pull": np.asarray(600.0)}
-    d = tx.jacobian_vector_product(
-        inputs, ["theta", "u_knots", "t_pull"], ["tcore", "juiciness"], tangent
-    )
+    tangent = {
+        "theta": dtheta,
+        "u_knots": du,
+        "t_pull": np.asarray(600.0),
+        "t_add": np.asarray(600.0),
+        "t_spritz": np.asarray(300.0),
+        "dt_spritz": np.asarray(300.0),
+    }
+    d = tx.jacobian_vector_product(inputs, ins, ["tcore", "juiciness"], tangent)
     for k in ("tcore", "juiciness"):
         ref = (
             np.asarray(J[k]["theta"]) @ dtheta
             + np.asarray(J[k]["u_knots"]) @ du
             + np.asarray(J[k]["t_pull"]) * 600.0
+            + np.asarray(J[k]["t_add"]) * 600.0
+            + np.asarray(J[k]["t_spritz"]) * 300.0
+            + np.asarray(J[k]["dt_spritz"]) * 300.0
         )
         got = np.asarray(d[k])
         assert np.max(np.abs(got - ref)) / (np.max(np.abs(ref)) + 1e-12) < 5e-3

@@ -22,9 +22,10 @@ smoke ring are modelled; their residues are under *Limitations* below.
 ## Tier 3 — data-blocked or second-order
 
 Grain anisotropy and slice direction; pH/aging/WHC animal variation;
-wind/weather on `UA(t)`; mid-cook fuel additions; spritz/baste; multi-meat
-loading; rub chemistry beyond salt; smoke *quality* (thin blue vs
-smolder).
+wind/weather on `UA(t)` (unobserved — the MPC's ambient filter absorbs an
+effective-loss disturbance); rub chemistry beyond salt; smoke *quality*
+(thin blue vs smolder). Fuel additions, the spritz policy and multi-meat
+loading are modelled; their residues are under *Limitations*.
 
 ## Limitations of what is already implemented
 
@@ -51,6 +52,15 @@ or uncalibrated:
   effective diffusivity, a denaturation gate at 62 °C, "lit" as the whole
   dependence on the fire, and constants at literature scale with no ring
   measurement behind them. An output, never a term in the objective.
+- **Fuel addition.** One lit chimney of fixed mass dumped over five
+  minutes, any time the planner likes, at most once per cook; unlit
+  additions and the lid-open temperature dip are not modelled.
+- **Spritz.** One fixed dose and liquid temperature, one interval, the
+  water absorbed into the surface node (no run-off); stops at the wrap and
+  the pull; no lid-open dip. The dose is a spray bottle's worth, not a
+  measurement.
+- **Multi-meat.** Identical briskets sharing the pit's heat and vapor;
+  no shielding, stacking or grate-position differences.
 - **Purge sink.** Softplus still removes \(\sim k_e \delta_e \ln 2\) water
   at \(W = W_{\mathrm{eq}}\). Calibrated \(k_e\) absorbs the offset.
 - **Shrinkage.** Isotropic (`n_shrink = 1/3`); the anisotropy is a config

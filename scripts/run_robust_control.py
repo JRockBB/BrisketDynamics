@@ -133,6 +133,13 @@ def main():
     t_wrap_map = best["best_t_wrap_h"] * HR
     t_f = best["best_t_f_h"] * HR
     t_pull_map = best["best_t_pull_h"] * HR if best.get("best_t_pull_h") else 1.0e9
+    t_add_map = best["best_t_add_h"] * HR if best.get("best_t_add_h") else 1.0e9
+    t_spritz_map = (
+        best["best_t_spritz_h"] * HR if best.get("best_t_spritz_h") else 1.0e9
+    )
+    dt_spritz_map = (
+        best["best_dt_spritz_min"] * 60.0 if best.get("best_dt_spritz_min") else 3600.0
+    )
 
     tx = monolith_client()
     grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=len(u_map))
@@ -152,11 +159,28 @@ def main():
         u_init=u_map,
         z_w_init=float(logit(t_wrap_map / t_f)),
         z_p_init=float(logit(min(t_pull_map, t_f) / t_f)),
+        z_a_init=float(logit(min(t_add_map, t_f) / t_f)),
+        z_s_init=float(logit(min(t_spritz_map, t_f) / t_f)),
+        z_d_init=float(
+            logit(
+                np.clip(
+                    (dt_spritz_map - cc.dt_spritz_min)
+                    / (cc.dt_spritz_max - cc.dt_spritz_min),
+                    1e-3,
+                    1 - 1e-3,
+                )
+            )
+        ),
         ics=ICS,
         callback=lambda i, l, u: print(f"  iter {i:4d}  E[J]={l:9.4f}", flush=True),
     )
     t_wrap_rob = hist["t_wrap"]
     t_pull_rob = hist["t_pull"]
+    t_add_rob, t_spritz_rob, dt_spritz_rob = (
+        hist["t_add"],
+        hist["t_spritz"],
+        hist["dt_spritz"],
+    )
     print(
         f"wrap: plan {t_wrap_map / HR:.2f} h -> "
         f"posterior-expected {t_wrap_rob / HR:.2f} h;  "
@@ -167,7 +191,7 @@ def main():
         f"in {hist['wall_s']:.0f} s"
     )
 
-    def metrics(u, tw, tp, th, ph):
+    def metrics(u, tw, tp, ta, ts, td, th, ph):
         # the objective fullplan optimizes, at serve, under the same cook
         # conditions, plus the doneness / juiciness behind it
         j = float(
@@ -182,6 +206,9 @@ def main():
                 TOLS,
                 ics=ICS,
                 z_p=jnp.asarray(logit(min(tp, t_f) / t_f)),
+                t_add=ta,
+                t_spritz=ts,
+                dt_spritz=td,
             )
         )
         out = coupled_cook(
@@ -193,16 +220,37 @@ def main():
             ics=ICS,
             t_wrap=tw,
             t_pull=tp,
+            t_add=ta,
+            t_spritz=ts,
+            dt_spritz=td,
         )
         return j, float(out["c_field_final"][0]), float(out["juiciness"])
 
     print(f"evaluating both plans on {N_EVAL} held-out draws")
     m_map = [
-        metrics(u_map, t_wrap_map, t_pull_map, th_ev[i], ph_ev[i])
+        metrics(
+            u_map,
+            t_wrap_map,
+            t_pull_map,
+            t_add_map,
+            t_spritz_map,
+            dt_spritz_map,
+            th_ev[i],
+            ph_ev[i],
+        )
         for i in range(N_EVAL)
     ]
     m_rob = [
-        metrics(u_rob, t_wrap_rob, t_pull_rob, th_ev[i], ph_ev[i])
+        metrics(
+            u_rob,
+            t_wrap_rob,
+            t_pull_rob,
+            t_add_rob,
+            t_spritz_rob,
+            dt_spritz_rob,
+            th_ev[i],
+            ph_ev[i],
+        )
         for i in range(N_EVAL)
     ]
     J_map = np.array([x[0] for x in m_map])
@@ -233,6 +281,12 @@ def main():
                 "t_wrap_robust_h": t_wrap_rob / HR,
                 "t_pull_plan_h": t_pull_map / HR if t_pull_map < 1e8 else None,
                 "t_pull_robust_h": t_pull_rob / HR if t_pull_rob < 1e8 else None,
+                "t_add_plan_h": t_add_map / HR if t_add_map < 1e8 else None,
+                "t_add_robust_h": t_add_rob / HR if t_add_rob < 1e8 else None,
+                "t_spritz_plan_h": t_spritz_map / HR if t_spritz_map < 1e8 else None,
+                "t_spritz_robust_h": t_spritz_rob / HR if t_spritz_rob < 1e8 else None,
+                "dt_spritz_plan_min": dt_spritz_map / 60.0,
+                "dt_spritz_robust_min": dt_spritz_rob / 60.0,
                 "cook_h": t_f / HR,
                 "doneness_map_eval": d_map.tolist(),
                 "doneness_robust_eval": d_rob.tolist(),

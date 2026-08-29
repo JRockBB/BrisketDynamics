@@ -16,6 +16,7 @@ const EPS_W = 0.622           # molar-mass ratio water/air (absolute humidity �
 const K_MEAT = 0.45           # baseline thermal conductivity [W m⁻¹ K⁻¹]
 const RHO_MEAT = 1060.0       # density [kg m⁻³]
 const CP_MEAT = 3400.0        # specific heat capacity [J kg⁻¹ K⁻¹]
+const CP_WATER = 4186.0       # liquid water heat capacity [J kg⁻¹ K⁻¹] (spritz)
 const RHO_DRY = 320.0         # dry-matter density [kg m⁻³] (ρ/(1+W₀) at W₀ ≈ 2.33 dry basis)
 
 """

@@ -33,3 +33,24 @@
         φ, fill(0.4, 16), u_tknots, zeros(10), tsave, tsave
     )
 end
+
+@testset "mid-cook fuel addition" begin
+    hr = 3600.0
+    tsave = collect(0.0:300.0:8hr)
+    u_tknots = collect(range(0, 8hr, length=16))
+    φ = PIT_φ_DEFAULT
+    # a small ring burns out by mid-cook; a chimney at 3 h keeps the pit up
+    cfg = PitConfig(; m0=1.0)
+    dry = pit_solve(φ, fill(0.4, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg)
+    fed = pit_solve(φ, fill(0.4, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg, t_add=3hr)
+    i2, i4 = findfirst(t -> t >= 2hr, tsave), findfirst(t -> t >= 4hr, tsave)
+    i3q = findfirst(t -> t >= 3.25hr, tsave)
+    @test abs(fed.m_fuel[i2] - dry.m_fuel[i2]) < 1e-3            # nothing before the add (pulse tail)
+    @test fed.m_fuel[i3q] - dry.m_fuel[i3q] > 0.8 * cfg.m_chimney  # the chimney arrived
+    @test fed.m_fuel[i4] < fed.m_fuel[i3q]                       # and burns
+    @test fed.Tpit[i4] > dry.Tpit[i4] + 10                       # the fire lived on
+    @test all(0 .<= fed.ignited .<= 1 + 1e-9)
+    # never = the default, bitwise
+    never = pit_solve(φ, fill(0.4, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg, t_add=BrisketDynamics.ADD_NEVER)
+    @test never.m_fuel == dry.m_fuel
+end

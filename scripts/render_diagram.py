@@ -134,17 +134,17 @@ box(
     BLUE,
     "Planning & control",
     [
-        "fullplan: cook length × wrap × pull × vents",
-        "MPC: hourly replans incl. crutch and pull",
+        "fullplan: length × wrap × pull × chimney × spritz × vents",
+        "MPC: hourly replans incl. crutch, pull, chimney, spritz",
         "robust: E[J] over posterior draws (Optax)",
     ],
 )
-box(1.2, 4.45, 6.5, 0.5, "white", BLUE, "", [])
+box(0.55, 4.45, 8.0, 0.5, "white", BLUE, "", [])
 centered(
     4.45,
     4.70,
-    "coupled_cook(θ, φ, u, tx, grids, t_wrap, t_pull)  —  one apply_tesseract call",
-    9.6,
+    "coupled_cook(θ, φ, u, grids, wrap, pull, chimney, spritz, n_meat)  —  one apply_tesseract call",
+    9.2,
     bold=True,
 )
 arrow((2.3, 5.4), (2.3, 5.06), BLUE)
@@ -213,7 +213,7 @@ box(
     "white",
     GREEN,
     "meat",
-    ["T, W, C, F × 40 nodes + B, S", "evaporative stall, shrinkage, bark"],
+    ["T, W, C, F × 40 nodes + B, S, r", "stall, condensation, shrinkage, bark, ring"],
     title_size=9.5,
     size=7.8,
 )

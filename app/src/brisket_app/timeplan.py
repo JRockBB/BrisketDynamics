@@ -62,6 +62,7 @@ def plan_duration(
     cc = cc or ControlConfig(n_iter=inner_iters)
     records = []
     u_prev, grids_prev, zw_prev, zp_prev = None, None, 0.0, None
+    za_prev = zs_prev = zd_prev = None
     if seed is not None:  # warm-start the FIRST duration from a prior scan
         u_prev = np.asarray(seed["u"])
         grids_prev = _grids_for(seed["t_f_h"] * HR)
@@ -70,6 +71,21 @@ def plan_duration(
         if "t_pull_frac" in seed:
             fp = min(max(seed["t_pull_frac"], 1e-4), 1 - 1e-4)
             zp_prev = float(np.log(fp / (1 - fp)))
+        for key, var in (
+            ("t_add_frac", "za"),
+            ("t_spritz_frac", "zs"),
+            ("dt_spritz_frac", "zd"),
+        ):
+            if key in seed:
+                fr = min(max(seed[key], 1e-4), 1 - 1e-4)
+                val = float(np.log(fr / (1 - fr)))
+                za_prev, zs_prev, zd_prev = (
+                    (val, zs_prev, zd_prev)
+                    if var == "za"
+                    else (za_prev, val, zd_prev)
+                    if var == "zs"
+                    else (za_prev, zs_prev, val)
+                )
     for th_f in durations_h:
         t_f = th_f * HR
         grids = _grids_for(t_f)
@@ -92,6 +108,9 @@ def plan_duration(
             t_pull=t_pull,
             rest=rest,
             z_p_init=zp_prev,
+            z_a_init=za_prev,
+            z_s_init=zs_prev,
+            z_d_init=zd_prev,
         )
         u_prev, grids_prev = u_opt, grids
         t_wrap = hist.get("t_wrap", 1.0e9)
@@ -102,6 +121,18 @@ def plan_duration(
         if cc.opt_pull:
             fp = min(max(t_pull / t_f, 1e-4), 1 - 1e-4)
             zp_prev = float(np.log(fp / (1 - fp)))
+        t_add = hist.get("t_add", 1.0e9)
+        t_spritz = hist.get("t_spritz", 1.0e9)
+        dt_spritz = hist.get("dt_spritz", 3600.0)
+        if cc.opt_add:
+            fa = min(max(t_add / t_f, 1e-4), 1 - 1e-4)
+            za_prev = float(np.log(fa / (1 - fa)))
+        if cc.opt_spritz:
+            fs = min(max(t_spritz / t_f, 1e-4), 1 - 1e-4)
+            zs_prev = float(np.log(fs / (1 - fs)))
+            fd = (dt_spritz - cc.dt_spritz_min) / (cc.dt_spritz_max - cc.dt_spritz_min)
+            fd = min(max(fd, 1e-4), 1 - 1e-4)
+            zd_prev = float(np.log(fd / (1 - fd)))
         sim = coupled_cook(
             np.asarray(theta),
             np.asarray(phi),
@@ -112,6 +143,9 @@ def plan_duration(
             t_wrap=t_wrap if cc.opt_wrap else 1.0e9,
             t_pull=t_pull,
             rest=rest,
+            t_add=t_add,
+            t_spritz=t_spritz,
+            dt_spritz=dt_spritz,
         )
         c_end = float(np.asarray(sim["c_field_final"])[0])
         w_ret = float(np.asarray(sim["w_retained"]))
@@ -135,6 +169,12 @@ def plan_duration(
                 "t_pull": float(t_pull),
                 "t_pull_h": float(t_pull / HR) if t_pull < 1.0e8 else None,
                 "rest": rest,
+                "t_add": float(t_add),
+                "t_add_h": float(t_add / HR) if t_add < 1.0e8 else None,
+                "t_spritz": float(t_spritz),
+                "dt_spritz": float(dt_spritz),
+                "t_spritz_h": float(t_spritz / HR) if t_spritz < 1.0e8 else None,
+                "dt_spritz_min": float(dt_spritz / 60.0),
                 "ring_mm": ring_mm,
                 "safety_ok": safety["ok"],
                 "F_core": safety["F_core"],
@@ -148,6 +188,12 @@ def plan_duration(
             f"(water {w_ret:.3f})  L*={l_end:.1f}  ring={ring_mm:.1f}mm"
             + (f"  wrap@{t_wrap / HR:.2f} h" if cc.opt_wrap else "")
             + (f"  pull@{t_pull / HR:.2f} h" if t_pull < 1.0e8 else "")
+            + (f"  chimney@{t_add / HR:.2f} h" if t_add < 1.0e8 else "")
+            + (
+                f"  spritz@{t_spritz / HR:.2f} h/{dt_spritz / 60:.0f} min"
+                if t_spritz < 1.0e8
+                else ""
+            )
             + f"  iters={hist.get('n_iter_run', len(hist['losses']))}"
             + ("" if hist.get("converged", True) else " (cap)")
             + ("" if safety["ok"] else "  UNSAFE (raw safety residuals fail)")

@@ -92,6 +92,10 @@ def coupled_cook(
     t_pull=1.0e9,
     rest: dict | None = None,
     humidity: Humidity | None = None,
+    t_add=1.0e9,
+    t_spritz=1.0e9,
+    dt_spritz=3600.0,
+    n_meat: float = 1.0,
 ):
     """Simulate the coupled pit-brisket system in ONE solve, differentiably.
 
@@ -120,6 +124,12 @@ def coupled_cook(
         Rest-environment overrides (``rest_t/rest_h/rest_eps/rest_eta``).
     humidity : Humidity, optional
         Pit vapor-balance constants.
+    t_add : float
+        Mid-cook fuel addition (one chimney) [s]; 1e9 = none.
+    t_spritz, dt_spritz : float
+        Spritz policy: first spritz and interval [s]; t_spritz = 1e9 = none.
+    n_meat : float
+        Identical briskets sharing the pit.
     """
     ics = ics or {}
     humidity = humidity or Humidity()
@@ -133,6 +143,10 @@ def coupled_cook(
             "tsave": jnp.asarray(grids.tknots),
             "t_wrap": jnp.asarray(t_wrap),
             "t_pull": jnp.asarray(t_pull),
+            "t_add": jnp.asarray(t_add),
+            "t_spritz": jnp.asarray(t_spritz),
+            "dt_spritz": jnp.asarray(dt_spritz),
+            "n_meat": float(n_meat),
             "abstol": abstol,
             "reltol": reltol,
             "afr": humidity.afr,

@@ -99,19 +99,22 @@ def arrow(p, q, color, label=None, lpos=None, lw=2.2, rad=0.0, size=9.5):
 box(
     0.35,
     7.9,
-    2.5,
-    1.0,
+    2.8,
+    1.3,
     IN_FC,
     IN_EC,
     "control input",
-    [r"$u(t)\in[0,1]$  damper"],
+    [
+        r"$u(t)\in[0,1]$  damper",
+        r"$t_{wrap},\ t_{pull},\ t_{add},\ (t_{sp}, \Delta_{sp})$  decisions",
+    ],
     size=10,
 )
 box(
-    3.25,
+    3.45,
     7.9,
-    3.1,
-    1.0,
+    2.9,
+    1.3,
     IN_FC,
     IN_EC,
     "wrap decision",
@@ -130,7 +133,7 @@ box(
     "PIT — lumped ODEs (3 states)",
     [
         r"$C_{th}\,\dot T_p \,=\, \Delta H_{e\!f\!f}\,\dot m_b \;-\; UA\,(T_p - T_{amb}) \;-\; q_{meat}$",
-        r"$\dot m = -\,\dot m_b\,,\qquad \dot m_b = r_{max}\; g(u)\; a\,\tanh(m/m_t)$",
+        r"$\dot m = -\,\dot m_b + \dot m_{add}(t)\,,\qquad \dot m_b = r_{max}\; g(u)\; a\,\tanh(m/m_t)$",
         r"$\dot a \,=\, k_{spr}\, a\,(1-a)\;g(u)$",
         r"$g(u) = u_{leak} + (1-u_{leak})\,u\quad$ (leaky damper airflow)",
     ],

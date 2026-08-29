@@ -268,3 +268,73 @@ def test_plan_optimizes_pull(clients, theta_phi):
     )
     assert grids.t_end == pytest.approx(2 * HR)
     assert 0.0 < hist["t_pull"] < 2 * HR
+
+
+def test_fuel_add_executes_and_is_priced(clients, theta_phi):
+    """An open-loop chimney at 1.5 h lands in the plant (fuel mass up by one
+    chimney) and the executed fuel accounting counts the added mass."""
+    theta, phi = theta_phi
+    t_f = 3 * HR
+    grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=4)
+    kw = {
+        "t_f": t_f,
+        "dt_replan": 1 * HR,
+        "cc": ControlConfig(),
+        "mode": "openloop",
+        "u_openloop": np.full(4, 0.5),
+        "u_openloop_grids": grids,
+        "model_t_amb": T_AMB,
+        "log": lambda *_: None,
+    }
+    ref = mpc.run_cook(theta, phi, lambda t: T_AMB, **kw)
+    fed = mpc.run_cook(theta, phi, lambda t: T_AMB, t_add_init_abs=1.5 * HR, **kw)
+    assert fed["added"] and fed["t_add_exec_abs"] == pytest.approx(1.5 * HR, abs=1.0)
+    assert ref["added"] is False
+    gained = fed["final_state"].m0 - ref["final_state"].m0
+    assert gained == pytest.approx(ControlConfig().m_chimney, rel=0.1)
+    # fuel burned is what is priced: the same fire, so the same fraction
+    assert fed["fuel_frac"] == pytest.approx(ref["fuel_frac"], abs=0.03)
+
+
+def test_spritz_policy_executes(clients, theta_phi):
+    """An open-loop spritz policy from 1 h every 30 min wets and cools the
+    surface in the plant, continuously across segment boundaries."""
+    theta, phi = theta_phi
+    t_f = 3 * HR
+    grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=4)
+    kw = {
+        "t_f": t_f,
+        "dt_replan": 1 * HR,
+        "cc": ControlConfig(),
+        "mode": "openloop",
+        "u_openloop": np.full(4, 0.5),
+        "u_openloop_grids": grids,
+        "model_t_amb": T_AMB,
+        "log": lambda *_: None,
+    }
+    ref = mpc.run_cook(theta, phi, lambda t: T_AMB, **kw)
+    sp = mpc.run_cook(
+        theta,
+        phi,
+        lambda t: T_AMB,
+        t_spritz_init_abs=1.0 * HR,
+        dt_spritz_init=1800.0,
+        **kw,
+    )
+    assert sp["spritzing"] and sp["t_spritz_exec_abs"] == pytest.approx(
+        1.0 * HR, abs=1.0
+    )
+    ts_ref, ts_sp = np.asarray(ref["tsurf"]), np.asarray(sp["tsurf"])
+    t = np.asarray(sp["t"])
+    assert np.mean(ts_sp[t > 1.5 * HR]) < np.mean(ts_ref[t > 1.5 * HR])
+
+
+def test_plan_optimizes_add_and_spritz(clients, theta_phi):
+    """A replan returns a chimney time and a spritz policy inside the horizon and bounds."""
+    theta, phi = theta_phi
+    state = mpc.CookState.fresh()
+    cc = ControlConfig(opt_wrap=False)
+    _u, _grids, hist = mpc.plan(theta, phi, state, 2 * HR, cc, T_AMB, iters=2)
+    assert 0.0 < hist["t_add"] < 2 * HR
+    assert 0.0 < hist["t_spritz"] < 2 * HR
+    assert cc.dt_spritz_min <= hist["dt_spritz"] <= cc.dt_spritz_max

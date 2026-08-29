@@ -24,6 +24,12 @@ Base.@kwdef struct MeatConfig
     p_v_pit::Float64 = 2000.0   # pit vapor pressure [Pa] when no humidity forcing is supplied
     δp::Float64 = 100.0         # softclamp scale on the vapor-pressure deficit [Pa]
     g_ref::Float64 = 0.5        # draft airflow at which h_c and k_m are quoted (mid-damper)
+    n_meat::Float64 = 1.0       # identical briskets sharing the pit (heat load and vapor scale)
+    # spritz: one dose of water at surface temperature T_spritz, sprayed over
+    # τ_spritz, at t_spritz + k·dt_spritz while in the pit and unwrapped
+    m_spritz::Float64 = 0.05    # water per spritz per exposed area [kg/m²] (~8 mL on a brisket)
+    τ_spritz::Float64 = 60.0    # spray duration [s]
+    T_spritz::Float64 = 293.15  # spritz liquid temperature [K]
     Ea::Float64 = 173e3         # collagen denaturation activation energy [J mol⁻¹]
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
@@ -131,6 +137,23 @@ const WRAP_NEVER = 1.0e9
 # Default pull time: same construction — the pull blend is exactly 0.0 over
 # any horizon.
 const PULL_NEVER = 1.0e9
+# Default spritz start: beyond any horizon (no spritz).
+const SPRITZ_NEVER = 1.0e9
+
+"""
+    spritz_rate(t, t_spritz, dt_spritz, cfg::MeatConfig)
+
+Water arriving at the surface from a spritz policy [kg m⁻² s⁻¹]: the
+dose `cfg.m_spritz` as a smooth unit-area pulse of width `cfg.τ_spritz` at
+`t_spritz + k·dt_spritz`, `k = 0, 1, …` (only the nearest pulse is
+evaluated; pulses are far apart compared with their width).
+`t_spritz = SPRITZ_NEVER` is exactly zero everywhere.
+"""
+function spritz_rate(t, t_spritz, dt_spritz, cfg::MeatConfig)
+    k = max(round((t - t_spritz) / dt_spritz), 0.0)
+    s = logistic((t - t_spritz - k * dt_spritz) / cfg.τ_spritz)
+    return cfg.m_spritz * s * (1 - s) / cfg.τ_spritz
+end
 
 """
     evap_flux(Ts::Number, Ws::Number, k_m::Number, [p_v::Number,] cfg::MeatConfig)
@@ -318,7 +341,8 @@ Vapor-balance mixing coefficient `c = (p_atm/0.622)·A(t)/ṁ_air`
 [Pa per kg m⁻² s⁻¹] from the exposed-area factor and the inverse air mass
 flow `imair` [s/kg].
 """
-mixing_coefficient(a_area, imair, cfg::MeatConfig) = P_ATM / EPS_W * cfg.A_meat * a_area * imair
+mixing_coefficient(a_area, imair, cfg::MeatConfig) =
+    P_ATM / EPS_W * cfg.A_meat * cfg.n_meat * a_area * imair
 
 """
     surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg::MeatConfig)
@@ -546,7 +570,7 @@ end
 
 """
     meat_rhs_core!(du, u, t, θ, Tpit, smoke, pv_base, imair, airflow, t_wrap,
-                   t_pull, cfg, n_s, n_a, v0)
+                   t_pull, t_spritz, dt_spritz, cfg, n_s, n_a, v0)
 
 The meat right-hand side under the INSTANTANEOUS forcings at time `t` —
 pit temperature, burn rate (smoke), base vapor pressure, inverse air mass
@@ -565,6 +589,8 @@ expulsion sink in dW (denaturation purge).
 - `Tpit, smoke, pv_base, imair, airflow::Number`: Forcings at `t`; `airflow`
   is the pit's normalized draft `g(u) = u_leak + (1 − u_leak) u`.
 - `t_wrap, t_pull::Number`: Wrap and pull times [s].
+- `t_spritz, dt_spritz::Number`: Spritz policy — first spritz [s] and interval
+  [s] (see [`spritz_rate`](@ref)); spritzing stops at the wrap and the pull.
 - `cfg::MeatConfig`: Physical configuration.
 - `n_s, n_a, v0`: [`shrink_exponents`](@ref) of `cfg` (hoisted by the caller).
 
@@ -573,8 +599,8 @@ expulsion sink in dW (denaturation purge).
   scaled, pit part only) — the pit's coupling input.
 """
 function meat_rhs_core!(
-    du, u, t, θ, Tpit, smoke, pv_base, imair, airflow, t_wrap, t_pull, cfg::MeatConfig,
-    n_s, n_a, v0,
+    du, u, t, θ, Tpit, smoke, pv_base, imair, airflow, t_wrap, t_pull, t_spritz,
+    dt_spritz, cfg::MeatConfig, n_s, n_a, v0,
 )
     nx = cfg.nx
     D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv = θ
@@ -653,7 +679,11 @@ function meat_rhs_core!(
     j = surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c_mix, cfg)
     q_pit = surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg)
     q_in = q_pit + pl * surface_heat_rest(Ts, cfg)
-    q_net = q_in - cfg.λ_vap * j
+    # spritz: water lands on the surface (in the pit, unwrapped) and is
+    # warmed from the bottle to the surface; its evaporation then runs
+    # through the two-sided flux j like condensate
+    j_sp = spritz_rate(t, t_spritz, dt_spritz, cfg) * (1 - s) * (1 - pl)
+    q_net = q_in - cfg.λ_vap * j - CP_WATER * (Ts - cfg.T_spritz) * j_sp
     # half-cell balances: heat per physical volume (the area factor
     # cancels between capacity and intake); water per dry mass — the
     # physical surface j leaves through has shrunk by a_area
@@ -661,7 +691,7 @@ function meat_rhs_core!(
         (k_th * (T[nx - 1] - Ts) / (f_s * Δξ) + q_net) /
         (RHO_MEAT * CP_MEAT * st_c * Δξ / 2)
     dW[nx] =
-        (RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) - a_area * j) /
+        (RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) - a_area * (j - j_sp)) /
         (RHO_DRY * Δξ / 2)
 
     # collagen conversion (doneness diagnostic as state — adjoint for free)
@@ -695,7 +725,7 @@ function meat_rhs_core!(
     T_front = temperature_at_depth(T, R, Δξ, nx)
     du[4nx + 3] =
         cfg.D_ring * Θ * logistic((cfg.T_ring - T_front) / cfg.δ_ring) / (R + cfg.r_ring0)
-    return cfg.A_meat * a_area * q_pit
+    return cfg.A_meat * cfg.n_meat * a_area * q_pit
 end
 
 """
@@ -722,9 +752,9 @@ in `p` is what exposes the VJP w.r.t. the boundary-condition trajectory.
 """
 function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
     # p = [θ(8) | Tpit_knots(nk) | smoke_knots(nk) | pv_base_knots(nk) |
-    # imair_knots(nk) | airflow_knots(nk) | t_wrap | t_pull]: the pit
-    # forcings (temperature, burn rate for smoke, base vapor pressure,
-    # inverse air mass flow, draft airflow) share one knot grid; the two scalar switch times are the p-tail (explicit
+    # imair_knots(nk) | airflow_knots(nk) | t_wrap | t_pull | t_spritz |
+    # dt_spritz]: the pit forcings (temperature, burn rate for smoke, base
+    # vapor pressure, inverse air mass flow, draft airflow) share one knot grid; the two scalar switch times are the p-tail (explicit
     # index arithmetic everywhere — see meat_vjp). The body lives in
     # meat_rhs_core!, shared with the coupled monolith.
     n_s, n_a, v0 = shrink_exponents(cfg)
@@ -747,6 +777,8 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
             lininterp(t, tk0, tkdt, airflow_knots),
             p[MEAT_NP + 5nk + 1],
             p[MEAT_NP + 5nk + 2],
+            p[MEAT_NP + 5nk + 3],
+            p[MEAT_NP + 5nk + 4],
             cfg,
             n_s,
             n_a,
@@ -859,6 +891,8 @@ optionally continuing through the rest after `t_pull` (docs/tier1_plan.md).
 - `airflow_knots::AbstractVector`: Normalized draft airflow `g(u)` on the
   `tknots` grid — scales `h_c`, `k_m` as `(g/g_ref)^m_conv`; empty ⇒
   `cfg.g_ref` (no scaling). [Default=empty]
+- `t_spritz, dt_spritz::Real`: Spritz policy, first spritz and interval [s]
+  ([`spritz_rate`](@ref)); `SPRITZ_NEVER` = none. [Default=SPRITZ_NEVER, 3600]
 
 # Returns
 - `out::NamedTuple`: Tesseract outputs (`Tsurf`, `Tcore`, `bark_b`, `bark_s`,
@@ -890,6 +924,8 @@ function meat_solve(
     pv_base_knots::AbstractVector=Float64[],
     imair_knots::AbstractVector=Float64[],
     airflow_knots::AbstractVector=Float64[],
+    t_spritz::Real=SPRITZ_NEVER,
+    dt_spritz::Real=3600.0,
 )
     nx = cfg.nx
     sk, pvb, im, af = _forcing_knots(
@@ -901,11 +937,14 @@ function meat_solve(
             "a_myosin]; got $(length(θ))",
         ),
     )
-    p = vcat(θ, Tpit_knots, sk, pvb, im, af, float(t_wrap), float(t_pull))
+    p = vcat(
+        θ, Tpit_knots, sk, pvb, im, af, float(t_wrap), float(t_pull), float(t_spritz),
+        float(dt_spritz),
+    )
     any(isnan, p) && throw(
         ArgumentError(
             "meat solve got NaN inputs at indices $(findall(isnan, p)) of p " *
-            "(θ|Tpit|smoke|pv_base|imair|airflow|t_wrap|t_pull)",
+            "(θ|Tpit|smoke|pv_base|imair|airflow|t_wrap|t_pull|t_spritz|dt_spritz)",
         ),
     )
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
@@ -958,6 +997,8 @@ function meat_solve(
     dts = diff(collect(float.(tsave)))
     ja = j_evap .* a_ts
     evap_w = sum((ja[1:(end - 1)] .+ ja[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
+    jsp = spritz_rate.(tsave, t_spritz, dt_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts
+    spritz_w = sum((jsp[1:(end - 1)] .+ jsp[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
     return (;
         Tsurf,
         Tcore=A[1, :],
@@ -966,14 +1007,15 @@ function meat_solve(
         ring,
         l_star=l_star_bark.(bark_b, bark_s, Ref(cfg)),
         j_evap,
-        q_meat=cfg.A_meat .* a_ts .*
+        q_meat=cfg.A_meat * cfg.n_meat .* a_ts .*
                surface_q_pit_blended.(Tpit_ts, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg)),
         C_field_final=A[(2nx + 1):3nx, end],
         w_retained,
         juiciness=w_retained + cfg.β_fat * R_ret / cfg.W0,
         fat_rendered=(cfg.F0 - F_mean) / cfg.F0,
         evap_w,
-        drip_w=(cfg.W0 - w_retained * cfg.W0) - evap_w,
+        spritz_w,
+        drip_w=(cfg.W0 - w_retained * cfg.W0) + spritz_w - evap_w,
         drip_f=cfg.η_drain * (cfg.F0 - F_mean),
         l_thick,
         pv_pit,
