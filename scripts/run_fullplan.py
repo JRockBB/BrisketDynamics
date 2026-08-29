@@ -200,6 +200,11 @@ def main():
     cook_h = best["t_f_h"]
     t_wrap_h = best["t_wrap_h"]
     t_pull_h = best["t_pull_h"] if best.get("t_pull_h") else cook_h
+    # a chimney after the pull, or a spritz after the wrap or the pull, never fires
+    adds = best.get("t_add_h") is not None and best["t_add_h"] < t_pull_h
+    spritzes = best.get("t_spritz_h") is not None and best["t_spritz_h"] < min(
+        t_wrap_h, t_pull_h
+    )
     print(
         f"THE COOK: {cook_h:.0f} h — wrap at {t_wrap_h:.2f} h, pull at "
         f"{t_pull_h:.2f} h, rest {cook_h - t_pull_h:.2f} h, serve at {cook_h:.1f} h "
@@ -210,14 +215,14 @@ def main():
         "fuel and water: "
         + (
             f"chimney at {best['t_add_h']:.2f} h"
-            if best.get("t_add_h")
-            else "no fuel added"
+            if adds
+            else "no chimney (the load lasts)"
         )
         + "; "
         + (
             f"spritz every {best['dt_spritz_min']:.0f} min from {best['t_spritz_h']:.2f} h, "
             f"{best['spritz_dose_gm2']:.0f} g/m² a spritz"
-            if best.get("t_spritz_h")
+            if spritzes
             else "no spritz"
         )
     )
@@ -299,7 +304,7 @@ def main():
             fontsize=10,
             ha="right",
         )
-    if best.get("t_add_h"):
+    if adds:
         ax.axvline(best["t_add_h"], color=MUTED, lw=1.0, ls=":")
         ax.annotate(
             f"chimney {best['t_add_h']:.1f} h",
@@ -308,7 +313,7 @@ def main():
             fontsize=9,
             ha="left",
         )
-    if best.get("t_spritz_h"):
+    if spritzes:
         ax.annotate(
             f"spritz every {best['dt_spritz_min']:.0f} min from {best['t_spritz_h']:.1f} h",
             (0.02, 0.04),

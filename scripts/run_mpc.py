@@ -414,6 +414,9 @@ def main():
         else None
     )
     print(f"using plan {plan_path.name}")
+    # a chimney after the pull, or a spritz after the wrap or the pull, never fires
+    adds = T_ADD is not None and T_ADD < (T_PULL or T_F)
+    spritzes = T_SPRITZ is not None and T_SPRITZ < min(t_wrap_star, T_PULL or T_F)
     # every cook pulls (open-loop at the plan's pull, MPC when it decides)
     # and rests to serve at T_F
     grids0 = CookGrids(t_end=T_F, dt_exchange=600.0, n_u=len(u0_plan))
@@ -421,11 +424,11 @@ def main():
         f"plan under defense: the {T_F / HR:.0f} h cook — "
         f"wrap at {t_wrap_star / HR:.2f} h"
         + (f", pull at {T_PULL / HR:.2f} h" if T_PULL else "")
-        + (f", chimney at {T_ADD / HR:.2f} h" if T_ADD else "")
+        + (f", chimney at {T_ADD / HR:.2f} h" if adds else ", no chimney")
         + (
             f", spritz every {DT_SPRITZ / 60:.0f} min from {T_SPRITZ / HR:.2f} h"
-            if T_SPRITZ
-            else ""
+            if spritzes
+            else ", no spritz"
         )
         + f", serve at {T_F / HR:.1f} h, "
         f"u in [{u0_plan.min():.2f}, {u0_plan.max():.2f}]"
