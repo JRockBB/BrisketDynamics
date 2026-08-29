@@ -1,0 +1,43 @@
+cook log: 115 points, 222 whitened residuals
+LM from the prior medians (cold start)
+  it  0  F=  5328.720  |g|= 1.54e+04  0.5|w|^2= 5313.167
+  it  1  F=  3519.711  |g|= 2.72e+04  0.5|w|^2= 3492.504  |step|=2.71  lam=3.0e-02
+  it  2  F=   495.561  |g|= 2.65e+03  0.5|w|^2=  430.045  |step|=4.4  lam=9.0e-03
+  it  3  F=   250.707  |g|=      945  0.5|w|^2=  214.573  |step|=2.7  lam=2.7e-02
+  it  4  F=   170.155  |g|=      427  0.5|w|^2=  135.578  |step|=1.42  lam=8.1e-02
+  it  5  F=   164.807  |g|=      667  0.5|w|^2=  137.890  |step|=1.39  lam=2.4e-02
+  it  6  F=   150.425  |g|=      281  0.5|w|^2=  120.921  |step|=0.988  lam=7.3e-03
+  it  7  F=   143.555  |g|=      138  0.5|w|^2=  115.257  |step|=0.55  lam=2.2e-03
+  it  8  F=   141.841  |g|=     80.9  0.5|w|^2=  111.697  |step|=0.707  lam=6.6e-04
+  it  9  F=   140.586  |g|=      203  0.5|w|^2=  111.796  |step|=0.519  lam=2.0e-04
+  it 10  F=   140.062  |g|=      333  0.5|w|^2=  109.077  |step|=0.753  lam=5.9e-05
+  it 11  F=   139.957  |g|=     89.5  0.5|w|^2=  111.031  |step|=0.678  lam=1.8e-05
+  it 12  F=   139.855  |g|=       13  0.5|w|^2=  107.705  |step|=0.82  lam=5.3e-03
+  it 13  F=   139.261  |g|=     18.9  0.5|w|^2=  108.428  |step|=0.31  lam=1.6e-01
+  it 14  F=   139.242  |g|=     2.15  0.5|w|^2=  108.842  |step|=0.112  lam=4.8e-02
+  it 15  F=   139.212  |g|=     1.88  0.5|w|^2=  108.604  |step|=0.0495  lam=1.4e-02
+  it 16  F=   139.209  |g|=      1.9  0.5|w|^2=  108.821  |step|=0.0567  lam=4.3e-03
+  it 17  F=   139.195  |g|=     1.92  0.5|w|^2=  108.807  |step|=4.12e-08  lam=1.3e+05
+LM done: 17 iterations, 136 s, F=139.195
+site            GN-MAP  sd(z) Fisher
+D_eff        1.237e-08         0.379
+k_m           0.001543         0.157
+h_c              8.575         0.261
+L              0.01931         0.115
+k_mult           1.136         0.231
+k_e          0.0004432         0.498
+a_myosin        0.1069         0.382
+m_conv          0.5673         0.631
+C_th         4.044e+04         0.296
+UA               16.32         0.233
+r_max        0.0002072         0.136
+dH_eff       1.425e+07         0.226
+u_leak          0.4148         0.268
+k_spread     0.0002221         0.578
+a0              0.9434         0.603
+wrote data/calibration/gn_map_real.json
+wrote data/calibration/map_real.json
+wrote figures/cooklog_fit_map.png
+Precompiling BrisketDynamics...
+   6851.6 ms  ✓ BrisketDynamics
+  1 dependency successfully precompiled in 14 seconds. 194 already precompiled.

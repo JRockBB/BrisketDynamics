@@ -1,0 +1,19 @@
+plan: fullplan_result.json  samples: laplace_samples_real.npz
+optimizing E[J] over 8 posterior draws, warm start from plan
+  iter    0  E[J]=   1.2340
+  iter   10  E[J]=   1.2214
+  iter   20  E[J]=   1.2204
+  iter   30  E[J]=   1.2193
+  iter   40  E[J]=   1.2191
+  iter   50  E[J]=   1.2189
+  iter   60  E[J]=   1.2187
+  iter   70  E[J]=   1.2186
+  iter   80  E[J]=   1.2185
+  iter   90  E[J]=   1.2184
+  iter   99  E[J]=   1.2184
+wrap: plan 8.15 h -> posterior-expected 7.77 h;  pull: plan 18.44 h -> 18.61 h
+E[J] 1.234 -> 1.218 in 1776 s
+evaluating both plans on 30 held-out draws
+  plan-optimal: J mean=1.242 sd=0.121 max=1.797  doneness mean=0.951 sd=0.032 min=0.861 max=0.992  juiciness mean=0.473 sd=0.021
+  robust: J mean=1.199 sd=0.054 max=1.284  doneness mean=0.970 sd=0.017 min=0.934 max=0.995  juiciness mean=0.466 sd=0.021
+wrote figures/control_robust.png

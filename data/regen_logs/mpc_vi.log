@@ -47,3 +47,23 @@ MPC, NO disturbance (discriminator: plan-refinement vs weather):
   [mpc] t= 3.0 h  Tpit= 97.8 C  core= 68.2 C  C=0.017  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.5 C
   [mpc] t= 4.0 h  Tpit=102.5 C  core= 68.8 C  C=0.033  u~0.07  T_amb=27 C  T_amb_hat=26.9±2.5 C
   [mpc] t= 5.0 h  Tpit=108.6 C  core= 71.1 C  C=0.054  u~0.12  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 6.0 h  Tpit=120.1 C  core= 74.4 C  C=0.087  u~0.20  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 7.0 h  Tpit=137.3 C  core= 81.3 C  C=0.166  u~0.34  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 8.0 h  Tpit=118.8 C  core= 82.8 C  C=0.304  u~0.09  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 9.0 h  Tpit=105.4 C  core= 86.1 C  C=0.469  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=10.0 h  Tpit= 99.9 C  core= 86.0 C  C=0.623  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=11.0 h  Tpit= 97.7 C  core= 84.8 C  C=0.721  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=12.0 h  Tpit= 97.3 C  core= 83.9 C  C=0.783  u~0.01  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=13.0 h  Tpit= 98.3 C  core= 83.4 C  C=0.827  u~0.02  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=14.0 h  Tpit= 98.9 C  core= 83.5 C  C=0.861  u~0.02  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=15.0 h  Tpit= 98.4 C  core= 83.5 C  C=0.889  u~0.01  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=16.0 h  Tpit= 97.8 C  core= 83.3 C  C=0.910  u~0.01  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=17.0 h  Tpit=100.7 C  core= 83.5 C  C=0.928  u~0.05  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=18.0 h  Tpit=110.4 C  core= 85.7 C  C=0.944  u~0.18  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t=20.0 h  Tpit= 72.3 C  core= 73.5 C  C=0.965  u~0.12  T_amb=27 C  T_amb_hat=26.9±2.5 C  PULLED at 18.58 h -> rest
+MPC through the cold front:
+  [mpc] t= 1.0 h  Tpit=113.5 C  core= 41.4 C  C=0.000  u~0.57  T_amb=27 C  T_amb_hat=26.9±2.8 C
+  [mpc] t= 2.0 h  Tpit=103.1 C  core= 65.3 C  C=0.003  u~0.03  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 3.0 h  Tpit= 89.4 C  core= 66.3 C  C=0.016  u~0.00  T_amb=12 C  T_amb_hat=18.1±2.5 C
+  [mpc] t= 4.0 h  Tpit= 92.6 C  core= 64.8 C  C=0.025  u~0.08  T_amb=12 C  T_amb_hat=14.4±2.5 C
+  [mpc] t= 5.0 h  Tpit=105.0 C  core= 68.5 C  C=0.036  u~0.22  T_amb=12 C  T_amb_hat=12.9±2.5 C

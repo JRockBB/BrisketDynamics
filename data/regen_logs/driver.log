@@ -34,3 +34,30 @@ START-C-laplace Fri 08/28/2026  2:09:43.46
 END-D Fri 08/28/2026  3:39:22.67 
 START-C Fri 08/28/2026  3:42:09.08 
 [Fri 08/28/2026  3:42:09.08] start mpc_vi 
+[Sat 08/29/2026  0:52:39.70] start nuts_mono chain 0 
+[Sat 08/29/2026  0:52:59.79] start nuts_mono chain 1 
+[Sat 08/29/2026 12:36:21.70] end nuts_mono chain 0 exit 0 
+[Sat 08/29/2026 12:50:53.19] end nuts_mono chain 1 exit 0 
+[2026-08-29 12:52:21] start gn_map
+[2026-08-29 12:54:41] end gn_map exit 0
+[2026-08-29 12:54:41] start laplace
+[2026-08-29 12:55:56] end laplace exit 0
+[2026-08-29 12:55:56] start fit_figs
+[2026-08-29 12:57:55] end fit_figs exit 0
+[2026-08-29 12:57:55] start fullplan
+[2026-08-29 13:59:19] end fullplan exit 0
+[2026-08-29 13:59:19] start mpc
+[2026-08-29 15:36:20] end mpc exit 0
+[2026-08-29 15:36:20] start robust
+[2026-08-29 16:10:51] end robust exit 0
+[2026-08-29 16:10:51] start vi
+[2026-08-29 16:11:51] end vi exit 1
+[2026-08-29 16:13:52] start fullplan
+[2026-08-29 16:13:53] start vi
+[2026-08-29 16:37:28] end vi exit 0
+[2026-08-29 17:12:50] end fullplan exit 0
+[2026-08-29 17:12:50] start mpc
+[2026-08-29 17:56:05] end mpc exit 0
+[2026-08-29 17:56:05] start robust
+[2026-08-29 18:26:07] end robust exit 0
+[2026-08-29 18:26:07] control regeneration done

@@ -60,8 +60,8 @@ four times. It worked and was verified, and it is in the git history
 | forward solve | 0.32 s (two solves, twice) | 0.045 s |
 | gradient of the calibration residuals | ~50 s (continuous adjoint, 115 cotangent injections) | 2.5 s (14-column Jacobian) |
 | coupling truncation vs the exact coupling | 0.27 K pit / 0.11 K core (K = 1: 4.3 / 6.7 K) | — |
-| duration × wrap × pull scan (13 cook lengths) | 4.5 h | 69 min |
-| MPC demo (4 cooks, hourly replans incl. the pull) | ~2 h per replan under a disturbance (projected ~30 h) | 58 min |
+| duration × wrap × pull scan (13 cook lengths) | 4.5 h | 59 min |
+| MPC demo (4 cooks, hourly replans incl. the pull) | ~2 h per replan under a disturbance (projected ~30 h) | 43 min |
 
 The Picard composition of the two component solvers is kept in Julia
 (`picard_cook`) as the oracle for the monolith's coupling: it converges to the
@@ -106,15 +106,13 @@ brisket cook digitized from a 2013 Virtual Weber Bulletin Board post (18.5″
 WSM, HeaterMeter controller; provenance and uncertainty budget in
 `data/cook_log/PROVENANCE.md`). The measured blower duty replays as the
 control input; lid events are masked. The fit tracks the pit hold within
-~1.6 K rms and the core's full arc — rise, multi-hour plateau near 70 °C, the
-stall break, the climb to 90 °C (core rms 3.3 K).
+~1.3 K rms and the core's full arc — rise, multi-hour plateau near 70 °C, the
+stall break, the climb to 90 °C (core rms 3.1 K).
 
 - **Gauss–Newton MAP** (`scripts/run_gn_map.py`): Levenberg–Marquardt over
   the 15 physics latents in numpyro's unconstrained space on the whitened
-  AR(1) residuals, from a cold start at the prior medians: F = 5412 → 132.0
-  in 13 iterations, **130 s**. The Adam-plus-adjoint MAP that took hours
-  scores 136.03 under the same objective with ‖∇F‖ = 40 — the LM optimum is
-  4 nats better, the difference lying along the ridges below.
+  AR(1) residuals, from a cold start at the prior medians: F = 5329 → 139.2
+  in 17 iterations, **136 s**.
 - **Curvature.** The Fisher information (Jᵀ Σ⁻¹ J + prior) from the same
   Jacobian is the posterior curvature used everywhere — the Laplace draws
   (Gauss–Newton in the physics block; the noise and cross blocks exact by
@@ -162,12 +160,14 @@ weighted equally) — plus the bark-burn surface cap, fuel priced at the pull,
 and food-safety soft penalties. Quality is scored at serve: the rest is part of
 the cook, the pull is a decision, and the rest is what follows it. On the
 calibrated smoker the objective falls monotonically with cook length through
-20 h; the 20 h cook wraps at 8.2 h, pulls at 18.15 h, rests 1.85 h, and serves
-at doneness 0.967 with 48 % perceptual juiciness. Doneness sits at ~0.965 on
+20 h; the 20 h cook wraps at 8.1 h, pulls at 18.4 h, rests 1.6 h, and serves
+at doneness 0.966 with 47 % perceptual juiciness. It adds no fuel and does not
+spritz: a spritz is mostly evaporative cooling (a fifth of it soaks in), and
+the longer stall costs more than the water is worth. Doneness sits at ~0.965 on
 every cook length — the optimizer holds it just above the overdone edge and
 lets the rest finish the conversion — while juiciness rises with length
 because the longer cook runs cooler. Two plateaus appear in the core trace:
-the evaporative stall at 68 °C, and the wrapped ceiling near 85–92 °C where
+the evaporative stall near 70 °C, and the wrapped ceiling near 86 °C where
 the foil's residual evaporation balances the pit's heat input — the level of
 that second plateau is set by the wrap's evaporation-suppression constant,
 which is literature-fixed pending a wrapped-cook log.
@@ -179,18 +179,18 @@ schedule, the wrap, the pull, the chimney and the spritz policy; the
 irreversible events execute like the real thing —
 candidate, commit gate, irreversible — and the plant rests to serve. At
 t = 2 h a cold front drops ambient by 15 K that the controller's model does
-not know. Executed blindly, the plan finishes at doneness 0.55 (J = 15.5);
-MPC re-times the crutch 8.2 → 7.8 h and the pull 18.15 → 17.49 h and lands at
-doneness 0.965, J = 1.117. Without the front MPC reproduces the plan
-(J = 1.139 vs 1.140), the principle-of-optimality check.
+not know. Executed blindly, the plan finishes at doneness 0.54 (J = 16.9);
+MPC re-times the crutch 8.15 → 7.07 h and the pull 18.44 → 17.29 h and lands at
+doneness 0.964, J = 1.181. Without the front MPC reproduces the plan
+(J = 1.167 vs 1.174), the principle-of-optimality check.
 
 **Control under calibrated uncertainty** (`figures/control_robust.png`):
-re-optimizing the expected plan objective over 8 posterior draws (34 min on
+re-optimizing the expected plan objective over 8 posterior draws (30 min on
 the monolith), evaluated on 30 held-out draws against the plan-optimal
-schedule. The hedge moves the wrap earlier (8.20 → 7.95 h) and the pull later
-(18.15 → 18.52 h) and halves the spread: J 1.163 ± 0.074 (worst 1.39) against
-1.230 ± 0.164 (worst 1.75); doneness 0.958 ± 0.025 (minimum 0.895) against
-0.934 ± 0.034 (minimum 0.854); juiciness unchanged within noise. The
+schedule. The hedge moves the wrap earlier (8.15 → 7.77 h) and the pull later
+(18.44 → 18.61 h) and halves the spread: J 1.199 ± 0.054 (worst 1.28) against
+1.242 ± 0.121 (worst 1.80); doneness 0.970 ± 0.017 (minimum 0.934) against
+0.951 ± 0.032 (minimum 0.861); juiciness unchanged within noise. The
 schedules themselves are nearly identical — under this posterior the hedge
 is in the two event times, not the vents.
 

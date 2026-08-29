@@ -291,6 +291,17 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
                 color=color,
                 bbox={"fc": "white", "ec": "none", "alpha": 0.8, "pad": 1},
             )
+    if not any(_fired_spritz(r) for r in cooks):
+        axes[2].text(
+            0.02,
+            0.97,
+            "no spritzing",
+            transform=axes[2].transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+            color="0.4",
+        )
     axes[0].set(xlabel="time [h]", ylabel="core [°C]")
     axes[1].set(xlabel="time [h]", ylabel="pit [°C]", title="pit temperature")
     axes[2].set(

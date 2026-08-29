@@ -304,7 +304,9 @@ def main():
             fontsize=10,
             ha="right",
         )
+    add_note = " · no chimney"
     if adds:
+        add_note = f" · chimney {best['t_add_h']:.1f} h"
         ax.axvline(best["t_add_h"], color=MUTED, lw=1.0, ls=":")
         ax.annotate(
             f"chimney {best['t_add_h']:.1f} h",
@@ -313,7 +315,7 @@ def main():
             fontsize=9,
             ha="left",
         )
-    spritz_note = ""
+    spritz_note = " · no spritzing"
     if spritzes:
         # every pulse of the policy is a tick on the time axis (the wrap or
         # the pull ends the train); the title carries the policy
@@ -341,6 +343,7 @@ def main():
         title=f"the {cook_h:.0f} h cook: wrap {t_wrap_h:.1f} h · pull {t_pull_h:.1f} h "
         f"· serve {cook_h:.0f} h\n"
         f"doneness {doneness:.3f} · juiciness {juiciness:.2f} · bark L* {l_end:.0f}"
+        + add_note
         + spritz_note,
     )
     ax.legend(fontsize=9, loc="upper left")

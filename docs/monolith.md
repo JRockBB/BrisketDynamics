@@ -34,10 +34,10 @@ End-to-end, same scripts, one import swapped:
 
 | | two Tesseracts (K = 2 Picard) | monolith Tesseract |
 |---|---|---|
-| fullplan scan, 13 cook lengths, schedule + wrap + pull each | 4.5 h | 69 min |
-| MPC demo, 4 cooks, hourly replans incl. the pull | ~2 h per replan under the disturbance | 58 min total |
-| Gauss–Newton MAP from the prior medians | — (Adam + adjoint, hours) | 130 s |
-| robust control: E[J] over 8 draws, 30 held-out evaluations | ~2 h | 34 min |
+| fullplan scan, 13 cook lengths, schedule + wrap + pull each | 4.5 h | 59 min |
+| MPC demo, 4 cooks, hourly replans incl. the pull | ~2 h per replan under the disturbance | 43 min total |
+| Gauss–Newton MAP from the prior medians | — (Adam + adjoint, hours) | 136 s |
+| robust control: E[J] over 8 draws, 30 held-out evaluations | ~2 h | 30 min |
 | the whole chain (fullplan → MPC → robust) | days | 2 h 42 min |
 
 | Picard vs monolith | max ΔT_pit | max ΔT_core |
@@ -68,15 +68,11 @@ medians:
 
 | | F = ½‖w‖² − log p(z) | wall |
 |---|---|---|
-| prior medians | 5412 | — |
-| after 13 LM iterations | 132.01 | 130 s |
-| the adjoint MAP, evaluated under the same objective | 136.03 (‖∇F‖ = 40) | hours of Adam + adjoints |
+| prior medians | 5329 | — |
+| after 17 LM iterations | 139.2 | 136 s |
 
-The two optima differ along the ridges (D_eff ×1.5, h_c ×1.35, C_th ×0.64,
-r_max ×0.77, u_leak ×1.37), where the Fisher sd in z is 0.1–0.6; the 4-nat
-gap is part K = 2 truncation, part unconverged Adam.
-
-A finite-difference Hessian of the potential at this optimum is indefinite
+A finite-difference Hessian of the potential at the optimum (measured on the
+seven-latent fit that preceded the draft-convection latent) is indefinite
 (min eigenvalue −20 against a max of 1.7·10⁵; 8 of 18 directions below a
 10⁻⁴ floor): second differences of an adaptive solve are noise along the
 ridges. The Fisher information (Jᵀ Σ⁻¹ J + prior) from the exact Jacobian is

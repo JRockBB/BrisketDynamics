@@ -62,3 +62,7 @@ MPC, NO disturbance (discriminator: plan-refinement vs weather):
   [mpc] t=18.0 h  Tpit=109.7 C  core= 85.8 C  C=0.945  u~0.15  T_amb=27 C  T_amb_hat=26.9±2.2 C
   [mpc] t=20.0 h  Tpit= 72.4 C  core= 73.0 C  C=0.965  u~0.12  T_amb=27 C  T_amb_hat=26.9±2.2 C  PULLED at 18.45 h -> rest
 MPC through the cold front:
+  [mpc] t= 1.0 h  Tpit=114.2 C  core= 42.5 C  C=0.000  u~0.54  T_amb=27 C  T_amb_hat=26.9±2.5 C
+  [mpc] t= 2.0 h  Tpit=101.9 C  core= 65.1 C  C=0.003  u~0.02  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 3.0 h  Tpit= 88.4 C  core= 65.9 C  C=0.015  u~0.00  T_amb=12 C  T_amb_hat=17.4±2.2 C
+  [mpc] t= 4.0 h  Tpit= 91.1 C  core= 64.4 C  C=0.024  u~0.07  T_amb=12 C  T_amb_hat=13.9±2.2 C
