@@ -250,27 +250,29 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
         if ta is not None and np.isfinite(ta):
             axes[1].axvline(ta / HR, color=color, lw=1.0, ls=":")
             axes[1].text(
-                ta / HR,
-                0.96 - 0.09 * i,
+                ta / HR + 0.15,
+                0.97 - 0.07 * i,
                 f"{short} chimney {ta / HR:.1f} h",
                 transform=axes[1].get_xaxis_transform(),
                 ha="left",
                 va="top",
                 fontsize=7.5,
                 color=color,
+                bbox={"fc": "white", "ec": "none", "alpha": 0.8, "pad": 1},
             )
         ts = r.get("t_spritz_exec_abs")
         if ts is not None and np.isfinite(ts):
             axes[2].axvline(ts / HR, color=color, lw=1.0, ls=":")
             axes[2].text(
-                ts / HR,
-                0.96 - 0.09 * i,
+                ts / HR + 0.15,
+                0.97 - 0.07 * i,
                 f"{short} spritz {ts / HR:.1f} h / {r.get('dt_spritz', 0.0) / 60:.0f} min",
                 transform=axes[2].get_xaxis_transform(),
                 ha="left",
                 va="top",
                 fontsize=7.5,
                 color=color,
+                bbox={"fc": "white", "ec": "none", "alpha": 0.8, "pad": 1},
             )
     axes[0].set(xlabel="time [h]", ylabel="core [°C]")
     axes[1].set(xlabel="time [h]", ylabel="pit [°C]", title="pit temperature")
@@ -281,8 +283,8 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
         title="executed schedules (MPC re-plans hourly)",
     )
     # one legend, on the pit panel: the core panel carries the event labels
+    # and the damper panel the spritz labels (same colors and line styles)
     axes[1].legend(fontsize=8, loc="lower center")
-    axes[2].legend(fontsize=8, loc="upper left")
     retimed = (
         wrap_mode
         and len(wraps) >= 2
