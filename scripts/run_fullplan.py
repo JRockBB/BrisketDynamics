@@ -313,14 +313,26 @@ def main():
             fontsize=9,
             ha="left",
         )
+    spritz_note = ""
     if spritzes:
-        ax.annotate(
-            f"spritz every {best['dt_spritz_min']:.0f} min from {best['t_spritz_h']:.1f} h",
-            (0.02, 0.04),
-            xycoords="axes fraction",
+        # every pulse of the policy is a tick on the time axis (the wrap or
+        # the pull ends the train); the title carries the policy
+        pulses = np.arange(
+            best["t_spritz_h"], min(t_wrap_h, t_pull_h), best["dt_spritz_min"] / 60.0
+        )
+        ax.plot(
+            pulses,
+            np.full(pulses.shape, 0.03),
+            "|",
             color=MUTED,
-            fontsize=9,
-            ha="left",
+            ms=9,
+            mew=1.2,
+            transform=ax.get_xaxis_transform(),
+            clip_on=False,
+        )
+        spritz_note = (
+            f" · spritz ×{len(pulses)} · {best['dt_spritz_min']:.0f} min · "
+            f"{best['spritz_dose_gm2']:.0f} g/m²"
         )
     ax.set(
         xlabel="time [h]",
@@ -328,7 +340,8 @@ def main():
         xlim=(0, cook_h),
         title=f"the {cook_h:.0f} h cook: wrap {t_wrap_h:.1f} h · pull {t_pull_h:.1f} h "
         f"· serve {cook_h:.0f} h\n"
-        f"doneness {doneness:.3f} · juiciness {juiciness:.2f} · bark L* {l_end:.0f}",
+        f"doneness {doneness:.3f} · juiciness {juiciness:.2f} · bark L* {l_end:.0f}"
+        + spritz_note,
     )
     ax.legend(fontsize=9, loc="upper left")
 
