@@ -48,6 +48,7 @@ def records_from_json(d: dict) -> tuple[list, dict]:
         "t_add_h": d.get("t_add_h", [None] * n),
         "t_spritz_h": d.get("t_spritz_h", [None] * n),
         "dt_spritz_min": d.get("dt_spritz_min", [None] * n),
+        "spritz_dose_gm2": d.get("spritz_dose_gm2", [None] * n),
     }
     records = [{k: v[i] for k, v in cols.items()} for i in range(n)]
     best = {
@@ -62,6 +63,10 @@ def records_from_json(d: dict) -> tuple[list, dict]:
         "dt_spritz_min": d.get("best_dt_spritz_min"),
         "dt_spritz": (
             d["best_dt_spritz_min"] * 60.0 if d.get("best_dt_spritz_min") else 3600.0
+        ),
+        "spritz_dose_gm2": d.get("best_spritz_dose_gm2"),
+        "spritz_dose": (
+            d["best_spritz_dose_gm2"] / 1e3 if d.get("best_spritz_dose_gm2") else 0.05
         ),
         "u_opt": np.asarray(d["best_u"]),
         "grids": _grids_for(d["best_t_f_h"] * HR),
@@ -147,6 +152,7 @@ def main():
                     "t_add_h": [r["t_add_h"] for r in records],
                     "t_spritz_h": [r["t_spritz_h"] for r in records],
                     "dt_spritz_min": [r["dt_spritz_min"] for r in records],
+                    "spritz_dose_gm2": [r["spritz_dose_gm2"] for r in records],
                     "doneness": [r["doneness"] for r in records],
                     "w_retained": [r["w_retained"] for r in records],
                     "juiciness": [r["juiciness"] for r in records],
@@ -158,6 +164,9 @@ def main():
                     "best_t_f_h": best["t_f_h"],
                     "best_t_wrap_h": best["t_wrap_h"],
                     "best_t_pull_h": best["t_pull_h"],
+                    "best_spritz_dose_gm2": best["spritz_dose_gm2"]
+                    if best["t_spritz_h"]
+                    else None,
                     "best_t_add_h": best["t_add_h"],
                     "best_t_spritz_h": best["t_spritz_h"],
                     "best_dt_spritz_min": best["dt_spritz_min"]
@@ -180,6 +189,7 @@ def main():
         t_add=best.get("t_add", 1.0e9),
         t_spritz=best.get("t_spritz", 1.0e9),
         dt_spritz=best.get("dt_spritz", 3600.0),
+        spritz_dose=best.get("spritz_dose", 0.05),
         t_pull=best["t_pull"],
         rest=best.get("rest"),
     )
@@ -205,7 +215,8 @@ def main():
         )
         + "; "
         + (
-            f"spritz every {best['dt_spritz_min']:.0f} min from {best['t_spritz_h']:.2f} h"
+            f"spritz every {best['dt_spritz_min']:.0f} min from {best['t_spritz_h']:.2f} h, "
+            f"{best['spritz_dose_gm2']:.0f} g/m² a spritz"
             if best.get("t_spritz_h")
             else "no spritz"
         )

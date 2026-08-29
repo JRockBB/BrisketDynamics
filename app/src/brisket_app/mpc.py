@@ -104,6 +104,7 @@ def advance_plant(
     t_add_seg: float = 1.0e9,
     t_spritz_seg: float = 1.0e9,
     dt_spritz_seg: float = 3600.0,
+    spritz_dose_seg: float = 0.05,
 ) -> tuple[CookState, dict]:
     """Run the plant one interval; return (new state, trajectories).
 
@@ -128,6 +129,7 @@ def advance_plant(
         t_add=t_add_seg,
         t_spritz=t_spritz_seg,
         dt_spritz=dt_spritz_seg,
+        spritz_dose=spritz_dose_seg,
         **tols,
     )
     new = CookState(
@@ -287,6 +289,8 @@ def plan(
     t_spritz: float = 1.0e9,
     dt_spritz: float = 3600.0,
     t_spritz_override: float | None = None,
+    z_m_init: float | None = None,
+    spritz_dose: float = 0.05,
 ):
     """Re-optimize the remaining-horizon plan from the current state.
 
@@ -331,6 +335,8 @@ def plan(
         t_spritz=t_spritz,
         dt_spritz=dt_spritz,
         t_spritz_override=t_spritz_override,
+        z_m_init=z_m_init,
+        spritz_dose=spritz_dose,
     )
     return u_opt, grids, hist
 
@@ -424,6 +430,7 @@ def run_cook(
     t_add_init_abs: float | None = None,
     t_spritz_init_abs: float | None = None,
     dt_spritz_init: float | None = None,
+    spritz_dose_init: float | None = None,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
@@ -488,7 +495,8 @@ def run_cook(
     spritzing = False
     t_spritz_exec_abs: float | None = None
     dt_spritz_cur = float(dt_spritz_init) if dt_spritz_init else 3600.0
-    spritz_history: list[tuple[float, float, float]] = []
+    spritz_dose_cur = float(spritz_dose_init) if spritz_dose_init else 0.05
+    spritz_history: list[tuple[float, float, float, float]] = []
     spritz_candidates: list[tuple] = []
 
     def record_segment(seg_traj, t_seg_start, dt_seg, u_trace):
@@ -593,6 +601,11 @@ def run_cook(
             )
             fd = float(np.clip(fd, 1e-3, 1 - 1e-3))
             zd0 = float(np.log(fd / (1 - fd)))
+            fm = (spritz_dose_cur - cc.m_spritz_min) / (
+                cc.m_spritz_max - cc.m_spritz_min
+            )
+            fm = float(np.clip(fm, 1e-3, 1 - 1e-3))
+            zm0 = float(np.log(fm / (1 - fm)))
             u_plan, plan_grids, hist = plan(
                 theta,
                 phi_model,
@@ -621,6 +634,8 @@ def run_cook(
                 t_spritz=ts_fixed,
                 dt_spritz=dt_spritz_cur,
                 t_spritz_override=ts_override,
+                z_m_init=zm0,
+                spritz_dose=spritz_dose_cur,
             )
             # each live decision: the planned moment tracks the candidate,
             # execution is gated by wrap_commit (deferral on ridge noise)
@@ -647,6 +662,7 @@ def run_cook(
                 add_history.append((state.t, t_add_abs))
             if replan_spritz:
                 dt_spritz_cur = float(hist["dt_spritz"])
+                spritz_dose_cur = float(hist["spritz_dose"])
                 if not spritzing:
                     cand_s = state.t + float(hist["t_spritz"])
                     t_spritz_abs = _adopt_event(
@@ -659,7 +675,9 @@ def run_cook(
                         spritz_candidates,
                     )
                     last_spritz_cand = cand_s
-                spritz_history.append((state.t, t_spritz_abs, dt_spritz_cur))
+                spritz_history.append(
+                    (state.t, t_spritz_abs, dt_spritz_cur, spritz_dose_cur)
+                )
             u_prev_plan, _prev_grids = u_plan, plan_grids
             prev_plan_t0 = state.t
 
@@ -731,6 +749,7 @@ def run_cook(
             t_add_seg=ta_seg,
             t_spritz_seg=ts_seg,
             dt_spritz_seg=dt_spritz_cur,
+            spritz_dose_seg=spritz_dose_cur,
         )
         if pull_now:
             pulled = True
@@ -759,6 +778,7 @@ def run_cook(
                 t_add=ta_seg,
                 t_spritz=ts_seg,
                 dt_spritz=dt_spritz_cur,
+                spritz_dose=spritz_dose_cur,
             )
             innov = float(seg_traj["tpit"][-1]) - float(np.asarray(pred["tpit"])[-1])
             # phi = [C_th, UA, ...]: the lag linearization uses the model's
@@ -798,7 +818,7 @@ def run_cook(
             )
             + (
                 f"  SPRITZ from {t_spritz_exec_abs / HR:.2f} h every "
-                f"{dt_spritz_cur / 60:.0f} min"
+                f"{dt_spritz_cur / 60:.0f} min, {1e3 * spritz_dose_cur:.0f} g/m²"
                 if spritzing and t_spritz_exec_abs >= t_seg_start
                 else ""
             )
@@ -859,6 +879,7 @@ def run_cook(
     out["spritzing"] = spritzing
     out["t_spritz_exec_abs"] = t_spritz_exec_abs
     out["dt_spritz"] = dt_spritz_cur
+    out["spritz_dose"] = spritz_dose_cur
     out["spritz_history"] = spritz_history
     out["spritz_candidates"] = spritz_candidates
     out["t_amb_hat_hist"] = t_amb_hat_hist

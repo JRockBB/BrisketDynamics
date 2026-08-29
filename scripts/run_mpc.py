@@ -75,6 +75,7 @@ def save_mpc_traces(path, ref, ol, mp0, mp, t_dist_h, wrap_mode):
         payload[f"{tag}_t_add_exec_abs"] = _nan(r.get("t_add_exec_abs"))
         payload[f"{tag}_t_spritz_exec_abs"] = _nan(r.get("t_spritz_exec_abs"))
         payload[f"{tag}_dt_spritz"] = _nan(r.get("dt_spritz"))
+        payload[f"{tag}_spritz_dose"] = _nan(r.get("spritz_dose"))
         hist = np.asarray(r.get("wrap_history") or [], dtype=float)
         if hist.size == 0:
             hist = np.zeros((0, 2))
@@ -126,7 +127,7 @@ def load_mpc_traces(path):
             else np.nan
         )
         r["t_pull_exec_abs"] = None if np.isnan(tp) else tp
-        for key in ("t_add_exec_abs", "t_spritz_exec_abs", "dt_spritz"):
+        for key in ("t_add_exec_abs", "t_spritz_exec_abs", "dt_spritz", "spritz_dose"):
             v = float(z[f"{tag}_{key}"]) if f"{tag}_{key}" in names else np.nan
             r[key] = None if np.isnan(v) else v
         if f"{tag}_wrap_history" in names:
@@ -405,6 +406,11 @@ def main():
     DT_SPRITZ = (
         float(b["best_dt_spritz_min"]) * 60.0 if b.get("best_dt_spritz_min") else None
     )
+    SPRITZ_DOSE = (
+        float(b["best_spritz_dose_gm2"]) / 1e3
+        if b.get("best_spritz_dose_gm2")
+        else None
+    )
     print(f"using plan {plan_path.name}")
     # every cook pulls (open-loop at the plan's pull, MPC when it decides)
     # and rests to serve at T_F
@@ -427,6 +433,7 @@ def main():
         "t_add_init_abs": T_ADD,
         "t_spritz_init_abs": T_SPRITZ,
         "dt_spritz_init": DT_SPRITZ,
+        "spritz_dose_init": SPRITZ_DOSE,
     }
 
     print("reference (no disturbance):")

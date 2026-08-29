@@ -319,6 +319,7 @@ def test_spritz_policy_executes(clients, theta_phi):
         lambda t: T_AMB,
         t_spritz_init_abs=1.0 * HR,
         dt_spritz_init=1800.0,
+        spritz_dose_init=0.08,
         **kw,
     )
     assert sp["spritzing"] and sp["t_spritz_exec_abs"] == pytest.approx(
@@ -338,3 +339,4 @@ def test_plan_optimizes_add_and_spritz(clients, theta_phi):
     assert 0.0 < hist["t_add"] < 2 * HR
     assert 0.0 < hist["t_spritz"] < 2 * HR
     assert cc.dt_spritz_min <= hist["dt_spritz"] <= cc.dt_spritz_max
+    assert cc.m_spritz_min <= hist["spritz_dose"] <= cc.m_spritz_max

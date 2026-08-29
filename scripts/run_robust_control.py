@@ -140,6 +140,9 @@ def main():
     dt_spritz_map = (
         best["best_dt_spritz_min"] * 60.0 if best.get("best_dt_spritz_min") else 3600.0
     )
+    spritz_dose_map = (
+        best["best_spritz_dose_gm2"] / 1e3 if best.get("best_spritz_dose_gm2") else 0.05
+    )
 
     tx = monolith_client()
     grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=len(u_map))
@@ -171,6 +174,16 @@ def main():
                 )
             )
         ),
+        z_m_init=float(
+            logit(
+                np.clip(
+                    (spritz_dose_map - cc.m_spritz_min)
+                    / (cc.m_spritz_max - cc.m_spritz_min),
+                    1e-3,
+                    1 - 1e-3,
+                )
+            )
+        ),
         ics=ICS,
         callback=lambda i, l, u: print(f"  iter {i:4d}  E[J]={l:9.4f}", flush=True),
     )
@@ -181,6 +194,7 @@ def main():
         hist["t_spritz"],
         hist["dt_spritz"],
     )
+    spritz_dose_rob = hist["spritz_dose"]
     print(
         f"wrap: plan {t_wrap_map / HR:.2f} h -> "
         f"posterior-expected {t_wrap_rob / HR:.2f} h;  "
@@ -191,7 +205,7 @@ def main():
         f"in {hist['wall_s']:.0f} s"
     )
 
-    def metrics(u, tw, tp, ta, ts, td, th, ph):
+    def metrics(u, tw, tp, ta, ts, td, tm, th, ph):
         # the objective fullplan optimizes, at serve, under the same cook
         # conditions, plus the doneness / juiciness behind it
         j = float(
@@ -209,6 +223,7 @@ def main():
                 t_add=ta,
                 t_spritz=ts,
                 dt_spritz=td,
+                spritz_dose=tm,
             )
         )
         out = coupled_cook(
@@ -223,6 +238,7 @@ def main():
             t_add=ta,
             t_spritz=ts,
             dt_spritz=td,
+            spritz_dose=tm,
         )
         return j, float(out["c_field_final"][0]), float(out["juiciness"])
 
@@ -235,6 +251,7 @@ def main():
             t_add_map,
             t_spritz_map,
             dt_spritz_map,
+            spritz_dose_map,
             th_ev[i],
             ph_ev[i],
         )
@@ -248,6 +265,7 @@ def main():
             t_add_rob,
             t_spritz_rob,
             dt_spritz_rob,
+            spritz_dose_rob,
             th_ev[i],
             ph_ev[i],
         )
@@ -287,6 +305,8 @@ def main():
                 "t_spritz_robust_h": t_spritz_rob / HR if t_spritz_rob < 1e8 else None,
                 "dt_spritz_plan_min": dt_spritz_map / 60.0,
                 "dt_spritz_robust_min": dt_spritz_rob / 60.0,
+                "spritz_dose_plan_gm2": 1e3 * spritz_dose_map,
+                "spritz_dose_robust_gm2": 1e3 * spritz_dose_rob,
                 "cook_h": t_f / HR,
                 "doneness_map_eval": d_map.tolist(),
                 "doneness_robust_eval": d_rob.tolist(),

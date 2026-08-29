@@ -89,10 +89,10 @@ def _init():
                     R0=r0)
         end
         function _mono_apply(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                             dt_spritz, kwargs...)
+                             dt_spritz, m_spritz, kwargs...)
             kw = _mono_kw(kwargs...)
             o = monolith_solve(θ, φ, u, utk, tsave; t_wrap, t_pull, t_add, t_spritz,
-                               dt_spritz, kw...)
+                               dt_spritz, m_spritz, kw...)
             return (o.Tpit, o.Tcore, o.Tsurf, o.m_fuel, o.ignited, o.mdot, o.j_evap,
                     o.q_meat, o.C_field_final, o.w_retained, o.bark_b, o.bark_s,
                     o.l_star, o.juiciness, o.fat_rendered, o.l_thick, o.pv_pit,
@@ -100,16 +100,18 @@ def _init():
                     o.W_field[:, end], o.F_field[:, end], o.ring[end], o.spritz_w)
         end
         function _mono_jac(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                           dt_spritz, sel, kwargs...)
+                           dt_spritz, m_spritz, sel, kwargs...)
             kw = _mono_kw(kwargs...)
             return monolith_stack_jacobian(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add,
-                                           t_spritz, dt_spritz, collect(Int, sel); kw...)
+                                           t_spritz, dt_spritz, m_spritz,
+                                           collect(Int, sel); kw...)
         end
         function _mono_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                           dt_spritz, dv, kwargs...)
+                           dt_spritz, m_spritz, dv, kwargs...)
             kw = _mono_kw(kwargs...)
             return monolith_stack_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add,
-                                      t_spritz, dt_spritz, collect(Float64, dv); kw...)
+                                      t_spritz, dt_spritz, m_spritz,
+                                      collect(Float64, dv); kw...)
         end
         """
     )
@@ -146,6 +148,7 @@ DIFF_INPUTS = (
     "t_add",
     "t_spritz",
     "dt_spritz",
+    "spritz_dose",
 )
 
 
@@ -192,6 +195,9 @@ class InputSchema(BaseModel):
     )
     dt_spritz: Differentiable[Array[(), Float64]] = Field(
         default=3600.0, description="Spritz interval [s]"
+    )
+    spritz_dose: Differentiable[Array[(), Float64]] = Field(
+        default=0.05, description="Water per spritz per exposed area [kg/m²]"
     )
     n_meat: float = Field(default=1.0, description="Identical briskets sharing the pit")
     abstol: float = Field(default=1e-6, description="Solver absolute tolerance")
@@ -365,6 +371,7 @@ def _packed(inputs: InputSchema):
         float(np.asarray(inputs.t_add)),
         float(np.asarray(inputs.t_spritz)),
         float(np.asarray(inputs.dt_spritz)),
+        float(np.asarray(inputs.spritz_dose)),
     )
     tail = (
         float(inputs.abstol),
@@ -395,7 +402,7 @@ def _packed(inputs: InputSchema):
 
 
 def _jl_args(head, tail):
-    theta, phi, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz = head
+    theta, phi, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz, m_sp = head
     jt = [_jvec(v) if isinstance(v, np.ndarray) else v for v in tail]
     return [
         _jvec(theta),
@@ -408,6 +415,7 @@ def _jl_args(head, tail):
         t_add,
         t_spritz,
         dt_spritz,
+        m_sp,
     ], jt
 
 
@@ -431,6 +439,7 @@ def _input_slices(nu: int) -> dict[str, slice]:
         "t_add": slice(b + 2, b + 3),
         "t_spritz": slice(b + 3, b + 4),
         "dt_spritz": slice(b + 4, b + 5),
+        "spritz_dose": slice(b + 5, b + 6),
     }
 
 
@@ -614,7 +623,7 @@ def jacobian_vector_product(
     """J·tangent over the requested inputs (one Dual solve)."""
     nu = len(inputs.u_knots)
     sl = _input_slices(nu)
-    dv = np.zeros(N_THETA + N_PHI + nu + 5)
+    dv = np.zeros(N_THETA + N_PHI + nu + 6)
     for n in DIFF_INPUTS:
         if n in jvp_inputs and n in tangent_vector:
             dv[sl[n]] = np.atleast_1d(_own(tangent_vector[n])).reshape(-1)
@@ -658,7 +667,14 @@ def jacobian(inputs: InputSchema, jac_inputs: set[str], jac_outputs: set[str]):
             blk = rows[:, a:b]
             if k in STACK_SCALARS:
                 blk = blk[0]
-            if name in ("t_wrap", "t_pull", "t_add", "t_spritz", "dt_spritz"):
+            if name in (
+                "t_wrap",
+                "t_pull",
+                "t_add",
+                "t_spritz",
+                "dt_spritz",
+                "spritz_dose",
+            ):
                 blk = blk[..., 0]
             blocks[name] = np.array(blk, dtype=np.float64)
         out[k] = blocks

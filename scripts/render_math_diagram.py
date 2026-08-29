@@ -37,7 +37,7 @@ LH = 0.46  # equation line height
 
 
 def box(x, y, w, h, fc, ec, title, lines, size=10.5, title_size=11.5, lw=1.6):
-    """Rounded box with a bold title and mathtext body lines."""
+    """Draw a rounded box with a bold title and mathtext body lines."""
     ax.add_patch(
         FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.10", fc=fc, ec=ec, lw=lw)
     )
@@ -99,21 +99,21 @@ def arrow(p, q, color, label=None, lpos=None, lw=2.2, rad=0.0, size=9.5):
 box(
     0.35,
     7.9,
-    2.8,
+    3.05,
     1.3,
     IN_FC,
     IN_EC,
     "control input",
     [
         r"$u(t)\in[0,1]$  damper",
-        r"$t_{wrap},\ t_{pull},\ t_{add},\ (t_{sp}, \Delta_{sp})$  decisions",
+        r"$t_{wrap},\ t_{pull},\ t_{add},\ (t_{sp}, \Delta_{sp}, m_{sp})$  decisions",
     ],
     size=10,
 )
 box(
-    3.45,
+    3.7,
     7.9,
-    2.9,
+    2.65,
     1.3,
     IN_FC,
     IN_EC,
@@ -132,7 +132,7 @@ box(
     PIT_EC,
     "PIT — lumped ODEs (3 states)",
     [
-        r"$C_{th}\,\dot T_p \,=\, \Delta H_{e\!f\!f}\,\dot m_b \;-\; UA\,(T_p - T_{amb}) \;-\; q_{meat}$",
+        r"$C_{th}\,\dot T_p \,=\, \Delta H_{e\!f\!f}\,\dot m_b \;-\; UA\,(T_p - T_{amb}) \;-\; q_{meat} \;-\; q_{lid}$",
         r"$\dot m = -\,\dot m_b + \dot m_{add}(t)\,,\qquad \dot m_b = r_{max}\; g(u)\; a\,\tanh(m/m_t)$",
         r"$\dot a \,=\, k_{spr}\, a\,(1-a)\;g(u)$",
         r"$g(u) = u_{leak} + (1-u_{leak})\,u\quad$ (leaky damper airflow)",

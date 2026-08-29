@@ -54,11 +54,14 @@ or uncalibrated:
   measurement behind them. An output, never a term in the objective.
 - **Fuel addition.** One lit chimney of fixed mass dumped over five
   minutes, any time the planner likes, at most once per cook; unlit
-  additions and the lid-open temperature dip are not modelled.
-- **Spritz.** One fixed dose and liquid temperature, one interval, the
-  water absorbed into the surface node (no run-off); stops at the wrap and
-  the pull; no lid-open dip. The dose is a spray bottle's worth, not a
-  measurement.
+  additions are not modelled.
+- **Lid lifts.** The loss per lift is a lumped-mass energy loss
+  (\(UA_{\mathrm{open}}\) from convective exchange + bed radiation, an
+  estimate, not a measurement); a dome probe's 25 K one-minute transient
+  is not something a one-state pit can show.
+- **Spritz.** One dose per cook (chosen by the planner within a light-to-
+  heavy band), one liquid temperature, one interval, the water absorbed
+  into the surface node (no run-off); stops at the wrap and the pull.
 - **Multi-meat.** Identical briskets sharing the pit's heat and vapor;
   no shielding, stacking or grate-position differences.
 - **Purge sink.** Softplus still removes \(\sim k_e \delta_e \ln 2\) water

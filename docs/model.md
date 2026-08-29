@@ -218,8 +218,8 @@ zero over any cook horizon (Python no-wrap is `WRAP_NEVER = 1e9 + 0\cdot z_w`
 so the unused wrap logit stays in the tape).
 
 **Spritz.** A spritz policy — first spritz $t_{\mathrm{sp}}$, interval
-$\Delta_{\mathrm{sp}}$ — lands a dose $m_{\mathrm{sp}}$ (0.05 kg/m², a
-spray bottle's worth) of water at $T_{\mathrm{sp}}$ (20 °C) on the surface
+$\Delta_{\mathrm{sp}}$, dose $m_{\mathrm{sp}}$ (0.02–0.10 kg/m²: a light
+to a heavy spray) — lands water at $T_{\mathrm{sp}}$ (20 °C) on the surface
 over $\tau_{\mathrm{sp}}$ (1 min) at $t_{\mathrm{sp}} + k\Delta_{\mathrm{sp}}$
 while the meat is in the pit and unwrapped:
 
@@ -233,7 +233,8 @@ W|_s = j - j_{\mathrm{sp}}$ and the energy balance as
 $-c_w\,(T_s - T_{\mathrm{sp}})\,j_{\mathrm{sp}}$ (warming the water); its
 evaporation then runs through the two-sided flux like condensate — the
 wet surface takes smoke, the evaporation cools it and lengthens the
-stall. Both policy parameters are differentiable decisions.
+stall, and each spritz lifts the lid ($q_{\mathrm{lid}}$ in the pit
+balance). All three policy parameters are differentiable decisions.
 
 **Rest / carryover (pull).** A second blend of the same construction,
 $p(t) = \sigma\!\left((t - t_{\mathrm{pull}})/\delta_p\right)$
@@ -389,11 +390,22 @@ $$
 
 $$
 C_{th}\,\dot T_p = \Delta H_{e\!f\!f}\,\dot m_b
-- UA\,(T_p - T_{\mathrm{amb}}) - q_{\mathrm{meat}},
+- UA\,(T_p - T_{\mathrm{amb}}) - q_{\mathrm{meat}} - q_{\mathrm{lid}},
 \qquad
 \dot a = k_{\mathrm{spr}}\, a\,(1-a)\, g(u)
 + (1-a)\,\frac{\dot m_{\mathrm{add}}}{\max(m, m_t)},\quad a(0) = a_0 .
 $$
+
+**Lid-open loss.** Every lid lift costs the pit: $q_{\mathrm{lid}} =
+UA_{\mathrm{open}}\,(T_p - T_{\mathrm{amb}})\,\mathrm{open}(t)$ with
+$\mathrm{open}$ a unit-height smooth window — two minutes to dump a chimney,
+thirty seconds per spritz while the policy runs (in the pit, unwrapped).
+$UA_{\mathrm{open}} = 110$ W/K is what a lift loses to convective exchange
+through the open top plus radiation from the bed (≈ 0.3 MJ per 30 s at a
+90 K pit–ambient difference); in a lumped model that is a ~7 K dip of the
+effective thermal mass recovering on $C_{th}/UA$, not the 25 K dome-gas
+transient a probe reads for a minute. It is the cost that makes opening
+the lid a real decision.
 
 **Fuel addition.** One lit chimney of mass $m_{\mathrm{ch}}$ (1.4 kg) is
 dumped over $\tau_{\mathrm{add}}$ (5 min) at $t_{\mathrm{add}}$ as a
@@ -401,7 +413,7 @@ smooth unit-area pulse, $\dot m_{\mathrm{add}} = m_{\mathrm{ch}}\,
 \sigma'\big((t - t_{\mathrm{add}})/\tau_{\mathrm{add}}\big)/\tau_{\mathrm{add}}$;
 lit coals also move the ignited fraction of the (now larger) bed toward 1.
 $t_{\mathrm{add}}$ is a differentiable decision (never = beyond the
-horizon, exactly zero). The lid-open temperature dip is not modelled.
+horizon, exactly zero); the lid lift it costs is $q_{\mathrm{lid}}$ below.
 
 At $a_0 = 1$ the spread term vanishes and the two-state model is
 recovered exactly. $\dot m_b$ is exported (exact algebraic recompute at
@@ -431,8 +443,8 @@ pull to serve, $t_f + t_{\mathrm{rest}}$, where the quality terms are
 evaluated), the chimney $z_a \mapsto t_{\mathrm{add}} = t_f\,\sigma(z_a)$
 and the spritz policy $z_s \mapsto t_{\mathrm{sp}} = t_f\,\sigma(z_s)$,
 $z_d \mapsto \Delta_{\mathrm{sp}} = \Delta_{\min} + (\Delta_{\max} -
-\Delta_{\min})\,\sigma(z_d)$ (20 min – 2 h). Fuel is priced at the pull as
-load + chimney − remaining. Below
+\Delta_{\min})\,\sigma(z_d)$ (20 min – 2 h), $z_m \mapsto m_{\mathrm{sp}}$
+(0.02–0.10 kg/m²). Fuel is priced at the pull as load + chimney − remaining. Below
 $\mathrm{sp}(x) = \mathrm{sp}_1(x) = \log(1+e^x)$, and the category
 weights are $(w_{\mathrm{app}}, w_{\mathrm{taste}}, w_{\mathrm{tend}}) =
 (0.14,\, 0.57,\, 0.29)$ — the normalized multipliers KCBS judging

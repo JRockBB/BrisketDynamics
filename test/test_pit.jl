@@ -49,6 +49,11 @@ end
     @test fed.m_fuel[i3q] - dry.m_fuel[i3q] > 0.8 * cfg.m_chimney  # the chimney arrived
     @test fed.m_fuel[i4] < fed.m_fuel[i3q]                       # and burns
     @test fed.Tpit[i4] > dry.Tpit[i4] + 10                       # the fire lived on
+    # the lid came off for two minutes to dump it: right after, the pit is
+    # below what the same addition through a closed lid would give
+    sealed = pit_solve(φ, fill(0.4, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg=PitConfig(; m0=1.0, UA_open=0.0), t_add=3hr)
+    i3s = findfirst(t -> t >= 3hr + 300, tsave)
+    @test fed.Tpit[i3s] < sealed.Tpit[i3s] - 5
     @test all(0 .<= fed.ignited .<= 1 + 1e-9)
     # never = the default, bitwise
     never = pit_solve(φ, fill(0.4, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg, t_add=BrisketDynamics.ADD_NEVER)

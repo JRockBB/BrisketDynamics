@@ -44,6 +44,9 @@ def test_apply_shapes(case):
 
 def test_jvp_matches_jacobian(case):
     tx, inputs, _ = case
+    # the sub-minute lid and spritz pulses make timing derivatives step-size
+    # sensitive: compare the two endpoints at tight solver tolerances
+    inputs = {**inputs, "abstol": 1e-8, "reltol": 1e-8}
     ins = ["theta", "u_knots", "t_pull", "t_add", "t_spritz", "dt_spritz"]
     J = tx.jacobian(inputs, ins, ["tcore", "juiciness"])
     dtheta = np.zeros(8)

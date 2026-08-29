@@ -21,6 +21,23 @@ Base.@kwdef struct PitConfig
     m_taper::Float64 = 0.5     # fuel mass scale for the smooth burn-out taper [kg]
     m_chimney::Float64 = 1.4   # fuel added per mid-cook addition (one lit chimney) [kg]
     τ_add::Float64 = 300.0     # duration of dumping a chimney [s]
+    # lid-open loss: what a lid lift costs the lumped thermal mass (convective
+    # exchange + open-top radiation from the bed, ~0.3 MJ per 30 s at a 90 K
+    # pit–ambient difference) — not the dome-gas transient a probe shows
+    UA_open::Float64 = 110.0     # lid-open loss coefficient [W/K]
+    τ_open_add::Float64 = 120.0  # lid open to dump a chimney [s]
+    τ_open_spritz::Float64 = 30.0  # lid open per spritz [s]
+end
+
+"""
+    lid_open(t, t0, τ)
+
+Smooth lid-open window of unit height and duration `τ` centred at `t0`
+(`4σ′(4(t − t0)/τ)`: integrates to `τ`, exactly 0 far away).
+"""
+function lid_open(t, t0, τ)
+    s = logistic(4 * (t - t0) / τ)
+    return 4 * s * (1 - s)
 end
 
 # Default fuel-addition time: beyond any horizon, the pulse is exactly 0.
@@ -69,6 +86,8 @@ function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::I
         u_knots = @view p[(PIT_NP + 1):(PIT_NP + u_nk)]
         q_knots = @view p[(PIT_NP + u_nk + 1):(PIT_NP + u_nk + q_nk)]
         t_add = p[PIT_NP + u_nk + q_nk + 1]
+        t_spritz, dt_spritz = p[PIT_NP + u_nk + q_nk + 2], p[PIT_NP + u_nk + q_nk + 3]
+        t_spritz_stop = p[PIT_NP + u_nk + q_nk + 4]
 
         u = clamp(lininterp(t, u_t0, u_dt, u_knots), 0, 1)
         q_meat = lininterp(t, q_t0, q_dt, q_knots)
@@ -80,7 +99,14 @@ function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::I
         # a lit chimney adds fuel AND ignited bed: the ignited fraction of
         # the (larger) bed moves toward 1 at the rate the mass arrives
         ṁ_add = fuel_add_rate(t, t_add, cfg)
-        dx[1] = (ΔH_eff * ṁ - UA * (Tp - cfg.T_amb) - q_meat) / C_th
+        # the lid comes off to dump the chimney and for every spritz (until the
+        # spritz policy stops); the oracle gates the spritz lifts by a smooth
+        # stop time where the monolith uses the wrap and pull blends
+        lid = lid_open(t, t_add, cfg.τ_open_add) +
+              lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz), cfg.τ_open_spritz) *
+              logistic((t_spritz_stop - t) / 30.0)
+        q_lid = cfg.UA_open * (Tp - cfg.T_amb) * lid
+        dx[1] = (ΔH_eff * ṁ - UA * (Tp - cfg.T_amb) - q_meat - q_lid) / C_th
         dx[2] = -ṁ + ṁ_add
         dx[3] = k_spread * a * (1 - a) * airflow + (1 - a) * ṁ_add / max(m, cfg.m_taper)
         return nothing
@@ -189,6 +215,9 @@ Forward pit solve over the damper schedule and meat heat-load forcing.
 - `reltol::Float64`: ODE relative tolerance. [Default=1e-8]
 - `t_add::Real`: Mid-cook fuel addition time [s] (one chimney, see
   [`fuel_add_rate`](@ref)); `ADD_NEVER` = none. [Default=ADD_NEVER]
+- `t_spritz, dt_spritz, t_spritz_stop::Real`: Spritz policy (for the lid
+  lifts, [`lid_open`](@ref)); the lifts stop at `t_spritz_stop`.
+  [Default=SPRITZ_NEVER, 3600, Inf]
 
 # Returns
 - `out::NamedTuple`: `(; Tpit [K], m_fuel [kg], ignited, mdot [kg/s], t [s])`
@@ -220,9 +249,15 @@ function pit_solve(
     abstol=1e-8,
     reltol=1e-8,
     t_add::Real=ADD_NEVER,
+    t_spritz::Real=SPRITZ_NEVER,
+    dt_spritz::Real=3600.0,
+    t_spritz_stop::Real=Inf,
 )
     _pit_check_lengths(u_knots, u_tknots, qmeat_knots, q_tknots)
-    p = vcat(φ, u_knots, qmeat_knots, float(t_add))
+    p = vcat(
+        φ, u_knots, qmeat_knots, float(t_add), float(t_spritz), float(dt_spritz),
+        float(t_spritz_stop),
+    )
     A = _pit_solve_arr(p, cfg, u_tknots, q_tknots, tsave; abstol, reltol)
     mdot = _pit_mdot_row(A, p, cfg, u_tknots, tsave, length(u_knots))
     return (

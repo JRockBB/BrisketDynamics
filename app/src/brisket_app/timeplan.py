@@ -62,7 +62,7 @@ def plan_duration(
     cc = cc or ControlConfig(n_iter=inner_iters)
     records = []
     u_prev, grids_prev, zw_prev, zp_prev = None, None, 0.0, None
-    za_prev = zs_prev = zd_prev = None
+    za_prev = zs_prev = zd_prev = zm_prev = None
     if seed is not None:  # warm-start the FIRST duration from a prior scan
         u_prev = np.asarray(seed["u"])
         grids_prev = _grids_for(seed["t_f_h"] * HR)
@@ -111,6 +111,7 @@ def plan_duration(
             z_a_init=za_prev,
             z_s_init=zs_prev,
             z_d_init=zd_prev,
+            z_m_init=zm_prev,
         )
         u_prev, grids_prev = u_opt, grids
         t_wrap = hist.get("t_wrap", 1.0e9)
@@ -124,6 +125,7 @@ def plan_duration(
         t_add = hist.get("t_add", 1.0e9)
         t_spritz = hist.get("t_spritz", 1.0e9)
         dt_spritz = hist.get("dt_spritz", 3600.0)
+        spritz_dose = hist.get("spritz_dose", 0.05)
         if cc.opt_add:
             fa = min(max(t_add / t_f, 1e-4), 1 - 1e-4)
             za_prev = float(np.log(fa / (1 - fa)))
@@ -133,6 +135,9 @@ def plan_duration(
             fd = (dt_spritz - cc.dt_spritz_min) / (cc.dt_spritz_max - cc.dt_spritz_min)
             fd = min(max(fd, 1e-4), 1 - 1e-4)
             zd_prev = float(np.log(fd / (1 - fd)))
+            fm = (spritz_dose - cc.m_spritz_min) / (cc.m_spritz_max - cc.m_spritz_min)
+            fm = min(max(fm, 1e-4), 1 - 1e-4)
+            zm_prev = float(np.log(fm / (1 - fm)))
         sim = coupled_cook(
             np.asarray(theta),
             np.asarray(phi),
@@ -146,6 +151,7 @@ def plan_duration(
             t_add=t_add,
             t_spritz=t_spritz,
             dt_spritz=dt_spritz,
+            spritz_dose=spritz_dose,
         )
         c_end = float(np.asarray(sim["c_field_final"])[0])
         w_ret = float(np.asarray(sim["w_retained"]))
@@ -175,6 +181,8 @@ def plan_duration(
                 "dt_spritz": float(dt_spritz),
                 "t_spritz_h": float(t_spritz / HR) if t_spritz < 1.0e8 else None,
                 "dt_spritz_min": float(dt_spritz / 60.0),
+                "spritz_dose": float(spritz_dose),
+                "spritz_dose_gm2": float(1e3 * spritz_dose),
                 "ring_mm": ring_mm,
                 "safety_ok": safety["ok"],
                 "F_core": safety["F_core"],
@@ -190,7 +198,8 @@ def plan_duration(
             + (f"  pull@{t_pull / HR:.2f} h" if t_pull < 1.0e8 else "")
             + (f"  chimney@{t_add / HR:.2f} h" if t_add < 1.0e8 else "")
             + (
-                f"  spritz@{t_spritz / HR:.2f} h/{dt_spritz / 60:.0f} min"
+                f"  spritz@{t_spritz / HR:.2f} h/{dt_spritz / 60:.0f} min/"
+                f"{1e3 * spritz_dose:.0f} g/m²"
                 if t_spritz < 1.0e8
                 else ""
             )

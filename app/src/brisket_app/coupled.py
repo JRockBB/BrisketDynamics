@@ -96,6 +96,7 @@ def coupled_cook(
     t_spritz=1.0e9,
     dt_spritz=3600.0,
     n_meat: float = 1.0,
+    spritz_dose=0.05,
 ):
     """Simulate the coupled pit-brisket system in ONE solve, differentiably.
 
@@ -130,6 +131,8 @@ def coupled_cook(
         Spritz policy: first spritz and interval [s]; t_spritz = 1e9 = none.
     n_meat : float
         Identical briskets sharing the pit.
+    spritz_dose : float
+        Water per spritz per exposed area [kg/m²].
     """
     ics = ics or {}
     humidity = humidity or Humidity()
@@ -146,6 +149,7 @@ def coupled_cook(
             "t_add": jnp.asarray(t_add),
             "t_spritz": jnp.asarray(t_spritz),
             "dt_spritz": jnp.asarray(dt_spritz),
+            "spritz_dose": jnp.asarray(spritz_dose),
             "n_meat": float(n_meat),
             "abstol": abstol,
             "reltol": reltol,
