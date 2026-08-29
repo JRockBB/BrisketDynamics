@@ -30,6 +30,7 @@ Base.@kwdef struct MeatConfig
     m_spritz::Float64 = 0.05    # water per spritz per exposed area [kg/m²] (~8 mL on a brisket)
     τ_spritz::Float64 = 60.0    # spray duration [s]
     T_spritz::Float64 = 293.15  # spritz liquid temperature [K]
+    f_abs::Float64 = 0.2        # fraction of a spritz that soaks into the crust; the rest flashes off (assumed)
     Ea::Float64 = 173e3         # collagen denaturation activation energy [J mol⁻¹]
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
@@ -689,10 +690,13 @@ function meat_rhs_core!(
     q_pit = surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg)
     q_in = q_pit + pl * surface_heat_rest(Ts, cfg)
     # spritz: water lands on the surface (in the pit, unwrapped) and is
-    # warmed from the bottle to the surface; its evaporation then runs
-    # through the two-sided flux j like condensate
+    # warmed from the bottle to the surface; a fraction f_abs soaks into
+    # the crust (and leaves again through the two-sided flux j like
+    # condensate), the rest flashes off the hot surface within the pulse
+    # and takes its latent heat from the meat
     j_sp = spritz_rate(t, t_spritz, dt_spritz, m_spritz, cfg) * (1 - s) * (1 - pl)
-    q_net = q_in - cfg.λ_vap * j - CP_WATER * (Ts - cfg.T_spritz) * j_sp
+    q_net = q_in - cfg.λ_vap * (j + (1 - cfg.f_abs) * j_sp) -
+            CP_WATER * (Ts - cfg.T_spritz) * j_sp
     # half-cell balances: heat per physical volume (the area factor
     # cancels between capacity and intake); water per dry mass — the
     # physical surface j leaves through has shrunk by a_area
@@ -700,7 +704,7 @@ function meat_rhs_core!(
         (k_th * (T[nx - 1] - Ts) / (f_s * Δξ) + q_net) /
         (RHO_MEAT * CP_MEAT * st_c * Δξ / 2)
     dW[nx] =
-        (RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) - a_area * (j - j_sp)) /
+        (RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) - a_area * (j - cfg.f_abs * j_sp)) /
         (RHO_DRY * Δξ / 2)
 
     # collagen conversion (doneness diagnostic as state — adjoint for free)
@@ -1011,7 +1015,7 @@ function meat_solve(
     ja = j_evap .* a_ts
     evap_w = sum((ja[1:(end - 1)] .+ ja[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
     jsp = spritz_rate.(tsave, t_spritz, dt_spritz, msp, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts
-    spritz_w = sum((jsp[1:(end - 1)] .+ jsp[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
+    spritz_w = cfg.f_abs * sum((jsp[1:(end - 1)] .+ jsp[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
     return (;
         Tsurf,
         Tcore=A[1, :],

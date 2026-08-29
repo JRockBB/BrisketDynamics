@@ -228,13 +228,19 @@ j_{\mathrm{sp}} = m_{\mathrm{sp}}\,\frac{\sigma'\big((t - t_{\mathrm{sp}} - k^*\
 \qquad k^* = \max\big(\mathrm{round}((t - t_{\mathrm{sp}})/\Delta_{\mathrm{sp}}),\,0\big),
 $$
 
-entering the surface water balance as $-\rho_d D_{\mathrm{eff}}\,\partial_x
-W|_s = j - j_{\mathrm{sp}}$ and the energy balance as
-$-c_w\,(T_s - T_{\mathrm{sp}})\,j_{\mathrm{sp}}$ (warming the water); its
-evaporation then runs through the two-sided flux like condensate — the
-wet surface takes smoke, the evaporation cools it and lengthens the
-stall, and each spritz lifts the lid ($q_{\mathrm{lid}}$ in the pit
-balance). All three policy parameters are differentiable decisions.
+A fraction $f_{\mathrm{abs}}$ (0.2, assumed) soaks into the crust and
+enters the surface water balance, $-\rho_d D_{\mathrm{eff}}\,\partial_x
+W|_s = j - f_{\mathrm{abs}}\,j_{\mathrm{sp}}$, leaving again through the
+two-sided flux like condensate; the rest flashes off the hot surface
+within the pulse. The energy balance carries both,
+$-\lambda\,(1 - f_{\mathrm{abs}})\,j_{\mathrm{sp}} - c_w\,(T_s -
+T_{\mathrm{sp}})\,j_{\mathrm{sp}}$ (the flash and the warming of the
+water) — so a spritz is mostly evaporative cooling: the surface drops,
+the stall lengthens, the briefly wet surface takes smoke, and each spritz
+lifts the lid ($q_{\mathrm{lid}}$ in the pit balance). Only the absorbed
+fraction counts toward retained water, which is what keeps the planner
+from spraying its way to juiciness. All three policy parameters are
+differentiable decisions.
 
 **Rest / carryover (pull).** A second blend of the same construction,
 $p(t) = \sigma\!\left((t - t_{\mathrm{pull}})/\delta_p\right)$

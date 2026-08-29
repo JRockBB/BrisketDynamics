@@ -60,8 +60,11 @@ or uncalibrated:
   estimate, not a measurement); a dome probe's 25 K one-minute transient
   is not something a one-state pit can show.
 - **Spritz.** One dose per cook (chosen by the planner within a light-to-
-  heavy band), one liquid temperature, one interval, the water absorbed
-  into the surface node (no run-off); stops at the wrap and the pull.
+  heavy band), one liquid temperature, one interval; a fixed absorbed
+  fraction (20 %, assumed — with full absorption the planner sprayed its
+  way to juiciness) soaks into the surface node and the rest flashes off
+  within the one-minute pulse — no film state, so the wet window is the
+  pulse, not a film's life; no run-off; stops at the wrap and the pull.
 - **Multi-meat.** Identical briskets sharing the pit's heat and vapor;
   no shielding, stacking or grate-position differences.
 - **Purge sink.** Softplus still removes \(\sim k_e \delta_e \ln 2\) water

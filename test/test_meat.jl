@@ -518,10 +518,12 @@ end
     lit = fill(1.2e-4, n)
     dry = meat_solve(θ, Tpit, tk, tk; smoke_knots=lit)
     wet = meat_solve(θ, Tpit, tk, tk; smoke_knots=lit, t_spritz=2hr, dt_spritz=1800.0)
-    # every pulse wets the surface: the surface water jumps up at 2 h, 2.5 h, …
+    # every pulse wets the surface: across the 2 h pulse the surface water
+    # gains on the un-spritzed run (the absorbed fraction; the rest flashes off)
     Ws = wet.W_field[end, :]
+    Wd = dry.W_field[end, :]
     i = findfirst(t -> t >= 2hr + 5 * 60, tk)
-    @test Ws[i] > Ws[i - 2]
+    @test Ws[i] - Ws[i - 2] > Wd[i] - Wd[i - 2]
     @test wet.spritz_w > 0 && dry.spritz_w == 0
     # the water it costs: a cooler surface, a longer stall, more smoke on a wet surface
     i6 = findfirst(t -> t >= 6hr, tk)

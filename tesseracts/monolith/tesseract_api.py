@@ -311,7 +311,7 @@ class OutputSchema(BaseModel):
         "× l_thick[-1]/L for the physical depth)"
     )
     spritz_w: Array[(), Float64] = Field(
-        description="Water added by spritzing (dry-basis mean)"
+        description="Spritz water absorbed by the meat (dry-basis mean); the rest flashed off"
     )
 
 
