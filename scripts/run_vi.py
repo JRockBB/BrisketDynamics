@@ -109,13 +109,17 @@ def main():
 
     rng = jax.random.PRNGKey(args.seed)
     step0 = 0
+    sites = [n for n, _ in calibrate.THETA_SITES]  # a model change starts fresh
     if state_file.exists() and meta_file.exists():
         meta = json.loads(meta_file.read_text())
         old = dict(meta.get("config") or {})
         new = vars(args)
-        same = {k: v for k, v in old.items() if k != "steps"} == {
-            k: v for k, v in new.items() if k != "steps"
-        } and old.get("steps", -1) <= new["steps"]
+        same = (
+            {k: v for k, v in old.items() if k != "steps"}
+            == {k: v for k, v in new.items() if k != "steps"}
+            and old.get("steps", -1) <= new["steps"]
+            and meta.get("sites") == sites
+        )
         if same:
             svi.init(rng)  # builds svi.constrain_fn; the state itself is the checkpoint
             with open(state_file, "rb") as f:
@@ -133,7 +137,7 @@ def main():
         with open(state_file, "wb") as f:
             pickle.dump(jax.device_get(st), f)
         meta_file.write_text(
-            json.dumps({"config": vars(args), "step": i, "done": done})
+            json.dumps({"config": vars(args), "sites": sites, "step": i, "done": done})
         )
 
     t0 = time.perf_counter()
