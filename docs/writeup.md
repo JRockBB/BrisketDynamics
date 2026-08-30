@@ -47,23 +47,11 @@ tesseract-jax consumes all three, so JAX has reverse *and* forward mode
 through the same interface: `jax.grad` for Optax and NUTS, the full Jacobian
 for Gauss–Newton and the Fisher information.
 
-**What it replaced, measured.** The first build composed two Tesseracts —
-`brisket-meat` (the PDE, differentiated by a SciMLSensitivity continuous
-adjoint, `InterpolatingAdjoint` + `EnzymeVJP`) and `brisket-pit` (the ODE,
-exact ForwardDiff Jacobian transposed) — coupled two-way in JAX by a K = 2
-whole-horizon Picard iteration, so one gradient crossed the Julia↔JAX boundary
-four times. It worked and was verified, and it is in the git history
-(`def7f4e`). Against the monolith on the real-cook grid (19 h, 115 points):
+**Cost, on the real-cook grid (19 h, 115 points):** forward solve 0.045 s,
+the 230 × 15 calibration Jacobian 2.5 s, the duration × wrap × pull scan of
+13 cook lengths 59 min, the four-cook MPC demo 43 min.
 
-| | two Tesseracts, K = 2 Picard | monolith |
-|---|---|---|
-| forward solve | 0.32 s (two solves, twice) | 0.045 s |
-| gradient of the calibration residuals | ~50 s (continuous adjoint, 115 cotangent injections) | 2.5 s (14-column Jacobian) |
-| coupling truncation vs the exact coupling | 0.27 K pit / 0.11 K core (K = 1: 4.3 / 6.7 K) | — |
-| duration × wrap × pull scan (13 cook lengths) | 4.5 h | 59 min |
-| MPC demo (4 cooks, hourly replans incl. the pull) | ~2 h per replan under a disturbance (projected ~30 h) | 43 min |
-
-The Picard composition of the two component solvers is kept in Julia
+The exchange-grid composition of the two component solvers is kept in Julia
 (`picard_cook`) as the oracle for the monolith's coupling: it converges to the
 monolith as the pass count grows (K = 8 within 0.04 K). The stall mechanism —
 and the place where differentiability was deliberately engineered — is the
@@ -212,14 +200,10 @@ endpoint interface, consumed by tesseract-jax as a JAX primitive. With forward
 mode inside, that interface is not a limitation: `jvp`, `vjp` and `jacobian`
 are each one Julia call, so the "every derivative must be an endpoint"
 discipline costs nothing, and the same client serves calibration, planning,
-MPC and robust control through one `coupled_cook`. The two-Tesseract build was
-the more interesting composition and the more expensive physics: the seam
-through the coupled system forced a Picard truncation (measured) and an
-adjoint-only derivative story (a Hessian was 36 adjoints; on the monolith it is
-one Jacobian). Moving the boundary to the edge of the physics is what turned
-hours into minutes, and the Tesseract around the whole model is the deployable
-twin the roadmap wanted — a versioned, schema-validated service any consumer
-can differentiate through without linking Julia.
+MPC and robust control through one `coupled_cook`. The Tesseract around the
+whole model is the deployable twin the roadmap wanted — a versioned,
+schema-validated service any consumer can differentiate through without
+linking Julia.
 
 ## 4. A real application
 
@@ -235,10 +219,6 @@ makes the likelihood tractable.
 
 ## 5. Execution & technical depth
 
-- **Measuring the seam before removing it.** The Picard residual the old
-  pipeline reported (|x₂ − x₁|, 5–7 K) is the K = 1 error; the truncation it
-  actually carried was 0.27 K. Knowing the number is what made the decision
-  a decision.
 - **Two juliacall deadlocks, both timing-dependent.** A zero-copy numpy view
   of Julia memory released from an XLA thread makes Julia's GC wait forever on
   the parked Julia thread; a second executor thread driving one Julia runtime

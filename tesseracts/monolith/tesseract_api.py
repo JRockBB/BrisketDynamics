@@ -1,8 +1,8 @@
 """Monolith Tesseract: the whole coupled cook (pit + meat + humidity) as one endpoint.
 
 Wraps BrisketDynamics.jl's `monolith_solve` and its forward-mode
-derivatives. One stiff solve for the coupled system — no exchange grid, no
-Picard truncation — and forward-mode (ForwardDiff) derivatives: the
+derivatives. One stiff solve for the coupled system and forward-mode
+(ForwardDiff) derivatives: the
 parameter count is small and the forward solve is ~100x cheaper than a
 continuous adjoint, so `jacobian_vector_product` is one Dual solve,
 `vector_jacobian_product` and `jacobian` are one chunked Jacobian pass over

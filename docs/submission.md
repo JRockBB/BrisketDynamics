@@ -24,10 +24,7 @@ Tesseract with forward-mode `jvp` / `vjp` / `jacobian` endpoints, driven from
 JAX for Gauss–Newton and NUTS calibration on a real 19-hour cook log, a
 duration × wrap × pull × chimney × spritz × vent plan scored at serve, robust
 control over the posterior, and receding-horizon MPC that re-times the wrap,
-the pull, the chimney and the spritz policy. We
-built it first as two composed Tesseracts (adjoint + Jacobian, Picard-coupled
-in JAX), measured the seam, and moved the boundary to the edge of the physics:
-the same scans went from hours to minutes.
+the pull, the chimney and the spritz policy.
 
 **Longer description (if the form has a field for it):**
 Real barbecue is a coupled multi-physics control problem: a charcoal pit with
@@ -56,13 +53,10 @@ the full meat field; hit with a
 15 K cold front it has never seen, it re-times the crutch and the pull and
 serves at doneness 0.964 where the open-loop plan ends at 0.54.
 
-The first build was two composed Tesseracts (a SciMLSensitivity continuous
-adjoint on the PDE, a ForwardDiff Jacobian on the pit, K = 2 Picard in JAX).
-It was verified and it is in the history; measured against the monolith it
-carried a 0.27 K coupling truncation and cost 20× per gradient. Everything —
-the three-level finite-difference verification, the deadlocks found and fixed
-in the Julia↔JAX threading, the model's deficiencies (closed-loop cook logs
-cannot identify the pit's fast dynamics) — is documented in the repo.
+Everything — the three-level finite-difference verification, the deadlocks
+found and fixed in the Julia↔JAX threading, the model's deficiencies
+(closed-loop cook logs cannot identify the pit's fast dynamics) — is
+documented in the repo.
 
 **Key artifacts:** `docs/writeup.md` (six-criteria writeup) ·
 `docs/monolith.md` (the seam, measured) · `figures/cooklog_fit_map.png` ·
@@ -97,12 +91,6 @@ hourly from the full meat field. Hit the simulated cook with a cold front the
 controller has never seen: the open-loop plan serves a tough brisket, MPC
 wraps earlier, pulls earlier, and lands it.
 
-The engineering story: I built it first as two composed Tesseracts — a
-SciMLSensitivity adjoint on the PDE, a Jacobian on the pit, Picard-coupled in
-JAX — measured what that seam cost (0.27 K of truncation, 20× per gradient),
-and moved the boundary to the edge of the physics with forward-mode
-`jvp`/`vjp`/`jacobian` endpoints. Same scans, hours to minutes.
-
 Repo: https://github.com/JRock95/BrisketDynamics
 
 #TesseractHackathon #DifferentiableProgramming #JuliaLang #JAX
@@ -123,18 +111,14 @@ Hi all — my hackathon entry wraps a coupled BBQ simulator (charcoal pit ODE +
 ODEs) as one Tesseract and uses the derivatives from JAX for Bayesian
 calibration on a real 19-hour cook log and for planning and MPC.
 
-**The boundary, and why it is where it is.** I built it first as two
-Tesseracts: `brisket-meat` (the PDE, `vector_jacobian_product` = a
-SciMLSensitivity continuous adjoint) and `brisket-pit` (the ODE, exact
-ForwardDiff Jacobian transposed), coupled two-way in JAX by a K = 2 Picard
-iteration unrolled in the graph. It worked and verified. Then I built the
-coupled system as one Julia solve and measured the seam: 0.27 K of coupling
-truncation on the real cook, and 20× per gradient (a continuous adjoint with
-115 cotangent injections vs a 15-column forward-mode Jacobian at 2.5 s). The
-monolith Tesseract exposes `jacobian_vector_product` (one Dual solve),
+**The boundary, and why it is where it is.** The Tesseract sits at the edge
+of the physics: the pit ODE, the meat PDE and the humidity balance are one
+Julia solve, and forward mode inside is cheap because the parameter count is
+small (a 15-column Jacobian on the real cook in 2.5 s). The monolith
+Tesseract exposes `jacobian_vector_product` (one Dual solve),
 `vector_jacobian_product` and `jacobian` (one chunked pass), so tesseract-jax
 gives `jax.grad` for Optax/NUTS and `jacfwd` for Gauss–Newton through the same
-interface. The two-Tesseract version is in the history with the numbers.
+interface.
 
 **What the derivatives do.** Gauss–Newton MAP on the real cook from the prior
 medians in 17 iterations / 136 s; a Laplace on the Gauss–Newton curvature

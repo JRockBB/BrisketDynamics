@@ -1,10 +1,10 @@
 # Monolithic coupled cook: the meat PDE, the pit ODE and the quasi-steady pit
 # humidity balance as ONE stiff system. The pit sees the meat's instantaneous
 # heat load and the meat sees the instantaneous pit temperature, burn rate
-# and vapor pressure — no exchange grid, no Picard truncation, one solve,
-# one derivative. States x = [T(nx) | W(nx) | C(nx) | F(nx) | B | S |
-# T_pit | m_fuel | ignited]; parameters p = [θ(7) | φ(7) | u_knots(nu) |
-# t_wrap | t_pull].
+# and vapor pressure — one solve, one derivative. States x = [T(nx) | W(nx)
+# | C(nx) | F(nx) | B | S | R | T_pit | m_fuel | ignited]; parameters
+# p = [θ(8) | φ(7) | u_knots(nu) | t_wrap | t_pull | t_add | t_spritz |
+# dt_spritz | m_spritz].
 #
 # Differentiation: forward mode. The parameter count is small (14 physics
 # latents, a few dozen control knots) and the forward solve is ~100x cheaper
@@ -427,8 +427,8 @@ end
     picard_cook(θ, φ, u_knots, u_tknots, tsave; K, cfg, pit, hum, t_wrap,
                 t_pull, abstol, reltol)
 
-The exchange-grid Picard coupling of the composed Tesseract pipeline
-(`coupled_cook`), in Julia, for comparison against the monolith: `K`
+The exchange-grid Picard coupling of the component solvers, kept as the
+oracle for the monolith's coupling: `K`
 alternating pit / meat solves with the pit temperature, burn rate, base
 vapor pressure and inverse air flow exchanged as knots on `tsave` and the
 meat heat load fed back.
