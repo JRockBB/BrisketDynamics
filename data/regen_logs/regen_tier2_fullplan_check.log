@@ -1,0 +1,9 @@
+band self-check: tenderness overshoot at c=0.9995 -> 0.287 (w_tenderness 0.29 x over_rel 1.0)
+params: map_real.json
+full composition scan: cook length x wrap x pull x schedule
+  cook 11.0 h  J=  1.455  doneness=0.941  juiciness=0.308  (water 0.240)  L*=34.0  ring=2.4mm  wrap@7.60 h  pull@8.77 h  no chimney  no spritz  iters=38
+  cook 12.0 h  J=  1.065  doneness=0.949  juiciness=0.397  (water 0.326)  L*=33.9  ring=2.5mm  wrap@7.37 h  pull@8.98 h  no chimney  no spritz  iters=600 (cap)
+THE COOK: 12 h — wrap at 7.37 h, pull at 8.98 h, rest 3.02 h, serve at 12.0 h — doneness 0.949, juiciness 0.397, bark L* 33.9, smoke ring 2.5 mm
+fuel and water: no chimney (the load lasts); no spritz
+safety (soft penalties, not a certification): surface F=2.77e+09s dwell=1.08h; core F=2.39e+09s dwell=1.51h; ok=True
+wrote figures/fullplan_check.png

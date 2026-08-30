@@ -1,19 +1,19 @@
 plan: fullplan_result.json  samples: laplace_samples_real.npz
 optimizing E[J] over 8 posterior draws, warm start from plan
-  iter    0  E[J]=   1.2340
-  iter   10  E[J]=   1.2214
-  iter   20  E[J]=   1.2204
-  iter   30  E[J]=   1.2193
-  iter   40  E[J]=   1.2191
-  iter   50  E[J]=   1.2189
-  iter   60  E[J]=   1.2187
-  iter   70  E[J]=   1.2186
-  iter   80  E[J]=   1.2185
-  iter   90  E[J]=   1.2184
-  iter   99  E[J]=   1.2184
-wrap: plan 8.15 h -> posterior-expected 7.77 h;  pull: plan 18.44 h -> 18.61 h
-E[J] 1.234 -> 1.218 in 1776 s
+  iter    0  E[J]=   5.8986
+  iter   10  E[J]=   2.3522
+  iter   20  E[J]=   1.9713
+  iter   30  E[J]=   1.8083
+  iter   40  E[J]=   1.7325
+  iter   50  E[J]=   1.7033
+  iter   60  E[J]=   1.6791
+  iter   70  E[J]=   1.6644
+  iter   80  E[J]=   1.6562
+  iter   90  E[J]=   1.6499
+  iter   99  E[J]=   1.6453
+wrap: plan 7.06 h -> posterior-expected 6.66 h;  pull: plan 8.39 h -> 10.20 h
+E[J] 5.899 -> 1.645 in 1529 s
 evaluating both plans on 30 held-out draws
-  plan-optimal: J mean=1.242 sd=0.121 max=1.797  doneness mean=0.951 sd=0.032 min=0.861 max=0.992  juiciness mean=0.473 sd=0.021
-  robust: J mean=1.199 sd=0.054 max=1.284  doneness mean=0.970 sd=0.017 min=0.934 max=0.995  juiciness mean=0.466 sd=0.021
+  plan-optimal: J mean=5.278 sd=9.615 max=53.934  doneness mean=0.914 sd=0.109 min=0.587 max=1.000  juiciness mean=0.394 sd=0.024
+  robust: J mean=1.814 sd=0.595 max=4.098  doneness mean=0.975 sd=0.031 min=0.864 max=1.000  juiciness mean=0.433 sd=0.022
 wrote figures/control_robust.png

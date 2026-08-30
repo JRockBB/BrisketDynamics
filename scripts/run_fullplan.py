@@ -15,6 +15,7 @@ Writes figures/fullplan.png + data/control/fullplan_result.json.
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -121,7 +122,14 @@ def main():
         action="store_true",
         help="redraw the figure from the saved json instead of scanning",
     )
+    ap.add_argument(
+        "--n-iter",
+        type=int,
+        default=CC.n_iter,
+        help="iteration cap of the inner schedule optimizer (default %(default)s)",
+    )
     args = ap.parse_args()
+    cc = replace(CC, n_iter=args.n_iter)
     durations_h = args.durations or [float(h) for h in range(8, 21)]
     result_name = f"fullplan_result{args.tag}.json"
     fig_name = f"fullplan{args.tag}.png"
@@ -139,7 +147,7 @@ def main():
         print(f"replotting {result_name}", flush=True)
     else:
         print("full composition scan: cook length x wrap x pull x schedule")
-        records = plan_duration(theta, phi, tx, durations_h, cc=CC, ics=ICS)
+        records = plan_duration(theta, phi, tx, durations_h, cc=cc, ics=ICS)
         best = optimal_duration(records)
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(

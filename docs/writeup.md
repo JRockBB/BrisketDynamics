@@ -47,7 +47,7 @@ for Gauss–Newton and the Fisher information.
 
 **Cost, on the real-cook grid (19 h, 115 points):** forward solve 0.045 s,
 the 230 × 15 calibration Jacobian 2.5 s, the duration × wrap × pull scan of
-13 cook lengths 59 min, the four-cook MPC demo 43 min.
+13 cook lengths 95 min, the four-cook MPC demo 68 min.
 
 The exchange-grid composition of the two component solvers is kept in Julia
 (`picard_cook`) as the oracle for the monolith's coupling: it converges to the
@@ -92,12 +92,12 @@ WSM, HeaterMeter controller; provenance and uncertainty budget in
 `data/cook_log/PROVENANCE.md`). The measured blower duty replays as the
 control input; lid events are masked. The fit tracks the pit hold within
 ~1.3 K rms and the core's full arc — rise, multi-hour plateau near 70 °C, the
-stall break, the climb to 90 °C (core rms 3.1 K).
+stall break, the climb to 90 °C (core rms 3.0 K).
 
 - **Gauss–Newton MAP** (`scripts/run_gn_map.py`): Levenberg–Marquardt over
   the 15 physics latents in numpyro's unconstrained space on the whitened
-  AR(1) residuals, from a cold start at the prior medians: F = 5329 → 139.2
-  in 17 iterations, **136 s**.
+  AR(1) residuals, from a cold start at the prior medians: F = 5317 → 133.2
+  in 14 iterations, **103 s**.
 - **Curvature.** The Fisher information (Jᵀ Σ⁻¹ J + prior) from the same
   Jacobian is the posterior curvature used everywhere — the Laplace draws
   (Gauss–Newton in the physics block; the noise and cross blocks exact by
@@ -153,40 +153,45 @@ juiciness), tenderness 0.29 (the collagen band, undershoot and overshoot
 weighted equally) — plus the bark-burn surface cap, fuel priced at the pull,
 and food-safety soft penalties. Quality is scored at serve: the rest is part of
 the cook, the pull is a decision, and the rest is what follows it. On the
-calibrated smoker the objective falls monotonically with cook length through
-20 h; the 20 h cook wraps at 8.1 h, pulls at 18.4 h, rests 1.6 h, and serves
-at doneness 0.966 with 47 % perceptual juiciness. It adds no fuel and does not
-spritz: a spritz is mostly evaporative cooling (a fifth of it soaks in), and
-the longer stall costs more than the water is worth. Doneness sits at ~0.965 on
-every cook length — the optimizer holds it just above the overdone edge and
-lets the rest finish the conversion — while juiciness rises with length
-because the longer cook runs cooler. Two plateaus appear in the core trace:
-the evaporative stall near 70 °C, and the wrapped ceiling near 86 °C where
-the foil's residual evaporation balances the pit's heat input — the level of
-that second plateau is set by the wrap's evaporation-suppression constant,
-which is literature-fixed pending a wrapped-cook log.
+calibrated smoker the objective has an interior optimum: J falls from 1.35
+at 8 h to 1.07 at 11–12 h and climbs back to 1.23 at 20 h. The 11 h cook
+wraps at 7.1 h, pulls at 8.4 h, rests 2.6 h, and serves at doneness 0.946
+with 39 % perceptual juiciness. It adds no fuel and does not spritz: a
+spritz is mostly evaporative cooling (a fifth of it soaks in), and the
+longer stall costs more than the water is worth. The short cook is a hot
+one — the schedule takes the pit to 165 °C around 6 h, the core clears its
+69 °C stall by 4 h and reaches 93 °C by 6.5 h, and the late wrap holds it
+there to the pull. Longer cooks lose the trade on juiciness: with the
+isotherm-driven surface the meat keeps evaporating for as long as it is
+unwrapped (retained water 0.32 at 12 h, 0.27 at 18 h), which is the
+water-budget residue in the roadmap. The scan converges to the 1e-3 level
+(the 12 h optimum at a 600-iteration cap is J 1.065 against the scan's
+1.066) and its warm start from one length to the next is what finds the
+good basin — started cold, the 11 h cook stops in a poorer one at J 1.46.
 
 **Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
-as plant, the 20 h plan under defense, hourly replans from the measured state
+as plant, the 11 h plan under defense, hourly replans from the measured state
 (full T/W/C/F/B/S-field handoff through the Tesseract), replanning the
 schedule, the wrap, the pull, the chimney and the spritz policy; the
 irreversible events execute like the real thing —
 candidate, commit gate, irreversible — and the plant rests to serve. At
 t = 2 h a cold front drops ambient by 15 K that the controller's model does
-not know. Executed blindly, the plan finishes at doneness 0.54 (J = 16.9);
-MPC re-times the crutch 8.15 → 7.07 h and the pull 18.44 → 17.29 h and lands at
-doneness 0.964, J = 1.181. Without the front MPC reproduces the plan
-(J = 1.167 vs 1.174), the principle-of-optimality check.
+not know. Executed blindly, the plan finishes at doneness 0.57 (J = 14.1);
+MPC re-times the crutch 7.06 → 6.84 h and the pull 8.39 → 9.38 h and lands at
+doneness 0.945, J = 1.067. Without the front MPC lands at J = 1.070 against
+the plan's own 1.093 — the hourly replans refine a plan its optimizer left
+a few thousandths short — the principle-of-optimality check.
 
 **Control under calibrated uncertainty** (`figures/control_robust.png`):
-re-optimizing the expected plan objective over 8 posterior draws (30 min on
+re-optimizing the expected plan objective over 8 posterior draws (25 min on
 the monolith), evaluated on 30 held-out draws against the plan-optimal
-schedule. The hedge moves the wrap earlier (8.15 → 7.77 h) and the pull later
-(18.44 → 18.61 h) and halves the spread: J 1.199 ± 0.054 (worst 1.28) against
-1.242 ± 0.121 (worst 1.80); doneness 0.970 ± 0.017 (minimum 0.934) against
-0.951 ± 0.032 (minimum 0.861); juiciness unchanged within noise. The
-schedules themselves are nearly identical — under this posterior the hedge
-is in the two event times, not the vents.
+schedule. The fast plan is knife-edged under parameter uncertainty: on the
+held-out draws it scores J 5.3 ± 9.6 (worst 54) with doneness 0.91 ± 0.11
+(minimum 0.59). The hedge moves the wrap earlier (7.06 → 6.66 h), the pull
+1.8 h later (8.39 → 10.20 h) and reopens the vents after 9 h, for
+J 1.81 ± 0.60 (worst 4.1) and doneness 0.975 ± 0.031 (minimum 0.86) —
+the robust cook gives up a little nominal quality to never serve a tough
+brisket.
 
 **The bark model** (`figures/bark_model.png`): Maillard browning (first-order
 in lightness, Arrhenius × a water-activity bell via a smooth sorption isotherm)

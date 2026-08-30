@@ -1,8 +1,8 @@
-Tesseract: μ and J (230, 15) at map_real.json (31 s incl. compile)
-potential at map_real.json: 266.54  |grad| 3.04
-Gauss-Newton Hessian eigenvalues: min 0.796  max 1.69e+05
-sd(z): {'C_th': 0.366, 'D_eff': 0.403, 'L': 0.11, 'UA': 0.261, 'a0': 0.434, 'a_myosin': 0.308, 'dH_eff': 0.255, 'h_c': 0.256, 'k_e': 0.449, 'k_m': 0.158, 'k_mult': 0.235, 'k_spread': 0.529, 'm_conv': 0.637, 'r_max': 0.152, 'rho_core': 1.111, 'rho_pit': 0.658, 'sigma_core': 0.253, 'sigma_pit': 0.865, 'u_leak': 0.298}
-newton step rejected (268.67 > 266.54); centred at the MAP
+Tesseract: μ and J (230, 15) at map_real.json (28 s incl. compile)
+potential at map_real.json: 260.52  |grad| 6.9
+Gauss-Newton Hessian eigenvalues: min 0.999  max 1.68e+05
+sd(z): {'C_th': 0.358, 'D_eff': 0.338, 'L': 0.112, 'UA': 0.265, 'a0': 0.473, 'a_myosin': 0.337, 'dH_eff': 0.259, 'h_c': 0.231, 'k_e': 0.476, 'k_m': 0.165, 'k_mult': 0.219, 'k_spread': 0.597, 'm_conv': 0.633, 'r_max': 0.156, 'rho_core': 0.966, 'rho_pit': 0.6, 'sigma_core': 0.243, 'sigma_pit': 0.779, 'u_leak': 0.313}
+newton step rejected (262.27 > 260.52); centred at the MAP
 wrote laplace_samples_real.npz (400 draws), laplace_mean_real.json
-posterior sd / mean: {'C_th': 0.386, 'D_eff': 0.44, 'L': 0.11, 'UA': 0.263, 'a0': 0.026, 'a_myosin': 0.291, 'dH_eff': 0.258, 'h_c': 0.259, 'k_e': 0.47, 'k_m': 0.158, 'k_mult': 0.237, 'k_spread': 0.591, 'm_conv': 0.273, 'r_max': 0.159, 'rho_core': 0.011, 'rho_pit': 0.091, 'sigma_core': 0.257, 'sigma_pit': 1.018, 'u_leak': 0.177}
+posterior sd / mean: {'C_th': 0.377, 'D_eff': 0.364, 'L': 0.113, 'UA': 0.268, 'a0': 0.024, 'a_myosin': 0.323, 'dH_eff': 0.263, 'h_c': 0.236, 'k_e': 0.504, 'k_m': 0.165, 'k_mult': 0.22, 'k_spread': 0.667, 'm_conv': 0.293, 'r_max': 0.164, 'rho_core': 0.008, 'rho_pit': 0.081, 'sigma_core': 0.245, 'sigma_pit': 0.906, 'u_leak': 0.181}
 wrote figures/corner_laplace_real.png, figures/posterior_predictive_laplace_real.png

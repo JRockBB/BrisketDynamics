@@ -39,19 +39,19 @@ Jacobian one chunked pass — so tesseract-jax gives JAX both reverse and forwar
 mode through the same interface.
 
 The derivatives do real work. A Gauss–Newton MAP on a digitized real 19-hour
-overnight cook (18.5" WSM) converges from the prior medians in 17 iterations
-and about two minutes, tracking the pit hold to ~1.3 K rms and reproducing
+overnight cook (18.5" WSM) converges from the prior medians in 14 iterations
+and under two minutes, tracking the pit hold to ~1.3 K rms and reproducing
 the core's rise, stall and break; the Fisher information from the same
 Jacobian — the curvature a finite-difference Hessian cannot resolve at that
 optimum — shows which physics the data pins (the meat's) and which it identifies only along
 ridges (the pit's: heat loss vs heat release, burn rate vs leak). The plan —
 cook length, wrap time, pull time and vent schedule optimized jointly against
-a KCBS-weighted quality objective scored at serve — lands on a 20 h cook that
-wraps at 8.1 h and pulls at 18.4 h, with no fuel added and no spritzing. Receding-horizon MPC replans the
+a KCBS-weighted quality objective scored at serve — lands on an 11 h cook that
+wraps at 7.1 h and pulls at 8.4 h, with no fuel added and no spritzing. Receding-horizon MPC replans the
 schedule, the wrap, the pull, the chimney and the spritz policy hourly from
 the full meat field; hit with a
 15 K cold front it has never seen, it re-times the crutch and the pull and
-serves at doneness 0.964 where the open-loop plan ends at 0.54.
+serves at doneness 0.945 where the open-loop plan ends at 0.57.
 
 Everything — the three-level finite-difference verification, the deadlocks
 found and fixed in the Julia↔JAX threading, the model's deficiencies
@@ -121,11 +121,11 @@ gives `jax.grad` for Optax/NUTS and `jacfwd` for Gauss–Newton through the same
 interface.
 
 **What the derivatives do.** Gauss–Newton MAP on the real cook from the prior
-medians in 17 iterations / 136 s; a Laplace on the Gauss–Newton curvature
+medians in 14 iterations / 103 s; a Laplace on the Gauss–Newton curvature
 (a finite-difference Hessian is indefinite there); a duration × wrap × pull ×
 chimney × spritz × vent plan scored at serve (13 cook
-lengths in 59 min); receding-horizon MPC replanning vents, crutch, pull, chimney and spritz
-hourly (4 cooks in 43 min) that absorbs a 15 K cold front the open-loop plan
+lengths in 95 min); receding-horizon MPC replanning vents, crutch, pull, chimney and spritz
+hourly (4 cooks in 68 min) that absorbs a 15 K cold front the open-loop plan
 does not survive; robust control over posterior draws.
 
 **Notes that might be useful to others building Julia Tesseracts:**

@@ -176,7 +176,7 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
 
     cooks = (ref, ol, mp0, mp)
     shorts = ("ref", "OL", "MPC₀", "MPC")
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5.4))
+    fig, axes = plt.subplots(1, 3, figsize=(15, 6.0))
     for r, (name, ls, color) in zip(cooks, SERIES, strict=True):
         axes[0].plot(r["t"] / HR, r["tcore"] - 273.15, ls, color=color, label=name)
         axes[1].plot(r["t"] / HR, r["tpit"] - 273.15, ls, color=color, label=name)
@@ -291,17 +291,6 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
                 color=color,
                 bbox={"fc": "white", "ec": "none", "alpha": 0.8, "pad": 1},
             )
-    if not any(_fired_spritz(r) for r in cooks):
-        axes[2].text(
-            0.02,
-            0.97,
-            "no spritzing",
-            transform=axes[2].transAxes,
-            ha="left",
-            va="top",
-            fontsize=8,
-            color="0.4",
-        )
     axes[0].set(xlabel="time [h]", ylabel="core [°C]")
     axes[1].set(xlabel="time [h]", ylabel="pit [°C]", title="pit temperature")
     axes[2].set(
@@ -328,18 +317,25 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
         + (f" — and re-times the {' and '.join(moved)}" if moved else ""),
         y=0.985,
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.78))
+    fig.tight_layout(rect=(0, 0, 1, 0.74))
     # one self-contained column per series, colored like the traces
     for i, (r, (name, _ls, color)) in enumerate(zip(cooks, SERIES, strict=True)):
         tp = r.get("t_pull_exec_abs")
+        ta, ts = r.get("t_add_exec_abs"), r.get("t_spritz_exec_abs")
         fig.text(
             0.14 + i * 0.24,
-            0.80,
+            0.765,
             f"{name}\n"
             f"J = {r['J_executed']['J']:.2f}\n"
             f"doneness  {r['doneness']:.2f}\n"
             f"juiciness  {r['juiciness']:.2f}"
-            + (f"\npull  {tp / HR:.1f} h" if tp is not None else ""),
+            + (f"\npull  {tp / HR:.1f} h" if tp is not None else "")
+            + (f"\nchimney  {ta / HR:.1f} h" if _fired_add(r) else "\nchimney  none")
+            + (
+                f"\nspritz  from {ts / HR:.1f} h, every {(r.get('dt_spritz') or 0.0) / 60:.0f} min"
+                if _fired_spritz(r)
+                else "\nspritz  none"
+            ),
             ha="center",
             va="bottom",
             fontsize=8,

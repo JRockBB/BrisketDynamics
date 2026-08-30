@@ -187,6 +187,14 @@ and which item above closes it.
   at the wrap and the pull. (item 4: scale)
 - **Multi-meat.** Identical briskets sharing the pit's heat and vapor; no
   shielding, stacking or grate-position differences. (item 9)
+- **Water budget.** The calibrated real cook ends with 4 % of its water
+  retained: holding the 10 h stall against the fitted heat input
+  (\(h_c \approx 12\) W/m²K plus black-enclosure radiation, ~750 W/m²)
+  takes ~0.3 g/m²/s of evaporation, ~11 kg/m² per face, against the
+  14.5 kg/m² a 3.9 cm slab holds; a real flat loses ~40 %. Either the
+  heat input to the meat is ~2× too high or the slab is thermally thin
+  for the water it carries. The scale settles it (item 4); the old
+  moisture switch hid this by capping surface loss.
 - **Purge sink.** Softplus still removes \(\sim k_e \delta_e \ln 2\) water
   at \(W = W_{\mathrm{eq}}\); the calibrated \(k_e\) absorbs the offset.
 - **Shrinkage.** Isotropic (`n_shrink = 1/3`); the anisotropy is a config

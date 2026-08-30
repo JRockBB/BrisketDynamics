@@ -73,3 +73,28 @@ START-C Fri 08/28/2026  3:42:09.08
 [2026-08-30 12:11:01] end control exit 0
 [Sun 08/30/2026 13:22:42.41] end nuts_mono chain 0 exit 0 
 [Sun 08/30/2026 13:54:28.68] end nuts_mono chain 1 exit 0 
+[2026-08-30 13:59:49] start gn_map
+[2026-08-30 14:01:35] end gn_map exit 0
+[2026-08-30 14:01:35] start laplace
+[2026-08-30 14:02:50] end laplace exit 0
+[2026-08-30 14:02:50] start fit_figs
+[Sun 08/30/2026 14:03:08.17] start nuts_mono chain 0 
+[Sun 08/30/2026 14:03:28.19] start nuts_mono chain 1 
+[2026-08-30 14:05:58] end fit_figs exit 0
+[2026-08-30 14:05:58] start fullplan
+[2026-08-30 15:41:30] end fullplan exit 0
+[2026-08-30 15:41:30] start mpc
+[2026-08-30 16:50:00] end mpc exit 0
+[2026-08-30 16:50:00] start robust
+[2026-08-30 17:16:36] end robust exit 0
+[2026-08-30 17:16:36] start vi
+[2026-08-30 17:18:05] end vi exit 0
+[2026-08-30 17:18:05] start map_synth
+[2026-08-30 17:22:37] end map_synth exit 0
+[2026-08-30 17:22:37] start control
+[2026-08-30 17:24:34] end control exit 0
+[2026-08-30 17:24:34] regeneration done
+[2026-08-30 17:24:49] start vi
+[2026-08-30 17:46:40] end vi exit 0
+[2026-08-30 17:48:45] start fullplan_check
+[2026-08-30 18:13:37] end fullplan_check exit 0

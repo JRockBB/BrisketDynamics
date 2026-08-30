@@ -1,99 +1,62 @@
 plant: map_real.json
 using plan fullplan_result.json
-plan under defense: the 20 h cook — wrap at 8.15 h, pull at 18.44 h, chimney at 20.00 h, spritz every 70 min from 18.69 h, serve at 20.0 h, u in [0.00, 1.00]
+plan under defense: the 11 h cook — wrap at 7.06 h, pull at 8.39 h, no chimney, no spritz, serve at 11.0 h, u in [0.01, 0.95]
 reference (no disturbance):
-  [openloop] t= 1.0 h  Tpit=124.8 C  core= 48.0 C  C=0.000  u~0.67  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 2.0 h  Tpit=107.9 C  core= 70.1 C  C=0.009  u~0.11  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 3.0 h  Tpit=101.6 C  core= 70.7 C  C=0.035  u~0.01  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 4.0 h  Tpit=106.8 C  core= 70.6 C  C=0.058  u~0.08  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 5.0 h  Tpit=112.0 C  core= 72.4 C  C=0.084  u~0.15  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 6.0 h  Tpit=117.1 C  core= 74.1 C  C=0.120  u~0.19  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 7.0 h  Tpit=123.4 C  core= 76.3 C  C=0.167  u~0.26  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 8.0 h  Tpit=116.4 C  core= 76.9 C  C=0.226  u~0.18  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 9.0 h  Tpit=105.3 C  core= 80.8 C  C=0.297  u~0.02  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=10.0 h  Tpit=102.2 C  core= 84.0 C  C=0.421  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=11.0 h  Tpit=101.5 C  core= 85.1 C  C=0.556  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=12.0 h  Tpit=101.4 C  core= 85.6 C  C=0.671  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=13.0 h  Tpit=101.4 C  core= 85.9 C  C=0.761  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=14.0 h  Tpit=101.3 C  core= 86.0 C  C=0.828  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=15.0 h  Tpit=101.3 C  core= 86.0 C  C=0.877  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=16.0 h  Tpit=101.0 C  core= 86.0 C  C=0.912  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=17.0 h  Tpit=100.2 C  core= 85.9 C  C=0.936  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=18.0 h  Tpit=100.4 C  core= 85.7 C  C=0.954  u~0.04  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=20.0 h  Tpit= 75.2 C  core= 71.4 C  C=0.966  u~0.01  T_amb=27 C  T_amb_hat=26.9±5.0 C  PULLED at 18.44 h -> rest  SPRITZ from 18.69 h every 70 min, 56 g/m²
+  [openloop] t= 1.0 h  Tpit=117.9 C  core= 47.2 C  C=0.000  u~0.61  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 2.0 h  Tpit=107.5 C  core= 68.6 C  C=0.007  u~0.12  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 3.0 h  Tpit=101.3 C  core= 69.8 C  C=0.028  u~0.01  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 4.0 h  Tpit=103.7 C  core= 69.4 C  C=0.047  u~0.05  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 5.0 h  Tpit=129.0 C  core= 73.2 C  C=0.071  u~0.34  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 6.0 h  Tpit=163.5 C  core= 86.4 C  C=0.185  u~0.78  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 7.0 h  Tpit=139.9 C  core= 93.3 C  C=0.649  u~0.44  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 8.0 h  Tpit=112.7 C  core= 93.8 C  C=0.873  u~0.05  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=11.0 h  Tpit=102.6 C  core= 67.6 C  C=0.957  u~0.00  T_amb=27 C  T_amb_hat=26.9±5.0 C  PULLED at 8.39 h -> rest
 open-loop through the cold front:
-  [openloop] t= 1.0 h  Tpit=124.8 C  core= 48.0 C  C=0.000  u~0.67  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 2.0 h  Tpit=107.9 C  core= 70.1 C  C=0.009  u~0.11  T_amb=27 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 3.0 h  Tpit= 90.6 C  core= 68.3 C  C=0.031  u~0.01  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 4.0 h  Tpit= 93.4 C  core= 65.6 C  C=0.043  u~0.08  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 5.0 h  Tpit= 98.1 C  core= 66.6 C  C=0.053  u~0.15  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 6.0 h  Tpit=103.1 C  core= 68.2 C  C=0.066  u~0.19  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 7.0 h  Tpit=109.3 C  core= 70.4 C  C=0.085  u~0.26  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 8.0 h  Tpit=102.2 C  core= 71.1 C  C=0.109  u~0.18  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t= 9.0 h  Tpit= 90.8 C  core= 73.6 C  C=0.137  u~0.02  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=10.0 h  Tpit= 87.4 C  core= 75.4 C  C=0.180  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=11.0 h  Tpit= 86.7 C  core= 75.9 C  C=0.228  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=12.0 h  Tpit= 86.6 C  core= 76.1 C  C=0.275  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=13.0 h  Tpit= 86.5 C  core= 76.1 C  C=0.320  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=14.0 h  Tpit= 86.5 C  core= 76.2 C  C=0.363  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=15.0 h  Tpit= 86.4 C  core= 76.2 C  C=0.403  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=16.0 h  Tpit= 86.1 C  core= 76.1 C  C=0.440  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=17.0 h  Tpit= 85.3 C  core= 75.9 C  C=0.475  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=18.0 h  Tpit= 85.5 C  core= 75.8 C  C=0.506  u~0.04  T_amb=12 C  T_amb_hat=26.9±5.0 C
-  [openloop] t=20.0 h  Tpit= 60.2 C  core= 64.4 C  C=0.538  u~0.01  T_amb=12 C  T_amb_hat=26.9±5.0 C  PULLED at 18.44 h -> rest  SPRITZ from 18.69 h every 70 min, 56 g/m²
+  [openloop] t= 1.0 h  Tpit=117.9 C  core= 47.2 C  C=0.000  u~0.61  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 2.0 h  Tpit=107.5 C  core= 68.6 C  C=0.007  u~0.12  T_amb=27 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 3.0 h  Tpit= 90.4 C  core= 67.3 C  C=0.025  u~0.01  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 4.0 h  Tpit= 90.4 C  core= 64.4 C  C=0.035  u~0.05  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 5.0 h  Tpit=115.3 C  core= 67.5 C  C=0.044  u~0.34  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 6.0 h  Tpit=149.5 C  core= 80.3 C  C=0.090  u~0.78  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 7.0 h  Tpit=125.6 C  core= 84.1 C  C=0.278  u~0.44  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t= 8.0 h  Tpit= 98.0 C  core= 84.9 C  C=0.435  u~0.05  T_amb=12 C  T_amb_hat=26.9±5.0 C
+  [openloop] t=11.0 h  Tpit= 87.6 C  core= 63.0 C  C=0.574  u~0.00  T_amb=12 C  T_amb_hat=26.9±5.0 C  PULLED at 8.39 h -> rest
 MPC, NO disturbance (discriminator: plan-refinement vs weather):
-  [mpc] t= 1.0 h  Tpit=120.9 C  core= 47.0 C  C=0.000  u~0.63  T_amb=27 C  T_amb_hat=26.9±2.2 C
-  [mpc] t= 2.0 h  Tpit=103.3 C  core= 67.1 C  C=0.006  u~0.01  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t= 3.0 h  Tpit=100.0 C  core= 69.2 C  C=0.023  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t= 4.0 h  Tpit=104.6 C  core= 69.8 C  C=0.042  u~0.06  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t= 5.0 h  Tpit=111.5 C  core= 72.0 C  C=0.066  u~0.15  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t= 6.0 h  Tpit=117.7 C  core= 74.2 C  C=0.101  u~0.20  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t= 7.0 h  Tpit=124.2 C  core= 76.7 C  C=0.152  u~0.28  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t= 8.0 h  Tpit=115.5 C  core= 76.9 C  C=0.215  u~0.16  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t= 9.0 h  Tpit=104.4 C  core= 81.1 C  C=0.290  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=10.0 h  Tpit=102.0 C  core= 83.9 C  C=0.416  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=11.0 h  Tpit=101.5 C  core= 85.1 C  C=0.551  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=12.0 h  Tpit=101.4 C  core= 85.6 C  C=0.667  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=13.0 h  Tpit=101.4 C  core= 85.8 C  C=0.757  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=14.0 h  Tpit=101.4 C  core= 86.0 C  C=0.825  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=15.0 h  Tpit=101.3 C  core= 86.0 C  C=0.875  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=16.0 h  Tpit=101.1 C  core= 86.0 C  C=0.910  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=17.0 h  Tpit=100.6 C  core= 85.9 C  C=0.935  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=18.0 h  Tpit=100.6 C  core= 85.7 C  C=0.953  u~0.03  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t=20.0 h  Tpit= 78.8 C  core= 72.0 C  C=0.967  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C  PULLED at 18.47 h -> rest  SPRITZ from 18.69 h every 70 min, 56 g/m²
+  [mpc] t= 1.0 h  Tpit=116.2 C  core= 47.1 C  C=0.000  u~0.59  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 2.0 h  Tpit=102.8 C  core= 66.5 C  C=0.005  u~0.03  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t= 3.0 h  Tpit= 99.5 C  core= 68.5 C  C=0.020  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t= 4.0 h  Tpit=100.8 C  core= 68.5 C  C=0.037  u~0.02  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t= 5.0 h  Tpit=129.7 C  core= 72.4 C  C=0.057  u~0.34  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t= 6.0 h  Tpit=165.6 C  core= 87.0 C  C=0.182  u~0.84  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t= 7.0 h  Tpit=132.6 C  core= 90.7 C  C=0.612  u~0.34  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t= 8.0 h  Tpit=108.7 C  core= 91.2 C  C=0.800  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t= 9.0 h  Tpit=104.5 C  core= 90.4 C  C=0.903  u~0.01  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t=11.0 h  Tpit=102.6 C  core= 73.2 C  C=0.945  u~0.00  T_amb=27 C  T_amb_hat=26.9±2.0 C  PULLED at 9.31 h -> rest  SPRITZ from 9.90 h every 60 min, 50 g/m²
 MPC through the cold front:
-  [mpc] t= 1.0 h  Tpit=120.9 C  core= 47.0 C  C=0.000  u~0.63  T_amb=27 C  T_amb_hat=26.9±2.2 C
-  [mpc] t= 2.0 h  Tpit=103.3 C  core= 67.1 C  C=0.006  u~0.01  T_amb=27 C  T_amb_hat=26.9±2.0 C
-  [mpc] t= 3.0 h  Tpit= 89.0 C  core= 66.7 C  C=0.020  u~0.00  T_amb=12 C  T_amb_hat=16.9±2.0 C
-  [mpc] t= 4.0 h  Tpit= 94.5 C  core= 65.2 C  C=0.030  u~0.10  T_amb=12 C  T_amb_hat=13.6±2.0 C
-  [mpc] t= 5.0 h  Tpit=111.2 C  core= 69.6 C  C=0.043  u~0.33  T_amb=12 C  T_amb_hat=12.4±2.0 C
-  [mpc] t= 6.0 h  Tpit=120.8 C  core= 73.3 C  C=0.071  u~0.38  T_amb=12 C  T_amb_hat=12.1±2.0 C
-  [mpc] t= 7.0 h  Tpit=139.7 C  core= 80.1 C  C=0.137  u~0.64  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t= 8.0 h  Tpit=104.8 C  core= 85.8 C  C=0.311  u~0.10  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t= 9.0 h  Tpit= 94.9 C  core= 85.1 C  C=0.499  u~0.05  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=10.0 h  Tpit= 97.9 C  core= 83.9 C  C=0.611  u~0.11  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=11.0 h  Tpit= 99.2 C  core= 84.1 C  C=0.694  u~0.13  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=12.0 h  Tpit= 99.5 C  core= 84.4 C  C=0.762  u~0.13  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=13.0 h  Tpit= 99.7 C  core= 84.7 C  C=0.817  u~0.13  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=14.0 h  Tpit= 96.5 C  core= 84.4 C  C=0.860  u~0.10  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=15.0 h  Tpit= 93.8 C  core= 83.1 C  C=0.889  u~0.07  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=16.0 h  Tpit=107.5 C  core= 84.1 C  C=0.910  u~0.28  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=17.0 h  Tpit=108.6 C  core= 89.5 C  C=0.940  u~0.68  T_amb=12 C  T_amb_hat=11.9±2.0 C
-  [mpc] t=20.0 h  Tpit= 21.9 C  core= 65.7 C  C=0.964  u~0.09  T_amb=12 C  T_amb_hat=11.9±2.0 C  PULLED at 17.29 h -> rest  SPRITZ from 18.69 h every 70 min, 56 g/m²
-  crutch executed at 7.07 h (replanned 8x, 8 wrap candidates logged)
-  pull executed at 17.29 h (plan 18.44 h; 18 pull candidates logged), served at 20.0 h
-  reference: J=1.174  doneness 0.966 (band 0.9-0.95)  juiciness 0.443  L* 36.2  smoke 0.78  pull 18.44 h  spritz from 18.69 h every 70 min
-    components: {'appearance': 0.2743193528465427, 'taste': 0.7309084531355919, 'tenderness': 0.059575851683346885, 'surf': 4.548968086820882e-05, 'fuel': 0.09150817249943544, 'smooth': 0.0037479204248150842, 'safety': 0.01408923776033553, 'J': 1.1741944780309357}
-    safety: surface F=6.44e+08s dwell=0.92h; core F=6.39e+08s dwell=1.34h; ok=True
-  open-loop: J=16.935  doneness 0.538 (band 0.9-0.95)  juiciness 0.539  L* 39.4  smoke 0.78  pull 18.44 h  spritz from 18.69 h every 70 min
-    components: {'appearance': 1.07911499091961, 'taste': 0.5108372890348479, 'tenderness': 15.222883259917475, 'surf': 2.805907552779083e-09, 'fuel': 0.09150791841780806, 'smooth': 0.0037479204248150842, 'safety': 0.026641622701762638, 'J': 16.934733004222227}
-    safety: surface F=1.71e+07s dwell=1.12h; core F=1.69e+07s dwell=1.49h; ok=True
-  MPC-nominal: J=1.167  doneness 0.967 (band 0.9-0.95)  juiciness 0.475  L* 36.6  smoke 0.77  pull 18.47 h  spritz from 18.69 h every 70 min
-    components: {'appearance': 0.34010707193808065, 'taste': 0.6500303605372693, 'tenderness': 0.06010777009585215, 'surf': 4.583125873810972e-05, 'fuel': 0.09076280404577136, 'smooth': 0.004406673116112778, 'safety': 0.021739220267331487, 'J': 1.1671997312591558}
-    safety: surface F=6.49e+08s dwell=1.00h; core F=6.43e+08s dwell=1.45h; ok=True
-  MPC: J=1.181  doneness 0.964 (band 0.9-0.95)  juiciness 0.515  L* 37.1  smoke 0.77  pull 17.29 h  spritz from 18.69 h every 70 min
-    components: {'appearance': 0.4299076839877308, 'taste': 0.5573164607507216, 'tenderness': 0.05256893964670437, 'surf': 0.0002061743750690349, 'fuel': 0.09723034703545641, 'smooth': 0.010370934946631761, 'safety': 0.03340651213507997, 'J': 1.181007052877394}
-    safety: surface F=7.05e+08s dwell=1.13h; core F=6.7e+08s dwell=1.56h; ok=True
+  [mpc] t= 1.0 h  Tpit=116.2 C  core= 47.1 C  C=0.000  u~0.59  T_amb=27 C  T_amb_hat=26.9±2.2 C
+  [mpc] t= 2.0 h  Tpit=102.8 C  core= 66.5 C  C=0.005  u~0.03  T_amb=27 C  T_amb_hat=26.9±2.0 C
+  [mpc] t= 3.0 h  Tpit= 88.6 C  core= 65.9 C  C=0.018  u~0.00  T_amb=12 C  T_amb_hat=17.0±2.0 C
+  [mpc] t= 4.0 h  Tpit= 97.9 C  core= 65.6 C  C=0.027  u~0.17  T_amb=12 C  T_amb_hat=13.6±2.0 C
+  [mpc] t= 5.0 h  Tpit=137.2 C  core= 73.0 C  C=0.044  u~0.61  T_amb=12 C  T_amb_hat=12.5±2.0 C
+  [mpc] t= 6.0 h  Tpit=164.0 C  core= 87.3 C  C=0.186  u~0.94  T_amb=12 C  T_amb_hat=12.1±2.0 C
+  [mpc] t= 7.0 h  Tpit=127.9 C  core= 91.0 C  C=0.613  u~0.44  T_amb=12 C  T_amb_hat=11.9±2.0 C
+  [mpc] t= 8.0 h  Tpit=104.3 C  core= 90.6 C  C=0.810  u~0.09  T_amb=12 C  T_amb_hat=11.9±2.0 C
+  [mpc] t= 9.0 h  Tpit=109.8 C  core= 90.0 C  C=0.899  u~0.22  T_amb=12 C  T_amb_hat=11.9±2.0 C
+  [mpc] t=11.0 h  Tpit= 88.9 C  core= 73.8 C  C=0.945  u~0.01  T_amb=12 C  T_amb_hat=11.9±2.0 C  PULLED at 9.38 h -> rest  SPRITZ from 9.91 h every 60 min, 50 g/m²
+  crutch executed at 6.84 h (replanned 7x, 7 wrap candidates logged)
+  pull executed at 9.38 h (plan 8.39 h; 10 pull candidates logged), served at 11.0 h
+  reference: J=1.093  doneness 0.957 (band 0.9-0.95)  juiciness 0.376  L* 32.7  smoke 0.69  pull 8.39 h  no chimney  no spritz
+    components: {'appearance': 0.026247134923645797, 'taste': 0.9063002631197835, 'tenderness': 0.04109499801036322, 'surf': 0.04225750303093642, 'fuel': 0.05146771833088712, 'smooth': 0.007927877578398993, 'safety': 0.018139324062109045, 'J': 1.093434819056124}
+    safety: surface F=3.43e+09s dwell=0.95h; core F=3.04e+09s dwell=1.41h; ok=True
+  open-loop: J=14.140  doneness 0.574 (band 0.9-0.95)  juiciness 0.443  L* 39.1  smoke 0.74  pull 8.39 h  no chimney  no spritz
+    components: {'appearance': 0.951183147940092, 'taste': 0.7205055452233146, 'tenderness': 12.369357543256408, 'surf': 8.948012809510815e-06, 'fuel': 0.051467515302771744, 'smooth': 0.007927877578398993, 'safety': 0.03964574867865921, 'J': 14.140096325992454}
+    safety: surface F=1.19e+08s dwell=1.21h; core F=1.08e+08s dwell=1.59h; ok=True
+  MPC-nominal: J=1.070  doneness 0.945 (band 0.9-0.95)  juiciness 0.387  L* 33.8  smoke 0.69  pull 9.31 h  no chimney  no spritz
+    components: {'appearance': 0.06026356563061738, 'taste': 0.873484426740561, 'tenderness': 0.0385011785319202, 'surf': 0.008512627752947036, 'fuel': 0.05422322184187356, 'smooth': 0.010331901768221699, 'safety': 0.02429519008608863, 'J': 1.0696121123522295}
+    safety: surface F=1.98e+09s dwell=0.99h; core F=1.76e+09s dwell=1.49h; ok=True
+  MPC: J=1.067  doneness 0.945 (band 0.9-0.95)  juiciness 0.395  L* 34.0  smoke 0.71  pull 9.38 h  no chimney  no spritz
+    components: {'appearance': 0.06822651763928435, 'taste': 0.8490223696152083, 'tenderness': 0.03856474500328871, 'surf': 0.007266650753990512, 'fuel': 0.060041970667305634, 'smooth': 0.010760895493351434, 'safety': 0.033198904431707955, 'J': 1.0670820536041368}
+    safety: surface F=1.9e+09s dwell=1.07h; core F=1.7e+09s dwell=1.56h; ok=True
 wrote data\control\mpc_result_traces.npz
 wrote figures/mpc_demo.png
 replot: uv run python -u ../scripts/run_mpc.py --replot --out mpc_result.json --figure mpc_demo.png

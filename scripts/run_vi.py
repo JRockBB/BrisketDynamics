@@ -14,6 +14,7 @@ Writes:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import pickle
@@ -109,7 +110,10 @@ def main():
 
     rng = jax.random.PRNGKey(args.seed)
     step0 = 0
-    sites = [n for n, _ in calibrate.THETA_SITES]  # a model change starts fresh
+    # a change in the latent set or in the MAP the run is built on (a new
+    # calibration of new physics) starts fresh
+    sites = [n for n, _ in calibrate.THETA_SITES]
+    init_stamp = hashlib.sha1(map_file.read_bytes()).hexdigest() if map_file.exists() else ""
     if state_file.exists() and meta_file.exists():
         meta = json.loads(meta_file.read_text())
         old = dict(meta.get("config") or {})
@@ -119,6 +123,7 @@ def main():
             == {k: v for k, v in new.items() if k != "steps"}
             and old.get("steps", -1) <= new["steps"]
             and meta.get("sites") == sites
+            and meta.get("init") == init_stamp
         )
         if same:
             svi.init(rng)  # builds svi.constrain_fn; the state itself is the checkpoint
@@ -137,7 +142,15 @@ def main():
         with open(state_file, "wb") as f:
             pickle.dump(jax.device_get(st), f)
         meta_file.write_text(
-            json.dumps({"config": vars(args), "sites": sites, "step": i, "done": done})
+            json.dumps(
+                {
+                    "config": vars(args),
+                    "sites": sites,
+                    "init": init_stamp,
+                    "step": i,
+                    "done": done,
+                }
+            )
         )
 
     t0 = time.perf_counter()

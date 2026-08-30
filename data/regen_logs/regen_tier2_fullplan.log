@@ -1,23 +1,20 @@
 band self-check: tenderness overshoot at c=0.9995 -> 0.287 (w_tenderness 0.29 x over_rel 1.0)
 params: map_real.json
 full composition scan: cook length x wrap x pull x schedule
-  cook  8.0 h  J=  1.534  doneness=0.968  juiciness=0.299  (water 0.240)  L*=36.1  ring=1.8mm  wrap@6.11 h  pull@6.53 h  chimney@7.09 h  spritz@7.48 h/70 min/56 g/m²  iters=200 (cap)
-  cook  9.0 h  J=  1.486  doneness=0.961  juiciness=0.291  (water 0.228)  L*=35.7  ring=1.9mm  wrap@6.55 h  pull@6.88 h  chimney@7.70 h  spritz@8.41 h/70 min/56 g/m²  iters=29
-  cook 10.0 h  J=  1.448  doneness=0.963  juiciness=0.293  (water 0.227)  L*=35.4  ring=1.8mm  wrap@6.58 h  pull@7.60 h  chimney@9.54 h  spritz@9.34 h/70 min/56 g/m²  iters=200 (cap)
-  cook 11.0 h  J=  1.416  doneness=0.962  juiciness=0.299  (water 0.231)  L*=35.2  ring=1.8mm  wrap@6.52 h  pull@8.72 h  chimney@10.71 h  spritz@10.28 h/70 min/56 g/m²  iters=200 (cap)
-  cook 12.0 h  J=  1.384  doneness=0.962  juiciness=0.311  (water 0.239)  L*=35.2  ring=1.8mm  wrap@6.40 h  pull@10.15 h  chimney@11.57 h  spritz@11.21 h/70 min/56 g/m²  iters=200 (cap)
-  cook 13.0 h  J=  1.357  doneness=0.962  juiciness=0.324  (water 0.250)  L*=35.3  ring=1.9mm  wrap@6.45 h  pull@11.24 h  chimney@12.87 h  spritz@12.15 h/70 min/56 g/m²  iters=200 (cap)
-  cook 14.0 h  J=  1.330  doneness=0.962  juiciness=0.342  (water 0.267)  L*=35.5  ring=2.0mm  wrap@6.67 h  pull@12.28 h  chimney@13.87 h  spritz@13.08 h/70 min/56 g/m²  iters=200 (cap)
-  cook 15.0 h  J=  1.304  doneness=0.963  juiciness=0.363  (water 0.287)  L*=35.7  ring=2.1mm  wrap@6.97 h  pull@13.29 h  chimney@14.71 h  spritz@14.02 h/70 min/56 g/m²  iters=200 (cap)
-  cook 16.0 h  J=  1.280  doneness=0.964  juiciness=0.383  (water 0.305)  L*=35.9  ring=2.2mm  wrap@7.25 h  pull@14.39 h  chimney@15.81 h  spritz@14.95 h/70 min/56 g/m²  iters=187
-  cook 17.0 h  J=  1.254  doneness=0.965  juiciness=0.409  (water 0.330)  L*=36.2  ring=2.2mm  wrap@7.44 h  pull@15.58 h  chimney@16.98 h  spritz@15.88 h/70 min/56 g/m²  iters=161
-  cook 18.0 h  J=  1.226  doneness=0.965  juiciness=0.432  (water 0.353)  L*=36.4  ring=2.3mm  wrap@7.66 h  pull@16.65 h  chimney@17.99 h  spritz@16.82 h/70 min/56 g/m²  iters=121
-  cook 19.0 h  J=  1.199  doneness=0.966  juiciness=0.450  (water 0.370)  L*=36.5  ring=2.4mm  wrap@7.88 h  pull@17.58 h  chimney@19.00 h  spritz@17.75 h/70 min/56 g/m²  iters=126
-  cook 20.0 h  J=  1.173  doneness=0.966  juiciness=0.465  (water 0.384)  L*=36.6  ring=2.5mm  wrap@8.15 h  pull@18.44 h  chimney@20.00 h  spritz@18.69 h/70 min/56 g/m²  iters=119
-THE COOK: 20 h — wrap at 8.15 h, pull at 18.44 h, rest 1.56 h, serve at 20.0 h — doneness 0.966, juiciness 0.465, bark L* 36.6, smoke ring 2.5 mm
-fuel and water: chimney at 20.00 h; spritz every 70 min from 18.69 h, 56 g/m² a spritz
-safety (soft penalties, not a certification): surface F=6.45e+08s dwell=0.99h; core F=6.39e+08s dwell=1.41h; ok=True
+  cook  8.0 h  J=  1.352  doneness=0.935  juiciness=0.316  (water 0.258)  L*=33.6  ring=2.1mm  wrap@5.67 h  pull@6.94 h  chimney@6.62 h  no spritz  iters=200 (cap)
+  cook  9.0 h  J=  1.136  doneness=0.946  juiciness=0.373  (water 0.312)  L*=33.8  ring=2.2mm  wrap@6.06 h  pull@7.62 h  chimney@7.13 h  no spritz  iters=200 (cap)
+  cook 10.0 h  J=  1.088  doneness=0.941  juiciness=0.389  (water 0.324)  L*=33.7  ring=2.3mm  wrap@6.56 h  pull@7.56 h  no chimney  no spritz  iters=200 (cap)
+  cook 11.0 h  J=  1.071  doneness=0.946  juiciness=0.389  (water 0.321)  L*=33.6  ring=2.4mm  wrap@7.06 h  pull@8.39 h  no chimney  no spritz  iters=200 (cap)
+  cook 12.0 h  J=  1.066  doneness=0.948  juiciness=0.393  (water 0.322)  L*=33.7  ring=2.5mm  wrap@7.49 h  pull@9.08 h  no chimney  no spritz  iters=200 (cap)
+  cook 13.0 h  J=  1.085  doneness=0.951  juiciness=0.383  (water 0.310)  L*=33.5  ring=2.6mm  wrap@8.04 h  pull@10.07 h  no chimney  no spritz  iters=200 (cap)
+  cook 14.0 h  J=  1.115  doneness=0.953  juiciness=0.374  (water 0.299)  L*=33.5  ring=2.7mm  wrap@8.49 h  pull@11.14 h  no chimney  no spritz  iters=200 (cap)
+  cook 15.0 h  J=  1.144  doneness=0.955  juiciness=0.367  (water 0.291)  L*=33.5  ring=2.7mm  wrap@8.88 h  pull@12.24 h  no chimney  no spritz  iters=200 (cap)
+  cook 16.0 h  J=  1.174  doneness=0.956  juiciness=0.360  (water 0.282)  L*=33.6  ring=2.7mm  wrap@9.12 h  pull@13.25 h  no chimney  no spritz  iters=200 (cap)
+  cook 17.0 h  J=  1.210  doneness=0.956  juiciness=0.351  (water 0.273)  L*=33.7  ring=2.7mm  wrap@9.52 h  pull@14.40 h  no chimney  no spritz  iters=200 (cap)
+  cook 18.0 h  J=  1.236  doneness=0.958  juiciness=0.350  (water 0.270)  L*=34.1  ring=2.7mm  wrap@9.63 h  pull@15.55 h  no chimney  no spritz  iters=200 (cap)
+  cook 19.0 h  J=  1.245  doneness=0.961  juiciness=0.365  (water 0.285)  L*=35.0  ring=2.7mm  wrap@9.38 h  pull@16.72 h  no chimney  no spritz  iters=200 (cap)
+  cook 20.0 h  J=  1.232  doneness=0.964  juiciness=0.387  (water 0.306)  L*=35.6  ring=2.6mm  wrap@8.90 h  pull@17.73 h  no chimney  no spritz  iters=200 (cap)
+THE COOK: 11 h — wrap at 7.06 h, pull at 8.39 h, rest 2.61 h, serve at 11.0 h — doneness 0.946, juiciness 0.389, bark L* 33.6, smoke ring 2.4 mm
+fuel and water: no chimney (the load lasts); no spritz
+safety (soft penalties, not a certification): surface F=2.79e+09s dwell=1.01h; core F=2.48e+09s dwell=1.47h; ok=True
 wrote figures/fullplan.png
-Precompiling BrisketDynamics...
-   6606.5 ms  ✓ BrisketDynamics
-  1 dependency successfully precompiled in 11 seconds. 194 already precompiled.

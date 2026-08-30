@@ -819,7 +819,13 @@ def run_cook(
             + (
                 f"  SPRITZ from {t_spritz_exec_abs / HR:.2f} h every "
                 f"{dt_spritz_cur / 60:.0f} min, {1e3 * spritz_dose_cur:.0f} g/m²"
-                if spritzing and t_spritz_exec_abs >= t_seg_start
+                if spritzing
+                and t_spritz_exec_abs >= t_seg_start
+                and t_spritz_exec_abs
+                < min(
+                    t_wrap_exec_abs if t_wrap_exec_abs is not None else np.inf,
+                    t_pull_exec_abs if t_pull_exec_abs is not None else np.inf,
+                )
                 else ""
             )
         )

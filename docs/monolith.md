@@ -33,11 +33,11 @@ End-to-end:
 
 | | wall |
 |---|---|
-| fullplan scan, 13 cook lengths, schedule + wrap + pull each | 59 min |
-| MPC demo, 4 cooks, hourly replans incl. the pull | 43 min total |
-| Gauss–Newton MAP from the prior medians | 136 s |
-| robust control: E[J] over 8 draws, 30 held-out evaluations | 30 min |
-| the whole chain (fullplan → MPC → robust) | 2 h 12 min |
+| fullplan scan, 13 cook lengths, schedule + wrap + pull each | 95 min |
+| MPC demo, 4 cooks, hourly replans incl. the pull | 68 min total |
+| Gauss–Newton MAP from the prior medians | 103 s |
+| robust control: E[J] over 8 draws, 30 held-out evaluations | 27 min |
+| the whole chain (fullplan → MPC → robust) | 3 h 11 min |
 
 | oracle vs monolith | max ΔT_pit | max ΔT_core |
 |---|---|---|
@@ -64,8 +64,8 @@ medians:
 
 | | F = ½‖w‖² − log p(z) | wall |
 |---|---|---|
-| prior medians | 5329 | — |
-| after 17 LM iterations | 139.2 | 136 s |
+| prior medians | 5317 | — |
+| after 14 LM iterations | 133.2 | 103 s |
 
 A finite-difference Hessian of the potential at the optimum (measured on the
 seven-latent fit that preceded the draft-convection latent) is indefinite
