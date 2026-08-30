@@ -23,10 +23,7 @@ load → pit energy balance are integrated together in one stiff solve, so
 there is no coupling truncation. Derivatives are forward-mode through the
 solve: a JVP is one Dual solve, a VJP or full Jacobian one chunked pass —
 which is what makes Gauss–Newton calibration, Fisher covariances and
-second-order control affordable ([docs/monolith.md](docs/monolith.md)). The
-two-Tesseract composition this replaced (meat adjoint + pit Jacobian, K=2
-Picard in JAX) is in the git history; its measured seam cost is in the same
-doc.
+second-order control affordable ([docs/monolith.md](docs/monolith.md)).
 
 ## Results
 

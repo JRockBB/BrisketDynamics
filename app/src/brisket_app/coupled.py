@@ -4,9 +4,7 @@ The single function consumed unchanged by Bayesian calibration (NumPyro)
 and optimal control (Optax).
 
 ``coupled_cook`` is one solve of the monolith Tesseract (pit + meat +
-humidity together, forward-mode derivatives). The two-Tesseract Picard
-composition it replaced is in the git history (docs/monolith.md has the
-measured comparison).
+humidity together, forward-mode derivatives).
 """
 
 from dataclasses import dataclass, field
@@ -100,8 +98,8 @@ def coupled_cook(
 ):
     """Simulate the coupled pit-brisket system in ONE solve, differentiably.
 
-    The monolith Tesseract integrates pit, meat and humidity together (no
-    exchange grid, no Picard truncation) and exposes forward-mode jvp / vjp
+    The monolith Tesseract integrates pit, meat and humidity together as one
+    stiff system (no exchange grid) and exposes forward-mode jvp / vjp
     / jacobian endpoints, so this is differentiable w.r.t. theta, phi,
     u_knots, t_wrap and t_pull through tesseract-jax in both modes.
 

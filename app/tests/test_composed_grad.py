@@ -127,8 +127,8 @@ def test_grad_u(loss_fn, grad_and_args, i):
 
 # --- Texas-crutch wrap time: composed gradient + backward compatibility ---
 # t_wrap = 3 h on the 6 h grid: the blend transitions mid-horizon, so the
-# gradient is live through BOTH the meat adjoint and the pit coupling
-# (suppressed j_evap changes q_meat, which changes the next Picard pass).
+# gradient is live through BOTH the meat and the pit (suppressed j_evap
+# changes q_meat, which feeds back into the pit within the same solve).
 
 
 @pytest.fixture(scope="module")
@@ -200,7 +200,7 @@ def test_bark_smoke_path():
 # --- Rest / carryover: the pull time is a differentiable p-tail entry like
 # t_wrap. t_pull = 4 h on the 6 h grid: the rest boundary condition is live
 # for the last third of the horizon (carryover + continued collagen
-# conversion), and the pit's second Picard pass sees q_meat drop to zero.
+# conversion), and the pit sees q_meat drop to zero.
 
 
 @pytest.fixture(scope="module")

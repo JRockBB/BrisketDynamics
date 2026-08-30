@@ -111,7 +111,7 @@ def test_wrap_continuity_across_segments(clients, theta_phi):
         ics={"tpit0": 293.15, "t_amb": T_AMB, "t0_meat": 281.15},
         t_wrap=t_wrap,
     )
-    # tolerances cover segmentation (per-segment Picard + exchange grids),
+    # tolerances cover segmentation (per-segment solves with a state handoff),
     # NOT wrap discontinuity — the old saturated-constant reset produced
     # multi-K jumps at the joint
     assert float(out["tcore"][-1]) == pytest.approx(
