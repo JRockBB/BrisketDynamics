@@ -200,7 +200,7 @@ and smoke-phenolic deposition (requires a moist surface and smoke flux) as
 surface states; the smoke flux is the pit's exact burn rate, so bark color is
 a genuinely coupled observable and `d(color)/d(damper)` is one of the
 verified gradient paths. Constants are literature-anchored and explicitly
-uncalibrated (`docs/bark_plan.md` specifies the photo experiment). Forward
+uncalibrated (the photo experiment is roadmap item 8). Forward
 validation reproduces pitmaster lore: hot-and-fast Maillard-saturates,
 low-and-slow is smoke-dominated, wrapping freezes bark.
 

@@ -1,45 +1,37 @@
 # Roadmap
 
-What is left. Hackathon due Aug 31, 2026 AoE; everything else is
-post-hackathon. Equations of what already exists: `docs/model.md`.
-Gaps: `docs/model_gaps.md`.
+What is left, what is not modelled, and how the implemented physics is
+still wrong. Equations of what exists: `docs/model.md`. Do not treat
+optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
 
 ## Hackathon
 
-1. **NUTS on the monolith** — `uv run python ../scripts/run_nuts_mono.py
-   --chain N` per chain (Fisher-seeded dense metric, LM-MAP init, progress
-   bar), then `scripts/merge_nuts_mono.py` for split-r̂ / ESS / divergences
-   and the width comparison against Fisher, ADVI and the Gauss–Newton Laplace. Quote the
+1. **NUTS on the monolith** — running (two chains on the tier-2/3 model,
+   `scripts/run_nuts_mono.py --chain N`: Fisher-seeded dense metric, LM-MAP
+   init, checkpoints every five steps). Then `scripts/merge_nuts_mono.py`
+   for split-r̂ / ESS / divergences and the width comparison against
+   Fisher, ADVI and the Gauss–Newton Laplace, robust control on the NUTS
+   draws, and the bracketed status in `docs/writeup.md`. Quote the
    diagnostics as-is. The identifiability claim to check: meat side pinned,
    pit side only along ridges (UA ∝ ΔH_eff, r_max vs u_leak).
 2. **Submission** — post the form / LinkedIn / forum drafts in
    `docs/submission.md`. User-owned: hackathon registration
    (tally.so/r/kdx2ej, required for prize eligibility).
-3. *Stretch, only if 1–2 are done — in this order:*
+3. *Stretch, only if 1–2 are done:*
    1. **Differentiable duration** via \(s = t/t_f\) time-scaling. The
-      outer-scan planner (`fullplan.py`) already chooses
-      duration by cook quality. Remaining: duration as a differentiable
-      decision jointly with the schedule. Formulation: the perfect brisket
-      defines its own time — duration by *pure cook quality* (target
-      doneness, bark, juiciness), no external costs bending it. The serving
-      deadline never changes the cook; it positions the *start*: light the
-      fire (planned duration) before serving, where planned ≥ quality-optimal
-      duration is the shortest with an empirical done-fraction over N
-      posterior draws. The safety margin is one-sided because finishing
-      early is nearly free (the resting hold exists for this). Mid-cook this
-      reduces to pull-when-done (elapsed time is sunk; the live
-      time-decision is the pull), whose t_done = differentiable crossing of
-      the doneness target. A losing cook should extend, not surrender.
-      The pull is a decision variable (`opt_pull`: `t_pull` optimized
-      jointly with the schedule and wrap, quality at serve —
-      `docs/tier1_plan.md` §1); remaining: the MPC pull-when-done state
-      machine (replans keep a fixed horizon and cook to the plan's pull).
-   2. **Multi-chain NUTS-real** — 2–3 short chains from dispersed inits
-      (separate processes); real split-r̂ across chains and a test of
-      whether the pit-ridge mass location is reproducible.
-   3. **Extend synthetic NUTS chain** for better ESS (currently 7–82) from
-      its checkpoint.
-   4. **≤5-min demo video.**
+      outer-scan planner (`run_fullplan.py`) chooses duration by cook
+      quality and the pull is already a decision re-timed by the MPC;
+      remaining: duration as a differentiable decision jointly with the
+      schedule. Formulation: the perfect brisket defines its own time —
+      duration by *pure cook quality* (target doneness, bark, juiciness),
+      no external costs bending it. The serving deadline never changes the
+      cook; it positions the *start*: light the fire (planned duration)
+      before serving, where planned ≥ quality-optimal duration is the
+      shortest with an empirical done-fraction over N posterior draws. The
+      safety margin is one-sided because finishing early is nearly free
+      (the resting hold exists for this). A losing cook should extend, not
+      surrender.
+   2. **≤5-min demo video.**
 
 Out of scope for the hackathon (identifiability-first ethos): CFD smoke,
 2D/3D meat, humidity dynamics without an RH/wet-bulb sensor, bark chemistry
@@ -50,12 +42,11 @@ without calibration data.
 1. **Close the loop for real: MPC as the controller.** Productionize the
    receding-horizon re-planner; integrate with HeaterMeter (open-source fan
    controller — our planner can sit above its PID as the planning layer).
-   The library stops advising and starts piloting. Includes
-   **MPC-with-wrap**: closed-loop replanning of the wrap moment (the crutch
-   is in the leisure-optimal plan at 3.5 h / 17 h — the closed-loop question
-   is re-timing it under disturbances, plus irreversibility once executed).
-   Remaining: wrap irreversibility (`t_wrap` frozen once executed) and
-   pointing the re-planner at a real pit.
+   The library stops advising and starts piloting. The wrap, pull, chimney
+   and spritz events already commit irreversibly once executed; remaining:
+   pointing the re-planner at a real pit, and a weather input — wind and
+   weather on `UA(t)` are unobserved today and land in the MPC's ambient
+   filter as an effective-loss disturbance.
 2. **Reverse mode only when the parameter count demands it.** Forward mode
    is the primary derivative now (one Dual solve per JVP, one chunked pass
    per Jacobian; docs/monolith.md). A discrete adjoint (Enzyme through a
@@ -72,24 +63,29 @@ without calibration data.
 4. **The ~$150 instrument package + data flywheel.** In value order: a
    two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
    meat, no controller — free, and the only way to identify the pit's fast
-   fan-response dynamics, which closed-loop cook logs provably hide); a
-   *scale* (brisket before/after + fuel before/ash after — mass loss is the
-   single most informative missing observable; directly identifies
-   D_eff/k_m and the burn ridge); a second meat probe at known shallow depth
-   (probe depth as a nuisance latent); DIY wet-bulb probe (thermocouple +
-   wick — measures the exact stall-relevant quantity; industrial smokehouse
-   practice) to make humidity an input and retire the p_v,pit confound; IR
-   spot readings of the surface (h_c/k_m separation).
+   fan-response dynamics and the draft exponent \(m_{\mathrm{conv}}\),
+   which closed-loop cook logs provably hide); a *scale* (brisket
+   before/after + fuel before/ash after — mass loss is the single most
+   informative missing observable; directly identifies D_eff/k_m, the
+   shrinkage anisotropy and the burn ridge); a second meat probe at known
+   shallow depth (probe depth as a nuisance latent); DIY wet-bulb probe
+   (thermocouple + wick — measures the exact stall-relevant quantity;
+   industrial smokehouse practice) to make humidity an input and retire
+   the p_v,pit confound; IR spot readings of the surface (h_c/k_m
+   separation); a dome probe through a lid lift and a spritz (the 25 K
+   one-minute transient a one-state pit cannot show).
 5. **Hierarchical multi-cook pooling.** Pit parameters are properties of the
    smoker (pool tightly across cooks); meat parameters are per-brisket
-   (partial pooling → a personal prior over "briskets I buy"). Every logged
-   cook tightens the twin. Designed experiment worth running early: water
-   pan in vs. out, two otherwise-identical cooks, to identify the humidity
-   pathway.
-6. **Wrap-constant calibration.** Calibrate η_evap / ε_wrap against a
-   wrapped cook log — posts document the wrap moment, making the wrap event
-   a known-input step-response experiment — via the two-cook joint fit
-   (pooling, above). Log acquisition is user-owned, like the 2013 log. A
+   (partial pooling → a personal prior over "briskets I buy" — this is
+   where pH, aging and water-holding-capacity variation between animals
+   lives). Every logged cook tightens the twin. Designed experiment worth
+   running early: water pan in vs. out, two otherwise-identical cooks, to
+   identify the humidity pathway.
+6. **Wrap and rest constants.** Calibrate η_evap / ε_wrap against a wrapped
+   cook log — posts document the wrap moment, making the wrap event a
+   known-input step-response experiment — via the two-cook joint fit
+   (pooling, above); the rest constants (cambro / board) against a log that
+   runs past the pull. Log acquisition is user-owned, like the 2013 log. A
    state-triggered wrap ("wrap at 165 °F internal") needs event
    sensitivities — natural in the Dyad/monolith exploration where events
    are first-class.
@@ -111,20 +107,23 @@ without calibration data.
    before and after; mass loss vs salting time is the curve the WHC
    coupling fits. Non-salt rub effects (sugar browning, emissivity, surface
    mass transfer) belong to the bark item below, not here.
-8. **Bark model calibration.** Calibrate against standardized-photo
-   colorimetry (hourly lid-open photos + color card; wrapped/unwrapped pair
-   separates ΔL_S from ΔL_B — plan in `docs/bark_plan.md`). Optionally
-   penetration-force texture. Add **smoke quality** (the "thin blue smoke"
-   variable): clean vs smoldering combustion changes deposition chemistry at
-   the same mass — plausibly a differentiable function of airflow/burn
-   state, making bitterness a controllable output. To our knowledge
-   unpublished territory. (The two-sided mahogany band is already in the
-   objective.)
+8. **Bark model calibration.** The Maillard and smoke states, the pit
+   `mdot` forcing and the wrap-aware \(L^*\) objective are in; the
+   constants are literature scale. Calibrate against standardized-photo
+   colorimetry: hourly lid-open photos with a color card, \(L^*\) read off
+   the calibrated photos, a wrapped/unwrapped pair to separate the smoke
+   term from the Maillard term. Optionally penetration-force texture. Add
+   **smoke quality** (the "thin blue smoke" variable): clean vs smoldering
+   combustion changes deposition chemistry at the same mass — plausibly a
+   differentiable function of airflow/burn state, making bitterness a
+   controllable output. To our knowledge unpublished territory. (The
+   two-sided mahogany band is already in the objective.)
 9. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
    center-line correction (~3× cost, differentiable, cheap taste of 3D);
    full 2D axisymmetric surface model *only* once thermal-camera surface
-   fields exist to calibrate it (also feeds bark distribution / burnt ends).
-   Sensors first, dimensions second.
+   fields exist to calibrate it (also feeds bark distribution / burnt ends,
+   the point-vs-flat split — two muscles of different fat and thickness —
+   and grain direction, which none of a 1D slab can carry).
 10. **Community/product shape.** Publish as a usable open-source stack
     (calibrate-from-your-log CLI, schedule/MPC frontend); write up the bark
     and pooling work properly if the data supports it.
@@ -142,3 +141,85 @@ without calibration data.
     saturated steam kills the stall entirely, the source is an uncontrolled
     thermal discharge, and "control" becomes design (rock mass, seal time) in
     an uninstrumented cooking tradition.
+
+## Not modelled
+
+A homogeneous 1D slab: no point-vs-flat split, no edges or burnt ends, no
+grain direction or slice variance (item 9); no animal-to-animal pH, aging
+or water-holding capacity (item 5); wind and weather on `UA(t)` (item 1);
+rub chemistry beyond salt (items 7, 8); smoke *quality* as opposed to
+smoke mass (item 8).
+
+## Residues of the implemented physics
+
+Not missing features — how the current physics is wrong or uncalibrated,
+and which item above closes it.
+
+- **Food safety.** Lethality and danger-zone dwell on the surface and the
+  core node of a symmetric slab — the cold spot of *this* geometry, not of
+  a point-and-flat; intact-muscle assumption for the surface. The fullplan
+  scan rejects cook lengths whose raw residuals fail; the MPC only
+  penalizes and reports. Not a certification. (item 9)
+- **Condensation.** Ungated two-sided flux with one mass-transfer
+  coefficient both ways, the condensate absorbed into the surface node's
+  water (no film, no run-off); it acts through the dew-point crossing in
+  the first half hour, which no probe in the cook log sees. (item 4:
+  wet-bulb, IR)
+- **Draft convection.** One exponent for heat and mass transfer, the same
+  at every damper position, quoted at a fixed reference draft; the draft
+  velocity is never measured, so \(m_{\mathrm{conv}}\) sits at its prior
+  (identified only through the fan-duty variation of a closed-loop log,
+  on a ridge with \(h_c\)). (item 4: characterization burn)
+- **Smoke ring.** A penetration-depth model, not the chemistry: one
+  effective diffusivity, a denaturation gate at 62 °C, "lit" as the whole
+  dependence on the fire, constants at literature scale with no ring
+  measurement behind them. An output, never a term in the objective.
+  (item 8)
+- **Fuel addition.** One lit chimney of fixed mass over five minutes, at
+  most once per cook; unlit additions are not modelled. (item 1)
+- **Lid lifts.** A lumped-mass energy loss per lift (\(UA_{\mathrm{open}}\)
+  from convective exchange + bed radiation — an estimate, not a
+  measurement); a dome probe's one-minute transient is not something a
+  one-state pit can show. (item 4: dome probe)
+- **Spritz.** One dose, one liquid temperature, one interval per cook; a
+  fixed absorbed fraction (20 %, assumed — with full absorption the planner
+  sprayed its way to juiciness) soaks into the surface node and the rest
+  flashes off within the one-minute pulse: no film state, no run-off; stops
+  at the wrap and the pull. (item 4: scale)
+- **Multi-meat.** Identical briskets sharing the pit's heat and vapor; no
+  shielding, stacking or grate-position differences. (item 9)
+- **Purge sink.** Softplus still removes \(\sim k_e \delta_e \ln 2\) water
+  at \(W = W_{\mathrm{eq}}\); the calibrated \(k_e\) absorbs the offset.
+- **Shrinkage.** Isotropic (`n_shrink = 1/3`); the anisotropy is a config
+  constant, uncalibrated (plausible band 1/3–2/3 — meat shrinks across the
+  fibre first). The lateral share scales the exposed area by the slab
+  *mean* volume; \(\rho c_p\) stays fixed per physical volume; the dry mass
+  lost as drained fat (a few %) is ignored in the metric. Identified by a
+  ruler and a scale, not by the probe. (item 4)
+- **Humidity.** Quasi-steady, small-\(\omega\) vapor balance with
+  literature constants (AFR 20, \(y_w\) 0.28 kg/kg, ambient \(\omega\)
+  0.007, no pan) that only a wet-bulb probe can validate; the air flow is
+  tied to the draft \(g(u)\) rather than measured; the standalone meat
+  solve (no pit) uses a constant 2 kPa. Also an unmodelled confound for
+  the MPC ambient filter. (items 4, 5)
+- **Rest.** A pull blend swaps the surface environment; the rest constants
+  are literature presets (cambro / board), the rest-phase \(k_m\) is the
+  pit value scaled by \(h_r/h_c\), and the blend smears the pull over
+  \(\pm 4\delta_p \approx 20\) min. Nothing here is calibrated — the cook
+  log ends at the pull. Modelled carryover is under 0.5 K; the hold's
+  continued collagen conversion is the large effect, which makes the
+  uncalibrated collagen scale (\(C = 0.90\), `k_ref`) the binding constant
+  for quality at serve. (item 6)
+- **Evaporation.** Moisture-availability sigmoid × soft-clamped vapor
+  deficit; water activity is used for bark, not for \(p_v(T, a_w)\).
+- **Quality scales.** Collagen \(C=0.90\), bark \(k_0\times 5\), \(L^*\)
+  affine map, charcoal-burn smoke proxy, and \(\beta_{\mathrm{fat}}\) are
+  literature or placeholders — not texture or color calibrated. KCBS
+  weights do not make those proxies into judge scores. (item 8)
+- **Likelihood.** Real-cook calibration is AR(1) on contiguous non-lid
+  runs; fan duty is treated as exact, ambient is 300 K, and AR(1) is a
+  discrepancy process, not probe noise. (item 5)
+
+Any new objective term either has physics behind it or names its gap here.
+Audit new quality dimensions against meat science first, not against the
+current state vector.

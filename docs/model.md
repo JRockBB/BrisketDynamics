@@ -380,7 +380,7 @@ uptake). $D_{\mathrm{ring}} = 1.5\cdot10^{-9}$ m²/s (effective, NO-assisted
 — nitrite alone diffuses at $2$–$3\cdot10^{-10}$), $T_{\mathrm{den}} = 62$ °C,
 $r_0 = 0.5$ mm. The physical depth is $r$ times the final stretch
 $l(t_f)/L$. Literature-scale constants with no ring measurement behind
-them (`docs/model_gaps.md`).
+them (`docs/roadmap.md`, *Residues of the implemented physics*).
 
 ## 2. Pit: lumped 3-state ODE
 

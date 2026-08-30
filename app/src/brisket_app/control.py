@@ -47,7 +47,7 @@ class ControlConfig:
     and the food-safety constraints. Every weight and band is a plain field:
     a different preference is a different config, not a different mode.
 
-    HONEST TAXONOMY (docs/model_gaps.md is the standing audit):
+    HONEST TAXONOMY (docs/roadmap.md lists the gaps and residues):
       tenderness — mechanistic proxy: collagen conversion IS the physics of
         probe-tender; the C = 0.90 scale is literature kinetics,
         uncalibrated against texture data. Two-sided band: undershoot =
@@ -382,7 +382,7 @@ def objective(
         + jax.nn.softplus((S_end - cc.s_smoke_hi) / cc.ds_soft) ** 2
     )
     # dryness now uses perceptual juiciness (water + rendered fat) —
-    # moisture_plan.md; w_retained remains available for the scale story
+    # docs/model.md; w_retained remains available for the scale story
     taste = smoke_band + cc.w_dry * (1.0 - sim["juiciness"]) ** 2
 
     # operational terms; fuel normalized by the FIXED reference load so

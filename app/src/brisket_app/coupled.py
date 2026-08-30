@@ -23,7 +23,7 @@ HR = 3600.0
 
 @dataclass(frozen=True)
 class Humidity:
-    """Pit vapor balance (docs/tier1_plan.md §3), quasi-steady.
+    """Pit vapor balance (docs/model.md, pit humidity), quasi-steady.
 
     Air mass flow follows the draft, ``afr * r_max * g(u)``; the base
     vapor pressure is ambient plus combustion water plus the water pan,

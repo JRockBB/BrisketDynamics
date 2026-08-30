@@ -43,7 +43,7 @@ Base.@kwdef struct MeatConfig
     η_evap::Float64 = 0.9       # evaporation suppression when wrapped (foil)
     ε_wrap::Float64 = 0.10      # wrapped surface emissivity (foil)
     η_h::Float64 = 0.2          # convective-coefficient reduction when wrapped
-    # Rest / carryover (docs/tier1_plan.md §1): after t_pull the surface sees
+    # Rest / carryover (docs/model.md, rest): after t_pull the surface sees
     # the rest environment instead of the pit — carryover, juice
     # redistribution and continued collagen conversion then follow from the
     # unchanged interior equations. Defaults = faux cambro (foil + towel +
@@ -57,7 +57,7 @@ Base.@kwdef struct MeatConfig
     ε_rest::Float64 = 0.10      # effective emissivity at rest (foil)
     η_rest::Float64 = 0.9       # evaporation suppression at rest (wrapped)
     p_v_rest::Float64 = 1200.0  # rest-environment vapor pressure [Pa] (room air)
-    # Shrinkage (docs/tier1_plan.md §2): the PDE is solved on the dry-matter
+    # Shrinkage (docs/model.md, shrinkage): the PDE is solved on the dry-matter
     # (Lagrangian) coordinate, so the grid never moves; the local thickness
     # stretch st = (v/v0)^n_shrink enters as a face metric, with v the
     # specific volume per kg dry matter (density bookkeeping — volumetric
@@ -70,7 +70,7 @@ Base.@kwdef struct MeatConfig
     ρ_fat::Float64 = 900.0      # fat density [kg m⁻³]
     ρ_water::Float64 = 980.0    # water density near cooking temperature [kg m⁻³]
     # Bark model constants (literature-anchored, uncalibrated pending photo
-    # data; docs/bark_plan.md carries sources and the identifiability plan).
+    # data; docs/roadmap.md item 8 carries the calibration plan).
     # k0 is the bread-crust value (Purlis, 4.2e4) scaled x5: a rubbed meat
     # surface browns faster than lean bread crust (protein-rich, rub sugars),
     # and the bread constant leaves Maillard invisible at smoker temperatures.
@@ -91,13 +91,13 @@ Base.@kwdef struct MeatConfig
     # surface and penetrates as a diffusion front, fixing myoglobin (the
     # pink nitrosyl complex) only where the meat has not yet passed the
     # myoglobin denaturation temperature. Literature-scale constants, no
-    # ring measurement to check them against (docs/model_gaps.md).
+    # ring measurement to check them against (docs/roadmap.md).
     D_ring::Float64 = 1.5e-9    # effective NO penetration diffusivity [m²/s]
     T_ring::Float64 = 335.15    # myoglobin denaturation (~62 C): fixation stops above
     δ_ring::Float64 = 3.0       # width of the denaturation gate [K]
     r_ring0::Float64 = 5e-4     # surface layer NO enters directly [m] (front regularization)
     mdot_ring::Float64 = 2e-5   # burn rate at which the fire counts as lit [kg/s]
-    # Moisture physics (docs/moisture_plan.md; gap audit Tier 1 #1/#2).
+    # Moisture physics (docs/model.md).
     # Fat rendering: tallow melts ~32-49 C, drains (cell rupture) from
     # ~54 C; k_f0 sets an hours-scale render time in the BBQ band.
     F0::Float64 = 0.22          # initial fat fraction, dry basis (marbling)
@@ -199,7 +199,7 @@ evap_flux(Ts, Ws, k_m, cfg::MeatConfig) = evap_flux(Ts, Ws, k_m, cfg.p_v_pit, cf
     evap_flux_fb(Ts, Ws, k_m, pv_base, c, cfg::MeatConfig)
 
 The two-sided surface flux of [`evap_flux`](@ref) with the pit humidity
-feedback (docs/tier1_plan.md §3): the pit vapor pressure is `pv_base + c·j`
+feedback (docs/model.md, pit humidity): the pit vapor pressure is `pv_base + c·j`
 — the pit's own vapor balance (ambient, combustion water, pan) plus the
 meat's vapor diluted by the air mass flow, `c` the mixing coefficient
 [Pa per kg m⁻² s⁻¹] — so `j = F(p_sat(Ts) − pv_base − c j)` with
@@ -288,7 +288,7 @@ function surface_heat_in_wrapped(Tpit, Ts, h_c, s, cfg::MeatConfig)
            (cfg.ε * (1 - s) + cfg.ε_wrap * s) * σ_SB * (Tpit^4 - Ts^4)
 end
 
-# --- Rest / carryover (docs/tier1_plan.md §1) -------------------------------
+# --- Rest / carryover (docs/model.md, rest) -------------------------------
 """
     pull_blend(t::Number, t_pull::Number, cfg::MeatConfig)
 
@@ -366,7 +366,7 @@ function surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg::MeatConfig)
     return (1 - pl) * surface_heat_in_wrapped(Tpit, Ts, h_c, s, cfg)
 end
 
-# --- Shrinkage (docs/tier1_plan.md §2) -------------------------------------
+# --- Shrinkage (docs/model.md, shrinkage) -------------------------------------
 """
     specific_volume(W, F, cfg::MeatConfig)
 
@@ -419,7 +419,7 @@ volume): `(v[1] + v[end] + 2·Σ interior) / (2·(n − 1))`.
 """
 fv_mean(v) = (first(v) + last(v) + 2 * sum(v[2:(end - 1)])) / (2 * (length(v) - 1))
 
-# --- Bark model (surface states; docs/bark_plan.md) -----------------------
+# --- Bark model (surface states; docs/model.md) ---------------------------
 """
     a_w_oswin(W::Number, cfg::MeatConfig)
 
@@ -500,7 +500,7 @@ deposition `S`.
 """
 l_star_bark(B, S, cfg::MeatConfig) = cfg.L0_bark - cfg.dL_B * B - cfg.dL_S * S
 
-# --- Moisture physics (docs/moisture_plan.md) ------------------------------
+# --- Moisture physics (docs/model.md) --------------------------------------
 """
     w_eq(T, a_myosin, cfg)
 
@@ -872,7 +872,7 @@ end
                C0f, t_wrap, smoke_knots, t_pull)
 
 Forward solve of the meat PDE under a pit-temperature forcing trajectory,
-optionally continuing through the rest after `t_pull` (docs/tier1_plan.md).
+optionally continuing through the rest after `t_pull` (docs/model.md, rest).
 
 # Arguments
 - `θ::AbstractVector`: Meat latents `[D_eff m²/s, k_m m/s, h_c W/m²K, L m,

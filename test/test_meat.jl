@@ -76,7 +76,7 @@ end
     # in the cook, so the advantage peaks mid-cook and CONVERGES by the
     # 16 h asymptote — where the foil's lower effective h and ε can even
     # cost ~0.5 K (the trapped-steam braise channel is unmodeled; see
-    # docs/model_gaps.md). Assert the mid-cook stall-break, after t_wrap.
+    # docs/roadmap.md). Assert the mid-cook stall-break, after t_wrap.
     adv = wrapped.Tcore .- unwrapped.Tcore
     @test maximum(adv) > 8.0
     @test tsave[argmax(adv)] > 5hr
@@ -235,7 +235,7 @@ end
 end
 
 @testset "rest / carryover (pull blend) physics" begin
-    # docs/tier1_plan.md §1: after t_pull the surface sees the rest
+    # docs/model.md, rest: after t_pull the surface sees the rest
     # environment; the interior equations are unchanged and must produce
     # carryover, continued collagen conversion, and surface rewetting.
     hr = 3600.0
@@ -301,7 +301,7 @@ end
 end
 
 @testset "shrinkage (material coordinate) physics" begin
-    # docs/tier1_plan.md §2: dry-matter coordinate, thickness stretch
+    # docs/model.md, shrinkage: dry-matter coordinate, thickness stretch
     # st = (v/v0)^n_shrink, exposed area A(t)/A0 = (v̄/v0)^(1 - n_shrink).
     hr = 3600.0
     tk = collect(0.0:600.0:16hr)
@@ -371,7 +371,7 @@ end
 end
 
 @testset "humidity feedback physics" begin
-    # docs/tier1_plan.md §3: p_v,pit = pv_base + c·j, j in closed form.
+    # docs/model.md, pit humidity: p_v,pit = pv_base + c·j, j in closed form.
     hr = 3600.0
     tk = collect(0.0:600.0:14hr)
     n = length(tk)

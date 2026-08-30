@@ -1,4 +1,4 @@
-"""Bark model forward validation (docs/bark_plan.md step 4).
+"""Bark model forward validation (figures/bark_model.png).
 
 Three cook styles through the full coupled pipeline at the MAP-real
 smoker — low-and-slow, hot-and-fast, and low-and-slow with a 5 h wrap —
