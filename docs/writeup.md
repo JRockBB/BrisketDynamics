@@ -120,9 +120,18 @@ stall break, the climb to 90 °C (core rms 3.1 K).
   Tesseract, initialized at the LM MAP with a dense mass matrix seeded from
   the Gauss–Newton Fisher covariance (ridge widths included; a metric from a
   floored finite-difference Hessian understated them 3–6× and every
-  trajectory hit the tree-depth cap), one chain per process. *[chains running at submission
-  time; r̂ / ESS / divergences to be quoted as-is from
-  `scripts/merge_nuts_mono.py`]*
+  trajectory hit the tree-depth cap), one chain per process. Two chains of
+  300 warmup + 300 draws, 18 h each on a laptop (31-step trajectories, step
+  sizes 0.15 and 0.10, mean acceptance 0.83 / 0.85): split-r̂ ≤ 1.06 on all
+  19 sites, ESS from 428 (k_e) down to 19–21 on the pit ridge (ΔH_eff, UA)
+  and 35 on L, 5 divergences in 600 draws. Posterior widths match the
+  Gauss–Newton Fisher and Laplace widths within ~20 % on most sites — the
+  curvature statement holds — with two heavier-tailed exceptions (k_spread
+  1.11 vs 0.58, u_leak 0.38 vs 0.27 in z); ADVI is 5–10× too narrow
+  everywhere. Quoted as-is: the pit ridge needs longer chains, and these
+  chains sampled the model before the isotherm-driven evaporation and
+  composition-dependent properties landed, so the recalibration is still
+  to come.
 - **Variational inference, and what it taught us.** ADVI with a full-rank
   guide converged only once the initial scale matched the posterior's
   sharpness (0.02, not the default 0.1); the first run drifted down the ρ/σ
