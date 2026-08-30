@@ -9,7 +9,7 @@ Evening / library path (`make_vi_guide`): full-rank (or low-rank /
 mean-field) ADVI on the same model. NUTS is not replaced.
 
 Priors are LogNormal, centered on the model defaults (which double as the
-physical scaling analysis) with log-sds wide enough to
+physical scaling analysis; see docs/brief.md §6) with log-sds wide enough to
 cover the literature ranges. u_leak (a fraction) gets a Beta prior. Every
 prior's center is THETA_DEFAULT/PHI_DEFAULT — the synthetic truths in synth.py
 are offset 20-40% from these, so posterior recovery is a real test.
