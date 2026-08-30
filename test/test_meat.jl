@@ -148,6 +148,19 @@ end
         @test o.drip_f ≈ cfg.η_drain * cfg.F0 * o.fat_rendered atol = 1e-10
         # juiciness = water + β·retained rendered fat (exceeds water-only)
         @test o.juiciness > o.w_retained
+        # PDE water conservation: the drip term must equal the expulsion sink
+        # integrated over the saved fields (trapezoid in x and t; the solver
+        # integrates the same sink exactly, so the mismatch is quadrature)
+        nx = cfg.nx
+        wts = [i == 1 || i == nx ? 0.5 : 1.0 for i in 1:nx] ./ (nx - 1)
+        E = [
+            sum(wts .* BrisketDynamics.expulsion_rate.(
+                o.W_field[:, k], o.T_field[:, k], θ[6], θ[7], Ref(cfg)))
+            for k in eachindex(tk)
+        ]
+        drip_q = sum((E[1:(end - 1)] .+ E[2:end]) ./ 2 .* diff(tk))
+        @info "water balance: drip_w vs integrated expulsion" o.drip_w drip_q
+        @test isapprox(drip_q, o.drip_w; rtol=0.05)
         @test o.juiciness ≈
             o.w_retained +
               cfg.β_fat * (1 - cfg.η_drain) * cfg.F0 * o.fat_rendered / cfg.W0 atol = 1e-10

@@ -1,4 +1,0 @@
-coupled forward (K=2): 12.0 s wall
-WARNING: Picard residual max|dT_pit| = 6.550 K exceeds 2.0 K (K=2 coupling not converged)
-wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\forward_cook.png
-final core: 71.9 °C; final collagen (core): 0.212

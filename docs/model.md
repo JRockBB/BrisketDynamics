@@ -98,10 +98,14 @@ fixed slab) and component densities $\rho_{\mathrm{sol}}, \rho_f,
 
 Half-slab $x \in [0, L]$, symmetry at the center $x=0$ (probe location),
 convective/radiative/evaporative boundary at the surface $x=L$. Method of
-lines on $n_x = 40$ uniform nodes → $4n_x + 2 = 162$ stiff ODEs (FBDF).
+lines on $n_x = 40$ uniform nodes → $4n_x + 3 = 163$ meat ODEs (the
+fields, two bark states and the smoke-ring depth), 166 with the three
+pit states, one stiff system (FBDF).
 
 **Interior fields** (θ: $D_{\mathrm{eff}}$, $k_{\mathrm{mult}}$, $k_e$;
-with $\alpha = k_{\mathrm{mult}} K_{\mathrm{meat}} / (\rho c_p)$):
+with $\alpha = k_{\mathrm{mult}} K_{\mathrm{meat}} / (\rho c_p)$), written
+here on a fixed slab — the code integrates the Lagrangian dry-matter form
+of the shrinkage section below, which reduces to this at $A/A_0 = 1$:
 
 $$
 \partial_t T = \alpha\,\partial_x^2 T,
@@ -180,7 +184,10 @@ $$
 
 (ambient absolute humidity $\omega_{\mathrm{amb}}$, combustion water
 yield $y_w$, water-pan rate $\dot m_{\mathrm{pan}}$, air–fuel ratio of the
-draft AFR — plain constants in `coupled.Humidity`). $j$ then solves
+draft AFR — plain constants in `coupled.Humidity`). AFR is the
+air-to-fuel ratio at full burn, so the air flow is set by the draft, not
+by the burn: a spreading or tapering bed burns leaner in the same air.
+$j$ then solves
 $j = F(p_{\mathrm{sat}} - p_{v,\mathrm{base}} - c j)$ with
 $F(\Delta p) = a_e\,\mathrm{sp}_{\delta_p}(\Delta p) - a_c\,\mathrm{sp}_{\delta_p}(-\Delta p)$,
 $a_e = k_m\varphi/(R_v T_s)$, $a_c = k_m/(R_v T_s)$ — a scalar fixed
@@ -355,7 +362,9 @@ f_{\mathrm{rend}} = 1 - \frac{\overline F(t_f)}{F_0},\qquad
 + \beta_{\mathrm{fat}}\,\frac{(1-\eta_{\mathrm{drain}})\,F_0\, f_{\mathrm{rend}}}{W_0},
 $$
 
-with the algebraically closed cook-loss budget (tested to $10^{-8}$):
+with the cook-loss budget (drip is defined by the closure; the
+discretized water balance is checked against the integrated expulsion
+sink in `test/test_meat.jl`):
 water lost $= \int j\,dt/(\rho_d L)$ (evaporated) $+$ drip (purge), fat
 lost $= \eta_{\mathrm{drain}} F_0 f_{\mathrm{rend}}$ (tallow catch).
 
@@ -458,8 +467,8 @@ carries.
 
 **Tenderness** $\mathcal T(C_0)$ — two-sided collagen band at the center
 node, each side normalized to its band width (under: $c^\star = 0.90$,
-width 0.05; over: $c_{od} = 0.95$, discounted by $\rho_{ov} = 0.5$ since
-early finishes rest):
+width 0.05; over: $c_{od} = 0.95$, weighted $\rho_{ov} = 1$ — pot roast
+counts like tough; `over_rel` in `ControlConfig`):
 
 $$
 \mathcal T =
@@ -492,7 +501,8 @@ $$
 unconditional, evaluated on the surface (intact-muscle contamination)
 *and* on the core node — the cold spot of the symmetric slab, the last
 point to heat, since the condition must hold in all parts of the product.
-Lethality via the z-value equivalence (FSIS ~7-log at 60 °C reference,
+Lethality via the z-value equivalence (the FSIS Appendix A 6.5-log line:
+720 s at the 60 °C reference,
 $z = 6$ K, requirement $F_{\mathrm{req}} = 720$ equivalent seconds),
 penalized on the log shortfall, plus a danger-zone dwell cap
 ($h_{\mathrm{zone}}$ = hours with $T$ in 4.4–60 °C, cap 4 h), each for

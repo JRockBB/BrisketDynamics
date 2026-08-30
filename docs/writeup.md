@@ -210,7 +210,8 @@ demo, with real data, a beloved phenomenon (the stall) whose mechanism is
 still argued about on forums, and a useful artifact: a calibrated digital twin
 of a specific smoker that turns "when do I wrap, when do I pull, when do I open
 the vents?" into a posterior-aware optimization scored at serve. The physics
-is honest (Choi–Okos-derived properties, smoothed wet-bulb-limited evaporation,
+is honest (Choi–Okos properties at the initial composition, held fixed;
+a smoothed evaporative surface flux, wet-bulb-limited while the surface is wet;
 a shrinking Lagrangian slab, pit humidity feedback, collagen kinetics as the
 doneness proxy), and the smoothing that keeps the stall differentiable is what
 makes the likelihood tractable.

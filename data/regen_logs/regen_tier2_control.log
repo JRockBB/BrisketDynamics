@@ -1,0 +1,9 @@
+MAP params from map_result.json: theta=[6.72626939e-09 1.40980521e-03 1.23974605e+01 2.60099520e-02
+ 1.11203101e+00 4.46778394e-04 1.92030452e-01 6.63406311e-01], phi=[1.77032495e+04 2.16489485e+01 2.58450623e-04 1.21305091e+07
+ 2.28047237e-01 3.00000000e-04 1.00000000e+00]
+baseline (u=0.5 flat): core doneness 0.378 (target 0.9)
+  iter    0  J=   36.9921  u=[0.50..0.50]
+  iter   20  J=    2.2759  u=[0.60..0.61]
+optimized: core doneness 0.950, J 36.99 -> 1.62 in 101 s
+safety (soft penalties, not a certification): surface F=2.12e+09s dwell=1.53h; core F=1.88e+09s dwell=1.96h; ok=True
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\control_before_after.png

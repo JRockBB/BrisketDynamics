@@ -169,7 +169,7 @@ class InputSchema(BaseModel):
     """
 
     theta: Differentiable[Array[(N_THETA,), Float64]] = Field(
-        description="Meat parameters [D_eff, k_m, h_c, L, k_mult, k_e, a_myosin]"
+        description="Meat parameters [D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv]"
     )
     phi: Differentiable[Array[(N_PHI,), Float64]] = Field(
         description="Pit parameters [C_th, UA, r_max, dH_eff, u_leak, k_spread, a0]; "

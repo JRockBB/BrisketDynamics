@@ -804,29 +804,6 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
 end
 
 """
-    _meat_u0(cfg::MeatConfig)
-
-Uniform initial state `[T | W | C | F | B, S, R]` (length 4·nx + 3) at the
-config defaults: cold meat, full moisture, zero conversion, full fat, no
-bark.
-
-# Arguments
-- `cfg::MeatConfig`: Physical configuration.
-
-# Returns
-- `u0::Vector{Float64}`: Initial state vector.
-"""
-function _meat_u0(cfg::MeatConfig)
-    return vcat(
-        fill(cfg.T0, cfg.nx),
-        fill(cfg.W0, cfg.nx),
-        zeros(cfg.nx),
-        fill(cfg.F0, cfg.nx),
-        zeros(2),
-    )
-end
-
-"""
     _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0)
 
 Initial state from full fields (receding-horizon state handoff). Empty

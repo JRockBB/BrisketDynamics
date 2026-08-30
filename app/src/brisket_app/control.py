@@ -101,7 +101,7 @@ class ControlConfig:
     # (safety_report), the MPC only penalizes. Not a certification.
     leth_t_ref: float = 333.15  # 60 C
     leth_z: float = 6.0  # z-value [K]
-    leth_f_req: float = 720.0  # 60 C-equivalent seconds (~7-log)
+    leth_f_req: float = 720.0  # 60 C-equivalent seconds (FSIS Appendix A 6.5-log line)
     w_lethality: float = 500.0
     t_danger_lo: float = 277.6  # 4.4 C
     t_danger_hi: float = 333.15  # 60 C

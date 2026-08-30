@@ -106,7 +106,7 @@ def coupled_cook(
     Parameters
     ----------
     theta, phi : array-like
-        Meat (7) and pit (7) parameters; phi[6] = a0 carries the ignition
+        Meat (8) and pit (7) parameters; phi[6] = a0 carries the ignition
         state for receding-horizon handoff.
     u_knots : array-like
         Damper schedule on ``grids.u_tknots``.

@@ -30,6 +30,17 @@ const MONO_PIT = PitConfig(; T_amb=300.0)
     @test d[8][1] < d[2][1]
     @test d[8][2] < d[1][2]  # the core sits on the interpolation floor by K = 2
     @test d[8][1] < 2.0
+    # on a fine exchange grid the interpolation floor drops and K = 8 must
+    # match the monolith to hundredths of a kelvin (measured: millikelvin)
+    tsf = collect(0.0:60.0:MONO_TSAVE[end])
+    mono_f = monolith_solve(θ, φ, MONO_U, MONO_UTK, tsf; pit=MONO_PIT)
+    pc8 = picard_cook(θ, φ, MONO_U, MONO_UTK, tsf; K=8, pit=MONO_PIT)
+    d8f = (
+        maximum(abs.(pc8.pit.Tpit .- mono_f.Tpit)),
+        maximum(abs.(pc8.meat.Tcore .- mono_f.Tcore)),
+    )
+    @info "fine exchange grid (60 s), K = 8: max|ΔT_pit|, max|ΔT_core| [K]" d8f
+    @test d8f[1] < 0.02 && d8f[2] < 0.02
     @test d[8][2] < 0.5
 
     # cost: one coupled solve vs the two-pass exchange (both warm)

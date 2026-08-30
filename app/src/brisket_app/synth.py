@@ -18,11 +18,12 @@ from .coupled import HR, CookGrids, coupled_cook
 
 # Offset from THETA_DEFAULT / PHI_DEFAULT (the prior centers) by 20-40%:
 # calibration has to *move* to find these, not just sit at the prior mode.
-# (k_e/a_myosin truths offset likewise since joining theta 2026-08-21).
+# (k_e/a_myosin truths offset likewise since joining theta 2026-08-21, the
+# draft exponent m_conv since 2026-08-29.)
 # Regenerating this dataset: from app/,
 #   uv run python -c "from brisket_app.clients import monolith_client; from brisket_app import synth; synth.save(synth.generate(*[monolith_client()]))"
 # then `uv run python ../scripts/run_map.py`. Do not mix with 5-parameter artifacts.
-THETA_TRUE = np.array([1.0e-8, 0.0014, 12.5, 0.026, 1.15, 7.3e-4, 0.26])
+THETA_TRUE = np.array([1.0e-8, 0.0014, 12.5, 0.026, 1.15, 7.3e-4, 0.26, 0.45])
 # ignition entries inert (a0 = 1): synthetic cooks start fully lit
 PHI_TRUE = np.array([18e3, 24.0, 2.5e-4, 1.35e7, 0.25, 3e-4, 1.0])
 

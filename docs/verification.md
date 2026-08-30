@@ -21,9 +21,10 @@ stacked outputs w.r.t. θ, φ, the damper knots, the wrap and the pull).
   relative — a 1-partial and a 5-partial Dual solve take slightly
   different adaptive steps (the error norm includes the partials).
 - Coupling correctness: the Julia Picard exchange of the component solvers
-  (`picard_cook`, K = 1, 2, 4, 8) converges to the monolith (K = 8 within
-  0.04 K on the real-cook grid); the K = 2 truncation the old pipeline
-  carried is 0.27 K pit / 0.11 K core.
+  (`picard_cook`, K = 1, 2, 4, 8) converges to the monolith: K = 8 within
+  0.04 K on the real-cook grid (`scripts/bench_monolith.jl`) and within
+  0.02 K (measured 3 mK) on the test fixture with a 60 s exchange grid
+  (`test/test_monolith.jl`).
 
 Jitter, measured: a last-bit change in an input moves the Jacobian by
 ~4e-5 relative at solver tolerance 1e-6 (5e-7 at 1e-8, 3.7x the cost). Near

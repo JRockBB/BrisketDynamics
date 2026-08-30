@@ -4,5 +4,5 @@
   "obs_sigma_core": 0.8,
   "t_end_h": 12.0,
   "dt_exchange_s": 600.0,
-  "note": "Synthetic cook log from coupled_cook at THETA_TRUE/PHI_TRUE (K=2, tol 1e-8) + iid Gaussian noise. Generating code: synth.py."
+  "note": "Synthetic cook log from coupled_cook at THETA_TRUE/PHI_TRUE (tol 1e-8) + iid Gaussian noise. Generating code: synth.py."
 }

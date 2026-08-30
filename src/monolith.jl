@@ -466,6 +466,7 @@ function picard_cook(
             φ, u_knots, u_tknots, q, tsave, tsave;
             cfg=pit, abstol=min(abstol, 1e-8), reltol=min(reltol, 1e-8), t_add,
             t_spritz, dt_spritz, t_spritz_stop=min(float(t_wrap), float(t_pull)),
+            δ_spritz_stop=(t_wrap <= t_pull ? cfg.δ_wrap : cfg.δ_pull),
         )
         airflow = φ[5] .+ (1 - φ[5]) .* u_tk
         mair = hum.afr .* φ[3] .* airflow

@@ -16,7 +16,7 @@ into one end-to-end differentiable function orchestrated from JAX:
 
 | Component | Physics | States | Differentiation strategy |
 |---|---|---|---|
-| **Monolith Tesseract** | Pit ODE (energy balance + fuel burn + Minion ignition spread) + 1D slab heat-moisture PDE (denaturation expulsion, fat rendering, smoothed evaporative surface BC, collagen kinetics, Maillard + smoke bark states) + quasi-steady pit humidity, as ONE stiff system | T, W, C, F × 40 nodes + B, S + T_pit, m_fuel, ignited (166 ODEs, FBDF) | **Forward-mode ForwardDiff**: `jacobian_vector_product` = one Dual solve, `vector_jacobian_product` / `jacobian` = one chunked pass over the requested inputs |
+| **Monolith Tesseract** | Pit ODE (energy balance + fuel burn + Minion ignition spread) + 1D slab heat-moisture PDE (denaturation expulsion, fat rendering, smoothed evaporative surface BC, collagen kinetics, Maillard + smoke bark states) + quasi-steady pit humidity, as ONE stiff system | T, W, C, F × 40 nodes + B, S, R + T_pit, m_fuel, ignited (166 ODEs, FBDF) | **Forward-mode ForwardDiff**: `jacobian_vector_product` = one Dual solve, `vector_jacobian_product` / `jacobian` = one chunked pass over the requested inputs |
 
 Pit temperature → meat boundary condition and meat evaporative + sensible
 load → pit energy balance are integrated together in one stiff solve, so
