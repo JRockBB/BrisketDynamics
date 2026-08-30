@@ -112,19 +112,24 @@ end
     end
     # no smoke -> no deposition, browning unaffected
     @test all(dry.bark_s .== 0)
-    # rtol 1e-6, not 1e-10: with S dynamics active the solver's step
+    # rtol 1e-4, not 1e-10: with S dynamics active the solver's step
     # sequence differs, so B matches to solver tolerance, not bitwise
-    @test isapprox(dry.bark_b[end], lo.bark_b[end]; rtol=1e-6)
+    @test isapprox(dry.bark_b[end], lo.bark_b[end]; rtol=1e-4)
     # hot cook Maillard-saturates; with expulsion drying the surface the
     # low-slow cook browns substantially too (deeper into the a_w bell),
     # so a fixed hi/lo ratio is the wrong invariant (hi pins near 1) —
     # assert saturation vs a clear sub-saturation margin instead
     @test hi.bark_b[end] > 0.95
-    @test lo.bark_b[end] < 0.6 * hi.bark_b[end]
+    @test lo.bark_b[end] < 0.8 * hi.bark_b[end]  # a dry crust keeps browning: the low-slow surface dries too
     @test lo.bark_s[end] > hi.bark_s[end]
-    # wrapping freezes smoke deposition (the known wrap cost)
-    @test wr.bark_s[end] < 0.75 * lo.bark_s[end]
-    @test isapprox(wr.bark_b[end], lo.bark_b[end]; rtol=0.3)
+    # wrapping freezes smoke deposition (the known wrap cost); the unwrapped
+    # surface dries past the deposition threshold itself within hours, so
+    # the margin on the total is modest
+    @test wr.bark_s[end] < 0.9 * lo.bark_s[end]
+    i6 = findfirst(t -> t >= 6hr, tk)
+    @test wr.bark_s[end] - wr.bark_s[i6] < 0.02
+    # the crutch keeps the surface wet, so the wrapped cook browns less
+    @test wr.bark_b[end] < lo.bark_b[end]
     # bark window: most deposition happens in the first half of the cook
     ihalf = findfirst(t -> t >= 7hr, tk)
     @test lo.bark_s[ihalf] > 0.6 * lo.bark_s[end]
@@ -324,7 +329,7 @@ end
     cfg0 = MeatConfig()
     # the density bookkeeping closes with the fixed constants at the raw state
     v0 = BrisketDynamics.specific_volume(cfg0.W0, cfg0.F0, cfg0)
-    @test isapprox((1 + cfg0.W0) / v0, BrisketDynamics.RHO_MEAT; rtol=0.03)
+    @test isapprox((1 + cfg0.W0) / v0, 1060.0; rtol=0.03)  # raw brisket density
     @test isapprox(1 / v0, BrisketDynamics.RHO_DRY; rtol=0.03)
 
     iso = meat_solve(θ, Tpit, tk, tk)                             # default: 1/3
@@ -392,14 +397,13 @@ end
     Tpit = fill(383.15, n)
     cfg = MeatConfig()
 
-    # the two-step Newton root vs bisection on f(j) = j − a·sp(D − c j);
-    # over the cooking range the clamp is inactive (p_sat ≫ p_v) and the
-    # closed form is exact, so Newton is a rounding-level correction
+    # the pit-feedback root j = a (a_w p_sat − p_v,base − c j) is linear; the
+    # closed form matches a bisection of the residual to rounding
     for (Ts, Ws, c) in ((340.0, 1.2, 0.0), (345.0, 0.6, 5e6), (350.0, 0.45, 2e7), (335.0, 2.0, 1e8))
-        a = θ[2] * BrisketDynamics.logistic((Ws - cfg.W_crit) / cfg.δW) / (BrisketDynamics.R_V * Ts)
-        D = p_sat(Ts) - 3000.0
-        f(j) = j - a * BrisketDynamics.softclamp(D - c * j, cfg.δp)
-        lo, hi = 0.0, a * BrisketDynamics.softclamp(D, cfg.δp) + 1e-12
+        a = θ[2] / (BrisketDynamics.R_V * Ts)
+        D = BrisketDynamics.a_w_oswin(Ws, cfg) * p_sat(Ts) - 3000.0
+        f(j) = j - a * (D - c * j)
+        lo, hi = 0.0, a * D + 1e-12
         for _ in 1:200
             mid = (lo + hi) / 2
             f(mid) > 0 ? (hi = mid) : (lo = mid)
@@ -437,24 +441,21 @@ end
     Ts, pv = 283.15, 3000.0
     j_dry = BrisketDynamics.evap_flux(Ts, 0.2, k_m, pv, cfg)
     j_wet = BrisketDynamics.evap_flux(Ts, 2.0, k_m, pv, cfg)
-    j_ref = -k_m * (pv - p_sat(Ts)) / (BrisketDynamics.R_V * Ts)
-    @test j_dry < 0
-    @test isapprox(j_dry, j_ref; rtol=1e-6)
-    @test isapprox(j_dry, j_wet; rtol=1e-6)  # availability gates evaporation only
-    # above the dew point the old one-sided evaporation is recovered
+    aw(W) = BrisketDynamics.a_w_oswin(W, cfg)
+    @test j_dry < 0 && j_wet < 0
+    @test isapprox(j_wet, k_m * (aw(2.0) * p_sat(Ts) - pv) / (BrisketDynamics.R_V * Ts); rtol=1e-9)
+    @test j_dry < j_wet  # a drier (hygroscopic) surface takes water up faster
+    # above the dew point: evaporation against the surface's own vapor pressure
     @test BrisketDynamics.evap_flux(340.0, 1.2, k_m, pv, cfg) ≈
-          k_m * BrisketDynamics.logistic((1.2 - cfg.W_crit) / cfg.δW) *
-          (p_sat(340.0) - pv) / (BrisketDynamics.R_V * 340.0) rtol = 1e-9
+          k_m * (aw(1.2) * p_sat(340.0) - pv) / (BrisketDynamics.R_V * 340.0) rtol = 1e-9
     # with the pit feedback, condensation lowers the pit humidity: the root
     # is self-limiting and satisfies j = F(D0 - c j)
     c = 5e6
     jfb = BrisketDynamics.evap_flux_fb(Ts, 0.2, k_m, pv, c, cfg)
     @test jfb < 0 && abs(jfb) < abs(j_dry)
-    D = p_sat(Ts) - pv - c * jfb
-    F = -k_m * BrisketDynamics.softclamp(-D, cfg.δp) / (BrisketDynamics.R_V * Ts) +
-        k_m * BrisketDynamics.logistic((0.2 - cfg.W_crit) / cfg.δW) *
-        BrisketDynamics.softclamp(D, cfg.δp) / (BrisketDynamics.R_V * Ts)
-    @test isapprox(jfb, F; rtol=1e-9)
+    @test isapprox(
+        jfb, k_m * (aw(0.2) * p_sat(Ts) - pv - c * jfb) / (BrisketDynamics.R_V * Ts); rtol=1e-9
+    )
 
     # fridge-cold meat into a humid pit (dew point ≈ 36 °C): the surface
     # gains water and warms by condensation over the first steps; in a dry
@@ -543,11 +544,28 @@ end
     @test wet.Tsurf[i6] < dry.Tsurf[i6]
     @test wet.Tcore[end] < dry.Tcore[end]
     @test wet.bark_s[end] > dry.bark_s[end]
-    # spritzing stops at the wrap
+    # spritzing stops at the wrap: the wrapped run absorbs only the pulses
+    # before it (2, 2.5, 3, 3.5 h and half of the one at the 4 h wrap) of the
+    # twelve and a half an unwrapped run takes over the 8 h
     wrapped = meat_solve(θ, Tpit, tk, tk; smoke_knots=lit, t_spritz=2hr, dt_spritz=1800.0, t_wrap=4hr)
-    Ww = wrapped.W_field[end, :]
-    i5 = findfirst(t -> t >= 5hr, tk)
-    @test maximum(diff(Ww[i5:end])) < 0.5 * maximum(diff(Ws[1:i5]))
+    @test 0.25 < wrapped.spritz_w / wet.spritz_w < 0.45
     # never = the default, bitwise
     @test meat_solve(θ, Tpit, tk, tk; smoke_knots=lit, t_spritz=BrisketDynamics.SPRITZ_NEVER).Tsurf == dry.Tsurf
+end
+
+@testset "thermophysical properties (Choi–Okos on the local composition)" begin
+    cfg = MeatConfig()
+    T = 333.15
+    v0 = BrisketDynamics.specific_volume(cfg.W0, cfg.F0, cfg)
+    cp_tot = BrisketDynamics.heat_capacity_dry(cfg.W0, cfg.F0, T, cfg) / (1 + cfg.W0)
+    k0 = BrisketDynamics.conductivity_mix(cfg.W0, cfg.F0, T, v0, cfg)
+    @test 3300.0 < cp_tot < 3700.0      # raw brisket at 60 °C, per kg total
+    @test 0.45 < k0 < 0.60
+    # a dried node holds less heat per volume and conducts less
+    vd = BrisketDynamics.specific_volume(0.5, cfg.F0, cfg)
+    @test BrisketDynamics.heat_capacity_dry(0.5, cfg.F0, T, cfg) / vd <
+          BrisketDynamics.heat_capacity_dry(cfg.W0, cfg.F0, T, cfg) / v0
+    @test BrisketDynamics.conductivity_mix(0.5, cfg.F0, T, vd, cfg) < k0
+    # warmer water conducts a little better
+    @test BrisketDynamics.conductivity_mix(cfg.W0, cfg.F0, 353.15, v0, cfg) > k0
 end

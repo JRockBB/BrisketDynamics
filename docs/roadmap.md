@@ -208,9 +208,12 @@ and which item above closes it.
   continued collagen conversion is the large effect, which makes the
   uncalibrated collagen scale (\(C = 0.90\), `k_ref`) the binding constant
   for quality at serve. (item 6)
-- **Evaporation.** Moisture-availability sigmoid × soft-clamped vapor
-  deficit; water activity is used for bark, not for \(p_v(T, a_w)\).
-- **Quality scales.** Collagen \(C=0.90\), bark \(k_0\times 5\), \(L^*\)
+- **Thermophysical properties.** Choi–Okos with ash lumped into protein
+  and the component densities fixed (their 5–95 °C drift is under 3 %); no
+  bound-water correction to \(c_p\); the Oswin isotherm's two constants are
+  literature values shared with the bark model.
+- **Quality scales.** Collagen \(C=0.90\), bark \(k_0\times 5\) and the
+  dry-side browning floor \(g_{\mathrm{dry}} = 0.5\), \(L^*\)
   affine map, charcoal-burn smoke proxy, and \(\beta_{\mathrm{fat}}\) are
   literature or placeholders — not texture or color calibrated. KCBS
   weights do not make those proxies into judge scores. (item 8)

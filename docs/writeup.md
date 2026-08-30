@@ -53,13 +53,12 @@ The exchange-grid composition of the two component solvers is kept in Julia
 (`picard_cook`) as the oracle for the monolith's coupling: it converges to the
 monolith as the pass count grows (K = 8 within 0.04 K). The stall mechanism —
 and the place where differentiability was deliberately engineered — is the
-meat's surface boundary condition: mass-transfer-limited evaporation with a
-*smoothed* moisture-availability switch and a *smoothly clamped* vapor-pressure
-deficit,
+meat's surface boundary condition: mass-transfer-limited evaporation driven
+by the sorption isotherm — the surface's own vapor pressure against the
+pit's — two-sided and smooth in every input,
 
 $$
-j_{evap} \;=\; k_m \,\underbrace{\sigma\!\Big(\tfrac{W_s - W_{crit}}{\delta_W}\Big)}_{\text{availability}}\,
-\frac{\operatorname{softplus}_{\delta_p}\!\big(p_{sat}(T_s) - p_{pit}\big)}{R_v\, T_s},
+j_{evap} \;=\; k_m \,\frac{a_w(W_s)\,p_{sat}(T_s) - p_{pit}}{R_v\, T_s},
 \qquad
 k\,\partial_x T\big|_{s} \;=\; h_c\,(T_{pit}-T_s) + \varepsilon\sigma_{SB}\,(T_{pit}^4-T_s^4) - \lambda_{vap}\, j_{evap},
 $$
@@ -210,8 +209,9 @@ demo, with real data, a beloved phenomenon (the stall) whose mechanism is
 still argued about on forums, and a useful artifact: a calibrated digital twin
 of a specific smoker that turns "when do I wrap, when do I pull, when do I open
 the vents?" into a posterior-aware optimization scored at serve. The physics
-is honest (Choi–Okos properties at the initial composition, held fixed;
-a smoothed evaporative surface flux, wet-bulb-limited while the surface is wet;
+is honest (Choi–Okos properties of each node's composition and temperature;
+an isotherm-driven evaporative surface flux, wet-bulb-limited while the
+surface is wet;
 a shrinking Lagrangian slab, pit humidity feedback, collagen kinetics as the
 doneness proxy), and the smoothing that keeps the stall differentiable is what
 makes the likelihood tractable.

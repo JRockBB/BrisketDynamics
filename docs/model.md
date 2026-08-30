@@ -61,8 +61,7 @@ with $h_c$.
 
 | symbol | meaning | code |
 |---|---|---|
-| $\varphi(W_s)$ | moisture-availability switch | in `evap_flux` |
-| $\Delta\rho_v(T_s)$ | clamped vapor-density deficit | in `evap_flux` |
+| $a_w(W_s)$ | surface water activity (Oswin isotherm) | `a_w_oswin` |
 | $s(t)$ | Texas-crutch wrap blend | `wrap_blend` |
 | $\varepsilon(s)$ | wrap-blended emissivity | in RHS |
 | $p(t)$ | pull blend (in the pit → resting) | `pull_blend` |
@@ -75,7 +74,7 @@ with $h_c$.
 | $k_C(T), k_f(T), k_B(T_s)$ | collagen / fat-render / Maillard rates | `collagen_rate`, `fat_rate`, `bark_rate` |
 | $W_{\mathrm{eq}}(T)$ | water-holding equilibrium | `w_eq` |
 | $a_w(W_s)$ | surface water activity (Oswin isotherm) | `a_w_oswin` |
-| $g(a_w)$ | Maillard water-activity bell | `g_aw` |
+| $g(a_w)$ | Maillard water-activity bell with a dry-side floor $g_{\mathrm{dry}}$ (a dried crust keeps browning) | `g_aw` |
 | $\mathrm{wet}(a_w)$ | smoke-deposition (tacky-surface) gate | `wet_blend` |
 | $g(u)$ | pit airflow from damper + leak | in pit RHS |
 | $\dot m_b$ | fuel burn rate [kg/s] (the smoke-flux forcing) | `mdot` |
@@ -103,7 +102,7 @@ fields, two bark states and the smoke-ring depth), 166 with the three
 pit states, one stiff system (FBDF).
 
 **Interior fields** (θ: $D_{\mathrm{eff}}$, $k_{\mathrm{mult}}$, $k_e$;
-with $\alpha = k_{\mathrm{mult}} K_{\mathrm{meat}} / (\rho c_p)$), written
+with $\alpha = k / (\rho c_p)$ of the local mixture, below), written
 here on a fixed slab — the code integrates the Lagrangian dry-matter form
 of the shrinkage section below, which reduces to this at $A/A_0 = 1$:
 
@@ -143,29 +142,25 @@ W_{\mathrm{eq}}(T) = W_0\Big(1
 $$
 
 **Surface boundary** ($x = L$) — the stall mechanism, with the wrap blend
-$s$. The surface mass flux is mass-transfer-limited (θ: $k_m(u)$, $h_c(u)$) and
-two-sided: evaporation, gated by moisture availability, when the surface's
-saturation pressure exceeds the pit's vapor pressure, condensation —
-ungated: a cold surface below the dew point condenses whatever its water
-content — when it does not. Fridge-cold meat in a humid pit condenses for
-its first half hour; the latent heat warms the surface and the wet surface
-is where smoke adheres:
+$s$. The surface mass flux is mass-transfer-limited (θ: $k_m(u)$, $h_c(u)$),
+driven by the surface's own equilibrium vapor pressure — the sorption
+isotherm $a_w(W_s)$ times saturation — against the pit's, and two-sided:
+evaporation while $a_w p_{\mathrm{sat}} > p_v$, condensation onto the
+hygroscopic surface when it is not. Fridge-cold meat in a humid pit
+condenses for its first half hour; the latent heat warms the surface and
+the wet surface is where smoke adheres. As the surface dries the isotherm
+lowers its vapor pressure and the flux becomes limited by the water the
+interior can supply — the falling-rate period:
 
 $$
-j = (1 - \eta_e\, s)\;k_m\,\frac{\varphi(W_s)\,\mathrm{sp}_{\delta_p}(\Delta p) - \mathrm{sp}_{\delta_p}(-\Delta p)}{R_v T_s},
-\qquad \Delta p = p_{\mathrm{sat}}(T_s) - p_v,
+j = (1 - \eta_e\, s)\;k_m\,\frac{a_w(W_s)\,p_{\mathrm{sat}}(T_s) - p_v}{R_v T_s},
 \qquad
--\rho_d D_{\mathrm{eff}}\,\partial_x W|_s = j,
+a_w(W) = \frac{1}{1 + (k_{ox}/W)^{n_{ox}}},
+\qquad
+-\rho_d D_{\mathrm{eff}}\,\partial_x W|_s = j
 $$
 
-$$
-\varphi(W_s) = \sigma\!\Big(\frac{W_s - W_{\mathrm{crit}}}{\delta_W}\Big)
-\;\;\text{(availability)},
-\qquad
-\Delta\rho_v(T_s)
-= \frac{\mathrm{sp}_{\delta_p}\!\left(p_{\mathrm{sat}}(T_s) - p_{v,\mathrm{pit}}\right)}{R_v\,T_s}
-\;\;\text{(clamped deficit)},
-$$
+($k_{ox} = 0.10$, $n_{ox} = 1.5$: the Oswin isotherm the bark model uses).
 
 where the pit vapor pressure is the pit's own quasi-steady balance plus
 the meat's vapor (the pit residence time is ~30 s, far below the exchange
@@ -188,12 +183,10 @@ draft AFR — plain constants in `coupled.Humidity`). AFR is the
 air-to-fuel ratio at full burn, so the air flow is set by the draft, not
 by the burn: a spreading or tapering bed burns leaner in the same air.
 $j$ then solves
-$j = F(p_{\mathrm{sat}} - p_{v,\mathrm{base}} - c j)$ with
-$F(\Delta p) = a_e\,\mathrm{sp}_{\delta_p}(\Delta p) - a_c\,\mathrm{sp}_{\delta_p}(-\Delta p)$,
-$a_e = k_m\varphi/(R_v T_s)$, $a_c = k_m/(R_v T_s)$ — a scalar fixed
-point with a unique root ($1 + c F' > 0$; condensation lowers the pit
-humidity and is self-limiting), taken from the linearized start plus two
-Newton steps inside the RHS (`evap_flux_fb`). The pit exports $\dot m_b$; the orchestrator forms
+$j = a\,(a_w p_{\mathrm{sat}} - p_{v,\mathrm{base}} - c j)$, $a = k_m/(R_v T_s)$
+— linear, so $j = a\,(a_w p_{\mathrm{sat}} - p_{v,\mathrm{base}})/(1 + c\,a)$
+in closed form inside the RHS (`evap_flux_fb`); condensation lowers the
+pit humidity and is self-limiting. The pit exports $\dot m_b$; the orchestrator forms
 $p_{v,\mathrm{base}}$ and $1/\dot m_{\mathrm{air}}$ on the exchange grid as
 two more differentiable meat forcings; `pv_pit` is an output.
 
@@ -303,7 +296,8 @@ $$
 rendered share stays). Volumetric shrinkage is therefore not a free
 parameter — only its split between thickness ($n_{sh}$: $1/3$ isotropic,
 $1$ all-thickness) and the lateral area is. The interior equations in
-$\xi$ are, with heat per physical volume ($\rho c_p$ fixed per volume) and
+$\xi$ are, with heat per physical volume ($\rho c_p$ and $k$ of the local
+mixture, below) and
 water per dry mass (the dry-matter concentration rises as the matrix
 contracts, hence $\varsigma^{-2}$):
 
@@ -313,6 +307,16 @@ $$
 \partial_t W = \partial_\xi\!\Big(\frac{D_{\mathrm{eff}}}{\varsigma^{2}}\,\partial_\xi W\Big)
 - k_e\,\mathrm{sp}_{\delta_e}\!\big(W - W_{\mathrm{eq}}(T)\big),
 $$
+
+**Thermophysical properties.** $\rho c_p$ and $k$ follow the local
+composition and temperature: per kg of dry matter a node holds water $W$,
+fat $F$ plus the retained rendered share, and non-fat solids $1 - F_0$; the
+Choi–Okos (1986) component specific heats and conductivities at the node's
+$T$ give $c_p$ by mass fraction and $k$ by the parallel model on volume
+fractions (ash lumped into protein; the component densities are the
+constants of the shrinkage bookkeeping). $k_{\mathrm{mult}}$ (θ) scales
+$k$. Water leaving a node lowers its heat capacity per volume, so a drying
+slab climbs faster after the stall than a wet one.
 
 discretized in flux form with face stretches (mean of the neighbours). At
 the surface the heat balance is unchanged per physical area (the area
@@ -331,7 +335,9 @@ $$
 \qquad
 k_B(T_s) = k_{0,\mathrm{bark}}\, e^{-E_{a,\mathrm{bark}}/(R T_s)},
 \qquad
-g(a_w) = \exp\!\Big[-\frac{(a_w - a_{pk})^2}{2\sigma_{aw}^2}\Big],
+g(a_w) = b(a_w) + \big(1 - b(a_w)\big)\,g_{\mathrm{dry}}\,\sigma\!\Big(\frac{a_{pk} - a_w}{\delta_g}\Big),
+\qquad
+b(a_w) = \exp\!\Big[-\frac{(a_w - a_{pk})^2}{2\sigma_{aw}^2}\Big],
 $$
 
 $$

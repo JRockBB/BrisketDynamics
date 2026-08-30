@@ -9,8 +9,8 @@
 # states — 4·nx + 3 ODEs.
 #
 # Differentiation: forward mode (ForwardDiff) through the coupled monolith
-# (src/monolith.jl). The RHS is written branch-free (see interpolation.jl,
-# softclamp) so it is smooth in every input.
+# (src/monolith.jl). The RHS is written branch-free (see interpolation.jl)
+# so it is smooth in every input.
 
 Base.@kwdef struct MeatConfig
     nx::Int = 40                # spatial nodes
@@ -19,10 +19,7 @@ Base.@kwdef struct MeatConfig
     W0::Float64 = 2.33          # initial dry-basis moisture (≈70% wet basis)
     ε::Float64 = 0.85           # surface emissivity
     λ_vap::Float64 = 2.3e6      # latent heat of vaporization [J kg⁻¹]
-    W_crit::Float64 = 0.40      # moisture availability midpoint (dry basis)
-    δW::Float64 = 0.05          # smoothing width of the availability sigmoid
     p_v_pit::Float64 = 2000.0   # pit vapor pressure [Pa] when no humidity forcing is supplied
-    δp::Float64 = 100.0         # softclamp scale on the vapor-pressure deficit [Pa]
     g_ref::Float64 = 0.5        # draft airflow at which h_c and k_m are quoted (mid-damper)
     n_meat::Float64 = 1.0       # identical briskets sharing the pit (heat load and vapor scale)
     # spritz: one dose of water at surface temperature T_spritz, sprayed over
@@ -79,6 +76,8 @@ Base.@kwdef struct MeatConfig
     Ea_bark::Float64 = 64151.0  # Maillard activation energy [J/mol] (Purlis)
     a_pk::Float64 = 0.65        # Maillard water-activity bell peak
     σ_aw::Float64 = 0.15        # bell width
+    g_dry::Float64 = 0.5        # dry-side floor of the bell: a dry crust keeps browning
+    δ_g::Float64 = 0.05         # width of the dry-side switch
     k_ox::Float64 = 0.10        # Oswin isotherm scale (a_w = 0.5 at W = k_ox)
     n_ox::Float64 = 1.5         # Oswin isotherm exponent
     k_dep::Float64 = 0.5        # deposition-saturation rate per kg fuel burned while wet [1/kg]
@@ -167,15 +166,14 @@ end
 """
     evap_flux(Ts::Number, Ws::Number, k_m::Number, [p_v::Number,] cfg::MeatConfig)
 
-Surface mass flux, two-sided: evaporation when the surface's saturation
-pressure exceeds the ambient vapor pressure (mass-transfer coefficient ×
-smooth moisture availability × vapor-density deficit), condensation when
-it does not (the same coefficient on the negative deficit, *not* gated by
-moisture availability — a cold surface below the dew point condenses
-whatever its water content). Both branches are smooth clamps of the
-deficit, so the flux is smooth in every input; condensation is what a
-cold brisket does in a humid pit for its first half hour, and the wet
-surface it leaves is where smoke adheres.
+Surface mass flux, two-sided and linear in the difference between the
+surface's own equilibrium vapor pressure — the Oswin isotherm `a_w(Ws)`
+times saturation — and the ambient: evaporation while `a_w p_sat > p_v`,
+condensation onto the hygroscopic surface when it is not. Smooth in every
+input. As the surface dries the isotherm lowers its vapor pressure and the
+flux becomes limited by what the interior supplies (the falling-rate
+period); condensation is what a cold brisket does in a humid pit for its
+first half hour, and the wet surface it leaves is where smoke adheres.
 
 # Arguments
 - `Ts::Number`: Surface temperature [K].
@@ -189,9 +187,7 @@ surface it leaves is where smoke adheres.
 - `j::Number`: Mass flux [kg m⁻² s⁻¹]; > 0 evaporation, < 0 condensation.
 """
 function evap_flux(Ts, Ws, k_m, p_v, cfg::MeatConfig)
-    φ = logistic((Ws - cfg.W_crit) / cfg.δW)
-    D = p_sat(Ts) - p_v
-    return k_m * (φ * softclamp(D, cfg.δp) - softclamp(-D, cfg.δp)) / (R_V * Ts)
+    return k_m * (a_w_oswin(Ws, cfg) * p_sat(Ts) - p_v) / (R_V * Ts)
 end
 evap_flux(Ts, Ws, k_m, cfg::MeatConfig) = evap_flux(Ts, Ws, k_m, cfg.p_v_pit, cfg)
 
@@ -202,28 +198,16 @@ The two-sided surface flux of [`evap_flux`](@ref) with the pit humidity
 feedback (docs/model.md, pit humidity): the pit vapor pressure is `pv_base + c·j`
 — the pit's own vapor balance (ambient, combustion water, pan) plus the
 meat's vapor diluted by the air mass flow, `c` the mixing coefficient
-[Pa per kg m⁻² s⁻¹] — so `j = F(p_sat(Ts) − pv_base − c j)` with
-`F(D) = a_e sp_δp(D) − a_c sp_δp(−D)`, `a_e = k_m φ/(R_v Ts)` the gated
-evaporation coefficient and `a_c = k_m/(R_v Ts)` the ungated condensation
-one. The root is unique (`f′ = 1 + c F′ > 0`, condensation lowers the pit
-humidity and is self-limiting); two Newton steps from the linearized start
-are exact to rounding over the cooking range. `c = 0` is `evap_flux`.
+[Pa per kg m⁻² s⁻¹] — so `j = a (a_w p_sat(Ts) − pv_base − c j)`, `a = k_m/(R_v Ts)`: linear,
+`j = a (a_w p_sat − pv_base)/(1 + c a)` in closed form (condensation
+lowers the pit humidity and is self-limiting). `c = 0` is `evap_flux`.
 
 # Returns
 - `j::Number`: Mass flux [kg m⁻² s⁻¹]; > 0 evaporation, < 0 condensation.
 """
 function evap_flux_fb(Ts, Ws, k_m, pv_base, c, cfg::MeatConfig)
-    a_e = k_m * logistic((Ws - cfg.W_crit) / cfg.δW) / (R_V * Ts)
-    a_c = k_m / (R_V * Ts)
-    F(D) = a_e * softclamp(D, cfg.δp) - a_c * softclamp(-D, cfg.δp)
-    F′(D) = a_e * logistic(D / cfg.δp) + a_c * logistic(-D / cfg.δp)
-    D0 = p_sat(Ts) - pv_base
-    j = F(D0) / (1 + c * F′(D0))
-    for _ in 1:2
-        r = D0 - c * j
-        j -= (j - F(r)) / (1 + c * F′(r))
-    end
-    return j
+    a = k_m / (R_V * Ts)
+    return a * (a_w_oswin(Ws, cfg) * p_sat(Ts) - pv_base) / (1 + c * a)
 end
 
 """
@@ -374,7 +358,7 @@ end
 Volume per kg of (initial) dry matter [m³/kg]: non-fat solids, fat — the
 un-rendered fat plus the retained rendered share (the drained share has
 left the meat) — and water. Density bookkeeping, not a model: at the raw
-state it closes with `RHO_MEAT` / `RHO_DRY` to ~1 %.
+state it closes with the raw density (1060 kg/m³) and `RHO_DRY` to ~1 %.
 
 # Arguments
 - `W::Number`: Dry-basis moisture [kg/kg].
@@ -388,6 +372,37 @@ state it closes with `RHO_MEAT` / `RHO_DRY` to ~1 %.
 function specific_volume(W, F, cfg::MeatConfig)
     fat = F + (1 - cfg.η_drain) * (cfg.F0 - F)
     return (1 - cfg.F0) / cfg.ρ_sol + fat / cfg.ρ_fat + max(W, zero(W)) / cfg.ρ_water
+end
+
+"""
+    heat_capacity_dry(W, F, T, cfg::MeatConfig)
+
+Heat capacity per kg of dry matter [J kg⁻¹ K⁻¹] from the local composition
+— water `W`, fat (`F` plus the retained rendered share) and the non-fat
+solids `1 - F0` — with the Choi–Okos component specific heats at `T` (ash
+lumped into protein). Divided by [`specific_volume`](@ref) it is the
+volumetric heat capacity ρc_p of the node.
+"""
+function heat_capacity_dry(W, F, T, cfg::MeatConfig)
+    fat = F + (1 - cfg.η_drain) * (cfg.F0 - F)
+    return max(W, zero(W)) * cp_water_co(T) + fat * cp_fat_co(T) +
+           (1 - cfg.F0) * cp_protein_co(T)
+end
+
+"""
+    conductivity_mix(W, F, T, v, cfg::MeatConfig)
+
+Thermal conductivity [W m⁻¹ K⁻¹] of the local mixture: the Choi–Okos
+parallel model on the volume fractions of water, fat and non-fat solids
+(`v` is the node's specific volume per kg dry matter,
+[`specific_volume`](@ref)); `k_mult` (θ) scales it in the RHS.
+"""
+function conductivity_mix(W, F, T, v, cfg::MeatConfig)
+    fat = F + (1 - cfg.η_drain) * (cfg.F0 - F)
+    xw = max(W, zero(W)) / cfg.ρ_water / v
+    xf = fat / cfg.ρ_fat / v
+    xs = (1 - cfg.F0) / cfg.ρ_sol / v
+    return xw * k_water_co(T) + xf * k_fat_co(T) + xs * k_protein_co(T)
 end
 
 """
@@ -439,8 +454,11 @@ a_w_oswin(W, cfg::MeatConfig) = 1 / (1 + (cfg.k_ox / max(W, 1e-6))^cfg.n_ox)
 """
     g_aw(aw::Number, cfg::MeatConfig)
 
-Maillard water-activity bell (peak `a_pk`, width `σ_aw`): browning is
-mobility-limited when too dry and dilution-limited when too wet.
+Maillard water-activity bell (peak `a_pk`, width `σ_aw`) with a dry-side
+floor `g_dry` (switch width `δ_g`): browning is dilution-limited on a wet
+surface, and a crust that has dried past the peak keeps browning at the
+rate its temperature sets (Purlis's bread-crust browning starts because
+the crust dries) — `g_dry` is a placeholder pending the photo calibration.
 
 # Arguments
 - `aw::Number`: Surface water activity.
@@ -449,7 +467,10 @@ mobility-limited when too dry and dilution-limited when too wet.
 # Returns
 - `g::Number`: Rate multiplier ∈ (0, 1].
 """
-g_aw(aw, cfg::MeatConfig) = exp(-((aw - cfg.a_pk)^2) / (2 * cfg.σ_aw^2))
+function g_aw(aw, cfg::MeatConfig)
+    bell = exp(-((aw - cfg.a_pk)^2) / (2 * cfg.σ_aw^2))
+    return bell + (1 - bell) * cfg.g_dry * logistic((cfg.a_pk - aw) / cfg.δ_g)
+end
 
 """
     wet_blend(aw::Number, cfg::MeatConfig)
@@ -551,7 +572,7 @@ fat_rate(T, cfg::MeatConfig) = cfg.k_f0 * logistic((T - cfg.T_render) / cfg.δ_r
 
 Numerically stable softplus `log(1 + eˣ)` for the expulsion sink
 (overflow-safe; `max`/`abs` are scalar AD primitives, so it is Enzyme-safe
-and branch-free like [`softclamp`](@ref)).
+and branch-free).
 
 # Arguments
 - `x::Number`: Input.
@@ -626,8 +647,6 @@ function meat_rhs_core!(
     # physical spacing is st·Δξ with the local thickness stretch
     # st = (v/v0)^n_shrink
     Δξ = L / (nx - 1)
-    k_th = k_mult * K_MEAT
-    α = k_th / (RHO_MEAT * CP_MEAT)
 
     T = @view u[1:nx]
     W = @view u[(nx + 1):2nx]
@@ -641,33 +660,43 @@ function meat_rhs_core!(
     # node stretches from the node's own water + fat, in a rolling
     # window (allocation-free); the fv-weighted running sum of v gives
     # the slab-mean specific volume for the exposed-area factor
+    # ... and the node's own ρc_p and k from its composition and temperature
+    # (Choi–Okos), the conductivity at a face being the mean of the two nodes
     v_c = specific_volume(W[1], F[1], cfg)
     st_m = (v_c / v0)^n_s
     vsum = v_c / 2
+    kc_m = k_mult * conductivity_mix(W[1], F[1], T[1], v_c, cfg)
+    ρc_m = heat_capacity_dry(W[1], F[1], T[1], cfg) / v_c
     v_c = specific_volume(W[2], F[2], cfg)
     st_c = (v_c / v0)^n_s
     vsum += v_c
+    kc_c = k_mult * conductivity_mix(W[2], F[2], T[2], v_c, cfg)
+    ρc_c = heat_capacity_dry(W[2], F[2], T[2], cfg) / v_c
     # center: symmetry (zero-flux) via mirror ghost node — a full cell
     # of width st_1·Δξ with two identical faces
     f_c = (st_m + st_c) / 2
-    dT[1] = 2α * (T[2] - T[1]) / (f_c * st_m * Δξ^2)
+    dT[1] = (kc_m + kc_c) * (T[2] - T[1]) / (f_c * st_m * Δξ^2 * ρc_m)
     dW[1] = 2D_eff * (W[2] - W[1]) / (f_c^2 * Δξ^2)
     # interior: flux form with face metrics (st at the face = mean of
-    # the neighbours). Heat is per PHYSICAL volume (cell capacity ∝ st,
-    # flux ∝ 1/st); water is per DRY MASS (cell dry mass fixed in ξ,
-    # flux ∝ 1/st² since the dry-matter concentration rises as the
-    # matrix contracts)
+    # the neighbours). Heat is per PHYSICAL volume (cell capacity ∝ st
+    # times the local ρc_p, flux ∝ k/st); water is per DRY MASS (cell dry
+    # mass fixed in ξ, flux ∝ 1/st² since the dry-matter concentration
+    # rises as the matrix contracts)
     @inbounds for i in 2:(nx - 1)
         v_p = specific_volume(W[i + 1], F[i + 1], cfg)
         st_p = (v_p / v0)^n_s
         vsum += v_p
+        kc_p = k_mult * conductivity_mix(W[i + 1], F[i + 1], T[i + 1], v_p, cfg)
         f_m = (st_m + st_c) / 2
         f_p = (st_c + st_p) / 2
         dT[i] =
-            α * ((T[i + 1] - T[i]) / f_p - (T[i] - T[i - 1]) / f_m) / (st_c * Δξ^2)
+            ((kc_c + kc_p) * (T[i + 1] - T[i]) / f_p - (kc_m + kc_c) * (T[i] - T[i - 1]) / f_m) /
+            (2 * st_c * Δξ^2 * ρc_c)
         dW[i] =
             D_eff * ((W[i + 1] - W[i]) / f_p^2 - (W[i] - W[i - 1]) / f_m^2) / Δξ^2
         st_m, st_c, v_c = st_c, st_p, v_p
+        kc_m, kc_c = kc_c, kc_p
+        ρc_c = heat_capacity_dry(W[i + 1], F[i + 1], T[i + 1], cfg) / v_p
     end
     # the loop counted the surface node fully: halve it (fv weight),
     # then the exposed-area factor A(t)/A0 from the slab mean; st_c is
@@ -702,8 +731,8 @@ function meat_rhs_core!(
     # cancels between capacity and intake); water per dry mass — the
     # physical surface j leaves through has shrunk by a_area
     dT[nx] =
-        (k_th * (T[nx - 1] - Ts) / (f_s * Δξ) + q_net) /
-        (RHO_MEAT * CP_MEAT * st_c * Δξ / 2)
+        ((kc_m + kc_c) / 2 * (T[nx - 1] - Ts) / (f_s * Δξ) + q_net) /
+        (ρc_c * st_c * Δξ / 2)
     dW[nx] =
         (RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) - a_area * (j - cfg.f_abs * j_sp)) /
         (RHO_DRY * Δξ / 2)

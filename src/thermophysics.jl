@@ -1,10 +1,9 @@
 # Thermophysical constants and smooth helper functions.
 #
-# Property constants are evaluated once from the Choi–Okos correlations at 60 °C
-# for a typical brisket composition (≈70% water, 20% protein, 9% fat, 1% ash,
-# wet basis) and treated as fixed; the calibration exposes a single conductivity
-# multiplier instead of the full temperature/composition dependence, which a
-# single-probe cook log cannot identify.
+# Component specific heats and conductivities follow the Choi–Okos
+# correlations in temperature; the meat model mixes them by the local
+# composition of each node (water, fat, non-fat solids — ash lumped into
+# protein) and exposes one conductivity multiplier to the calibration.
 # Ref: Choi, Y. & Okos, M.R. (1986), "Effects of temperature and composition on
 # the thermal properties of foods", Food Engineering and Process Applications.
 
@@ -13,11 +12,21 @@ const R_V = 461.52            # specific gas constant of water vapor [J kg⁻¹ 
 const P_ATM = 101325.0        # atmospheric pressure [Pa]
 const EPS_W = 0.622           # molar-mass ratio water/air (absolute humidity ↔ vapor pressure)
 
-const K_MEAT = 0.45           # baseline thermal conductivity [W m⁻¹ K⁻¹]
-const RHO_MEAT = 1060.0       # density [kg m⁻³]
-const CP_MEAT = 3400.0        # specific heat capacity [J kg⁻¹ K⁻¹]
 const CP_WATER = 4186.0       # liquid water heat capacity [J kg⁻¹ K⁻¹] (spritz)
 const RHO_DRY = 320.0         # dry-matter density [kg m⁻³] (ρ/(1+W₀) at W₀ ≈ 2.33 dry basis)
+
+# Choi–Okos (1986) component properties as polynomials in °C (`T` in K):
+# specific heat [J kg⁻¹ K⁻¹] and thermal conductivity [W m⁻¹ K⁻¹] of water,
+# protein (ash lumped in) and fat. Component densities stay the constants of
+# the shrinkage bookkeeping (`MeatConfig`); their drift over 5–95 °C is under
+# 3 %.
+_tc(T) = T - 273.15
+cp_water_co(T) = (c = _tc(T); 1e3 * (4.1762 - 9.0864e-5 * c + 5.4731e-6 * c^2))
+cp_protein_co(T) = (c = _tc(T); 1e3 * (2.0082 + 1.2089e-3 * c - 1.3129e-6 * c^2))
+cp_fat_co(T) = (c = _tc(T); 1e3 * (1.9842 + 1.4733e-3 * c - 4.8008e-6 * c^2))
+k_water_co(T) = (c = _tc(T); 0.57109 + 1.7625e-3 * c - 6.7036e-6 * c^2)
+k_protein_co(T) = (c = _tc(T); 0.17881 + 1.1958e-3 * c - 2.7178e-6 * c^2)
+k_fat_co(T) = (c = _tc(T); 0.18071 - 2.7604e-4 * c - 1.7749e-7 * c^2)
 
 """
     p_sat(T::Number)
@@ -48,22 +57,3 @@ at large |x| (saturates cleanly to exactly 0.0 / 1.0 instead of overflowing).
 """
 logistic(x) = (1 + tanh(x / 2)) / 2
 
-"""
-    softclamp(x::Number, scale::Number)
-
-Smooth non-negative clamp `scale·softplus(x/scale)`: ≈ `max(0, x)` for
-|x| ≫ scale, smooth near 0. Overflow-safe and free of Julia-level branching
-(`max`/`abs` are scalar AD primitives), so it is safe under AD
-compiled tape and under Enzyme.
-
-# Arguments
-- `x::Number`: Value to clamp.
-- `scale::Number`: Smoothing scale; sets the width of the soft corner at 0.
-
-# Returns
-- `y::Number`: Smoothly clamped value, ≥ 0.
-"""
-function softclamp(x, scale)
-    z = x / scale
-    return scale * (max(z, zero(z)) + log1p(exp(-abs(z))))
-end

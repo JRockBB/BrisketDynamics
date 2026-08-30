@@ -130,12 +130,13 @@ def main():
         va="center",
         transform=axW.transAxes,
     )
-    wcrit = 0.40 / W0
-    axW.axhline(wcrit, color="tab:blue", lw=0.6, ls=":")
+    # Oswin isotherm (k_ox = 0.10, n_ox = 1.5): a_w = 0.9 at W = 0.43
+    w90 = 0.10 / (1 / 0.9 - 1) ** (1 / 1.5) / W0
+    axW.axhline(w90, color="tab:blue", lw=0.6, ls=":")
     axW.text(
         0.02,
         0.85,
-        f"dotted: evaporation throttles below W/W₀ = {wcrit:.2f}",
+        f"dotted: surface water activity 0.9 (W/W₀ = {w90:.2f})",
         fontsize=7,
         color="tab:blue",
         va="center",
