@@ -12,10 +12,8 @@ system as one Tesseract with forward-mode derivative endpoints, and used the
 derivatives from JAX for: Gauss–Newton and NUTS Bayesian calibration on a real
 19-hour cook log, a duration × wrap × pull × chimney × spritz × damper-schedule plan scored at
 serve, robust control in expectation over the posterior, and receding-horizon
-MPC that re-times the wrap, the pull, the chimney and the spritz policy. We also built it the other way first —
-two composed Tesseracts with an adjoint on one side and a Jacobian on the
-other — and measured what that seam cost before moving the boundary. This
-document follows the six judging criteria in order.
+MPC that re-times the wrap, the pull, the chimney and the spritz policy.
+This document follows the six judging criteria in order.
 
 ## 1. Composition across a real boundary
 
@@ -230,9 +228,6 @@ makes the likelihood tractable.
 - **Solver jitter under cancellation.** Two exact gradient paths disagreeing
   by 0.5 % near the optimum, traced to a last-bit input change re-routing
   the adaptive stepper — quantified rather than papered over.
-- **Cutting 2651 lines.** When the monolith was verified, the two-Tesseract
-  pipeline, its adjoint and its dependencies went into the history in one
-  commit; the test suite got smaller and stayed green.
 
 ## Limitations & where this goes
 

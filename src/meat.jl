@@ -250,9 +250,10 @@ end
 
 Smooth Texas-crutch switch: 0 unwrapped, → 1 after `t_wrap` over width
 `δ_wrap`. Branch-free (tanh logistic), so it is safe in every AD path.
-A smooth blend — not a DiffEq event — keeps t_wrap an ordinary parameter of
-the verified continuous adjoint (event-time adjoints need jump conditions,
-and FD across a discrete switch is ill-posed); it also smears toward reality,
+A smooth blend — not a DiffEq event — keeps t_wrap an ordinary parameter
+for forward-mode differentiation through the solve (event times need jump
+conditions, and FD across a discrete switch is ill-posed); it also smears
+toward reality,
 since wrapping a brisket takes minutes, not an instant.
 
 # Arguments
@@ -294,7 +295,7 @@ end
 
 Smooth pull switch: 0 in the pit, → 1 resting after `t_pull` over width
 `δ_pull`. Same construction as [`wrap_blend`](@ref) for the same reasons
-(an ordinary parameter of the continuous adjoint, not an event);
+(an ordinary differentiable parameter, not an event);
 `PULL_NEVER` saturates to exactly 0.
 
 # Arguments

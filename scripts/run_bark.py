@@ -3,8 +3,8 @@
 Three cook styles through the full coupled pipeline at the MAP-real
 smoker — low-and-slow, hot-and-fast, and low-and-slow with a 5 h wrap —
 showing the two bark states and predicted surface lightness L*. The smoke
-forcing is the pit's own burn rate (mdot), so this figure is a genuinely
-two-Tesseract product.
+forcing is the pit's own burn rate (mdot), so this figure is a product of
+the coupled solve.
 
 Run from app/:  uv run python -u ../scripts/run_bark.py
 Writes figures/bark_model.png + data/control/bark_forward.json.

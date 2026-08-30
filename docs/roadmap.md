@@ -51,9 +51,7 @@ without calibration data.
    is the primary derivative now (one Dual solve per JVP, one chunked pass
    per Jacobian; docs/monolith.md). A discrete adjoint (Enzyme through a
    fixed-step stiff stepper) becomes worth its cost only for hundreds of
-   parameters — dense controls, spatial fields, bark chemistry. The
-   continuous-adjoint measurements that motivated it are in the history
-   (commit def7f4e).
+   parameters — dense controls, spatial fields, bark chemistry.
 3. **Monolith: done in shape (a)** (`src/monolith.jl`, one Tesseract around
    the whole physics). Remaining: the acausal component version (pit, fuel
    bed, wrap, rest, ambient as ports; the slab as a generated component)
