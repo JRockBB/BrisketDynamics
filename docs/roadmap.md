@@ -6,19 +6,10 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
 
 ## Hackathon
 
-1. **Recalibrate on the current physics.** The isotherm-driven evaporation
-   and the composition-dependent properties changed the model after the
-   last calibration, so every artifact (MAP, Laplace, ADVI, NUTS, plan,
-   MPC, robust) is from the model before them: GN MAP → Laplace → figures
-   → fullplan → MPC → robust → VI, then NUTS (`scripts/run_nuts_mono.py
-   --chain N`, Fisher-seeded dense metric, checkpoints every five steps;
-   longer than 300 draws — the last run's pit ridge, ΔH_eff / UA, had an
-   ESS of ~20), `scripts/merge_nuts_mono.py`, robust control on the NUTS
-   draws, and the numbers in `docs/writeup.md` quoted as-is.
-2. **Submission** — post the form / LinkedIn / forum drafts in
+1. **Submission** — post the form / LinkedIn / forum drafts in
    `docs/submission.md`. User-owned: hackathon registration
    (tally.so/r/kdx2ej, required for prize eligibility).
-3. *Stretch, only if 1–2 are done:*
+2. *Stretch, only if 1 is done:*
    1. **Differentiable duration** via \(s = t/t_f\) time-scaling. The
       outer-scan planner (`run_fullplan.py`) chooses duration by cook
       quality and the pull is already a decision re-timed by the MPC;

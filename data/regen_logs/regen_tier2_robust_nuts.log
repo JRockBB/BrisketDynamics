@@ -1,0 +1,7 @@
+plan: fullplan_result.json  samples: nuts_mono_samples_real.npz
+optimizing E[J] over 8 posterior draws, warm start from plan
+  iter    0  E[J]=   8.8416
+  iter   10  E[J]=   2.2450
+  iter   20  E[J]=   2.1686
+  iter   30  E[J]=   1.7430
+  iter   40  E[J]=   1.7169

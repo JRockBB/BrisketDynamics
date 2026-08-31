@@ -121,17 +121,23 @@ stall break, the climb to 90 °C (core rms 3.0 K).
   the Gauss–Newton Fisher covariance (ridge widths included; a metric from a
   floored finite-difference Hessian understated them 3–6× and every
   trajectory hit the tree-depth cap), one chain per process. Two chains of
-  300 warmup + 300 draws, 18 h each on a laptop (31-step trajectories, step
-  sizes 0.15 and 0.10, mean acceptance 0.83 / 0.85): split-r̂ ≤ 1.06 on all
-  19 sites, ESS from 428 (k_e) down to 19–21 on the pit ridge (ΔH_eff, UA)
-  and 35 on L, 5 divergences in 600 draws. Posterior widths match the
-  Gauss–Newton Fisher and Laplace widths within ~20 % on most sites — the
-  curvature statement holds — with two heavier-tailed exceptions (k_spread
-  1.11 vs 0.58, u_leak 0.38 vs 0.27 in z); ADVI is 5–10× too narrow
-  everywhere. Quoted as-is: the pit ridge needs longer chains, and these
-  chains sampled the model before the isotherm-driven evaporation and
-  composition-dependent properties landed, so the recalibration is still
-  to come.
+  300 warmup + 600 draws, 21.6 h each on a laptop (31-step trajectories,
+  step sizes 0.139 and 0.124, mean acceptance 0.93 / 0.91): **0 divergences
+  in 1200 draws**, split-r̂ ≤ 1.010 on all 19 sites, ESS 169–900 with a
+  median near 450 — the pit ridge, which an earlier 300-draw run left at
+  ESS ≈ 20, comes in at 436 (ΔH_eff) and 467 (UA). The least-identified
+  quantities are the burn-rate/leak ridge (r_max 172, u_leak 177) and the
+  pit noise scale (σ_pit 169), which is the identifiability claim in
+  reverse: the meat side is pinned, the pit only along its ridges.
+  Posterior widths sit on the Gauss–Newton Fisher and the Laplace within
+  ~10–20 % on 13 of 15 physics sites — the curvature statement holds — with
+  the heavy-tailed exceptions the quadratic approximations cannot carry
+  (k_spread 1.14 in z against ~0.6, a0 0.74 against the Laplace's 0.47);
+  ADVI is 5–10× too narrow everywhere (`figures/posterior_widths.png`).
+  The corner (`figures/corner_nuts_real.png`) shows both pit ridges
+  directly, and the predictive band
+  (`figures/posterior_predictive_nuts_real.png`) brackets the pit trace and
+  the core arc with the same early-core bias the MAP fit has.
 - **Variational inference, and what it taught us.** ADVI with a full-rank
   guide converged only once the initial scale matched the posterior's
   sharpness (0.02, not the default 0.1); the first run drifted down the ρ/σ

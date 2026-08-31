@@ -1,8 +1,8 @@
 # Submission package (drafts)
 
-Author notes (not posted): fill the NUTS-on-monolith diagnostics from
-`scripts/merge_nuts_mono.py` and the robust-control numbers from
-`data/control/schedule_robust.json` where marked. Repo:
+Author notes (not posted): the NUTS-on-monolith diagnostics and the
+robust-control numbers below are from `scripts/merge_nuts_mono.py` and
+`data/control/schedule_robust.json`. Repo:
 https://github.com/JRock95/BrisketDynamics. User-owned: hackathon
 registration (tally.so/r/kdx2ej, required for prize eligibility).
 

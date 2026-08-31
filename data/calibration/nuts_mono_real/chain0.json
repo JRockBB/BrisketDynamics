@@ -1,0 +1,24 @@
+{
+  "config": {
+    "chain": 0,
+    "seed": 0,
+    "warmup": 300,
+    "samples": 600,
+    "max_tree_depth": 5,
+    "mass": "fisher",
+    "init_physics": "gn_map_real.json",
+    "init_noise": "map_real.json"
+  },
+  "chain": 0,
+  "seed": 0,
+  "step": 900,
+  "warmup": 300,
+  "samples": 600,
+  "target": 600,
+  "wall_s": 78279.56238140003,
+  "step_size": 0.13910741851664787,
+  "mean_num_steps": 30.76,
+  "divergences": 0,
+  "mean_accept": 0.9271616698150327,
+  "done": true
+}
