@@ -5,3 +5,15 @@ optimizing E[J] over 8 posterior draws, warm start from plan
   iter   20  E[J]=   2.1686
   iter   30  E[J]=   1.7430
   iter   40  E[J]=   1.7169
+  iter   50  E[J]=   1.6508
+  iter   60  E[J]=   1.6489
+  iter   70  E[J]=   1.6351
+  iter   80  E[J]=   1.6295
+  iter   90  E[J]=   1.6238
+  iter   99  E[J]=   1.6191
+wrap: plan 7.06 h -> posterior-expected 6.72 h;  pull: plan 8.39 h -> 9.66 h
+E[J] 8.842 -> 1.619 in 1295 s
+evaluating both plans on 30 held-out draws
+  plan-optimal: J mean=9.538 sd=10.700 max=56.048  doneness mean=0.720 sd=0.139 min=0.440 max=1.000  juiciness mean=0.423 sd=0.045
+  robust: J mean=4.430 sd=14.870 max=84.477  doneness mean=0.964 sd=0.036 min=0.854 max=1.000  juiciness mean=0.387 sd=0.054
+wrote figures/control_robust.png
