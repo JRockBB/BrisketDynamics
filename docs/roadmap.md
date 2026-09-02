@@ -4,38 +4,6 @@ What is left, what is not modelled, and how the implemented physics is
 still wrong. Equations of what exists: `docs/model.md`. Do not treat
 optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
 
-## Hackathon
-
-1. **Submission** — post the form / LinkedIn / forum drafts in
-   `docs/submission.md`. User-owned: hackathon registration
-   (tally.so/r/kdx2ej, required for prize eligibility).
-2. *Stretch, only if 1 is done:*
-   1. **Differentiable duration** via \(s = t/t_f\) time-scaling — DONE
-      2026-09-02: the monolith has a fractional-time mode (`t_f` a
-      differentiable input; schedule, wrap and pull as fractions of the
-      cook; `monolith_solve_tf`, FD-verified to ~1e-4), and
-      `scripts/run_duration_opt.py` optimizes (t_f, wrap, pull, schedule)
-      JOINTLY by gradient: J 1.0608 at 11.19 h in 6 min — below the
-      13-point outer scan's grid minimum (1.0664, ~95 min), because the
-      continuous duration lands between grid points
-      (`figures/duration_opt.png`). Division of labor: the scan stays as
-      the scout and the landscape deliverable (it finds the schedule
-      basin by its duration-to-duration warm-start chain and draws
-      J(t_f)); the gradient optimizer is the chooser, seeded from it.
-      Remaining half of the formulation:
-      the serving deadline positions the *start* — planned ≥
-      quality-optimal duration is the shortest with an empirical
-      done-fraction over N posterior draws (one-sided margin: finishing
-      early is nearly free, the resting hold exists for this; a losing
-      cook should extend, not surrender).
-   2. **≤5-min demo video.**
-
-Out of scope for the hackathon (identifiability-first ethos): CFD smoke,
-2D/3D meat, humidity dynamics without an RH/wet-bulb sensor, bark chemistry
-without calibration data.
-
-## Post-hackathon (by priority)
-
 1. **Close the loop for real: MPC as the controller.** Productionize the
    receding-horizon re-planner; integrate with HeaterMeter (open-source fan
    controller — our planner can sit above its PID as the planning layer).

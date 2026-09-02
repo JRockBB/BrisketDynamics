@@ -192,7 +192,16 @@ schedule jointly by gradient — J 1.0608 at 11.19 h in 6 minutes, below the
 points (`figures/duration_opt.png`). The scan keeps the scout's job: its
 duration-to-duration warm-start chain finds the schedule basin the gradient
 run polishes, and its curve is the landscape the one-point optimum cannot
-show.
+show. The serving deadline then positions the *start*, not the cook:
+extending the fractional plan is a one-parameter family in t_f, and the
+planned duration is the shortest whose empirical done-fraction over 30
+posterior draws clears 0.9 (`scripts/run_start_time.py`,
+`figures/start_time.png`) — light the fire (planned duration) before
+serving, one-sided because the resting hold makes finishing early nearly
+free. On this posterior the stretch margin is expensive (16.99 h planned
+against the 11.19 h optimum: P(done) at t* is only 0.53), which is the
+robust-control result seen from the other side — hedging the *schedule*
+buys the same assurance at 11 h that stretching a nominal plan buys at 17.
 
 **Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
 as plant, the 11 h plan under defense, hourly replans from the measured state
