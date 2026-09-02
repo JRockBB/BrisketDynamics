@@ -1,0 +1,217 @@
+{
+  "reference": "Baldwin, A Practical Guide to Sous Vide Cooking, Table 2.2 (douglasbaldwin.com); alpha=1.4e-7 m2/s, h=95 W/m2K, 5C start, done = bath - 0.5C",
+  "bath_c": 60.0,
+  "h_bath": 95.0,
+  "note": "model is full physics (Choi-Okos properties, water transport), not Baldwin's constant-alpha conduction; theory_min = first-term exact conduction series at Baldwin's alpha/h (k=0.48 for Bi). Baldwin's published cylinder/sphere columns are safety-padded relative to that exact solution",
+  "alpha_theory": 1.4e-07,
+  "k_theory": 0.48,
+  "wall_s": 91.61294839996845,
+  "rows": [
+    {
+      "shape": "slab",
+      "thickness_mm": 10,
+      "baldwin_min": 19,
+      "theory_min": 19.498504320718446,
+      "model_min": 20.5,
+      "ratio_baldwin": 1.0789473684210527,
+      "ratio_theory": 1.051362692379302
+    },
+    {
+      "shape": "slab",
+      "thickness_mm": 20,
+      "baldwin_min": 50,
+      "theory_min": 50.225692170266434,
+      "model_min": 51.5,
+      "ratio_baldwin": 1.03,
+      "ratio_theory": 1.0253716330162983
+    },
+    {
+      "shape": "slab",
+      "thickness_mm": 25,
+      "baldwin_min": 75,
+      "theory_min": 69.92966942232759,
+      "model_min": 71.0,
+      "ratio_baldwin": 0.9466666666666667,
+      "ratio_theory": 1.015305814921108
+    },
+    {
+      "shape": "slab",
+      "thickness_mm": 30,
+      "baldwin_min": 90,
+      "theory_min": 92.56023356493733,
+      "model_min": 93.0,
+      "ratio_baldwin": 1.0333333333333334,
+      "ratio_theory": 1.004751137914471
+    },
+    {
+      "shape": "slab",
+      "thickness_mm": 40,
+      "baldwin_min": 150,
+      "theory_min": 146.65403109030066,
+      "model_min": 145.5,
+      "ratio_baldwin": 0.97,
+      "ratio_theory": 0.9921309282689265
+    },
+    {
+      "shape": "slab",
+      "thickness_mm": 50,
+      "baldwin_min": 210,
+      "theory_min": 212.576486131192,
+      "model_min": 208.5,
+      "ratio_baldwin": 0.9928571428571429,
+      "ratio_theory": 0.9808234381639171
+    },
+    {
+      "shape": "slab",
+      "thickness_mm": 60,
+      "baldwin_min": 285,
+      "theory_min": 290.36301996531785,
+      "model_min": 282.5,
+      "ratio_baldwin": 0.9912280701754386,
+      "ratio_theory": 0.9729200365588667
+    },
+    {
+      "shape": "cylinder",
+      "thickness_mm": 10,
+      "baldwin_min": 11,
+      "theory_min": 9.298882483657566,
+      "model_min": 10.0,
+      "ratio_baldwin": 0.9090909090909091,
+      "ratio_theory": 1.0753980403101793
+    },
+    {
+      "shape": "cylinder",
+      "thickness_mm": 20,
+      "baldwin_min": 30,
+      "theory_min": 23.371715945048535,
+      "model_min": 24.5,
+      "ratio_baldwin": 0.8166666666666667,
+      "ratio_theory": 1.0482756190261888
+    },
+    {
+      "shape": "cylinder",
+      "thickness_mm": 25,
+      "baldwin_min": 40,
+      "theory_min": 32.2907934400734,
+      "model_min": 33.0,
+      "ratio_baldwin": 0.825,
+      "ratio_theory": 1.0219631196502734
+    },
+    {
+      "shape": "cylinder",
+      "thickness_mm": 30,
+      "baldwin_min": 50,
+      "theory_min": 42.49195982757314,
+      "model_min": 43.0,
+      "ratio_baldwin": 0.86,
+      "ratio_theory": 1.0119561482804846
+    },
+    {
+      "shape": "cylinder",
+      "thickness_mm": 40,
+      "baldwin_min": 75,
+      "theory_min": 66.7868716426553,
+      "model_min": 67.0,
+      "ratio_baldwin": 0.8933333333333333,
+      "ratio_theory": 1.003191171439876
+    },
+    {
+      "shape": "cylinder",
+      "thickness_mm": 50,
+      "baldwin_min": 120,
+      "theory_min": 96.3187251068693,
+      "model_min": 95.5,
+      "ratio_baldwin": 0.7958333333333333,
+      "ratio_theory": 0.9914998344718445
+    },
+    {
+      "shape": "cylinder",
+      "thickness_mm": 60,
+      "baldwin_min": 150,
+      "theory_min": 131.12022230119138,
+      "model_min": 129.0,
+      "ratio_baldwin": 0.86,
+      "ratio_theory": 0.9838299366491228
+    },
+    {
+      "shape": "sphere",
+      "thickness_mm": 10,
+      "baldwin_min": 8,
+      "theory_min": 6.009579700214,
+      "model_min": 6.5,
+      "ratio_baldwin": 0.8125,
+      "ratio_theory": 1.0816064224538924
+    },
+    {
+      "shape": "sphere",
+      "thickness_mm": 20,
+      "baldwin_min": 20,
+      "theory_min": 14.822686104940171,
+      "model_min": 15.5,
+      "ratio_baldwin": 0.775,
+      "ratio_theory": 1.045694409924399
+    },
+    {
+      "shape": "sphere",
+      "thickness_mm": 25,
+      "baldwin_min": 25,
+      "theory_min": 20.34886152351114,
+      "model_min": 21.0,
+      "ratio_baldwin": 0.84,
+      "ratio_theory": 1.031998766895953
+    },
+    {
+      "shape": "sphere",
+      "thickness_mm": 30,
+      "baldwin_min": 35,
+      "theory_min": 26.64368718287068,
+      "model_min": 27.5,
+      "ratio_baldwin": 0.7857142857142857,
+      "ratio_theory": 1.0321394261707084
+    },
+    {
+      "shape": "sphere",
+      "thickness_mm": 40,
+      "baldwin_min": 55,
+      "theory_min": 41.58006007711334,
+      "model_min": 42.0,
+      "ratio_baldwin": 0.7636363636363637,
+      "ratio_theory": 1.010099550652593
+    },
+    {
+      "shape": "sphere",
+      "thickness_mm": 50,
+      "baldwin_min": 90,
+      "theory_min": 59.6881944911689,
+      "model_min": 59.5,
+      "ratio_baldwin": 0.6611111111111111,
+      "ratio_theory": 0.9968470399754387
+    },
+    {
+      "shape": "sphere",
+      "thickness_mm": 60,
+      "baldwin_min": 120,
+      "theory_min": 80.99876788698407,
+      "model_min": 80.0,
+      "ratio_baldwin": 0.6666666666666666,
+      "ratio_theory": 0.9876693446945066
+    }
+  ],
+  "summary": {
+    "slab": {
+      "mean_ratio_theory": 1.0060950973175555,
+      "worst_abs_rel_theory": 0.05136269237930202,
+      "mean_ratio_baldwin": 1.0061475116362335
+    },
+    "cylinder": {
+      "mean_ratio_theory": 1.0194448385468526,
+      "worst_abs_rel_theory": 0.07539804031017927,
+      "mean_ratio_baldwin": 0.8514177489177489
+    },
+    "sphere": {
+      "mean_ratio_theory": 1.0265792801096416,
+      "worst_abs_rel_theory": 0.08160642245389238,
+      "mean_ratio_baldwin": 0.7578040610183467
+    }
+  }
+}

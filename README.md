@@ -81,6 +81,7 @@ uv run python ../scripts/compare_approx.py      # W1 + width scoreboard vs NUTS
 uv run python ../scripts/run_nuts_mono.py --chain 0   # real cook NUTS, one chain per process (long)
 uv run python ../scripts/run_mpc.py             # receding-horizon MPC demo
 uv run python ../scripts/run_bark.py            # bark model forward validation
+uv run python ../scripts/run_sous_vide.py       # geometry modes vs Baldwin + exact conduction
 uv run python ../scripts/run_fullplan.py        # J(t_f) landscape scan — the scout & the figure
 uv run python ../scripts/run_duration_opt.py    # the chooser: joint gradient over (t_f, wrap, pull,
                                                 # schedule), seeded from the scan (s = t/t_f)

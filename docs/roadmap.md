@@ -23,6 +23,14 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    with the hand-written monolith as its oracle — benchmark
    `structural_simplify` time, generated-code size, and derivative cost
    before adopting it. Same-monolith prerequisites for items 5 and 11.
+   Sequencing (decided 2026-09-03): the parametric model family FIRST
+   (item 11 — it discovers empirically what the component ports must
+   express, with the existing verified derivative machinery); then the
+   MTK spike exactly as gated above, adding one measurement — does
+   ForwardDiff-through-solve survive the generated code at our
+   tolerances, with the smooth event blends reproduced inside components
+   (MTK's discrete events are LESS differentiable than the blends)?
+   Adopt as the composition layer only on that evidence.
 4. **The ~$150 instrument package + data flywheel.** In value order: a
    two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
    meat, no controller — free, and the only way to identify the pit's fast
@@ -129,10 +137,26 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
     / skin-barrier for poultry / saturated-steam / wrapped), source model
     (charcoal / pellet-auger / two-zone offset / rock reservoir / electric),
     and doneness kinetics (collagen, myosin, pasteurization — all Arrhenius).
+    Progress (2026-09-03): the GEOMETRY axis is in and validated —
+    `MeatConfig.geom_m` puts the slab/cylinder/sphere curvature into the
+    material-coordinate operator (exact (1+m) center limit; bit-identical
+    slab at m = 0), and sous vide needed no new BC code at all (the bath
+    is the rest environment from t = 0 with η_rest = 1). Validation with
+    zero fitted parameters: `scripts/run_sous_vide.py` reproduces the
+    exact conduction series at Baldwin's α/h to ≤ 8% on all 21 table
+    cases (his published cylinder/sphere columns are safety-padded ~+15%
+    and ~+35% above that exact solution; the slab column, us, and theory
+    agree to ~1%; `figures/sous_vide_baldwin.png`). The doneness-kinetics
+    axis is configuration, not code: collagen constants (Ea, k_ref,
+    T_ref) are `MeatConfig` fields (a myosin-doneness preset is just
+    different literature constants), and pasteurization is the existing
+    lethality integral. Remaining on this item: the skin-barrier and
+    saturated-steam surface-BC modes, alternate source models, and any
+    transfer claim beyond sous vide.
     Notable cases: pulled pork ≈ free transfer (geometry switch); ribs make
     wrap physics mandatory; a combi oven identifies meat parameters under
     controlled T+RH for transfer to any smoker; sous vide validates against
-    Baldwin's tables; and the sealed earth pit (pibil/imu) is the jewel —
+    Baldwin's tables — DONE, above; and the sealed earth pit (pibil/imu) is the jewel —
     saturated steam kills the stall entirely, the source is an uncontrolled
     thermal discharge, and "control" becomes design (rock mass, seal time) in
     an uninstrumented cooking tradition.

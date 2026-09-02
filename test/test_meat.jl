@@ -569,3 +569,34 @@ end
     # warmer water conducts a little better
     @test BrisketDynamics.conductivity_mix(cfg.W0, cfg.F0, 353.15, v0, cfg) > k0
 end
+
+@testset "meat: geometry mode (slab / cylinder / sphere)" begin
+    # water bath via the rest environment from t = 0 (η_rest = 1 kills
+    # evaporation exactly; ε_rest = 0; h_rest = bath film coefficient) —
+    # the sous-vide configuration. Half-rise times at the center must order
+    # slab > cylinder > sphere; the measured ratios (~1.8, ~2.6 at 15 mm,
+    # Bi ≈ 3 — pre-asymptotic, below the single-term eigenvalue ratios) are
+    # anchored by scripts/run_sous_vide.py, where the same solver matches
+    # the exact conduction series to ≤ 8% on all 21 Baldwin cases.
+    θg = copy(MEAT_θ_DEFAULT)
+    θg[4] = 0.015  # 15 mm radius / half-thickness
+    T_b = 333.15
+    tsave = collect(0.0:60.0:(4 * 3600.0))
+    tpit = fill(T_b, length(tsave))
+    half = (281.15 + T_b) / 2
+    times = Float64[]
+    for m in (0.0, 1.0, 2.0)
+        cfg = MeatConfig(;
+            T0=281.15, geom_m=m, T_rest=T_b, h_rest=95.0, ε_rest=0.0, η_rest=1.0,
+        )
+        o = meat_solve(θg, tpit, tsave, tsave; cfg, t_pull=-3000.0)
+        i = findfirst(>=(half), o.Tcore)
+        @test i !== nothing
+        push!(times, tsave[i])
+    end
+    t_slab, t_cyl, t_sph = times
+    @info "geometry half-rise times [min]" t_slab / 60 t_cyl / 60 t_sph / 60
+    @test t_slab > t_cyl > t_sph
+    @test 1.5 < t_slab / t_cyl < 2.3
+    @test 2.1 < t_slab / t_sph < 3.3
+end

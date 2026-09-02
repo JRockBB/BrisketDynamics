@@ -63,6 +63,12 @@ Base.@kwdef struct MeatConfig
     # scales the exposed area A(t)/A0 = (v̄/v0)^(1 - n_shrink). L is the raw
     # half-thickness.
     n_shrink::Float64 = 1 / 3
+    # Geometry mode: curvature exponent m of the 1-D conduction/diffusion
+    # operator (1/r^m)·∂_r(r^m·…) — 0 slab (default; the brisket), 1 infinite
+    # cylinder, 2 sphere. θ's L is the half-thickness (slab) or the radius.
+    # Curvature is applied in the material coordinate: exact at uniform
+    # shrink stretch (and st ≡ 1), first-order otherwise (docs/roadmap.md).
+    geom_m::Float64 = 0.0
     ρ_sol::Float64 = 1350.0     # non-fat solids (protein + ash) density [kg m⁻³]
     ρ_fat::Float64 = 900.0      # fat density [kg m⁻³]
     ρ_water::Float64 = 980.0    # water density near cooking temperature [kg m⁻³]
@@ -673,10 +679,15 @@ function meat_rhs_core!(
     kc_c = k_mult * conductivity_mix(W[2], F[2], T[2], v_c, cfg)
     ρc_c = heat_capacity_dry(W[2], F[2], T[2], cfg) / v_c
     # center: symmetry (zero-flux) via mirror ghost node — a full cell
-    # of width st_1·Δξ with two identical faces
+    # of width st_1·Δξ with two identical faces. Curvature: near r = 0 the
+    # operator (1/r^m)·∂_r(r^m k ∂_r T) → (1 + m)·k·∂²T — the finite-volume
+    # face/volume factors reduce to exactly this limit.
+    m_g = cfg.geom_m
+    Δξ̂ = 1 / (nx - 1)  # normalized material spacing (ξ̂ ∈ [0, 1])
+    c_geo = 1 + m_g
     f_c = (st_m + st_c) / 2
-    dT[1] = (kc_m + kc_c) * (T[2] - T[1]) / (f_c * st_m * Δξ^2 * ρc_m)
-    dW[1] = 2D_eff * (W[2] - W[1]) / (f_c^2 * Δξ^2)
+    dT[1] = c_geo * (kc_m + kc_c) * (T[2] - T[1]) / (f_c * st_m * Δξ^2 * ρc_m)
+    dW[1] = c_geo * 2D_eff * (W[2] - W[1]) / (f_c^2 * Δξ^2)
     # interior: flux form with face metrics (st at the face = mean of
     # the neighbours). Heat is per PHYSICAL volume (cell capacity ∝ st
     # times the local ρc_p, flux ∝ k/st); water is per DRY MASS (cell dry
@@ -689,11 +700,24 @@ function meat_rhs_core!(
         kc_p = k_mult * conductivity_mix(W[i + 1], F[i + 1], T[i + 1], v_p, cfg)
         f_m = (st_m + st_c) / 2
         f_p = (st_c + st_p) / 2
+        # curvature: face areas ξ̂^m and the cell's mean r^m volume factor
+        # (all exactly 1 at m = 0, keeping the slab bit-identical)
+        if iszero(m_g)
+            a_m = a_p = g_i = 1.0
+        else
+            ξ̂m = (i - 1.5) * Δξ̂
+            ξ̂p = (i - 0.5) * Δξ̂
+            a_m = ξ̂m^m_g
+            a_p = ξ̂p^m_g
+            g_i = (ξ̂p^(m_g + 1) - ξ̂m^(m_g + 1)) / ((m_g + 1) * Δξ̂)
+        end
         dT[i] =
-            ((kc_c + kc_p) * (T[i + 1] - T[i]) / f_p - (kc_m + kc_c) * (T[i] - T[i - 1]) / f_m) /
-            (2 * st_c * Δξ^2 * ρc_c)
+            (a_p * (kc_c + kc_p) * (T[i + 1] - T[i]) / f_p -
+             a_m * (kc_m + kc_c) * (T[i] - T[i - 1]) / f_m) /
+            (2 * g_i * st_c * Δξ^2 * ρc_c)
         dW[i] =
-            D_eff * ((W[i + 1] - W[i]) / f_p^2 - (W[i] - W[i - 1]) / f_m^2) / Δξ^2
+            D_eff * (a_p * (W[i + 1] - W[i]) / f_p^2 -
+                     a_m * (W[i] - W[i - 1]) / f_m^2) / (g_i * Δξ^2)
         st_m, st_c, v_c = st_c, st_p, v_p
         kc_m, kc_c = kc_c, kc_p
         ρc_c = heat_capacity_dry(W[i + 1], F[i + 1], T[i + 1], cfg) / v_p
@@ -730,12 +754,20 @@ function meat_rhs_core!(
     # half-cell balances: heat per physical volume (the area factor
     # cancels between capacity and intake); water per dry mass — the
     # physical surface j leaves through has shrunk by a_area
+    if iszero(m_g)
+        a_in = g_s = 1.0
+    else
+        ξ̂in = 1 - Δξ̂ / 2
+        a_in = ξ̂in^m_g
+        g_s = (1 - ξ̂in^(m_g + 1)) / ((m_g + 1) * (Δξ̂ / 2))
+    end
     dT[nx] =
-        ((kc_m + kc_c) / 2 * (T[nx - 1] - Ts) / (f_s * Δξ) + q_net) /
-        (ρc_c * st_c * Δξ / 2)
+        (a_in * (kc_m + kc_c) / 2 * (T[nx - 1] - Ts) / (f_s * Δξ) + q_net) /
+        (g_s * ρc_c * st_c * Δξ / 2)
     dW[nx] =
-        (RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) - a_area * (j - cfg.f_abs * j_sp)) /
-        (RHO_DRY * Δξ / 2)
+        (a_in * RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) -
+         a_area * (j - cfg.f_abs * j_sp)) /
+        (g_s * RHO_DRY * Δξ / 2)
 
     # collagen conversion (doneness diagnostic as state — adjoint for free)
     # + denaturation-driven water expulsion (purge; drips out of the
