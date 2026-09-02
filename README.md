@@ -84,9 +84,10 @@ uv run python ../scripts/run_bark.py            # bark model forward validation
 uv run python ../scripts/run_fullplan.py        # J(t_f) landscape scan — the scout & the figure
 uv run python ../scripts/run_duration_opt.py    # the chooser: joint gradient over (t_f, wrap, pull,
                                                 # schedule), seeded from the scan (s = t/t_f)
-uv run python ../scripts/run_start_time.py --serve 18:00
+uv run python ../scripts/run_start_time.py --serve 18:00 [--plan robust]
                                                 # deadline -> when to light the fire (done-fraction
-                                                # over posterior draws; one-sided margin)
+                                                # over posterior draws; the hedged plan needs a
+                                                # 0.8 h margin where the nominal needs 5.8 h)
 uv run python ../scripts/render_animation.py    # animated calibrated cook
 ```
 

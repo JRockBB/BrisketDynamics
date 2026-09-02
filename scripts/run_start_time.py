@@ -69,22 +69,38 @@ def main():
         default=None,
         help="serve deadline as HH:MM (next occurrence); prints when to light the fire",
     )
+    ap.add_argument(
+        "--plan",
+        choices=("nominal", "robust"),
+        default="nominal",
+        help="nominal: the joint gradient optimum (duration_opt.json); robust: "
+        "the posterior-hedged schedule (schedule_robust.json)",
+    )
     args = ap.parse_args()
     cal = REPO / "data" / "calibration"
     ctl = REPO / "data" / "control"
 
-    plan = json.loads((ctl / "duration_opt.json").read_text())
-    t_star = plan["t_f_h"]
-    fw, fp = plan["frac_wrap"], plan["frac_pull"]
-    u = jnp.asarray(plan["u"])
-    s_u = np.asarray(plan["s_u"])
+    if args.plan == "robust":
+        rb = json.loads((ctl / "schedule_robust.json").read_text())
+        t_star = float(rb["cook_h"])
+        fw = float(rb["t_wrap_robust_h"]) / t_star
+        fp = float(rb["t_pull_robust_h"]) / t_star
+        u = jnp.asarray(rb["u_robust"])
+        s_u = np.linspace(0.0, 1.0, len(rb["u_robust"]))
+    else:
+        plan = json.loads((ctl / "duration_opt.json").read_text())
+        t_star = plan["t_f_h"]
+        fw, fp = plan["frac_wrap"], plan["frac_pull"]
+        u = jnp.asarray(plan["u"])
+        s_u = np.asarray(plan["s_u"])
     s_save = np.linspace(0.0, 1.0, 67)
     thetas, phis = _draws(cal, args.draws, args.seed)
     tx = monolith_client()
     print(
-        f"plan: t*={t_star:.2f} h, wrap {fw:.3f}, pull {fp:.3f} (fractions held "
-        f"while extending); {len(thetas)} posterior draws (TMB chain), "
-        f"done = C_core >= {args.c_serveable}, target P >= {args.p_target}",
+        f"{args.plan} plan: t*={t_star:.2f} h, wrap {fw:.3f}, pull {fp:.3f} "
+        f"(fractions held while extending); {len(thetas)} posterior draws "
+        f"(TMB chain), done = C_core >= {args.c_serveable}, "
+        f"target P >= {args.p_target}",
         flush=True,
     )
 
@@ -174,6 +190,7 @@ def main():
 
     records = sorted(cache.values(), key=lambda r: r["t_h"])
     out = {
+        "plan": args.plan,
         "t_star_h": t_star,
         "t_plan_h": t_plan,
         "margin_h": margin_h,
@@ -187,12 +204,18 @@ def main():
         "light_fire_at": start_at,
         "records": records,
     }
-    (ctl / "start_time.json").write_text(json.dumps(out, indent=2))
-    print("wrote data/control/start_time.json")
-    _figure(out, REPO)
+    tag = "" if args.plan == "nominal" else f"_{args.plan}"
+    (ctl / f"start_time{tag}.json").write_text(json.dumps(out, indent=2))
+    print(f"wrote data/control/start_time{tag}.json")
+    _figure(out, REPO, tag)
+    other = ctl / f"start_time{'_robust' if args.plan == 'nominal' else ''}.json"
+    if other.exists():
+        a = json.loads((ctl / "start_time.json").read_text())
+        b = json.loads((ctl / "start_time_robust.json").read_text())
+        _compare_figure(a, b, REPO)
 
 
-def _figure(out: dict, repo: Path):
+def _figure(out: dict, repo: Path, tag: str = ""):
     """P(done) and the doneness band vs extended duration; t* and t_plan marked."""
     import matplotlib
 
@@ -237,9 +260,49 @@ def _figure(out: dict, repo: Path):
         transform=ax.transAxes, ha="right", fontsize=8, color="0.4",
     )
     fig.tight_layout()
-    fig.savefig(repo / "figures" / "start_time.png", dpi=140)
+    fig.savefig(repo / "figures" / f"start_time{tag}.png", dpi=140)
     plt.close(fig)
-    print("wrote figures/start_time.png")
+    print(f"wrote figures/start_time{tag}.png")
+
+
+def _compare_figure(nominal: dict, robust: dict, repo: Path):
+    """P(done) vs stretched duration for the nominal and the hedged plan."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(7.0, 4.2))
+    for out, color, name in (
+        (nominal, "tab:blue", "nominal plan (quality optimum)"),
+        (robust, "tab:green", "robust plan (posterior-hedged schedule)"),
+    ):
+        r = out["records"]
+        ax.plot(
+            [x["t_h"] for x in r],
+            [x["p"] for x in r],
+            "o-",
+            color=color,
+            ms=4,
+            label=f"{name}: planned {out['t_plan_h']:.2f} h",
+        )
+        ax.axvline(out["t_plan_h"], color=color, lw=1.1, alpha=0.5)
+    ax.axhline(nominal["p_target"], color="tab:red", lw=1.0, ls="--")
+    ax.text(
+        0.985, nominal["p_target"] + 0.012, f"target {nominal['p_target']:.2f}",
+        transform=ax.get_yaxis_transform(), ha="right", fontsize=8, color="tab:red",
+    )
+    ax.set(
+        xlabel="cook duration, fractions held [h]",
+        ylabel=f"P(C_core ≥ {nominal['c_serveable']:.2f} at serve)",
+        title="Buying assurance: stretch the nominal plan, or hedge the schedule",
+    )
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, loc="lower right")
+    fig.tight_layout()
+    fig.savefig(repo / "figures" / "start_time_compare.png", dpi=140)
+    plt.close(fig)
+    print("wrote figures/start_time_compare.png")
 
 
 if __name__ == "__main__":

@@ -198,10 +198,13 @@ planned duration is the shortest whose empirical done-fraction over 30
 posterior draws clears 0.9 (`scripts/run_start_time.py`,
 `figures/start_time.png`) — light the fire (planned duration) before
 serving, one-sided because the resting hold makes finishing early nearly
-free. On this posterior the stretch margin is expensive (16.99 h planned
-against the 11.19 h optimum: P(done) at t* is only 0.53), which is the
-robust-control result seen from the other side — hedging the *schedule*
-buys the same assurance at 11 h that stretching a nominal plan buys at 17.
+free. On this posterior the stretch margin prices the
+robust-control result from the other side, and the pair is measured
+(`figures/start_time_compare.png`): stretching the nominal plan to
+P(done) ≥ 0.9 costs 16.99 h planned against the 11.19 h optimum (P at t*
+is only 0.53 — the knife edge again), while the posterior-hedged schedule
+(`--plan robust`) reaches the same assurance at 11.80 h — a 0.8 h margin
+instead of 5.8. Hedge the schedule; stretch only for the last hour.
 
 **Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
 as plant, the 11 h plan under defense, hourly replans from the measured state
