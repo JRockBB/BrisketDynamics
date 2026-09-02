@@ -183,6 +183,13 @@ water-budget residue in the roadmap. The scan converges to the 1e-3 level
 (the 12 h optimum at a 600-iteration cap is J 1.065 against the scan's
 1.066) and its warm start from one length to the next is what finds the
 good basin — started cold, the 11 h cook stops in a poorer one at J 1.46.
+The duration itself is now also a differentiable decision: the monolith's
+fractional-time mode (s = t/t_f, one more forward-mode direction through
+the solve, horizon-stretching terms included) lets
+`scripts/run_duration_opt.py` optimize cook length, wrap, pull and the
+schedule jointly by gradient — J 1.0608 at 11.19 h in 6 minutes, below the
+13-point scan's grid minimum because the continuous t_f lands between grid
+points (`figures/duration_opt.png`).
 
 **Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
 as plant, the 11 h plan under defense, hourly replans from the measured state

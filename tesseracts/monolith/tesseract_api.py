@@ -88,10 +88,20 @@ def _init():
             return (; cfg, pit, hum, abstol, reltol, T0f, W0f, C0f, F0f, B0=b0, S0=s0,
                     R0=r0)
         end
+        # t_f > 0 switches to duration (fractional-time) mode: utk/tsave and
+        # the event times are fractions of the cook length t_f, and t_f is
+        # one more differentiable input (monolith_solve_tf: s = t/t_f).
+        # The Python column layout puts t_f LAST; the Julia tf vector puts it
+        # between u_knots and the fractions -- hence the index remaps below.
         function _mono_apply(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                             dt_spritz, m_spritz, kwargs...)
+                             dt_spritz, m_spritz, t_f, kwargs...)
             kw = _mono_kw(kwargs...)
-            o = monolith_solve(θ, φ, u, utk, tsave; t_wrap, t_pull, t_add, t_spritz,
+            o = t_f > 0 ?
+                monolith_solve_tf(θ, φ, u, t_f, utk, tsave; frac_wrap=t_wrap,
+                                  frac_pull=t_pull, frac_add=t_add,
+                                  frac_spritz=t_spritz, frac_dt_spritz=dt_spritz,
+                                  m_spritz, kw...) :
+                monolith_solve(θ, φ, u, utk, tsave; t_wrap, t_pull, t_add, t_spritz,
                                dt_spritz, m_spritz, kw...)
             return (o.Tpit, o.Tcore, o.Tsurf, o.m_fuel, o.ignited, o.mdot, o.j_evap,
                     o.q_meat, o.C_field_final, o.w_retained, o.bark_b, o.bark_s,
@@ -100,18 +110,45 @@ def _init():
                     o.W_field[:, end], o.F_field[:, end], o.ring[end], o.spritz_w)
         end
         function _mono_jac(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                           dt_spritz, m_spritz, sel, kwargs...)
+                           dt_spritz, m_spritz, t_f, sel, kwargs...)
             kw = _mono_kw(kwargs...)
-            return monolith_stack_jacobian(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add,
-                                           t_spritz, dt_spritz, m_spritz,
-                                           collect(Int, sel); kw...)
+            b = 15 + length(u)
+            sel = collect(Int, sel)
+            if t_f > 0
+                sel2 = [i <= b ? i : (i == b + 7 ? b + 1 : i + 1) for i in sel]
+                return monolith_stack_jacobian_tf(θ, φ, u, t_f, utk, tsave, t_wrap,
+                                                  t_pull, t_add, t_spritz, dt_spritz,
+                                                  m_spritz, sel2; kw...)
+            end
+            keep = [i for i in sel if i <= b + 6]
+            J = monolith_stack_jacobian(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add,
+                                        t_spritz, dt_spritz, m_spritz, keep; kw...)
+            length(keep) == length(sel) && return J
+            # a t_f column requested in seconds mode is identically zero
+            Jf = zeros(size(J, 1), length(sel))
+            j = 1
+            for (k, i) in enumerate(sel)
+                if i <= b + 6
+                    Jf[:, k] = J[:, j]
+                    j += 1
+                end
+            end
+            return Jf
         end
         function _mono_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                           dt_spritz, m_spritz, dv, kwargs...)
+                           dt_spritz, m_spritz, t_f, dv, kwargs...)
             kw = _mono_kw(kwargs...)
+            b = 15 + length(u)
+            dv = collect(Float64, dv)
+            if t_f > 0
+                dv2 = vcat(dv[1:b], dv[b + 7], dv[(b + 1):(b + 6)])
+                return monolith_stack_jvp_tf(θ, φ, u, t_f, utk, tsave, t_wrap, t_pull,
+                                             t_add, t_spritz, dt_spritz, m_spritz,
+                                             dv2; kw...)
+            end
             return monolith_stack_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add,
-                                      t_spritz, dt_spritz, m_spritz,
-                                      collect(Float64, dv); kw...)
+                                      t_spritz, dt_spritz, m_spritz, dv[1:(b + 6)];
+                                      kw...)
         end
         """
     )
@@ -149,6 +186,7 @@ DIFF_INPUTS = (
     "t_spritz",
     "dt_spritz",
     "spritz_dose",
+    "t_f",
 )
 
 
@@ -198,6 +236,13 @@ class InputSchema(BaseModel):
     )
     spritz_dose: Differentiable[Array[(), Float64]] = Field(
         default=0.05, description="Water per spritz per exposed area [kg/m²]"
+    )
+    t_f: Differentiable[Array[(), Float64]] = Field(
+        default=0.0,
+        description="Cook duration [s] for fractional-time mode (s = t/t_f): when "
+        "> 0, u_tknots/tsave and t_wrap/t_pull/t_add/t_spritz/dt_spritz are "
+        "FRACTIONS of t_f and d(outputs)/d(t_f) is available; 0 keeps the "
+        "seconds semantics above",
     )
     n_meat: float = Field(default=1.0, description="Identical briskets sharing the pit")
     abstol: float = Field(default=1e-6, description="Solver absolute tolerance")
@@ -372,6 +417,7 @@ def _packed(inputs: InputSchema):
         float(np.asarray(inputs.t_spritz)),
         float(np.asarray(inputs.dt_spritz)),
         float(np.asarray(inputs.spritz_dose)),
+        float(np.asarray(inputs.t_f)),
     )
     tail = (
         float(inputs.abstol),
@@ -402,7 +448,8 @@ def _packed(inputs: InputSchema):
 
 
 def _jl_args(head, tail):
-    theta, phi, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz, m_sp = head
+    (theta, phi, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz, m_sp,
+     t_f) = head
     jt = [_jvec(v) if isinstance(v, np.ndarray) else v for v in tail]
     return [
         _jvec(theta),
@@ -416,6 +463,7 @@ def _jl_args(head, tail):
         t_spritz,
         dt_spritz,
         m_sp,
+        t_f,
     ], jt
 
 
@@ -440,6 +488,7 @@ def _input_slices(nu: int) -> dict[str, slice]:
         "t_spritz": slice(b + 3, b + 4),
         "dt_spritz": slice(b + 4, b + 5),
         "spritz_dose": slice(b + 5, b + 6),
+        "t_f": slice(b + 6, b + 7),
     }
 
 
@@ -623,7 +672,7 @@ def jacobian_vector_product(
     """J·tangent over the requested inputs (one Dual solve)."""
     nu = len(inputs.u_knots)
     sl = _input_slices(nu)
-    dv = np.zeros(N_THETA + N_PHI + nu + 6)
+    dv = np.zeros(N_THETA + N_PHI + nu + 7)
     for n in DIFF_INPUTS:
         if n in jvp_inputs and n in tangent_vector:
             dv[sl[n]] = np.atleast_1d(_own(tangent_vector[n])).reshape(-1)
@@ -674,6 +723,7 @@ def jacobian(inputs: InputSchema, jac_inputs: set[str], jac_outputs: set[str]):
                 "t_spritz",
                 "dt_spritz",
                 "spritz_dose",
+                "t_f",
             ):
                 blk = blk[..., 0]
             blocks[name] = np.array(blk, dtype=np.float64)

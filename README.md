@@ -81,7 +81,8 @@ uv run python ../scripts/compare_approx.py      # W1 + width scoreboard vs NUTS
 uv run python ../scripts/run_nuts_mono.py --chain 0   # real cook NUTS, one chain per process (long)
 uv run python ../scripts/run_mpc.py             # receding-horizon MPC demo
 uv run python ../scripts/run_bark.py            # bark model forward validation
-uv run python ../scripts/run_fullplan.py        # duration x wrap x schedule
+uv run python ../scripts/run_fullplan.py        # duration x wrap x schedule (scan)
+uv run python ../scripts/run_duration_opt.py    # duration as a GRADIENT decision (s = t/t_f)
 uv run python ../scripts/render_animation.py    # animated calibrated cook
 ```
 

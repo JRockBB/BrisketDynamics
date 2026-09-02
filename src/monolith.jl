@@ -57,7 +57,7 @@ schedule is interpolated from `nu` knots on the uniform grid
 `u_t0 + (i-1)·u_dt`.
 """
 function make_monolith_rhs(
-    cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_t0::Float64, u_dt::Float64, nu::Int
+    cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_t0::Real, u_dt::Real, nu::Int
 )
     nm = 4 * cfg.nx + 3
     n_s, n_a, v0 = shrink_exponents(cfg)
@@ -418,6 +418,206 @@ function monolith_stack_jvp(
     g, v0 = _mono_stack_fn(
         θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz,
         m_spritz; kw...,
+    )
+    dv = collect(Float64, dv)
+    return ForwardDiff.derivative(t -> g(v0 .+ t .* dv), 0.0)
+end
+
+# --- differentiable duration: s = t / t_f ------------------------------------
+
+"""Fractional event position treated as "never" (t = FRAC_NEVER·t_f ≫ horizon)."""
+const FRAC_NEVER = 1.0e3
+
+function _monolith_solve_arr_s(
+    p,
+    cfg::MeatConfig,
+    pit::PitConfig,
+    hum::Humidity,
+    u_tknots,
+    s_save,
+    t_f,
+    nu::Int;
+    abstol=1e-6,
+    reltol=1e-6,
+    T0f=Float64[],
+    W0f=Float64[],
+    C0f=Float64[],
+    F0f=Float64[],
+    B0=NaN,
+    S0=NaN,
+    R0=NaN,
+)
+    # u_t0/u_dt in seconds may carry Duals of t_f; the interp ratio
+    # (s·t_f − u_t0)/u_dt cancels t_f exactly, value and derivative
+    u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
+    rhs! = make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
+    # integrate over s ∈ [0, 1]: time type stays Float64, the duration
+    # enters only through the RHS scaling and the seconds-valued p entries
+    rhs_s! = function (dx, x, q, s)
+        rhs!(dx, x, q, s * t_f)
+        @inbounds for i in eachindex(dx)
+            dx[i] *= t_f
+        end
+        return nothing
+    end
+    Tp = promote_type(eltype(p), typeof(float(t_f)), Float64)
+    x0 = vcat(
+        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0)),
+        [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP]],
+    )
+    s_grid = collect(Float64, s_save)
+    prob = ODEProblem{true,SciMLBase.FullSpecialize}(rhs_s!, x0, (0.0, 1.0), p)
+    sol = solve(prob, FBDF(); saveat=s_grid, abstol=abstol, reltol=reltol)
+    A = Array(sol)
+    (SciMLBase.successful_retcode(sol) && size(A, 2) == length(s_grid)) || throw(
+        ErrorException(
+            "monolith s-solve failed: retcode=$(sol.retcode), " *
+            "saved $(size(A, 2))/$(length(s_grid)) points",
+        ),
+    )
+    return A
+end
+
+"""
+    monolith_solve_tf(θ, φ, u_knots, t_f, s_u, s_save; frac_wrap, frac_pull,
+                      frac_add, frac_spritz, frac_dt_spritz, m_spritz, kw...)
+
+[`monolith_solve`](@ref) with the cook **duration `t_f` [s] as a smooth
+input** (roadmap: differentiable duration via s = t/t_f). The schedule
+shape is fixed in fractional time: damper knots sit on `s_u ⊂ [0, 1]`,
+outputs on `s_save ⊂ [0, 1]`, and every event is a fraction of the cook
+(`t_wrap = frac_wrap·t_f`, …; `frac ≥ FRAC_NEVER` never happens). The
+integration runs over s ∈ [0, 1] with the RHS scaled by `t_f`, so
+`d(outputs)/d(t_f)` — including the quality integrals' stretching terms —
+is one ForwardDiff direction like any other parameter.
+
+Physical time constants (blend widths, lid-open decay, chimney taper) stay
+in seconds: a longer cook does not smear its events.
+"""
+function monolith_solve_tf(
+    θ::AbstractVector,
+    φ::AbstractVector,
+    u_knots::AbstractVector,
+    t_f::Real,
+    s_u::AbstractVector,
+    s_save::AbstractVector;
+    cfg::MeatConfig=MeatConfig(),
+    pit::PitConfig=PitConfig(),
+    hum::Humidity=Humidity(),
+    frac_wrap::Real=FRAC_NEVER,
+    frac_pull::Real=FRAC_NEVER,
+    frac_add::Real=FRAC_NEVER,
+    frac_spritz::Real=FRAC_NEVER,
+    frac_dt_spritz::Real=0.5,
+    m_spritz::Real=NaN,
+    T0f::AbstractVector=Float64[],
+    W0f::AbstractVector=Float64[],
+    C0f::AbstractVector=Float64[],
+    F0f::AbstractVector=Float64[],
+    B0::Real=NaN,
+    S0::Real=NaN,
+    R0::Real=NaN,
+    abstol=1e-6,
+    reltol=1e-6,
+)
+    length(θ) == MEAT_NP ||
+        throw(ArgumentError("θ must have length $MEAT_NP; got $(length(θ))"))
+    length(φ) == PIT_NP ||
+        throw(ArgumentError("φ must have length $PIT_NP; got $(length(φ))"))
+    length(u_knots) == length(s_u) || throw(
+        ArgumentError(
+            "u_knots length $(length(u_knots)) != s_u length $(length(s_u))",
+        ),
+    )
+    value_of(x) = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
+    value_of(t_f) > 0 || throw(ArgumentError("t_f must be positive; got $t_f"))
+    msp = isnan(value_of(m_spritz)) ? cfg.m_spritz : m_spritz
+    p = vcat(
+        float.(θ), float.(φ), float.(u_knots), frac_wrap * t_f, frac_pull * t_f,
+        frac_add * t_f, frac_spritz * t_f, frac_dt_spritz * t_f, float(msp),
+    )
+    any(x -> isnan(value_of(x)), p) && throw(
+        ArgumentError("monolith_solve_tf got NaN inputs in p"),
+    )
+    nu = length(u_knots)
+    u_tk = float.(s_u) .* t_f
+    tsave = float.(s_save) .* t_f
+    A = _monolith_solve_arr_s(
+        p, cfg, pit, hum, u_tk, s_save, t_f, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0,
+        S0, R0,
+    )
+    return _monolith_outputs(A, p, cfg, pit, hum, u_tk, tsave, nu)
+end
+
+"""
+    _mono_stack_fn_tf(θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull,
+                      frac_add, frac_spritz, frac_dt_spritz, m_spritz; kw...)
+
+`(g, v0)`: the stacked outputs as a function of
+`v = [θ; φ; u_knots; t_f; frac_wrap; frac_pull; frac_add; frac_spritz;
+frac_dt_spritz; m_spritz]`, and that vector's value.
+"""
+function _mono_stack_fn_tf(
+    θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull, frac_add, frac_spritz,
+    frac_dt_spritz, m_spritz; kw...,
+)
+    nθ, nφ, nu = length(θ), length(φ), length(u_knots)
+    v0 = vcat(
+        float.(θ), float.(φ), float.(u_knots), float(t_f), float(frac_wrap),
+        float(frac_pull), float(frac_add), float(frac_spritz), float(frac_dt_spritz),
+        float(m_spritz),
+    )
+    g(v) = monolith_stack(
+        monolith_solve_tf(
+            v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)],
+            v[end - 6], s_u, s_save; frac_wrap=v[end - 5], frac_pull=v[end - 4],
+            frac_add=v[end - 3], frac_spritz=v[end - 2], frac_dt_spritz=v[end - 1],
+            m_spritz=v[end], kw...,
+        ),
+    )
+    return g, v0
+end
+
+"""
+    monolith_stack_jacobian_tf(θ, φ, u_knots, t_f, s_u, s_save, frac_wrap,
+                               frac_pull, frac_add, frac_spritz, frac_dt_spritz,
+                               m_spritz, sel; kw...)
+
+Forward-mode Jacobian of [`monolith_stack`](@ref) in duration mode w.r.t.
+the entries `sel` (1-based indices into `[θ; φ; u_knots; t_f; frac_wrap;
+frac_pull; frac_add; frac_spritz; frac_dt_spritz; m_spritz]`).
+"""
+function monolith_stack_jacobian_tf(
+    θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull, frac_add, frac_spritz,
+    frac_dt_spritz, m_spritz, sel::AbstractVector{<:Integer}; kw...,
+)
+    g, v0 = _mono_stack_fn_tf(
+        θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull, frac_add, frac_spritz,
+        frac_dt_spritz, m_spritz; kw...,
+    )
+    sel = collect(Int, sel)
+    function gs(vs)
+        v = convert(Vector{eltype(vs)}, copy(v0))
+        v[sel] .= vs
+        return g(v)
+    end
+    return ForwardDiff.jacobian(gs, v0[sel])
+end
+
+"""
+    monolith_stack_jvp_tf(θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull,
+                          frac_add, frac_spritz, frac_dt_spritz, m_spritz, dv; kw...)
+
+Directional derivative of [`monolith_stack`](@ref) in duration mode along
+the full-length tangent `dv` — one Dual solve.
+"""
+function monolith_stack_jvp_tf(
+    θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull, frac_add, frac_spritz,
+    frac_dt_spritz, m_spritz, dv; kw...,
+)
+    g, v0 = _mono_stack_fn_tf(
+        θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull, frac_add, frac_spritz,
+        frac_dt_spritz, m_spritz; kw...,
     )
     dv = collect(Float64, dv)
     return ForwardDiff.derivative(t -> g(v0 .+ t .* dv), 0.0)

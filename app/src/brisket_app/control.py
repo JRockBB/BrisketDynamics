@@ -358,6 +358,39 @@ def objective(
         **tols,
     )
 
+    return score_outputs(
+        sim,
+        jnp.asarray(grids.tknots),
+        u,
+        t_pull,
+        t_add,
+        cc,
+        leth_banked=leth_banked,
+        danger_banked_h=danger_banked_h,
+        leth_banked_core=leth_banked_core,
+        danger_banked_core_h=danger_banked_core_h,
+    )
+
+
+def score_outputs(
+    sim,
+    t_s,
+    u,
+    t_pull,
+    t_add,
+    cc: ControlConfig,
+    leth_banked: float = 0.0,
+    danger_banked_h: float = 0.0,
+    leth_banked_core: float = 0.0,
+    danger_banked_core_h: float = 0.0,
+):
+    """Score a simulated cook's outputs (the quality objective; lower is better).
+
+    Factored out of :func:`objective` so the seconds-mode and the
+    duration-mode (:func:`objective_tf`) paths score identically; ``t_s``
+    is the save grid in seconds (``s_save * t_f`` in duration mode, where
+    it carries the d/dt_f stretching terms).
+    """
     # tenderness: two-sided collagen band, each side normalized to O(1)
     # per its band width (undershoot 0.05; overshoot 1 - c_overdone)
     c_core = sim["c_field_final"][0]
@@ -390,7 +423,6 @@ def objective(
     # fire keeps burning after the pull, so price the fuel AT the pull
     # (jnp.interp clamps: t_pull = never reads the end of the horizon
     # exactly) and cap bark-burn in the pit only ((1 - pull blend) weight)
-    t_s = jnp.asarray(grids.tknots)
     surf_over = jax.nn.softplus((sim["tsurf"] - cc.t_surf_max) / cc.dT_soft)
     in_pit = 1.0 - jax.nn.sigmoid((t_s - t_pull) / DELTA_PULL_S)
     surf_term = jnp.sum(in_pit * surf_over**2) / jnp.sum(in_pit)
@@ -417,6 +449,55 @@ def objective(
         + cc.w_smooth * jnp.sum(jnp.diff(u) ** 2)
         + safety
     )
+
+
+def objective_tf(
+    z,
+    z_w,
+    z_p,
+    z_tf,
+    theta,
+    phi,
+    tx,
+    s_u,
+    s_save,
+    cc: ControlConfig,
+    tols,
+    t_lo: float,
+    t_hi: float,
+    rest: dict | None = None,
+):
+    """Joint duration x schedule quality objective (differentiable duration).
+
+    The cook length is a decision variable: ``t_f = t_lo + (t_hi − t_lo) ·
+    sigmoid(z_tf)``, with the damper schedule on the fractional grid
+    ``s_u`` and the wrap/pull as fractions of the cook — the monolith's
+    fractional-time mode (s = t/t_f), so ``jax.grad`` sees d/d(t_f)
+    including the horizon-stretching terms. Chimney and spritz stay off
+    (the scan optimum uses neither); scored by :func:`score_outputs`
+    exactly as the seconds-mode :func:`objective`.
+    """
+    from .coupled import FRAC_NEVER, coupled_cook_tf
+
+    u = jax.nn.sigmoid(z)
+    frac_wrap = jax.nn.sigmoid(z_w) if cc.opt_wrap else FRAC_NEVER + 0.0 * z_w
+    frac_pull = jax.nn.sigmoid(z_p) if cc.opt_pull else FRAC_NEVER + 0.0 * z_p
+    t_f = t_lo + (t_hi - t_lo) * jax.nn.sigmoid(z_tf)
+    sim = coupled_cook_tf(
+        theta,
+        phi,
+        u,
+        t_f,
+        tx,
+        s_u,
+        s_save,
+        frac_wrap=frac_wrap,
+        frac_pull=frac_pull,
+        rest=rest,
+        **tols,
+    )
+    t_s = jnp.asarray(s_save) * t_f
+    return score_outputs(sim, t_s, u, frac_pull * t_f, FRAC_NEVER * t_f, cc)
 
 
 def _mask_decision_grads(grads, cc: ControlConfig):

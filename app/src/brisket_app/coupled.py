@@ -162,6 +162,79 @@ def coupled_cook(
     return out
 
 
+FRAC_NEVER = 1.0e3  # fractional event position treated as "never" (≫ 1)
+
+
+def coupled_cook_tf(
+    theta,
+    phi,
+    u_knots,
+    t_f,
+    tx,
+    s_u,
+    s_save,
+    abstol: float = 1e-6,
+    reltol: float = 1e-6,
+    ics: dict | None = None,
+    frac_wrap=FRAC_NEVER,
+    frac_pull=FRAC_NEVER,
+    rest: dict | None = None,
+    humidity: Humidity | None = None,
+    frac_add=FRAC_NEVER,
+    frac_spritz=FRAC_NEVER,
+    frac_dt_spritz=0.5,
+    n_meat: float = 1.0,
+    spritz_dose=0.05,
+):
+    """`coupled_cook` with the cook duration as a differentiable decision.
+
+    Fractional-time mode of the monolith (s = t/t_f): the damper knots sit
+    on ``s_u ⊂ [0, 1]``, outputs on ``s_save ⊂ [0, 1]``, and every event is
+    a fraction of the cook, so the schedule *shape* is fixed while ``t_f``
+    stretches it — ``jax.grad`` w.r.t. ``t_f`` (and the fractions) flows
+    through the solve like any other parameter. ``frac ≥ FRAC_NEVER`` means
+    the event never happens.
+
+    Parameters
+    ----------
+    theta, phi, u_knots, tx : as in :func:`coupled_cook`.
+    t_f : float or jax scalar
+        Cook duration [s] (start to serve), > 0.
+    s_u, s_save : array-like
+        Fractional damper-knot and save grids on [0, 1].
+    frac_wrap, frac_pull, frac_add, frac_spritz, frac_dt_spritz
+        Event times (and spritz interval) as fractions of ``t_f``.
+    """
+    ics = ics or {}
+    humidity = humidity or Humidity()
+    return apply_tesseract(
+        tx,
+        {
+            "theta": theta,
+            "phi": phi,
+            "u_knots": u_knots,
+            "u_tknots": jnp.asarray(s_u),
+            "tsave": jnp.asarray(s_save),
+            "t_wrap": jnp.asarray(frac_wrap),
+            "t_pull": jnp.asarray(frac_pull),
+            "t_add": jnp.asarray(frac_add),
+            "t_spritz": jnp.asarray(frac_spritz),
+            "dt_spritz": jnp.asarray(frac_dt_spritz),
+            "spritz_dose": jnp.asarray(spritz_dose),
+            "t_f": jnp.asarray(t_f),
+            "n_meat": float(n_meat),
+            "abstol": abstol,
+            "reltol": reltol,
+            "afr": humidity.afr,
+            "y_w": humidity.y_w,
+            "pan_kg_s": humidity.pan_kg_s,
+            "omega_amb": humidity.omega_amb,
+            **{k: ics[k] for k in ICS_KEYS if k in ics},
+            **(rest or {}),
+        },
+    )
+
+
 # Default parameters (shared with the Julia test suite). D_eff is an *effective*
 # moisture transport coefficient — above molecular-diffusion literature values
 # because it lumps in pressure-driven juice expulsion/wicking, the mechanism

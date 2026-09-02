@@ -1,4 +1,5 @@
-using BrisketDynamics: monolith_solve, monolith_jacobian, picard_cook, Humidity
+using BrisketDynamics: monolith_solve, monolith_solve_tf, monolith_jacobian, picard_cook, Humidity,
+    monolith_stack, monolith_stack_jvp, monolith_stack_jvp_tf, FRAC_NEVER
 
 const MONO_T_F = 8 * 3600.0
 const MONO_TSAVE = collect(0.0:600.0:MONO_T_F)
@@ -126,4 +127,64 @@ end
     two = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, cfg=MeatConfig(; n_meat=2.0))
     @test two.Tpit[i4] < base.Tpit[i4]
     @test two.pv_pit[i4] > base.pv_pit[i4]
+end
+
+@testset "monolith: differentiable duration (s = t/t_f)" begin
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    t_f = MONO_T_F
+    s_save = MONO_TSAVE ./ t_f
+    s_u = MONO_UTK ./ t_f
+    fw, fp = 0.5, 0.8
+    # tf mode reproduces seconds mode (same physics, s-parameterized solve)
+    o_s = monolith_solve(
+        θ, φ, MONO_U, MONO_UTK, MONO_TSAVE;
+        pit=MONO_PIT, t_wrap=fw * t_f, t_pull=fp * t_f,
+    )
+    o_tf = monolith_solve_tf(
+        θ, φ, MONO_U, t_f, s_u, s_save; pit=MONO_PIT, frac_wrap=fw, frac_pull=fp,
+    )
+    @test maximum(abs.(o_tf.Tpit .- o_s.Tpit)) < 0.05
+    @test maximum(abs.(o_tf.Tcore .- o_s.Tcore)) < 0.05
+    @test abs(o_tf.w_retained - o_s.w_retained) < 1e-4
+    @test abs(o_tf.juiciness - o_s.juiciness) < 1e-4
+
+    # d(stack)/d(t_f): one Dual solve vs central FD over the duration
+    nu = length(MONO_U)
+    nv = 8 + 7 + nu + 7
+    dv = zeros(nv)
+    dv[8 + 7 + nu + 1] = 1.0  # t_f entry of [θ; φ; u; t_f; fracs...; m_spritz]
+    g = monolith_stack_jvp_tf(
+        θ, φ, MONO_U, t_f, s_u, s_save, fw, fp, FRAC_NEVER, FRAC_NEVER, 0.5, NaN, dv;
+        pit=MONO_PIT,
+    )
+    h = 90.0
+    stack_at(tf) = monolith_stack(
+        monolith_solve_tf(
+            θ, φ, MONO_U, tf, s_u, s_save; pit=MONO_PIT, frac_wrap=fw, frac_pull=fp,
+        ),
+    )
+    fd = (stack_at(t_f + h) .- stack_at(t_f - h)) ./ (2h)
+    big = abs.(fd) .> 1e-5
+    @test count(big) > 100
+    rel = abs.(g[big] .- fd[big]) ./ abs.(fd[big])
+    @test sort(rel)[ceil(Int, 0.95 * end)] < 5e-3
+    @test maximum(rel) < 5e-2
+
+    # chain rule: d/d(frac_pull) in tf mode == t_f · d/d(t_pull) in seconds mode
+    dv2 = zeros(nv)
+    dv2[8 + 7 + nu + 3] = 1.0  # frac_pull
+    g_fp = monolith_stack_jvp_tf(
+        θ, φ, MONO_U, t_f, s_u, s_save, fw, fp, FRAC_NEVER, FRAC_NEVER, 0.5, NaN, dv2;
+        pit=MONO_PIT,
+    )
+    nvs = 8 + 7 + nu + 6
+    dv3 = zeros(nvs)
+    dv3[8 + 7 + nu + 2] = 1.0  # t_pull in the seconds-mode vector
+    g_tp = monolith_stack_jvp(
+        θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, fw * t_f, fp * t_f, 1.0e9, 1.0e9, 3600.0,
+        NaN, dv3; pit=MONO_PIT,
+    )
+    big2 = abs.(g_tp .* t_f) .> 1e-3
+    rel2 = abs.(g_fp[big2] .- t_f .* g_tp[big2]) ./ abs.(t_f .* g_tp[big2])
+    @test sort(rel2)[ceil(Int, 0.9 * end)] < 1e-2
 end

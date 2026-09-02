@@ -10,19 +10,20 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    `docs/submission.md`. User-owned: hackathon registration
    (tally.so/r/kdx2ej, required for prize eligibility).
 2. *Stretch, only if 1 is done:*
-   1. **Differentiable duration** via \(s = t/t_f\) time-scaling. The
-      outer-scan planner (`run_fullplan.py`) chooses duration by cook
-      quality and the pull is already a decision re-timed by the MPC;
-      remaining: duration as a differentiable decision jointly with the
-      schedule. Formulation: the perfect brisket defines its own time —
-      duration by *pure cook quality* (target doneness, bark, juiciness),
-      no external costs bending it. The serving deadline never changes the
-      cook; it positions the *start*: light the fire (planned duration)
-      before serving, where planned ≥ quality-optimal duration is the
-      shortest with an empirical done-fraction over N posterior draws. The
-      safety margin is one-sided because finishing early is nearly free
-      (the resting hold exists for this). A losing cook should extend, not
-      surrender.
+   1. **Differentiable duration** via \(s = t/t_f\) time-scaling — DONE
+      2026-09-02: the monolith has a fractional-time mode (`t_f` a
+      differentiable input; schedule, wrap and pull as fractions of the
+      cook; `monolith_solve_tf`, FD-verified to ~1e-4), and
+      `scripts/run_duration_opt.py` optimizes (t_f, wrap, pull, schedule)
+      JOINTLY by gradient: J 1.0608 at 11.19 h in 6 min — below the
+      13-point outer scan's grid minimum (1.0664, ~95 min), because the
+      continuous duration lands between grid points
+      (`figures/duration_opt.png`). Remaining half of the formulation:
+      the serving deadline positions the *start* — planned ≥
+      quality-optimal duration is the shortest with an empirical
+      done-fraction over N posterior draws (one-sided margin: finishing
+      early is nearly free, the resting hold exists for this; a losing
+      cook should extend, not surrender).
    2. **≤5-min demo video.**
 
 Out of scope for the hackathon (identifiability-first ethos): CFD smoke,
