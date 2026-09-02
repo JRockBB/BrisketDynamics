@@ -8,8 +8,14 @@ using ForwardDiff
 
 include("thermophysics.jl")
 include("interpolation.jl")
-include("meat.jl")
-include("pit.jl")
+include("meats/common.jl")
+include("meats/brisket.jl")
+include("meats/chicken.jl")
+include("meats/ribs.jl")
+include("cookers/common.jl")
+include("cookers/smoker.jl")
+include("cookers/sous_vide.jl")
+include("cookers/pibil.jl")
 include("monolith.jl")
 
 export MeatConfig,
@@ -34,6 +40,13 @@ export MeatConfig,
     lininterp,
     hat_matrix,
     p_sat,
-    evap_flux
+    evap_flux,
+    with_config,
+    brisket,
+    chicken,
+    ribs,
+    sous_vide,
+    pibil_pv,
+    electric_pit
 
 end

@@ -147,6 +147,21 @@ end
 # uncalibrated defaults for cfg-only call paths.
 const MEAT_NP = 8
 
+"""
+    with_config(cfg::MeatConfig; overrides...)
+
+A copy of `cfg` with the given fields replaced (kwdef reconstruction) —
+the preset files build cuts and cooking environments with it.
+"""
+with_config(cfg::MeatConfig; kw...) = MeatConfig(;
+    merge(
+        NamedTuple{fieldnames(MeatConfig)}(
+            ntuple(i -> getfield(cfg, i), fieldcount(MeatConfig))
+        ),
+        values(kw),
+    )...,
+)
+
 # Default wrap time: far beyond any horizon. logistic((t − 1e9)/δ_wrap) is
 # EXACTLY 0.0 (tanh saturates), so the unwrapped model is recovered bitwise
 # and the reverse-mode derivative underflows to a clean zero.
