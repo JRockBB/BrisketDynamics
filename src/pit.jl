@@ -27,6 +27,12 @@ Base.@kwdef struct PitConfig
     UA_open::Float64 = 110.0     # lid-open loss coefficient [W/K]
     τ_open_add::Float64 = 120.0  # lid open to dump a chimney [s]
     τ_open_spritz::Float64 = 30.0  # lid open per spritz [s]
+    # Electric source mode: when > 0 the heat input is p_heater·u (the
+    # damper input becomes the element duty) and NOTHING burns — no fuel
+    # loss, no combustion water, no smoke, so bark deposition and the
+    # smoke ring are inert, which is what an electric cooker does. Pass
+    # a0 = 1 (nothing to ignite). 0 = charcoal (bitwise default).
+    p_heater::Float64 = 0.0      # max heater power [W]
 end
 
 """
@@ -97,6 +103,12 @@ function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::I
         Tp, m, a = x[1], x[2], x[3]
         a = clamp(a, zero(a), one(a))
         ṁ = r_max * airflow * a * tanh(max(m, zero(m)) / cfg.m_taper)
+        # electric source: the element supplies the heat, nothing burns —
+        # no fuel loss, no combustion water, no smoke (p_heater = 0 is the
+        # bitwise charcoal default; heat adds p_heater·u below)
+        if cfg.p_heater > 0
+            ṁ = zero(ṁ)
+        end
         # a lit chimney adds fuel AND ignited bed: the ignited fraction of
         # the (larger) bed moves toward 1 at the rate the mass arrives
         ṁ_add = fuel_add_rate(t, t_add, cfg)
@@ -107,7 +119,7 @@ function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::I
               lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz), cfg.τ_open_spritz) *
               logistic((t_spritz_stop - t) / δ_stop)
         q_lid = cfg.UA_open * (Tp - cfg.T_amb) * lid
-        dx[1] = (ΔH_eff * ṁ - UA * (Tp - cfg.T_amb) - q_meat - q_lid) / C_th
+        dx[1] = (ΔH_eff * ṁ + cfg.p_heater * u - UA * (Tp - cfg.T_amb) - q_meat - q_lid) / C_th
         dx[2] = -ṁ + ṁ_add
         dx[3] = k_spread * a * (1 - a) * airflow + (1 - a) * ṁ_add / max(m, cfg.m_taper)
         return nothing

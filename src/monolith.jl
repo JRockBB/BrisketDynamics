@@ -42,6 +42,12 @@ function _pit_algebra(ud, m, a, r_max, u_leak, pit::PitConfig, hum::Humidity)
     airflow = u_leak + (1 - u_leak) * ud
     a_c = clamp(a, zero(a), one(a))
     ṁ = r_max * airflow * a_c * tanh(max(m, zero(m)) / pit.m_taper)
+    # electric source: nothing burns — the fuel, smoke and combustion-water
+    # pathways all carry the zeroed burn rate (heat enters via p_heater·ud
+    # in the pit energy balance instead)
+    if pit.p_heater > 0
+        ṁ = zero(ṁ)
+    end
     mair = hum.afr * r_max * airflow
     pv_base =
         (hum.p_atm / EPS_W) * (hum.omega_amb + (hum.y_w * ṁ + hum.pan_kg_s) / mair)
@@ -91,7 +97,9 @@ function make_monolith_rhs(
               lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz), pit.τ_open_spritz) *
               (1 - wrap_blend(t, t_wrap, cfg)) * (1 - pull_blend(t, t_pull, cfg))
         q_lid = pit.UA_open * (Tp - pit.T_amb) * lid
-        dx[nm + 1] = (ΔH_eff * ṁ - UA * (Tp - pit.T_amb) - q_meat - q_lid) / C_th
+        dx[nm + 1] =
+            (ΔH_eff * ṁ + pit.p_heater * ud - UA * (Tp - pit.T_amb) - q_meat - q_lid) /
+            C_th
         dx[nm + 2] = -ṁ + ṁ_add
         dx[nm + 3] =
             k_spread * a_c * (1 - a_c) * airflow + (1 - a_c) * ṁ_add / max(m, pit.m_taper)

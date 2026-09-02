@@ -188,3 +188,18 @@ end
     rel2 = abs.(g_fp[big2] .- t_f .* g_tp[big2]) ./ abs.(t_f .* g_tp[big2])
     @test sort(rel2)[ceil(Int, 0.9 * end)] < 1e-2
 end
+
+@testset "monolith: electric source (p_heater)" begin
+    # the element heats, nothing burns: fuel constant, no smoke, no
+    # deposition — bark goes Maillard-only, which is what an electric
+    # cooker does. a0 = 1 (nothing to ignite).
+    θ = MEAT_θ_DEFAULT
+    φ = PIT_φ_DEFAULT  # a0 = 1
+    pit_e = PitConfig(; T_amb=300.0, p_heater=3000.0)
+    o = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=pit_e)
+    @test o.Tpit[end] > 340.0                       # the heater holds a cook temperature
+    @test abs(o.m_fuel[end] - o.m_fuel[1]) < 1e-9   # nothing burned
+    @test maximum(o.mdot) < 1e-12                   # no smoke flux
+    @test o.bark_s[end] < 1e-9                      # no smoke deposition
+    @test o.Tcore[end] > o.Tcore[1] + 25            # the meat still cooks
+end

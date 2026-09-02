@@ -28,10 +28,21 @@ Base.@kwdef struct MeatConfig
     τ_spritz::Float64 = 60.0    # spray duration [s]
     T_spritz::Float64 = 293.15  # spritz liquid temperature [K]
     f_abs::Float64 = 0.2        # fraction of a spritz that soaks into the crust; the rest flashes off (assumed)
+    # Doneness kinetics: first-order Arrhenius conversion of the doneness
+    # state C. The DEFAULTS are beef collagen (probe-tender); other cuts are
+    # PRESETS of these three constants, not new code — e.g. a poultry/myosin
+    # doneness or a fish doneness is a different (Ea, k_ref, T_ref) triple
+    # from the literature, and pasteurization is not C at all but the
+    # lethality integral (control.py lethality_dwell / safety_report).
     Ea::Float64 = 173e3         # collagen denaturation activation energy [J mol⁻¹]
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
     R_gas::Float64 = 8.314
+    # Skin barrier (poultry-class surface): a finite skin mass-transfer
+    # conductance in SERIES with the boundary layer, k_eff = 1/(1/k_m +
+    # 1/k_skin) — heat still passes, evaporation is throttled. Inf (the
+    # default) is bitwise no-barrier; the skin does not scale with draft.
+    k_skin::Float64 = Inf       # skin mass-transfer conductance [kg m⁻² s⁻¹ Pa⁻¹ scale of k_m]
     # Texas-crutch wrap constants (foil defaults; butcher paper ≈ η_evap 0.5,
     # ε_wrap 0.3). Literature-fixed pending a wrapped-cook log — the wrap
     # moment is documented in such logs, making the wrap event a known-input
@@ -329,6 +340,9 @@ Shared by the RHS and the observables so the two can never disagree.
 - `j::Number`: Evaporative mass flux [kg m⁻² s⁻¹].
 """
 function surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig)
+    # skin barrier in series with the boundary layer (both branches); the
+    # RHS and every observable pass through here, so they cannot disagree
+    k_m = isinf(cfg.k_skin) ? k_m : 1 / (1 / k_m + 1 / cfg.k_skin)
     return (1 - pl) * evap_flux_fb(Ts, Ws, (1 - cfg.η_evap * s) * k_m, pv_base, c, cfg) +
            pl * (1 - cfg.η_rest) *
            evap_flux(Ts, Ws, k_m * cfg.h_rest / h_c, cfg.p_v_rest, cfg)

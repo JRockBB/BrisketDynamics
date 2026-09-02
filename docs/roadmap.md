@@ -150,9 +150,19 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
     axis is configuration, not code: collagen constants (Ea, k_ref,
     T_ref) are `MeatConfig` fields (a myosin-doneness preset is just
     different literature constants), and pasteurization is the existing
-    lethality integral. Remaining on this item: the skin-barrier and
-    saturated-steam surface-BC modes, alternate source models, and any
-    transfer claim beyond sous vide.
+    lethality integral. The remaining modes followed on
+    2026-09-03: skin barrier (`MeatConfig.k_skin`, a series conductance —
+    heat passes, evaporation throttled; the poultry mechanism, constants
+    uncalibrated), saturated steam (pure configuration: `pv_base_knots =
+    p_sat(T_env)` — the two-sided flux condenses and the stall never
+    forms; the pibil mechanism), and an electric source
+    (`PitConfig.p_heater`: heat = p_heater·u, nothing burns — no fuel
+    loss, no combustion water, no smoke, bark goes Maillard-only). Each
+    has a physics-consistency test; none besides sous vide has an
+    external validation yet, and exposing geom_m/k_skin/p_heater through
+    the Tesseract schema is one optional field each (like t_f) when a
+    consumer needs them. Remaining: transfer claims beyond sous vide need
+    data.
     Notable cases: pulled pork ≈ free transfer (geometry switch); ribs make
     wrap physics mandatory; a combi oven identifies meat parameters under
     controlled T+RH for transfer to any smoker; sous vide validates against

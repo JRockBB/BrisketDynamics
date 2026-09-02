@@ -600,3 +600,34 @@ end
     @test 1.5 < t_slab / t_cyl < 2.3
     @test 2.1 < t_slab / t_sph < 3.3
 end
+
+@testset "meat: skin barrier and saturated-steam environments" begin
+    θ = MEAT_θ_DEFAULT
+    hr = 3600.0
+    tsave = collect(0.0:600.0:6hr)
+    tpit_hot = fill(400.0, length(tsave))
+
+    # skin barrier (poultry-class): series conductance throttles evaporation
+    # while heat still passes — wetter meat, weaker evaporative cooling
+    base = meat_solve(θ, tpit_hot, tsave, tsave; cfg=MeatConfig())
+    skin = meat_solve(θ, tpit_hot, tsave, tsave; cfg=MeatConfig(; k_skin=1e-5))
+    @test skin.evap_w < 0.3 * base.evap_w
+    @test skin.w_retained > base.w_retained + 0.02
+    @test skin.Tcore[end] > base.Tcore[end]  # less evaporative cooling
+
+    # saturated steam (pibil / sealed pit): pv_base = p_sat(T_env) is pure
+    # configuration; the two-sided flux condenses onto the cold meat and the
+    # stall never forms — the core beats the dry cook at the same T and h
+    T_env = 373.15
+    tpit_env = fill(T_env, length(tsave))
+    steam = meat_solve(
+        θ, tpit_env, tsave, tsave;
+        cfg=MeatConfig(), pv_base_knots=fill(p_sat(T_env), length(tsave)),
+    )
+    dry = meat_solve(θ, tpit_env, tsave, tsave; cfg=MeatConfig())
+    @test steam.evap_w < 0.1 * dry.evap_w   # condensation, not evaporation
+    i85s = findfirst(>=(358.15), steam.Tcore)
+    i85d = findfirst(>=(358.15), dry.Tcore)
+    @test i85s !== nothing
+    @test i85d === nothing || tsave[i85s] < 0.8 * tsave[i85d]
+end
