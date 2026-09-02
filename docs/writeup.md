@@ -189,7 +189,10 @@ the solve, horizon-stretching terms included) lets
 `scripts/run_duration_opt.py` optimize cook length, wrap, pull and the
 schedule jointly by gradient — J 1.0608 at 11.19 h in 6 minutes, below the
 13-point scan's grid minimum because the continuous t_f lands between grid
-points (`figures/duration_opt.png`).
+points (`figures/duration_opt.png`). The scan keeps the scout's job: its
+duration-to-duration warm-start chain finds the schedule basin the gradient
+run polishes, and its curve is the landscape the one-point optimum cannot
+show.
 
 **Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
 as plant, the 11 h plan under defense, hourly replans from the measured state

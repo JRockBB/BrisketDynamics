@@ -18,7 +18,11 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
       JOINTLY by gradient: J 1.0608 at 11.19 h in 6 min — below the
       13-point outer scan's grid minimum (1.0664, ~95 min), because the
       continuous duration lands between grid points
-      (`figures/duration_opt.png`). Remaining half of the formulation:
+      (`figures/duration_opt.png`). Division of labor: the scan stays as
+      the scout and the landscape deliverable (it finds the schedule
+      basin by its duration-to-duration warm-start chain and draws
+      J(t_f)); the gradient optimizer is the chooser, seeded from it.
+      Remaining half of the formulation:
       the serving deadline positions the *start* — planned ≥
       quality-optimal duration is the shortest with an empirical
       done-fraction over N posterior draws (one-sided margin: finishing
