@@ -35,6 +35,8 @@ from brisket_app.coupled import HR
 
 REPO = Path(__file__).resolve().parents[1]
 HOURS = HR
+# the same cook conditions fullplan plans under (run_fullplan.py ICS)
+ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 
 
 def _logit(f: float) -> float:
@@ -102,7 +104,7 @@ def main():
     def loss(p):
         return objective_tf(
             p["z"], p["z_w"], p["z_p"], p["z_tf"], theta, phi, tx, s_u, s_save, cc,
-            tols, t_lo, t_hi,
+            tols, t_lo, t_hi, ics=ICS,
         )
 
     vg = jax.value_and_grad(loss)

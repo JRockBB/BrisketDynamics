@@ -466,6 +466,7 @@ def objective_tf(
     t_lo: float,
     t_hi: float,
     rest: dict | None = None,
+    ics: dict | None = None,
 ):
     """Joint duration x schedule quality objective (differentiable duration).
 
@@ -494,6 +495,7 @@ def objective_tf(
         frac_wrap=frac_wrap,
         frac_pull=frac_pull,
         rest=rest,
+        ics=ics,
         **tols,
     )
     t_s = jnp.asarray(s_save) * t_f

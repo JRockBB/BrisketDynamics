@@ -33,6 +33,8 @@ from brisket_app.clients import monolith_client
 from brisket_app.coupled import HR, coupled_cook_tf
 
 REPO = Path(__file__).resolve().parents[1]
+# the same cook conditions fullplan and the robust hedge plan under
+ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
 
 
 def _draws(cal: Path, n: int, seed: int):
@@ -74,14 +76,20 @@ def main():
         choices=("nominal", "robust"),
         default="nominal",
         help="nominal: the joint gradient optimum (duration_opt.json); robust: "
-        "the posterior-hedged schedule (schedule_robust.json)",
+        "the posterior-hedged schedule (--robust-json)",
+    )
+    ap.add_argument(
+        "--robust-json",
+        default="schedule_robust_tf.json",
+        help="hedged-schedule json under data/control (fullplan-era default: "
+        "schedule_robust.json)",
     )
     args = ap.parse_args()
     cal = REPO / "data" / "calibration"
     ctl = REPO / "data" / "control"
 
     if args.plan == "robust":
-        rb = json.loads((ctl / "schedule_robust.json").read_text())
+        rb = json.loads((ctl / args.robust_json).read_text())
         t_star = float(rb["cook_h"])
         fw = float(rb["t_wrap_robust_h"]) / t_star
         fp = float(rb["t_pull_robust_h"]) / t_star
@@ -125,6 +133,7 @@ def main():
                             s_save,
                             frac_wrap=fw,
                             frac_pull=fp,
+                            ics=ICS,
                         )["c_field_final"]
                     )[0]
                 )

@@ -86,8 +86,8 @@ uv run python ../scripts/run_duration_opt.py    # the chooser: joint gradient ov
                                                 # schedule), seeded from the scan (s = t/t_f)
 uv run python ../scripts/run_start_time.py --serve 18:00 [--plan robust]
                                                 # deadline -> when to light the fire (done-fraction
-                                                # over posterior draws; the hedged plan needs a
-                                                # 0.8 h margin where the nominal needs 5.8 h)
+                                                # over posterior draws; the hedged plan needs NO
+                                                # margin where the nominal needs 4.6 h)
 uv run python ../scripts/render_animation.py    # animated calibrated cook
 ```
 

@@ -187,9 +187,10 @@ The duration itself is now also a differentiable decision: the monolith's
 fractional-time mode (s = t/t_f, one more forward-mode direction through
 the solve, horizon-stretching terms included) lets
 `scripts/run_duration_opt.py` optimize cook length, wrap, pull and the
-schedule jointly by gradient — J 1.0608 at 11.19 h in 6 minutes, below the
-13-point scan's grid minimum because the continuous t_f lands between grid
-points (`figures/duration_opt.png`). The scan keeps the scout's job: its
+schedule jointly by gradient — J 1.0618 at 10.84 h in 5 minutes, below the
+13-point scan's grid minimum (1.0664) and shorter than its 11 h choice,
+because the continuous t_f lands between grid points
+(`figures/duration_opt.png`). The scan keeps the scout's job: its
 duration-to-duration warm-start chain finds the schedule basin the gradient
 run polishes, and its curve is the landscape the one-point optimum cannot
 show. The serving deadline then positions the *start*, not the cook:
@@ -200,11 +201,14 @@ posterior draws clears 0.9 (`scripts/run_start_time.py`,
 serving, one-sided because the resting hold makes finishing early nearly
 free. On this posterior the stretch margin prices the
 robust-control result from the other side, and the pair is measured
-(`figures/start_time_compare.png`): stretching the nominal plan to
-P(done) ≥ 0.9 costs 16.99 h planned against the 11.19 h optimum (P at t*
-is only 0.53 — the knife edge again), while the posterior-hedged schedule
-(`--plan robust`) reaches the same assurance at 11.80 h — a 0.8 h margin
-instead of 5.8. Hedge the schedule; stretch only for the last hour.
+apples-to-apples — same 10.84 h basis, same posterior draws, same cook
+conditions (`figures/start_time_compare.png`): stretching the nominal plan
+to P(done) ≥ 0.9 costs 15.44 h planned against the 10.84 h optimum (P at
+t* is only 0.60 — the knife edge again), while re-hedging the schedule at
+that same optimum (E[J] over 8 posterior draws, `--plan robust`) reaches
+the target at t* exactly — **zero deadline margin against 4.6 h**. Hedge
+the schedule; the stretch then buys nothing the hedge has not already
+bought.
 
 **Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
 as plant, the 11 h plan under defense, hourly replans from the measured state
