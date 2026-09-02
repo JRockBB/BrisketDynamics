@@ -289,3 +289,78 @@ def fisher_inverse_mass(x_map, log: dict, noise: dict, hess_npz=None) -> np.ndar
     else:
         M[np.ix_(nidx, nidx)] = np.eye(len(nidx))
     return M
+
+
+# Physics rest in monolith (NAMES) order: everything except ignition.
+_IGN_IN_PHYS = [NAMES.index(n) for n in ("a0", "k_spread")]
+
+
+def sorted_to_phys(z_sorted: np.ndarray) -> np.ndarray:
+    """ALL_NAMES_SORTED unconstrained vector -> NAMES unconstrained vector."""
+    z_sorted = np.asarray(z_sorted, dtype=float).reshape(-1)
+    return np.array([z_sorted[ALL_NAMES_SORTED.index(n)] for n in NAMES])
+
+
+def apply_phys(z_sorted: np.ndarray, z_phys: np.ndarray) -> np.ndarray:
+    """Write NAMES unconstrained values back into a sorted-site vector."""
+    out = np.asarray(z_sorted, dtype=float).copy()
+    z_phys = np.asarray(z_phys, dtype=float).reshape(-1)
+    for i, n in enumerate(NAMES):
+        out[ALL_NAMES_SORTED.index(n)] = z_phys[i]
+    return out
+
+
+def gn_block_newton(
+    z_sorted,
+    log: dict,
+    wh: Whitened,
+    hold_phys: list[int] | None = None,
+    clip: float = 0.3,
+    n_steps: int = 1,
+    tol: float = 0.0,
+) -> tuple[np.ndarray, float, float]:
+    """Gauss-Newton steps on physics not in ``hold_phys`` (NAMES indices).
+
+    Local Fisher at the current rest, not the MAP Hessian. With ``tol > 0``
+    the loop runs until ``|dz|_∞ < tol`` (up to ``n_steps``, now a cap) and
+    the converged step is not taken — the TMB/INLA marginal formula
+    ``−U(θ, û) − ½ log det H_rr`` assumes the inner optimum was reached, so
+    an unconverged cell biases the marginal low exactly in the tails.
+    ``tol = 0`` keeps the fixed step count. Returns
+    ``(z_new, log det H_rr, |dz| of the last computed step, H_rr)``.
+    """
+    hold = set(hold_phys if hold_phys is not None else _IGN_IN_PHYS)
+    rest = [i for i in range(N_PHYS) if i not in hold]
+    z_sorted = np.asarray(z_sorted, dtype=float).copy()
+    logdet = 0.0
+    step_norm = 0.0
+    eye = np.eye(len(rest))
+    hrr = eye.copy()
+    for _ in range(int(n_steps)):
+        z_phys = sorted_to_phys(z_sorted)
+        _f, g, h, _w = objective(z_phys, wh, log, jac=True)
+        hrr = h[np.ix_(rest, rest)]
+        hrr = 0.5 * (hrr + hrr.T) + 1e-6 * eye
+        dz = np.clip(-np.linalg.solve(hrr, g[rest]), -clip, clip)
+        _sign, logdet = np.linalg.slogdet(hrr)
+        step_norm = float(np.linalg.norm(dz))
+        if tol > 0.0 and float(np.abs(dz).max()) < tol:
+            break
+        z_phys_rest = z_phys.copy()
+        z_phys_rest[rest] = z_phys[rest] + dz
+        z_sorted = apply_phys(z_sorted, z_phys_rest)
+    return z_sorted, float(logdet), step_norm, hrr
+
+
+def gn_rest_newton(
+    z_sorted,
+    log: dict,
+    wh: Whitened,
+    clip: float = 0.3,
+    n_steps: int = 1,
+    tol: float = 0.0,
+) -> tuple[np.ndarray, float, float]:
+    """Gauss-Newton Newton steps on non-ignition physics, ignition held fixed."""
+    return gn_block_newton(
+        z_sorted, log, wh, hold_phys=_IGN_IN_PHYS, clip=clip, n_steps=n_steps, tol=tol
+    )

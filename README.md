@@ -71,7 +71,13 @@ uv run python ../scripts/run_control.py         # damper-schedule optimization
 uv run python ../scripts/run_robust_control.py  # control under posterior uncertainty
 uv run python ../scripts/replay_cooklog.py      # real cook, uncalibrated replay
 uv run python ../scripts/run_gn_map.py          # real cook Gauss-Newton MAP + Fisher
-uv run python ../scripts/run_vi.py --real       # real cook ADVI (evening-scale; checkpointed)
+uv run python ../scripts/run_laplace.py         # Gauss-Newton Laplace draws + figures
+uv run python ../scripts/run_tmb_ignition.py    # TMB/INLA nested-Laplace ignition grid
+uv run python ../scripts/run_psis_laplace.py --proposal tmb --moment-match
+                                                # PSIS check vs the true ODE (Pareto-khat,
+                                                # moment-matching repair when khat is high)
+uv run python ../scripts/run_hier_synth.py      # two-cook hierarchical pool (synthetic)
+uv run python ../scripts/compare_approx.py      # W1 + width scoreboard vs NUTS
 uv run python ../scripts/run_nuts_mono.py --chain 0   # real cook NUTS, one chain per process (long)
 uv run python ../scripts/run_mpc.py             # receding-horizon MPC demo
 uv run python ../scripts/run_bark.py            # bark model forward validation
@@ -82,7 +88,8 @@ uv run python ../scripts/render_animation.py    # animated calibrated cook
 `run_nuts_mono.py` runs one chain per process and pickles the kernel state
 **every 5 steps, warmup included** (`data/calibration/nuts_mono_real/`) —
 re-run the same command to resume; `merge_nuts_mono.py` pools the chains and
-reports r̂ / ESS. ADVI (`run_vi.py`) checkpoints the SVI state the same way.
+reports r̂ / ESS. The cheap-posterior scoreboard (per-site 1-Wasserstein to
+NUTS, Pareto-khat, wall time) lands in `data/calibration/approx_summary.md`.
 
 ## Containers (Linux/WSL2 + Docker)
 

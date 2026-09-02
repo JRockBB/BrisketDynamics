@@ -59,20 +59,21 @@ def test_ar1_observe_matches_log_prob():
     np.testing.assert_allclose(np.asarray(lp_model), np.asarray(lp_direct), rtol=1e-10)
 
 
-def test_vi_guide_draws_without_tesseract():
-    import jax
-    import numpyro
-    from brisket_app.calibrate import draw_vi_posterior, make_vi_guide
-    from numpyro.infer import SVI, Trace_ELBO
+def test_as_cooklog_aligns_damper_with_observation_grid():
+    from brisket_app import synth
+    from brisket_app.coupled import HR, CookGrids
 
-    def model():
-        numpyro.sample("x", dist.Normal(0.0, 1.0))
-        numpyro.sample("y", dist.Normal(1.0, 1.0))
-
-    guide = make_vi_guide(model, kind="full")
-    svi = SVI(model, guide, numpyro.optim.Adam(0.2), Trace_ELBO())
-    result = svi.run(jax.random.PRNGKey(0), 40, progress_bar=False)
-    draws = draw_vi_posterior(guide, result.params, 50, seed=1)
-    assert draws["x"].shape == (50,)
-    assert draws["y"].shape == (50,)
-    assert np.std(draws["x"]) > 0.05
+    grids = CookGrids(t_end=6 * HR, dt_exchange=600.0, n_u=len(synth.U_COOK))
+    nt = len(grids.tknots)
+    log = synth.as_cooklog(
+        {
+            "t": grids.tknots,
+            "u_knots": synth.U_COOK,
+            "obs_pit": np.full(nt, 350.0),
+            "obs_core": np.full(nt, 290.0),
+            "grids": grids,
+        }
+    )
+    assert log["u"].shape == log["t"].shape
+    np.testing.assert_allclose(log["u"][0], synth.U_COOK[0])
+    np.testing.assert_allclose(log["u"][-1], synth.U_COOK[-1])

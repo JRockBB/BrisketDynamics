@@ -1,12 +1,16 @@
 """Bayesian calibration of the coupled pit-brisket model (NumPyro).
 
 Stage 1 (`run_map`): MAP via SVI with a Delta guide — validates the
-full gradient path through both Tesseracts cheaply and initializes NUTS
-and VI.
+full gradient path through both Tesseracts cheaply and initializes NUTS.
 Stage 2 (`run_nuts`): full NUTS posterior. Every leapfrog step pulls adjoint
 gradients across the Julia<->JAX boundary.
-Evening / library path (`make_vi_guide`): full-rank (or low-rank /
-mean-field) ADVI on the same model. NUTS is not replaced.
+The supported real-cook chain (scored in data/calibration/approx_summary.md
+against a 2-chain NUTS reference): Gauss-Newton MAP + Laplace (monolith.py),
+the TMB/INLA nested-Laplace ignition grid, and a PSIS + moment-matching
+check of the Laplace family against the true ODE potential (approx.py).
+19-D NUTS is the reference, not the routine. ADVI/IWAE were measured 5-10x
+too narrow (or divergent) and retired; a mean-field or full-rank guide is
+not the family for this posterior.
 
 Priors are LogNormal, centered on the model defaults (which double as the
 physical scaling analysis; see docs/brief.md §6) with log-sds wide enough to
@@ -25,13 +29,12 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions import biject_to
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import (
     AutoDelta,
-    AutoLowRankMultivariateNormal,
-    AutoMultivariateNormal,
-    AutoNormal,
 )
+from numpyro.infer.util import initialize_model
 
 from .coupled import CookGrids, coupled_cook
 
@@ -402,74 +405,64 @@ def real_latent_names() -> list[str]:
     )
 
 
-def make_vi_guide(
-    model,
-    kind: str = "full",
-    init_values: dict | None = None,
-    rank: int = 8,
-    init_scale: float = 0.1,
-):
-    """Build an ADVI guide for a bound NumPyro model.
+def real_inv_transforms() -> dict:
+    """Constrained←unconstrained maps for `model_real` sites (no model trace)."""
+    out = {}
+    for n, d in THETA_SITES + PHI_SITES + PHI_SITES_IGNITION + RHO_SITES:
+        out[n] = biject_to(d.support)
+    out["sigma_pit"] = biject_to(dist.HalfNormal(3.0).support)
+    out["sigma_core"] = biject_to(dist.HalfNormal(2.0).support)
+    return out
 
-    `full` is a multivariate Gaussian on the unconstrained space (can
-    represent linear ridges). `lowrank` is cheaper; `meanfield` cannot
-    capture the pit ridges. NUTS (`run_nuts`) remains the exact-posterior
-    sampler.
+
+def unconstrained_potential(model, init: dict, seed: int = 0):
+    """Potential, ravel, and inverse transforms at ``init``.
 
     Parameters
     ----------
     model : callable
-        Bound NumPyro model (no extra args).
-    kind : {'full', 'lowrank', 'meanfield'}
-        Variational family.
-    init_values : dict or None
-        Constrained site values (typically the MAP) for the guide loc.
-    rank : int
-        Factor rank when `kind='lowrank'`.
-    init_scale : float
-        Initial guide scale in the unconstrained space.
-
-    Returns
-    -------
-    numpyro.infer.autoguide.AutoContinuous
-        The guide.
-    """
-    init_loc_fn = (
-        numpyro.infer.init_to_value(values=init_values)
-        if init_values
-        else numpyro.infer.init_to_median()
-    )
-    kw = {"init_loc_fn": init_loc_fn, "init_scale": init_scale}
-    if kind == "full":
-        return AutoMultivariateNormal(model, **kw)
-    if kind == "lowrank":
-        return AutoLowRankMultivariateNormal(model, rank=rank, **kw)
-    if kind == "meanfield":
-        return AutoNormal(model, **kw)
-    raise ValueError(f"unknown VI guide kind {kind!r}; use full|lowrank|meanfield")
-
-
-def draw_vi_posterior(guide, params: dict, n: int, seed: int = 1) -> dict:
-    """Draw constrained samples from a fitted ADVI guide.
-
-    Parameters
-    ----------
-    guide
-        Fitted autoguide (same object used in SVI).
-    params : dict
-        `svi.get_params(state)` / `SVIRunResult.params`.
-    n : int
-        Number of draws.
+        Bound NumPyro model.
+    init : dict
+        Constrained site values (MAP).
     seed : int
-        PRNG seed.
+        PRNG seed for ``initialize_model``.
 
     Returns
     -------
-    dict[str, np.ndarray]
-        Site name → array of shape `(n,)`.
+    z0, names, unravel, inv_transforms, pot
+        Flat unconstrained mean, sorted site names, pytree unravel, per-site
+        constrained←unconstrained maps, and ``pot(z) = -log p(z, y)``.
     """
-    raw = guide.sample_posterior(jax.random.PRNGKey(seed), params, sample_shape=(n,))
-    return {k: np.asarray(v).reshape(n) for k, v in raw.items()}
+    from jax.flatten_util import ravel_pytree
+
+    mi = initialize_model(
+        jax.random.PRNGKey(seed),
+        model,
+        init_strategy=numpyro.infer.init_to_value(values=init),
+    )
+    z0, unravel = ravel_pytree(mi.param_info.z)
+    names = sorted(mi.param_info.z.keys())
+    inv_transforms = {
+        k: biject_to(site["fn"].support)
+        for k, site in mi.model_trace.items()
+        if site["type"] == "sample" and not site["is_observed"]
+    }
+
+    def pot(z):
+        return mi.potential_fn(unravel(jnp.asarray(z)))
+
+    return np.asarray(z0, dtype=float), names, unravel, inv_transforms, pot
+
+
+def constrain_draws(Z: np.ndarray, names: list[str], inv_transforms: dict) -> dict:
+    """Map unconstrained draws ``(n, d)`` to constrained site arrays."""
+    Z = np.asarray(Z, dtype=float)
+    stacked = {}
+    for j, k in enumerate(names):
+        stacked[k] = np.asarray(inv_transforms[k](jnp.asarray(Z[:, j]))).reshape(
+            Z.shape[0]
+        )
+    return stacked
 
 
 def run_map(data, tx, num_steps: int = 300, lr: float = 2e-2, seed: int = 0, **kw):

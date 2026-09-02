@@ -561,7 +561,9 @@ $\mu^{\mathrm{core}} = T_{\mathrm{core}}(t;\theta,\varphi)$, independently
 for each probe. $\rho = 0$ recovers the iid model. LogNormal priors
 centered on the model defaults (Beta for the (0,1)-bounded
 $u_{\mathrm{leak}}, a_0, \rho$). MAP by Gauss–Newton on the monolith's
-Jacobian (`scripts/run_gn_map.py`). Evening-scale posterior by full-rank
-ADVI (`scripts/run_vi.py`). Exact posterior by NUTS
+Jacobian (`scripts/run_gn_map.py`); Laplace and the TMB nested-Laplace
+ignition marginal (`scripts/run_laplace.py`, `scripts/run_tmb_ignition.py`)
+as the routine posterior, PSIS-checked against the true ODE
+(`scripts/run_psis_laplace.py`). Exact posterior by NUTS
 (`scripts/run_nuts_mono.py`), every leapfrog step pulling one VJP through
 the Tesseract.

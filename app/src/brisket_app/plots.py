@@ -18,6 +18,7 @@ import numpy as np
 
 from .calibrate import PHI_IGNITION_INERT, PHI_SITES, PHI_SITES_IGNITION, THETA_SITES
 from .coupled import HR, coupled_cook
+from .monolith import NAMES
 
 PARAM_NAMES = [n for n, _ in THETA_SITES] + [n for n, _ in PHI_SITES]
 # log-scale for the strictly positive scale parameters; u_leak stays linear
@@ -106,6 +107,7 @@ def posterior_predictive_plot(
     seed: int = 0,
     ics: dict | None = None,
     masks: dict | None = None,
+    title: str | None = None,
 ):
     """Plot the posterior-predictive band over the observed trajectories.
 
@@ -170,7 +172,90 @@ def posterior_predictive_plot(
         ax.plot(th[mk], obs[mk], ".", ms=3, color="k", alpha=0.5, label="observations")
         ax.set(xlabel="time [h]", ylabel="temperature [C]", title=name)
         ax.legend(fontsize=8)
-    fig.suptitle("Posterior predictive vs observed cook log")
+    fig.suptitle(title or "Posterior predictive vs observed cook log")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+    return out_path
+
+
+_WIDTH_STYLES = {
+    "NUTS-mono": ("tab:blue", "o", 7),
+    "Fisher": ("tab:green", "s", 5),
+    "Laplace-GN": ("tab:orange", "^", 6),
+    "TMB-ign": ("tab:purple", "D", 6),
+    "TMB-PSIS": ("tab:olive", "*", 8),
+    "Laplace-PSIS": ("tab:olive", "P", 6),
+}
+
+
+def posterior_width_plot(
+    cols: dict,
+    out_path: Path,
+    title: str | None = None,
+    ratio_to: str | None = "NUTS-mono",
+):
+    """Posterior sd(z) per physics site: approximations against NUTS.
+
+    Parameters
+    ----------
+    cols : dict
+        Label → {site: sd_z}.
+    out_path : Path
+        PNG destination.
+    title : str, optional
+        Override the default title.
+    ratio_to : str or None
+        When this label is present in ``cols``, plot ``sd / sd(ratio_to)``
+        with a line at 1 — over/under-dispersion reads directly, where the
+        absolute-sd panel hid a 2x miss on a narrow site. ``None`` (or a
+        missing reference) falls back to absolute sd.
+    """
+    ref = cols.get(ratio_to) if ratio_to else None
+    fig, ax = plt.subplots(figsize=(12.5, 4.4))
+    x = np.arange(len(NAMES))
+    if ref is not None:
+        ax.axhline(1.0, color="tab:blue", lw=1.4, zorder=1, label=ratio_to)
+        ax.axhspan(0.8, 1.25, color="tab:blue", alpha=0.08, zorder=0)
+    for label, vals in cols.items():
+        if ref is not None and label == ratio_to:
+            continue
+        color, marker, ms = _WIDTH_STYLES.get(label, ("0.5", ".", 5))
+        y = [
+            vals[n] / ref[n] if ref is not None else vals[n]
+            for n in NAMES
+        ]
+        ax.plot(
+            x,
+            y,
+            marker,
+            color=color,
+            ms=ms,
+            mfc="none" if label != ratio_to else color,
+            label=label,
+        )
+    if ref is not None:
+        ax.set(
+            xticks=x,
+            ylabel=f"posterior sd(z) ratio to {ratio_to}",
+            title=title
+            or "Posterior width ratio per physics site (1 = matches NUTS; band ±20-25%)",
+        )
+        ax.set_yscale("log")
+        ax.set_yticks([0.05, 0.1, 0.25, 0.5, 0.8, 1.0, 1.25, 2.0])
+        ax.set_yticklabels(["0.05", "0.1", "0.25", "0.5", "0.8", "1", "1.25", "2"])
+    else:
+        ax.set(
+            xticks=x,
+            ylabel="posterior sd in z (unconstrained)",
+            title=title
+            or "Posterior width per physics site: NUTS against the approximations",
+        )
+    ax.set_xticklabels(NAMES, rotation=45, ha="right")
+    ax.grid(axis="y", alpha=0.3)
+    # legend outside the axes: with many series an inset box buries the
+    # low-ratio (ADVI) markers on the left sites
+    ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.005, 1.0))
     fig.tight_layout()
     fig.savefig(out_path, dpi=140)
     plt.close(fig)

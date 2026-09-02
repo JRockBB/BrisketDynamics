@@ -65,3 +65,29 @@ test, and the damper→burn-rate→smoke→bark-color chain. Expulsion latents
 `k_e` / `a_myosin` are held at Level 1. `test_monolith_tesseract.py` checks
 the endpoints against each other (jvp = J·v, vjp = Jᵀ·w, 0-d scalar
 blocks). 6 h horizon, tolerances 1e-10, float64 end-to-end.
+
+## Known discrepancy — VJP vs jacobian endpoint on the real-cook grid (2026-09-02, open)
+
+`app/tests/test_monolith_bridge.py` (xfail) detects a real defect the 6 h
+Level-3 gate does not reach: at the current MAP on the 19 h real-cook grid,
+`jax.grad` of the `model_real` potential (VJP endpoint via tesseract-jax)
+disagrees with the jacobian-endpoint gradient by up to 13% of the gradient
+scale on pit components (UA, dH_eff worst). Isolation: the two paths' mean
+trajectories are bit-identical, and the linear-surrogate gradient (jacobian
+endpoint + the same NumPyro AR(1) assembly) matches the whitened-LM gradient
+to 1e-13 — so likelihood assembly, masks, priors and the constrained→
+unconstrained chain rule are all exonerated; the difference is inside the
+Tesseract's derivative endpoints. Richardson-extrapolated central FD of the
+potential (raw FD is dominated by an h² curvature term) sides with the
+**jacobian endpoint** on both of the largest disagreements (UA ≈ +2.2–2.3
+vs jacobian +2.236 / VJP +1.654; dH_eff ≈ −2.77 vs −2.779 / −2.199).
+
+Blast radius: GN-MAP, the Laplace, the Fisher NUTS metric and the TMB
+nested-ignition grid all consume the jacobian endpoint — unaffected. PSIS /
+moment matching consume potential *values* only — unaffected. NUTS consumes
+the VJP for leapfrog but its acceptance uses potential values, so it still
+targets the correct posterior (a wrong force field costs mixing efficiency,
+not correctness); its diagnostics (0 divergences, r̂ ≤ 1.010) stand. Fix
+lives in the monolith Tesseract's VJP path at long horizons (chunked
+forward-mode accumulation is the first suspect); re-run the bridge test
+after any change there.

@@ -5,8 +5,8 @@ Reads data/calibration/nuts_mono_real/chain*.npz, writes
 data/calibration/nuts_mono_samples_real.npz (site name -> draws, the
 format robust control and the posterior-predictive plots read) and prints
 split-r-hat / ESS per site plus the sd(z) of NUTS against the Fisher
-(gn_map_real.json), ADVI (vi_samples_real.npz) and Laplace
-(laplace_samples_real.npz) posteriors on the same unconstrained coordinates.
+(gn_map_real.json), the Laplace (laplace_samples_real.npz) and the TMB
+nested-ignition posteriors on the same unconstrained coordinates.
 
 Writes figures/corner_nuts_real.png, figures/posterior_predictive_nuts_real.png
 (the reference posterior gets the same two figures as the approximations) and
@@ -30,45 +30,16 @@ REPO = Path(__file__).resolve().parents[1]
 
 def _figures(merged: dict, cols: dict):
     """Corner + posterior predictive for the NUTS draws, and the width panel."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     from brisket_app import calibrate, cooklog
     from brisket_app.clients import monolith_client
     from brisket_app.coupled import CookGrids
-    from brisket_app.plots import corner_plot, posterior_predictive_plot
-
-    fig, ax = plt.subplots(figsize=(11, 4.2))
-    x = np.arange(len(NAMES))
-    styles = {
-        "NUTS-mono": ("tab:blue", "o", 7),
-        "Fisher": ("tab:green", "s", 5),
-        "Laplace-GN": ("tab:orange", "^", 5),
-        "ADVI": ("tab:red", "v", 5),
-    }
-    for label, vals in cols.items():
-        color, marker, ms = styles.get(label, ("0.5", ".", 5))
-        ax.plot(
-            x,
-            [vals[n] for n in NAMES],
-            marker,
-            color=color,
-            ms=ms,
-            mfc="none" if label != "NUTS-mono" else color,
-            label=label,
-        )
-    ax.set(
-        xticks=x,
-        ylabel="posterior sd in z (unconstrained)",
-        title="Posterior width per physics site: NUTS against the approximations",
+    from brisket_app.plots import (
+        corner_plot,
+        posterior_predictive_plot,
+        posterior_width_plot,
     )
-    ax.set_xticklabels(NAMES, rotation=45, ha="right")
-    ax.grid(axis="y", alpha=0.3)
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    fig.savefig(REPO / "figures" / "posterior_widths.png", dpi=140)
-    plt.close(fig)
+
+    posterior_width_plot(cols, REPO / "figures" / "posterior_widths.png")
     print("wrote figures/posterior_widths.png")
 
     corner_names = (
@@ -148,8 +119,9 @@ def main():
     if gn.exists():
         cols["Fisher"] = json.loads(gn.read_text())["sd_z_fisher"]
     for label, f in (
-        ("ADVI", "vi_samples_real.npz"),
         ("Laplace-GN", "laplace_samples_real.npz"),
+        ("TMB-ign", "tmb_ignition_samples_real.npz"),
+        ("TMB-PSIS", "psis_tmb_samples_real.npz"),
     ):
         if (cal / f).exists():
             cols[label] = sd_z(dict(np.load(cal / f)))

@@ -73,26 +73,36 @@ without calibration data.
    identify the humidity pathway.
 
    *Which posterior to use per log, measured against the 22 h NUTS
-   reference (2026-08-31).* Use the plain Gauss-Newton Laplace: 2.5 s a log
-   and within 10-20 % of the NUTS widths on 13 of 15 sites; it misses only
-   k_spread and a0, both weakly identified and prior-dominated, which the
-   scale (item 4) would tighten anyway. Two cheap alternatives were tried
-   and neither survived. PSIS-corrected Laplace (importance-weighting the
-   Gaussian draws by the true posterior, k-hat -0.02, weight ESS 5-7 %)
-   converged — 1600 and 6400 proposals agree within 5 % — to *worse*
-   marginals than the uncorrected Laplace (u_leak 0.20 against NUTS 0.35,
-   r_max 0.10 against 0.15). Seeding the ADVI guide from the same curvature
-   made the ELBO 6x worse (1885 against the narrow guide's 313) and it
-   descended back toward the narrow solution, with 4-particle ELBO and a
-   lower learning rate only slowing the descent. Both failures point one
-   way: the posterior's marginals are near-Gaussian but its mass lies on a
-   curved manifold, so a mode-centred Gaussian over-covers in the joint
-   (importance weights collapse onto the core, under-covering the arms) and
-   reverse-KL hides inside it (the narrow guide *is* the variational
-   optimum). Fixing that needs a non-Gaussian family — a flow guide, or
-   per-log Laplace sites combined by message passing — not a better
-   optimizer. Anything new here should be checked against
-   `data/calibration/nuts_mono_samples_real.npz` before it is trusted.
+   reference (scored 2026-09-02, per-site 1-Wasserstein in z;
+   `data/calibration/approx_summary.md`).* Gauss-Newton Laplace: 2.5 s a
+   log and within 10-20 % of the NUTS widths on 13 of 15 sites; it misses
+   only k_spread and a0 (ignition — cook-specific, not pooled). The TMB /
+   INLA nested-Laplace marginal on those two coordinates
+   (`scripts/run_tmb_ignition.py`: 11x11 grid, converged inner Newton,
+   ½ log det correction, ~51 min) closes most of that: W1-to-NUTS 0.095
+   vs the Laplace's 0.148, tied with an oracle fit to the NUTS draws.
+   Guard the family with `scripts/run_psis_laplace.py --proposal tmb
+   --moment-match`: Zhang-Stephens Pareto-khat against the true ODE
+   (0.76 raw; importance-weighted moment matching repairs it to 0.47),
+   with the sample-size-dependent threshold. Measured and retired
+   (2026-09-02 attic tarball): profile nested grids, structured t/mixture
+   ignition families, 2-D/5-D surrogate-transition samplers (4+ h, no W1
+   gain over the grid), and ADVI/IWAE (5-10x too narrow or divergent).
+   The residual honest gap — every method still ~0.86-0.89x NUTS width on
+   ignition and weakest on u_leak — is the 19-D sloppy-ribbon coupling a
+   2-D-marginal family cannot carry; more data (item 4), not more
+   machinery.
+
+   Two-stage hierarchical pooling (no joint NUTS): per-log GN Laplace, then
+   a Gaussian pool — pit shared, meat partial, ignition iid. Synthetic
+   two-cook check: `scripts/run_hier_synth.py`.
+
+   **Not RxInfer / CBFE for this.** Constrained Bethe Free Energy is the
+   online-during-cook estimator (a reactive factor graph over pit state and
+   brisket parameters once the model is pure Julia). Batch calibration is
+   one stiff ODE likelihood; message passing on that graph is just
+   Laplace/VI on a custom node. Do not rebuild batch calibration as a
+   factor graph to match NUTS.
 6. **Wrap and rest constants.** Calibrate η_evap / ε_wrap against a wrapped
    cook log — posts document the wrap moment, making the wrap event a
    known-input step-response experiment — via the two-cook joint fit

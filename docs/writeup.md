@@ -132,23 +132,32 @@ stall break, the climb to 90 °C (core rms 3.0 K).
   Posterior widths sit on the Gauss–Newton Fisher and the Laplace within
   ~10–20 % on 13 of 15 physics sites — the curvature statement holds — with
   the heavy-tailed exceptions the quadratic approximations cannot carry
-  (k_spread 1.14 in z against ~0.6, a0 0.74 against the Laplace's 0.47);
-  ADVI is 5–10× too narrow everywhere (`figures/posterior_widths.png`).
+  (k_spread 1.14 in z against ~0.6, a0 0.74 against the Laplace's 0.47).
   The corner (`figures/corner_nuts_real.png`) shows both pit ridges
   directly, and the predictive band
   (`figures/posterior_predictive_nuts_real.png`) brackets the pit trace and
   the core arc with the same early-core bias the MAP fit has.
-- **Variational inference, and what it taught us.** ADVI with a full-rank
-  guide converged only once the initial scale matched the posterior's
-  sharpness (0.02, not the default 0.1); the first run drifted down the ρ/σ
-  ridge to a predictive 10 K off the data while its corner looked tidy. The
-  root cause of an earlier nan was real: numpyro derives a
-  `TransformedDistribution`'s support from the transform's codomain, and an
-  affine transform of Beta(2,2) defaulted to the real line, so the guide
-  drew ρ > 0.95 into a log-prob that is undefined there. One `domain=`
-  argument fixed it. The converged VI is under-dispersed along the pit
-  ridges relative to the curvature — standard ADVI behaviour, and the reason
-  the NUTS chains exist.
+- **The cheap posterior, chosen by measurement.** Eighteen approximation
+  variants (Laplace, profile and TMB/INLA nested-Laplace grids, structured
+  Student-t/mixture families, surrogate-transition samplers, ADVI/IWAE)
+  were scored against the NUTS reference by per-site 1-Wasserstein
+  distance in unconstrained coordinates
+  (`scripts/compare_approx.py` → `data/calibration/approx_summary.md`,
+  `figures/posterior_widths.png`). The winner, and the supported chain, is
+  Gauss–Newton Laplace plus a TMB/INLA nested-Laplace marginal on the two
+  heavy-tailed ignition coordinates — an 11×11 grid with a converged inner
+  Newton and the ½ log det correction, ~51 min — which matches NUTS to
+  W1 0.095 (tied with an oracle fit to the NUTS draws themselves), against
+  0.148 for the Laplace alone. A PSIS check against the true ODE guards
+  the family: with the Zhang–Stephens Pareto-k̂ (a moment-fit k̂ had
+  under-read 0.76 as 0.30) the proposal reads k̂ = 0.76, and
+  importance-weighted moment matching (Paananen et al. 2021) repairs it to
+  k̂ = 0.47 in three accepted transforms. Retired by the same scoreboard:
+  surrogate-transition refinements (4+ h for no W1 gain over the grid) and
+  ADVI/IWAE (5–10× too narrow, or divergent, in every configuration —
+  along the way a `TransformedDistribution` support bug that let the guide
+  draw ρ > 0.95 into an undefined log-prob was found and fixed with
+  `domain=`).
 
 **The plan** (`figures/fullplan.png`): the perfect brisket picks its own
 length. An outer scan over cook lengths (start to serve, 8–20 h), and inside
