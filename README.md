@@ -5,7 +5,7 @@
 **Bayesian calibration and optimal control of a coupled smoker–brisket system,
 built for the [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/)
 (track 04: differentiable inference & UQ; cross-track 02: multi-physics & coupled systems).
-Technical writeup: [docs/writeup.md](docs/writeup.md) · results record: [docs/results.md](docs/results.md) · pooling write-up: [docs/pooling.md](docs/pooling.md) · full equations: [docs/model.md](docs/model.md) ([diagram](figures/math_diagram.png)).**
+Technical writeup: [docs/writeup.md](docs/writeup.md) · results record: [docs/results.md](docs/results.md) · pooling write-up: [docs/pooling.md](docs/pooling.md) · install story: [docs/install.md](docs/install.md) · full equations: [docs/model.md](docs/model.md) ([diagram](figures/math_diagram.png)).**
 
 Real BBQ is a coupled multi-physics control problem: a charcoal pit with its own
 thermal dynamics drives heat into a brisket whose internal physics — coupled heat
