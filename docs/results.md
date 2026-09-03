@@ -312,6 +312,33 @@ claim concrete by swapping the Arrhenius triple to a fish-myosin scale
 (T_ref 50 °C) on a thin slab. All constants placeholder scale except
 where the pooling record backs them.
 
+## Discrete-adjoint legwork: Enzyme through a fixed-step stepper (2026-09-04)
+
+The item-2 question — is a discrete adjoint viable, and where is the
+forward/reverse crossover — now has measured answers
+(`adjoint/discrete_adjoint.jl`, its own Julia env so Enzyme stays out of
+the main deps). The Enzyme-friendly stepper for this physics is IMEX
+backward-Euler with a HAND-CODED tridiagonal (Thomas) solve — implicit
+1-D diffusion with lagged coefficients, explicit local reactions, pure
+Julia loops end to end (no LAPACK, no custom rules) — the same
+structure that becomes ADI sweeps on the 2-D axisymmetric slab. On a
+structurally faithful reduced heat–moisture system (nonlinear
+conductivity, evaporative BC, purge sink; NX = 40, 480 steps, a
+per-node diffusivity field + two scalars = 42 parameters):
+
+- Enzyme reverse matches ForwardDiff on the same stepper to **2e-11**
+  relative, through all 480 implicit steps — and it works on Windows.
+- Reverse costs **3.6× the primal, flat in parameter count**; forward
+  mode pays ~0.25 ms per parameter here, putting the crossover at
+  **~14 parameters** on this proxy.
+
+Caveats: reduced physics (no shrink metrics / Choi-Okos / bark),
+fixed-step vs FBDF's error control, and Enzyme through the full
+`meat_rhs_core!` closures untested. The strategic conclusion stands:
+when the 2-D slab arrives, the investment is a specialized
+IMEX/ADI-tridiagonal stepper differentiated by Enzyme — not Enzyme
+through the adaptive FBDF solve.
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the

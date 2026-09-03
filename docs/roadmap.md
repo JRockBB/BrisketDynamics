@@ -15,13 +15,18 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    (`--forecast openmeteo:LAT,LON`).
 2. **Reverse mode only when the parameter count demands it.** Forward mode
    is the primary derivative now (one Dual solve per JVP, one chunked pass
-   per Jacobian; docs/monolith.md). A discrete adjoint (Enzyme through a
-   fixed-step stiff stepper) becomes worth its cost only for hundreds of
-   parameters — dense controls, spatial fields, bark chemistry. The 2-D
-   axisymmetric slab (item 8) is the concrete trigger: ~3000 states kill
-   forward mode, and the investment there is this item plus stencil
-   Jacobian sparsity/coloring — not a modeling-framework change (the MTK
-   question is settled: `docs/results.md`).
+   per Jacobian; docs/monolith.md). The legwork is DONE
+   (`adjoint/discrete_adjoint.jl`, `docs/results.md`): Enzyme reverse
+   through a fixed-step IMEX-BE + hand-coded tridiagonal stepper
+   validates to 2e-11 on Windows, costs 3.6× the primal flat in
+   parameter count, and crosses over forward mode at ~14 parameters on
+   a reduced proxy. Remaining: port the stepper to the full
+   `meat_rhs_core!` (shrink metrics, Choi-Okos, bark) and quantify the
+   fixed-step accuracy trade vs FBDF; the 2-D axisymmetric slab
+   (item 8) stays the trigger, where the same structure becomes
+   Enzyme-differentiated ADI sweeps — not Enzyme through the adaptive
+   solver, and not a modeling-framework change (MTK is settled:
+   `docs/results.md`).
 3. **The ~$150 instrument package + data flywheel.** In value order: a
    two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
    meat, no controller — free, and the only way to identify the pit's fast
