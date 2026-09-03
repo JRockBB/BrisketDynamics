@@ -25,9 +25,11 @@ directory turns "we need another log" into a repeatable workflow:
 - Forum content is © its authors. We take **small factual data
   extractions with attribution** (the temperature traces), exactly as
   `data/cook_log/PROVENANCE.md` did for the 2013 log.
-- Source images are cached under `cache/` which is **git-ignored** —
-  never commit someone else's screenshot. Committed artifacts are the
-  digitized CSV, the overlay check, and the provenance file naming the
+- RAW source images are cached under `cache/` which is **git-ignored** —
+  never commit someone else's screenshot. Per-log COMMITTED artifacts are
+  the log.toml (the judgment layer), the digitized CSV, the overlay
+  verification (same basis as the already-committed
+  data/cook_log/overlay_check.png), and the provenance file naming the
   author, post URL, and retrieval date.
 - Scraping is polite: public thread pages only, ~1 request / 2 s,
   identified user agent. A courtesy note to authors whose cooks we use
