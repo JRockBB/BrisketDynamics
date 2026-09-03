@@ -1,0 +1,69 @@
+{
+ "dataset": "data/validation/cet2015_roast.json",
+ "theta": [
+  3.8e-09,
+  0.0018,
+  10.0,
+  0.05,
+  1.0,
+  0.00056,
+  0.2,
+  0.6
+ ],
+ "conditions": {
+  "T_oven_C": 180.0,
+  "T_oven0_C": 22.0,
+  "h_c": 10.0,
+  "emissivity": 0.91,
+  "radius_m": 0.05,
+  "W0_db": 2.379
+ },
+ "cases": [
+  {
+   "geom_m": 1.0,
+   "t_preheat_min": 10.0,
+   "t65_model_min": 100.13354034124245,
+   "t65_exp_min": 86.0,
+   "rms_core_C": 6.9386471624432895,
+   "rms_depth5mm_C": 9.951563205022714,
+   "W_end_model": 1.7064705987050504,
+   "W_end_exp": 1.746,
+   "loss_ratio": 1.0624477113664292
+  },
+  {
+   "geom_m": 1.2,
+   "t_preheat_min": 10.0,
+   "t65_model_min": 92.02495687113742,
+   "t65_exp_min": 86.0,
+   "rms_core_C": 4.32849098347901,
+   "rms_depth5mm_C": 8.616569880182551,
+   "W_end_model": 1.6063406712369386,
+   "W_end_exp": 1.746,
+   "loss_ratio": 1.2206308511264794
+  },
+  {
+   "geom_m": 1.2,
+   "t_preheat_min": 5.0,
+   "t65_model_min": 89.50879363036212,
+   "t65_exp_min": 86.0,
+   "rms_core_C": 2.6049355794295552,
+   "rms_depth5mm_C": 6.594790729626694,
+   "W_end_model": 1.5720637646371773,
+   "W_end_exp": 1.746,
+   "loss_ratio": 1.274780782563701
+  },
+  {
+   "geom_m": 1.2,
+   "t_preheat_min": 15.0,
+   "t65_model_min": 94.53147499592372,
+   "t65_exp_min": 86.0,
+   "rms_core_C": 6.001676366792517,
+   "rms_depth5mm_C": 11.182750562315535,
+   "W_end_model": 1.6412599564691213,
+   "W_end_exp": 1.746,
+   "loss_ratio": 1.165466103524295
+  }
+ ],
+ "primary": "geom_m=1.2 (finite-cylinder equivalent), 10 min preheat",
+ "wall_s": 28.021788200130686
+}

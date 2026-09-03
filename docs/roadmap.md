@@ -123,15 +123,13 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    back to defaults; regression-tested). (`figures/pool_keg.png`,
    `data/calibration/pool_keg.json`.)
 
-   Still wanted: any log with BEFORE/AFTER weights — none found in the
-   graphs thread or the keg threads; pre-cook weights are common, yield
-   pairs are not. Closest leads for the moisture/yield block instead:
-   Blonder's stall experiments (genuineideas.com — core-temp curves at
-   known smoker temps + coarse loss figures, "sponge 90 %, meat ~20 %")
-   and open lab roasting datasets with measured core-temp curves AND
-   weight losses (e.g. Chemical Engineering Transactions 43:151, 2015,
-   beef semitendinosus in a convective oven) — a lab-regime validation
-   of the evaporation submodel rather than a smoker log.
+   Still wanted: any SMOKER log with BEFORE/AFTER weights — none found
+   in the graphs thread or the keg threads; pre-cook weights are common,
+   yield pairs are not. The lab route is DONE instead: the CET 43:151
+   oven roast (measured temps + weight loss) is now the moisture-physics
+   validation — see item "meats and cookers". Blonder's stall
+   experiments (genuineideas.com; core-temp curves at known smoker
+   temps, coarse loss figures) remain a soft cross-check option.
 
    **Not RxInfer / CBFE for this.** Constrained Bethe Free Energy is the
    online-during-cook estimator (a reactive factor graph over pit state and
@@ -213,11 +211,28 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
     forms; the pibil mechanism), and an electric source
     (`PitConfig.p_heater`: heat = p_heater·u, nothing burns — no fuel
     loss, no combustion water, no smoke, bark goes Maillard-only). Each
-    has a physics-consistency test; none besides sous vide has an
-    external validation yet, and exposing geom_m/k_skin/p_heater through
-    the Tesseract schema is one optional field each (like t_f) when a
-    consumer needs them. Remaining: transfer claims beyond sous vide need
-    data.
+    has a physics-consistency test, and exposing geom_m/k_skin/p_heater
+    through the Tesseract schema is one optional field each (like t_f)
+    when a consumer needs them.
+    **Second external validation (2026-09-03, and the first with measured
+    WEIGHT LOSS):** `scripts/run_oven_roast.py` vs Papasidero et al.
+    (2015), CET 43:151 — a 1.4 kg beef cylinder (18 x 10 cm), domestic
+    oven 22 -> 180 °C cold start, stopped at core 65 °C, with core /
+    5-mm-depth / intermediate thermocouples and dry-basis water content
+    2.38 -> 1.75 kg/kg (digitized by `scripts/digitize_cet2015.py`,
+    overlay-verified, into `data/validation/cet2015_roast.json`). With
+    ZERO parameters fit to this data (repo-default θ, the paper's own
+    h = 10 W/m²K and ε = 0.91, geom_m = 1.2 as the eigenvalue-matched
+    finite-cylinder equivalent): time-to-65 °C within x1.04-1.16 of
+    measurement across the geometry/preheat sensitivity band, core rms
+    2.6-6.9 °C, and predicted water loss x1.06-1.27 of measured — where
+    the paper's own fitted COMSOL model overshot the loss ~2x. The purge
+    + surface-evaporation moisture physics transfers from smoker
+    calibration to an oven regime it never saw
+    (`figures/oven_roast_cet2015.png`,
+    `data/validation/oven_roast_cet2015.json`). Remaining: transfer
+    claims beyond sous vide + oven roast need data (wrap physics, skin
+    barrier, steam).
     Notable cases: pulled pork ≈ free transfer (geometry switch); ribs make
     wrap physics mandatory; a combi oven identifies meat parameters under
     controlled T+RH for transfer to any smoker; sous vide validates against
