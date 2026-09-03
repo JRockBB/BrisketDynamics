@@ -91,6 +91,7 @@ function make_monolith_rhs(
 )
     nm = 5 * cfg.nx + 3
     n_s, n_a, v0 = shrink_exponents(cfg)
+    wb = bone_weights(cfg)
     return function mono_rhs!(dx, x, p, t)
         θ = (p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8])
         C_th, UA, r_max, ΔH_eff, u_leak, k_spread = p[9], p[10], p[11], p[12], p[13], p[14]
@@ -114,7 +115,7 @@ function make_monolith_rhs(
         dum = @view dx[1:nm]
         q_meat = meat_rhs_core!(
             dum, um, t, θ, Tp, ṁ, pv_base, 1 / mair, airflow, t_wrap, t_pull, t_spritz,
-            dt_spritz, m_spritz, cfg, n_s, n_a, v0,
+            dt_spritz, m_spritz, cfg, n_s, n_a, v0, wb,
         )
         a_c = clamp(a, zero(a), one(a))
         ṁ_add = fuel_add_rate(t, t_add, pit)

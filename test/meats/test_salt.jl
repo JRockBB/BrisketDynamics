@@ -55,3 +55,29 @@
     @test maximum(abs.(seg2.Tcore .- seg1.Tcore[mid:end])) < 0.05
     @test maximum(abs.(seg2.salt_field[:, end] .- seg1.salt_field[:, end])) < 1e-4
 end
+
+@testset "bone region (thermal blend)" begin
+    hr = 3600.0
+    tknots = collect(0.0:300.0:6hr)
+    Tpit = fill(383.15, length(tknots))
+    θ = MEAT_θ_DEFAULT
+
+    # boneless default: weights exactly zero, absurd bone constants inert
+    base = meat_solve(θ, Tpit, tknots, tknots)
+    wild = meat_solve(
+        θ, Tpit, tknots, tknots;
+        cfg=BrisketDynamics.with_config(MeatConfig(); k_bone=50.0, ρc_bone=1.0e4),
+    )
+    @test maximum(abs.(wild.Tcore .- base.Tcore)) < 1e-8
+    @test all(iszero, BrisketDynamics.bone_weights(MeatConfig()))
+
+    # a bone-in cylinder: low-capacity core heats FASTER mid-cook
+    cfgb = BrisketDynamics.with_config(MeatConfig(); geom_m=1.0, bone_frac=0.3)
+    cfg0 = BrisketDynamics.with_config(MeatConfig(); geom_m=1.0)
+    b = meat_solve(θ, Tpit, tknots, tknots; cfg=cfgb)
+    n = meat_solve(θ, Tpit, tknots, tknots; cfg=cfg0)
+    mid = div(length(tknots), 2)
+    @test b.Tcore[mid] > n.Tcore[mid]
+    w = BrisketDynamics.bone_weights(cfgb)
+    @test w[1] > 0.9 && w[end] < 1e-3 && issorted(w, rev=true)
+end

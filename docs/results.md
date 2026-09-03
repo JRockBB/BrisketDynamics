@@ -280,6 +280,22 @@ inert to 1e-6. Constants placeholder scale — a firebox/chamber probe
 pair is the calibrating experiment. Differentiable split timing is a
 planner step (dt_add is config).
 
+## Bone region: per-node thermal blend (2026-09-04)
+
+Bone-in cuts get their first fidelity term: a central bone out to
+`MeatConfig.bone_frac` of the half-thickness/radius, as a smooth
+logistic blend of node conductivity and volumetric heat capacity toward
+cortical-bone values (k_bone 0.55 W/mK, ρc_bone 2.2e6 J/m³K —
+literature). The weights are static fractions of L, hoisted once in
+both RHS builders (no per-call cost, no Dual entanglement); v1 is
+thermal-only — moisture/collagen in the bone region still evolve as
+meat, a small documented error whose fix is excluding bone from the
+water bookkeeping. bone_frac = 0 is the boneless default with weights
+exactly zero (tested inert against absurd bone constants). Physics
+note the tests encode: cortical bone conducts slightly better than
+meat but stores far less heat, so a bone-in center heats FASTER — the
+"cold near the bone" folklore is about joints and mass, not material.
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the

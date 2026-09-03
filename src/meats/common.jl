@@ -38,6 +38,21 @@ Base.@kwdef struct MeatConfig
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
     R_gas::Float64 = 8.314
+    # Bone region (bone-in cuts: butts, drumsticks, ribs near the bone).
+    # A central bone out to bone_frac of the half-thickness/radius, as a
+    # smooth per-node THERMAL property blend: conductivity and volumetric
+    # heat capacity interpolate to bone values over a logistic of width
+    # δ_bone_frac. v1 is thermal-only — the moisture/collagen states in
+    # the bone region still evolve as meat (a small, documented error);
+    # excluding bone from the water bookkeeping is the follow-up.
+    # bone_frac = 0 is the boneless bitwise default (weights exactly 0).
+    # Cortical bone conducts slightly better than meat but stores far
+    # less heat, so a bone-in center heats FASTER — the folklore "cold
+    # near the bone" is about joints and mass, not the material.
+    bone_frac::Float64 = 0.0    # bone radius as a fraction of L (0 = boneless)
+    δ_bone_frac::Float64 = 0.08 # blend width, fraction of L
+    k_bone::Float64 = 0.55      # bone conductivity [W/mK] (cortical, literature)
+    ρc_bone::Float64 = 2.2e6    # bone volumetric heat capacity [J/m³K]
     # Salt physics (dry brine; the structural half of the salting item —
     # literature constants, calibration gated on the scale + designed
     # experiment). The pre-cook brine of duration t_salt leaves the
@@ -618,6 +633,22 @@ function expulsion_rate_salted(W, T, s, k_e, a_myosin, cfg::MeatConfig)
 end
 
 """
+    bone_weights(cfg::MeatConfig)
+
+Per-node bone blend weights on the material grid (node 1 = center):
+`w = logistic((bone_frac − ξ̂)/δ_bone_frac)`, exactly zero everywhere for
+the boneless default. Static (fractions of L), so the RHS closure can
+hoist them once.
+"""
+function bone_weights(cfg::MeatConfig)
+    cfg.bone_frac <= 0 && return zeros(cfg.nx)
+    return [
+        logistic((cfg.bone_frac - (i - 1) / (cfg.nx - 1)) / cfg.δ_bone_frac)
+        for i in 1:(cfg.nx)
+    ]
+end
+
+"""
     erfc_smooth(x)
 
 Smooth complementary-error-function approximation
@@ -725,6 +756,7 @@ expulsion sink in dW (denaturation purge).
 function meat_rhs_core!(
     du, u, t, θ, Tpit, smoke, pv_base, imair, airflow, t_wrap, t_pull, t_spritz,
     dt_spritz, m_spritz, cfg::MeatConfig, n_s, n_a, v0,
+    wb::AbstractVector=bone_weights(cfg),
 )
     nx = cfg.nx
     D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv = θ
@@ -750,6 +782,13 @@ function meat_rhs_core!(
     dC = @view du[(2nx + 1):3nx]
     dF = @view du[(3nx + 1):4nx]
     dSl = @view du[(4nx + 1):5nx]
+    # bone blend: node conductivity and volumetric heat capacity
+    # interpolate to bone values by the hoisted static weights wb
+    # (defined AFTER the views so the closures capture assigned locals)
+    kmix(i, v) = (1 - wb[i]) * conductivity_mix(W[i], F[i], T[i], v, cfg) +
+                 wb[i] * cfg.k_bone
+    ρcmix(i, v) = (1 - wb[i]) * heat_capacity_dry(W[i], F[i], T[i], cfg) / v +
+                  wb[i] * cfg.ρc_bone
 
     # node stretches from the node's own water + fat, in a rolling
     # window (allocation-free); the fv-weighted running sum of v gives
@@ -759,13 +798,13 @@ function meat_rhs_core!(
     v_c = specific_volume(W[1], F[1], cfg)
     st_m = (v_c / v0)^n_s
     vsum = v_c / 2
-    kc_m = k_mult * conductivity_mix(W[1], F[1], T[1], v_c, cfg)
-    ρc_m = heat_capacity_dry(W[1], F[1], T[1], cfg) / v_c
+    kc_m = k_mult * kmix(1, v_c)
+    ρc_m = ρcmix(1, v_c)
     v_c = specific_volume(W[2], F[2], cfg)
     st_c = (v_c / v0)^n_s
     vsum += v_c
-    kc_c = k_mult * conductivity_mix(W[2], F[2], T[2], v_c, cfg)
-    ρc_c = heat_capacity_dry(W[2], F[2], T[2], cfg) / v_c
+    kc_c = k_mult * kmix(2, v_c)
+    ρc_c = ρcmix(2, v_c)
     # center: symmetry (zero-flux) via mirror ghost node — a full cell
     # of width st_1·Δξ with two identical faces. Curvature: near r = 0 the
     # operator (1/r^m)·∂_r(r^m k ∂_r T) → (1 + m)·k·∂²T — the finite-volume
@@ -786,7 +825,7 @@ function meat_rhs_core!(
         v_p = specific_volume(W[i + 1], F[i + 1], cfg)
         st_p = (v_p / v0)^n_s
         vsum += v_p
-        kc_p = k_mult * conductivity_mix(W[i + 1], F[i + 1], T[i + 1], v_p, cfg)
+        kc_p = k_mult * kmix(i + 1, v_p)
         f_m = (st_m + st_c) / 2
         f_p = (st_c + st_p) / 2
         # curvature: face areas ξ̂^m and the cell's mean r^m volume factor
@@ -812,7 +851,7 @@ function meat_rhs_core!(
                           a_m * (Sl[i] - Sl[i - 1]) / f_m^2) / (g_i * Δξ^2)
         st_m, st_c, v_c = st_c, st_p, v_p
         kc_m, kc_c = kc_c, kc_p
-        ρc_c = heat_capacity_dry(W[i + 1], F[i + 1], T[i + 1], cfg) / v_p
+        ρc_c = ρcmix(i + 1, v_p)
     end
     # the loop counted the surface node fully: halve it (fv weight),
     # then the exposed-area factor A(t)/A0 from the slab mean; st_c is
@@ -929,6 +968,7 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
     # index arithmetic everywhere — see meat_vjp). The body lives in
     # meat_rhs_core!, shared with the coupled monolith.
     n_s, n_a, v0 = shrink_exponents(cfg)
+    wb = bone_weights(cfg)
     return function meat_rhs!(du, u, p, t)
         θ = (p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8])
         knots = @view p[(MEAT_NP + 1):(MEAT_NP + nk)]
@@ -955,6 +995,7 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
             n_s,
             n_a,
             v0,
+            wb,
         )
         return nothing
     end
