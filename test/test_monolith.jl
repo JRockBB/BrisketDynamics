@@ -189,6 +189,29 @@ end
     @test sort(rel2)[ceil(Int, 0.9 * end)] < 1e-2
 end
 
+@testset "monolith: smoke quality (burn cleanliness, bitterness)" begin
+    # same fire, choked vs open damper: the choked burn smolders (lower
+    # cleanliness) and a larger FRACTION of what deposits is dirty; the
+    # totals differ too, so the fraction is the invariant, not the mass
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    mo = monolith_solve(θ, φ, fill(0.7, 8), MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
+    mc = monolith_solve(θ, φ, fill(0.05, 8), MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
+    for o in (mo, mc)
+        @test all(0.0 .<= o.smoke_clean .<= 1.0)
+        @test o.bitterness >= 0
+    end
+    n = length(MONO_TSAVE)
+    @test sum(mc.smoke_clean) / n < sum(mo.smoke_clean) / n
+    @test mc.bitterness / (mc.bark_s[end] + 1e-9) >
+          mo.bitterness / (mo.bark_s[end] + 1e-9)
+    # electric: nothing burns -> nothing deposits -> nothing bitter
+    o_e = monolith_solve(
+        θ, PIT_φ_DEFAULT, MONO_U, MONO_UTK, MONO_TSAVE;
+        pit=PitConfig(; T_amb=300.0, p_heater=3000.0),
+    )
+    @test o_e.bitterness < 1e-12
+end
+
 @testset "monolith: electric source (p_heater)" begin
     # the element heats, nothing burns: fuel constant, no smoke, no
     # deposition — bark goes Maillard-only, which is what an electric

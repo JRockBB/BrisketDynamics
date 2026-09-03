@@ -80,12 +80,13 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    constants are literature scale. Calibrate against standardized-photo
    colorimetry: hourly lid-open photos with a color card, \(L^*\) read off
    the calibrated photos, a wrapped/unwrapped pair to separate the smoke
-   term from the Maillard term. Optionally penetration-force texture. Add
-   **smoke quality** (the "thin blue smoke" variable): clean vs smoldering
-   combustion changes deposition chemistry at the same mass — plausibly a
-   differentiable function of airflow/burn state, making bitterness a
-   controllable output. To our knowledge unpublished territory. (The
-   two-sided mahogany band is already in the objective.)
+   term from the Maillard term. Optionally penetration-force texture.
+   **Smoke quality**'s structure is built (burn cleanliness as a
+   differentiable function of draft vs lit bed; `bitterness` output —
+   `docs/results.md`); its constants calibrate here too, via a
+   smolder-forced designed cook (choke the vents for one hour, taste /
+   photograph the difference). To our knowledge unpublished territory.
+   (The two-sided mahogany band is already in the objective.)
 8. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
    center-line correction (~3× cost, differentiable, cheap taste of 3D);
    full 2D axisymmetric surface model *only* once thermal-camera surface

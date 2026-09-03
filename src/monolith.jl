@@ -202,12 +202,21 @@ function _monolith_outputs(
     bark_b = A[5nx + 1, :]
     bark_s = A[5nx + 2, :]
     ring = A[5nx + 3, :]
+    # smoke quality: cleanliness of the burn at each save point, and the
+    # DIRTY share of the same deposition integrand that drives bark_s —
+    # the two agree by construction on the total deposited mass
+    smoke_clean = burn_cleanliness.(getindex.(alg, 1), ignited, m_fuel, Ref(pit))
+    dep_dirty =
+        cfg.k_dep .* wet_blend.(a_w_oswin.(Wsurf, Ref(cfg)), Ref(cfg)) .*
+        max.(mdot, 0.0) .* (1 .- smoke_clean) .* (1 .- s_ts) .* (1 .- pl_ts) .*
+        (1 .- bark_s)
     w_retained = fv_mean(A[(nx + 1):2nx, end]) / cfg.W0
     F_mean = fv_mean(A[(3nx + 1):4nx, end])
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
     dts = diff(collect(float.(tsave)))
     ja = j_evap .* a_ts
     evap_w = sum((ja[1:(end - 1)] .+ ja[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
+    bitterness = sum((dep_dirty[1:(end - 1)] .+ dep_dirty[2:end]) ./ 2 .* dts)
     jsp = spritz_rate.(tsave, t_spritz, dt_spritz, m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts
     spritz_w = cfg.f_abs * sum((jsp[1:(end - 1)] .+ jsp[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
     return (;
@@ -239,6 +248,8 @@ function _monolith_outputs(
         C_field=A[(2nx + 1):3nx, :],
         F_field=A[(3nx + 1):4nx, :],
         salt_field=A[(4nx + 1):5nx, :],
+        smoke_clean,
+        bitterness,
         t=collect(float.(tsave)),
     )
 end

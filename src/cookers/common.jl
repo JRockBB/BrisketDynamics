@@ -38,6 +38,31 @@ Base.@kwdef struct PitConfig
     # smoke ring are inert, which is what an electric cooker does. Pass
     # a0 = 1 (nothing to ignite). 0 = charcoal (bitwise default).
     p_heater::Float64 = 0.0      # max heater power [W]
+    # Smoke QUALITY ("thin blue" vs smoldering; the bitterness variable):
+    # combustion runs clean when the draft is large relative to the lit
+    # bed and smolders when it is starved — cleanliness is a logistic in
+    # the draft-to-lit-bed ratio airflow/(a·taper). The same deposited
+    # smoke MASS then splits into a clean and a dirty share; the dirty
+    # share integrates to the `bitterness` output. Constants are
+    # placeholder scale (roadmap: standardized-photo colorimetry + a
+    # wrapped/unwrapped pair calibrate the bark family; bitterness needs
+    # a tasting panel or a smolder-forced designed cook).
+    r_smolder::Float64 = 0.25    # draft/lit-bed ratio at the clean-dirty midpoint
+    δ_smolder::Float64 = 0.08    # logistic width of the transition
+end
+
+"""
+    burn_cleanliness(airflow, a, m, pit::PitConfig)
+
+Combustion cleanliness q ∈ (0, 1): a logistic in the draft-to-lit-bed
+ratio `airflow / (a·tanh(m/m_taper))`. A choked damper over a large lit
+bed smolders (q → 0, acrid smoke); an open draft burns clean (q → 1).
+With nothing lit or no fuel the ratio diverges to clean — and the burn
+rate is zero there, so no smoke deposits either way.
+"""
+function burn_cleanliness(airflow, a, m, pit::PitConfig)
+    bed = clamp(a, zero(a), one(a)) * tanh(max(m, zero(m)) / pit.m_taper)
+    return logistic((airflow / (bed + 1.0e-3) - pit.r_smolder) / pit.δ_smolder)
 end
 
 """

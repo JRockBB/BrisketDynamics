@@ -206,6 +206,21 @@ physics transfers from smoker calibration to an oven regime it never saw
 (`figures/oven_roast_cet2015.png`,
 `data/validation/oven_roast_cet2015.json`).
 
+## Smoke quality: the structure (2026-09-04)
+
+The "thin blue smoke" variable is in (`burn_cleanliness`,
+`PitConfig.r_smolder/δ_smolder`; monolith outputs `smoke_clean` and
+`bitterness`): combustion cleanliness is a logistic in the
+draft-to-lit-bed ratio — a choked damper over a large lit bed smolders,
+an open draft burns clean — and the DIRTY share of the exact deposition
+integrand that drives the bark smoke state integrates to a bitterness
+output (a quadrature over saved trajectories; no new ODE states, so the
+solve cost is unchanged). Tested: a choked burn is dirtier per unit
+deposited than an open one at the same fire, and the electric source is
+exactly bitterness-free (nothing burns). Constants are placeholder
+scale — bitterness calibration needs a smolder-forced designed cook or
+a tasting panel (roadmap item 7 keeps that).
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the
