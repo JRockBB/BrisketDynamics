@@ -15,9 +15,11 @@ as SETPOINTS (the pit's own PID does the fan), assimilates measurements
 innovation, with an optional forecast as feedforward), and journals
 every event as JSONL.
 
-Forecast (--forecast): a JSON file [[hour, T_amb_K], ...] interpolated
-over the cook, for the wind/weather feedforward; the KF corrects the
-residual bias.
+Forecast (--forecast): either a JSON file [[hour, T_amb_K], ...] or
+``openmeteo:LAT,LON`` — a live hourly temperature_2m fetch from the free
+Open-Meteo API (no key), anchored at launch time so hour 0 = now. Either
+way it is the wind/weather feedforward; the KF corrects the residual
+bias. A failed fetch warns and falls back to the constant belief.
 
 Examples (from app/):
     uv run python -u ../scripts/run_pilot.py --pit sim --t-f 8 \
@@ -37,6 +39,30 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "app" / "src"))
 
 HR = 3600.0
+
+
+def openmeteo_forecast(lat: float, lon: float):
+    """Hourly temperature_2m for the next 2 days, as t[s] -> T_amb [K]."""
+    import datetime
+    import json as _json
+    import urllib.request
+
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        "&hourly=temperature_2m&forecast_days=2&timeformat=unixtime"
+    )
+    with urllib.request.urlopen(url, timeout=30) as r:
+        d = _json.loads(r.read().decode())
+    t_unix = np.asarray(d["hourly"]["time"], dtype=float)
+    temp_K = np.asarray(d["hourly"]["temperature_2m"], dtype=float) + 273.15
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    t_rel = t_unix - now  # cook time 0 = launch
+    print(
+        f"forecast: open-meteo {lat},{lon} - now {np.interp(0.0, t_rel, temp_K) - 273.15:+.1f} C, "
+        f"range {temp_K.min() - 273.15:+.1f}..{temp_K.max() - 273.15:+.1f} C over 2 d"
+    )
+    return lambda t: float(np.interp(t, t_rel, temp_K))
 
 
 def load_incumbent(plan_path: Path):
@@ -83,7 +109,8 @@ def main():
     ap.add_argument("--t-amb", type=float, default=300.0,
                     help="ambient belief seed [K]")
     ap.add_argument("--forecast", default=None,
-                    help="JSON file [[hour, T_amb_K], ...] feedforward")
+                    help="'openmeteo:LAT,LON' (live fetch) or a JSON file "
+                         "[[hour, T_amb_K], ...] feedforward")
     ap.add_argument("--journal", default=None)
     ap.add_argument("--out", default=None, help="summary JSON path")
     ap.add_argument("--wall-pace", type=float, default=0.0,
@@ -132,7 +159,13 @@ def main():
               f"{cls.__name__})")
 
     forecast_fn = None
-    if args.forecast:
+    if args.forecast and args.forecast.startswith("openmeteo:"):
+        try:
+            lat, lon = map(float, args.forecast.split(":", 1)[1].split(","))
+            forecast_fn = openmeteo_forecast(lat, lon)
+        except Exception as e:  # a dead network must not kill a cook
+            print(f"forecast fetch FAILED ({e}); falling back to constant belief")
+    elif args.forecast:
         fc = np.asarray(json.loads(Path(args.forecast).read_text()), dtype=float)
         forecast_fn = lambda t: float(np.interp(t / HR, fc[:, 0], fc[:, 1]))
 

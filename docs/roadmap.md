@@ -9,10 +9,10 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    and validated end-to-end against the mock HeaterMeter
    (`docs/results.md`); what remains needs an actual cook: point
    `brisket pilot` at real hardware (`--wall-pace 1 --advisory-only`
-   first — shadow mode, journaling what it would have done), executed
+   first — shadow mode, journaling what it would have done) and executed
    quality scoring on hardware (today it is model-estimated — a real pit
-   has no ground-truth juiciness), and a live forecast fetch (Open-Meteo)
-   behind `--forecast` in place of the JSON file.
+   has no ground-truth juiciness). The forecast feedforward is live
+   (`--forecast openmeteo:LAT,LON`).
 2. **Reverse mode only when the parameter count demands it.** Forward mode
    is the primary derivative now (one Dual solve per JVP, one chunked pass
    per Jacobian; docs/monolith.md). A discrete adjoint (Enzyme through a
