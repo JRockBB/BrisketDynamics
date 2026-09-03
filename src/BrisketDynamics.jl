@@ -16,6 +16,7 @@ include("meats/pork_butt.jl")
 include("meats/newman.jl")
 include("meats/sausage.jl")
 include("meats/salmon.jl")
+include("meats/slab2d.jl")
 include("cookers/common.jl")
 include("cookers/smoker.jl")
 include("cookers/sous_vide.jl")
@@ -63,6 +64,7 @@ export MeatConfig,
     gas_grill,
     kamado,
     sausage,
-    hot_smoked_salmon
+    hot_smoked_salmon,
+    meat_solve_2d
 
 end

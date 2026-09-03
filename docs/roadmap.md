@@ -16,14 +16,16 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
   optimize_schedule, so "when to salt", "wrap at what internal" and
   "split every how often" join the chance-constrained plan. Optionally a
   small salt-dependent denaturation-temperature shift.
-- **M2 — 2-D axisymmetric slab** (gated on thermal-camera surface fields
-  to calibrate it — C2). Feeds bark distribution / burnt ends, the
-  point-vs-flat split (two muscles of different fat and thickness) and
-  grain direction, which no 1-D slab can carry. The adjoint machinery is
-  ready for it (full-RHS port validated, crossover ~10 parameters —
-  `docs/results.md`): Enzyme-differentiated ADI sweeps, not Enzyme
-  through the adaptive solver. The Newman quasi-3D correction rung is
-  already in (`docs/results.md`).
+- **M2 — 2-D slab, the layers above the core.** The axisymmetric
+  heat-moisture core is in and limit-verified (`meat_solve_2d`,
+  `docs/results.md`); what remains: couple it to the pit (it runs on a
+  prescribed Tpit forcing, not inside the monolith), put the quality
+  states on the grid (bark *distribution* / burnt ends, shrink metrics,
+  wrap/spritz/salt), the point-vs-flat split (two muscles of different
+  fat and thickness) and grain-direction anisotropy, and the Enzyme
+  adjoint of the ADI sweeps (the machinery is validated on the 1-D
+  stepper, crossover ~10 parameters — `docs/results.md`). Bark
+  calibration is gated on thermal-camera surface fields (C2).
 
 ## Calibration & data goals
 
@@ -101,8 +103,9 @@ frontend beyond the CLI; the bark write-up rides on C6.
 
 ## Not modelled
 
-A homogeneous 1D slab: no point-vs-flat split, no edges or burnt ends, no
-grain direction or slice variance (M2); no animal-to-animal pH, aging or
+A homogeneous 1-D slab in the production monolith (the standalone 2-D
+axisymmetric core exists — `docs/results.md`): no point-vs-flat split, no
+edges or burnt ends, no grain direction or slice variance (M2); no animal-to-animal pH, aging or
 water-holding capacity (C3); wind and weather on `UA(t)` beyond the
 pilot's forecast feedforward + ambient filter (C1); rub chemistry beyond
 salt (C5, C6); smoke *quality* constants as opposed to smoke mass (C6).

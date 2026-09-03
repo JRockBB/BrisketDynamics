@@ -399,6 +399,43 @@ Tesseract input plus a z-parameter in optimize_schedule — the same
 pattern as t_f — shared with the wrap trigger T_trig and the wood-split
 interval dt_add.
 
+## 2-D axisymmetric core (2026-09-04, M2 solver half)
+
+`src/meats/slab2d.jl`: `meat_solve_2d(θ2, ...)` — temperature and
+dry-basis moisture on an r-z finite-cylinder grid with the SAME property
+functions as the 1-D model (Choi-Okos mixture properties, Oswin water
+activity, smooth purge) and the same convective/radiative/evaporative
+surface conditions on rim and end faces. Fixed-step lagged-coefficient
+ADI: implicit Thomas sweeps in r then z, exactly the structure the
+adjoint work validated as Enzyme-transparent. v1 scope is deliberate: no
+shrink, no wrap/spritz/salt/bone, no bark states, prescribed pit forcing
+— the quality layers and the monolith coupling stay on the roadmap (M2),
+bark calibration gated on thermal-camera fields (C2).
+
+Verified against the 1-D solver in its two limits, plus a Newman sanity
+and a ForwardDiff-vs-FD gradient check (7 new tests, suite 293/293):
+
+- **Long-cylinder limit** (tall 2-D cylinder mid-height axis vs 1-D
+  `geom_m=1`): max |ΔT| **0.20 K** over a 6 h cook (0.45 K at nr=48).
+- **Thick-slab limit** (wide short cylinder axis vs 1-D slab through the
+  half-height): max |ΔT| **0.14 K** (0.17 K at nz=120, h=5 s).
+- Finite cylinder heats faster than either infinite limit (72.9 vs 70.2
+  and 61.1 °C at mid-cook), as Newman predicts.
+
+The limit tests caught two structural bugs worth recording. (1) The
+z-sweep treated the boundary half-cells as full cells — flux terms used
+Δz/2 capacity, diffusion rows used Δz — so the surface was
+under-replenished by exactly 2x, over-drying and overheating it (slab
+limit off by 25 K, h-independent, worse under refinement). (2) With the
+face evaporation explicit, the face W overshoots the water-activity
+equilibrium once the surface dries; the lagged flux then flips sign
+every step and the alternating ±λ·j heat kicks rectify into net heating
+that DIVERGES under mesh refinement (nr 24→48 pushed the cylinder core
+97→108 °C, above any physical equilibrium). Fix: convective heat as an
+implicit Robin term inside the sweeps, and face moisture by
+backward-Euler on the W-linearized flux, with the SAME applied flux
+feeding the heat sink — after which both limits are refinement-stable.
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the
