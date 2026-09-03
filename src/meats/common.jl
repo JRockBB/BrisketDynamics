@@ -38,6 +38,24 @@ Base.@kwdef struct MeatConfig
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
     R_gas::Float64 = 8.314
+    # Salt physics (dry brine; the structural half of the salting item —
+    # literature constants, calibration gated on the scale + designed
+    # experiment). The pre-cook brine of duration t_salt leaves the
+    # analytic semi-infinite profile s0 = S_surf·erfc(depth/(2√(D_salt t)))
+    # (per face, material depth); during the cook s diffuses with a
+    # zero-flux surface (salt does not evaporate) and couples through
+    # (a) water-holding capacity — W_eq → W_eq·(1 + β_whc·s) in the purge
+    # sink — and (b) Raoult-scale water-activity depression of surface
+    # evaporation, a factor 1/(1 + k_aw·s). t_salt = 0 is EXACTLY
+    # unsalted: s ≡ 0 and both couplings are the identity. t_salt lives in
+    # the config for now; promoting it to a differentiable decision
+    # variable ("when to salt" beside "when to light") is the planner
+    # step. Salt–bark interaction is not modelled.
+    t_salt::Float64 = 0.0       # dry-brine duration before the cook [s]
+    D_salt::Float64 = 1.0e-10   # NaCl diffusivity in muscle [m²/s] (ham-curing literature; fixed, not calibrated)
+    S_surf::Float64 = 0.08      # surface salt held by the rub, dry basis [kg/kg] (placeholder scale)
+    β_whc::Float64 = 3.0        # water-holding gain per unit s (placeholder scale)
+    k_aw::Float64 = 0.55        # water-activity depression per unit s (Raoult scale)
     # Skin barrier (poultry-class surface): a finite skin mass-transfer
     # conductance in SERIES with the boundary layer, k_eff = 1/(1/k_m +
     # 1/k_skin) — heat still passes, evaporation is throttled. Inf (the
@@ -218,8 +236,8 @@ first half hour, and the wet surface it leaves is where smoke adheres.
 # Returns
 - `j::Number`: Mass flux [kg m⁻² s⁻¹]; > 0 evaporation, < 0 condensation.
 """
-function evap_flux(Ts, Ws, k_m, p_v, cfg::MeatConfig)
-    return k_m * (a_w_oswin(Ws, cfg) * p_sat(Ts) - p_v) / (R_V * Ts)
+function evap_flux(Ts, Ws, k_m, p_v, cfg::MeatConfig, f_aw=1.0)
+    return k_m * (f_aw * a_w_oswin(Ws, cfg) * p_sat(Ts) - p_v) / (R_V * Ts)
 end
 evap_flux(Ts, Ws, k_m, cfg::MeatConfig) = evap_flux(Ts, Ws, k_m, cfg.p_v_pit, cfg)
 
@@ -237,9 +255,9 @@ lowers the pit humidity and is self-limiting). `c = 0` is `evap_flux`.
 # Returns
 - `j::Number`: Mass flux [kg m⁻² s⁻¹]; > 0 evaporation, < 0 condensation.
 """
-function evap_flux_fb(Ts, Ws, k_m, pv_base, c, cfg::MeatConfig)
+function evap_flux_fb(Ts, Ws, k_m, pv_base, c, cfg::MeatConfig, f_aw=1.0)
     a = k_m / (R_V * Ts)
-    return a * (a_w_oswin(Ws, cfg) * p_sat(Ts) - pv_base) / (1 + c * a)
+    return a * (f_aw * a_w_oswin(Ws, cfg) * p_sat(Ts) - pv_base) / (1 + c * a)
 end
 
 """
@@ -354,13 +372,14 @@ Shared by the RHS and the observables so the two can never disagree.
 # Returns
 - `j::Number`: Evaporative mass flux [kg m⁻² s⁻¹].
 """
-function surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig)
+function surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig, f_aw=1.0)
     # skin barrier in series with the boundary layer (both branches); the
     # RHS and every observable pass through here, so they cannot disagree
     k_m = isinf(cfg.k_skin) ? k_m : 1 / (1 / k_m + 1 / cfg.k_skin)
-    return (1 - pl) * evap_flux_fb(Ts, Ws, (1 - cfg.η_evap * s) * k_m, pv_base, c, cfg) +
+    return (1 - pl) *
+           evap_flux_fb(Ts, Ws, (1 - cfg.η_evap * s) * k_m, pv_base, c, cfg, f_aw) +
            pl * (1 - cfg.η_rest) *
-           evap_flux(Ts, Ws, k_m * cfg.h_rest / h_c, cfg.p_v_rest, cfg)
+           evap_flux(Ts, Ws, k_m * cfg.h_rest / h_c, cfg.p_v_rest, cfg, f_aw)
 end
 
 """
@@ -585,6 +604,44 @@ latents; the cfg-only method uses the uncalibrated defaults.
 function expulsion_rate(W, T, k_e, a_myosin, cfg::MeatConfig)
     return k_e * cfg.δ_e * log1pexp((W - w_eq(T, a_myosin, cfg)) / cfg.δ_e)
 end
+
+"""
+    expulsion_rate_salted(W, T, s, k_e, a_myosin, cfg::MeatConfig)
+
+[`expulsion_rate`](@ref) with the salt water-holding coupling: the
+equilibrium is raised to `w_eq·(1 + β_whc·s)` (salted muscle holds more
+water, so less purges). `s = 0` reproduces `expulsion_rate` exactly.
+"""
+function expulsion_rate_salted(W, T, s, k_e, a_myosin, cfg::MeatConfig)
+    weq = w_eq(T, a_myosin, cfg) * (1 + cfg.β_whc * max(s, zero(s)))
+    return k_e * cfg.δ_e * log1pexp((W - weq) / cfg.δ_e)
+end
+
+"""
+    erfc_smooth(x)
+
+Smooth complementary-error-function approximation
+`1 − tanh(2x/√π + 0.088x³)` (max error ~2e-3 for x ≥ 0): exact enough for
+a literature-scale brine profile, dependency-free and ForwardDiff-safe.
+"""
+erfc_smooth(x) = 1 - tanh(1.1283791670955126 * x + 0.088 * x^3)
+
+"""
+    salt_profile(L, cfg::MeatConfig)
+
+Dry-brine initial salt profile on the material grid (dry basis, kg/kg):
+the semi-infinite constant-surface-concentration solution
+`S_surf·erfc(d/(2√(D_salt·t_salt)))` at depth `d = L(1 − ξ̂)` from the
+surface face. `t_salt ≤ 0` returns exact zeros (unsalted).
+"""
+function salt_profile(L, cfg::MeatConfig)
+    cfg.t_salt <= 0 && return zeros(cfg.nx)
+    pen = 2 * sqrt(cfg.D_salt * cfg.t_salt)
+    return [
+        cfg.S_surf * erfc_smooth(L * (1 - (i - 1) / (cfg.nx - 1)) / pen) for
+        i in 1:(cfg.nx)
+    ]
+end
 expulsion_rate(W, T, cfg::MeatConfig) = expulsion_rate(W, T, cfg.k_e, cfg.a_myosin, cfg)
 
 """
@@ -687,10 +744,12 @@ function meat_rhs_core!(
     W = @view u[(nx + 1):2nx]
     C = @view u[(2nx + 1):3nx]
     F = @view u[(3nx + 1):4nx]
+    Sl = @view u[(4nx + 1):5nx]  # salt, dry basis [kg/kg]
     dT = @view du[1:nx]
     dW = @view du[(nx + 1):2nx]
     dC = @view du[(2nx + 1):3nx]
     dF = @view du[(3nx + 1):4nx]
+    dSl = @view du[(4nx + 1):5nx]
 
     # node stretches from the node's own water + fat, in a rolling
     # window (allocation-free); the fv-weighted running sum of v gives
@@ -717,6 +776,7 @@ function meat_rhs_core!(
     f_c = (st_m + st_c) / 2
     dT[1] = c_geo * (kc_m + kc_c) * (T[2] - T[1]) / (f_c * st_m * Δξ^2 * ρc_m)
     dW[1] = c_geo * 2D_eff * (W[2] - W[1]) / (f_c^2 * Δξ^2)
+    dSl[1] = c_geo * 2 * cfg.D_salt * (Sl[2] - Sl[1]) / (f_c^2 * Δξ^2)
     # interior: flux form with face metrics (st at the face = mean of
     # the neighbours). Heat is per PHYSICAL volume (cell capacity ∝ st
     # times the local ρc_p, flux ∝ k/st); water is per DRY MASS (cell dry
@@ -747,6 +807,9 @@ function meat_rhs_core!(
         dW[i] =
             D_eff * (a_p * (W[i + 1] - W[i]) / f_p^2 -
                      a_m * (W[i] - W[i - 1]) / f_m^2) / (g_i * Δξ^2)
+        dSl[i] =
+            cfg.D_salt * (a_p * (Sl[i + 1] - Sl[i]) / f_p^2 -
+                          a_m * (Sl[i] - Sl[i - 1]) / f_m^2) / (g_i * Δξ^2)
         st_m, st_c, v_c = st_c, st_p, v_p
         kc_m, kc_c = kc_c, kc_p
         ρc_c = heat_capacity_dry(W[i + 1], F[i + 1], T[i + 1], cfg) / v_p
@@ -769,7 +832,8 @@ function meat_rhs_core!(
     # pit humidity: the pit's base vapor pressure plus the meat's own
     # vapor, p_v = pv_base + c·j with c ∝ exposed area / air mass flow
     c_mix = mixing_coefficient(a_area, imair, cfg)
-    j = surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c_mix, cfg)
+    f_aw = 1 / (1 + cfg.k_aw * max(Sl[nx], zero(Sl[nx])))
+    j = surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c_mix, cfg, f_aw)
     q_pit = surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg)
     q_in = q_pit + pl * surface_heat_rest(Ts, cfg)
     # spritz: water lands on the surface (in the pit, unwrapped) and is
@@ -797,25 +861,28 @@ function meat_rhs_core!(
         (a_in * RHO_DRY * D_eff * (W[nx - 1] - Ws) / (f_s^2 * Δξ) -
          a_area * (j - cfg.f_abs * j_sp)) /
         (g_s * RHO_DRY * Δξ / 2)
+    # salt: zero-flux surface (nothing evaporates), inner-face diffusion only
+    dSl[nx] =
+        a_in * cfg.D_salt * (Sl[nx - 1] - Sl[nx]) / (f_s^2 * Δξ) / (g_s * Δξ / 2)
 
     # collagen conversion (doneness diagnostic as state — adjoint for free)
     # + denaturation-driven water expulsion (purge; drips out of the
     #   node budget) + fat rendering
     @inbounds for i in 1:nx
         dC[i] = collagen_rate(T[i], cfg) * (1 - C[i])
-        dW[i] -= expulsion_rate(W[i], T[i], k_e, a_myosin, cfg)
+        dW[i] -= expulsion_rate_salted(W[i], T[i], Sl[i], k_e, a_myosin, cfg)
         dF[i] = -fat_rate(T[i], cfg) * F[i]
     end
 
     # bark states: Maillard browning B and smoke deposit S at the surface
     aw = a_w_oswin(Ws, cfg)
-    B = u[4nx + 1]
-    du[4nx + 1] = bark_rate(Ts, aw, cfg) * (1 - B)
-    S = u[4nx + 2]
+    B = u[5nx + 1]
+    du[5nx + 1] = bark_rate(Ts, aw, cfg) * (1 - B)
+    S = u[5nx + 2]
     # (1 - S): deposition sites saturate, so S ∈ [0, 1) and dL_S is the
     # max smoke darkening; (1 - s): foil blocks smoke contact; (1 - pl):
     # no smoke on the board
-    du[4nx + 2] =
+    du[5nx + 2] =
         cfg.k_dep * wet_blend(aw, cfg) * max(smoke, zero(smoke)) * (1 - s) * (1 - pl) *
         (1 - S)
     # smoke ring: NO uptake needs a wet surface, a lit fire, no foil and
@@ -823,11 +890,11 @@ function meat_rhs_core!(
     # so "lit" is the whole dependence on the burn rate); the front
     # advances by diffusion, r·dr = D Θ dt, and only where the meat at the
     # front is still below the myoglobin denaturation temperature
-    R = u[4nx + 3]
+    R = u[5nx + 3]
     fire = max(smoke, zero(smoke)) / (max(smoke, zero(smoke)) + cfg.mdot_ring)
     Θ = wet_blend(aw, cfg) * fire * (1 - s) * (1 - pl)
     T_front = temperature_at_depth(T, R, Δξ, nx)
-    du[4nx + 3] =
+    du[5nx + 3] =
         cfg.D_ring * Θ * logistic((cfg.T_ring - T_front) / cfg.δ_ring) / (R + cfg.r_ring0)
     return cfg.A_meat * cfg.n_meat * a_area * q_pit
 end
@@ -920,17 +987,22 @@ bark restarting at zero would zero the appearance/smoke terms mid-cook.
 function _meat_u0(
     cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector, C0f::AbstractVector;
     F0f::AbstractVector = Float64[], B0::Real = NaN, S0::Real = NaN, R0::Real = NaN,
+    Ssalt0f::AbstractVector = Float64[], s0 = nothing,
 )
     T = isempty(T0f) ? fill(cfg.T0, cfg.nx) : collect(float.(T0f))
     W = isempty(W0f) ? fill(cfg.W0, cfg.nx) : collect(float.(W0f))
     C = isempty(C0f) ? zeros(cfg.nx) : collect(float.(C0f))
     F = isempty(F0f) ? fill(cfg.F0, cfg.nx) : collect(float.(F0f))
+    # salt: an explicit restart field wins; else the brine profile (s0,
+    # possibly Dual-valued through L); else unsalted zeros
+    Sl = isempty(Ssalt0f) ? (s0 === nothing ? zeros(cfg.nx) : s0) :
+         collect(float.(Ssalt0f))
     (
         length(T) == cfg.nx && length(W) == cfg.nx && length(C) == cfg.nx &&
-        length(F) == cfg.nx
+        length(F) == cfg.nx && length(Sl) == cfg.nx
     ) || throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
     return vcat(
-        T, W, C, F,
+        T, W, C, F, Sl,
         [isnan(B0) ? 0.0 : float(B0), isnan(S0) ? 0.0 : float(S0), isnan(R0) ? 0.0 : float(R0)],
     )
 end
@@ -998,6 +1070,7 @@ function meat_solve(
     W0f::AbstractVector=Float64[],
     C0f::AbstractVector=Float64[],
     F0f::AbstractVector=Float64[],
+    Ssalt0f::AbstractVector=Float64[],
     B0::Real=NaN,
     S0::Real=NaN,
     R0::Real=NaN,
@@ -1038,7 +1111,8 @@ function meat_solve(
     # 8 h/49-knot fixture); backward unaffected
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!,
-        _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0),
+        _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
+                 s0=salt_profile(θ[4], cfg)),
         (float(tsave[1]), float(tsave[end])),
         p,
     )
@@ -1056,9 +1130,9 @@ function meat_solve(
     Tpit_ts = Mts * Tpit_knots
     s_ts = wrap_blend.(tsave, float(t_wrap), Ref(cfg))
     pl_ts = pull_blend.(tsave, float(t_pull), Ref(cfg))
-    bark_b = A[4nx + 1, :]
-    bark_s = A[4nx + 2, :]
-    ring = A[4nx + 3, :]
+    bark_b = A[5nx + 1, :]
+    bark_s = A[5nx + 2, :]
+    ring = A[5nx + 3, :]
     w_retained = fv_mean(A[(nx + 1):2nx, end]) / cfg.W0
     F_mean = fv_mean(A[(3nx + 1):4nx, end])
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
@@ -1071,8 +1145,9 @@ function meat_solve(
     c_ts = mixing_coefficient.(a_ts, Mts * im, Ref(cfg))
     g_fac = ((Mts * af) ./ cfg.g_ref) .^ θ[8]
     h_ts, km_ts = θ[3] .* g_fac, θ[2] .* g_fac
+    f_aw_ts = 1 ./ (1 .+ cfg.k_aw .* max.(A[5nx, :], 0.0))
     j_evap = surface_j_blended.(
-        Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg)
+        Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg), f_aw_ts
     )
     # the pit vapor pressure the surface saw: base plus the meat's own vapor
     pv_pit =
@@ -1108,6 +1183,8 @@ function meat_solve(
         W_field=A[(nx + 1):2nx, :],
         C_field=A[(2nx + 1):3nx, :],
         F_field=A[(3nx + 1):4nx, :],
+        salt_field=A[(4nx + 1):5nx, :],
+        salt_mean=vec(fv_weights(nx)' * A[(4nx + 1):5nx, :]) ./ (nx - 1),
         t=collect(float.(tsave)),
     )
 end

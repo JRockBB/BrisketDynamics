@@ -141,6 +141,27 @@ FOIL-wrapped log (contrast) or a known-thickness cook breaks the tie.
 (`data/calibration/wrap_fit_erickson{,_L33}.json`,
 `figures/wrap_fit_erickson{,_L33}.png`.)
 
+## Salt physics: the structure (2026-09-04)
+
+The salting item's model half is in (`src/meats/common.jl`): a fifth PDE
+field s(x,t) — dry-basis salt — with the dry brine as the ANALYTIC
+semi-infinite profile `s0 = S_surf·erfc(depth/(2√(D_salt·t_salt)))` (no
+pre-cook solve; a smooth dependency-free erfc), zero-flux surface during
+the cook (salt does not evaporate), and two couplings: water-holding
+capacity (`W_eq → W_eq·(1 + β_whc·s)` in the purge sink — salted muscle
+purges less) and Raoult-scale water-activity depression of surface
+evaporation (`a_w` factor `1/(1 + k_aw·s)`). `t_salt = 0` is EXACTLY
+unsalted (both couplings are the identity — tested against absurd
+coupling constants), salt is conserved to solver tolerance, a 96 h brine
+raises retained water and lowers evaporation directionally, and the
+state-restart contract covers the salt field (`Ssalt0f`). D_salt is a
+ham-curing literature constant by design; S_surf/β_whc/k_aw are
+placeholder scales awaiting the scale + designed experiment. The
+monolith carries the field (206 states; FD gradient gates unchanged);
+`salt_field` is internal to the Tesseract like geom_m/k_skin until a
+consumer needs it, and t_salt lives in MeatConfig until the planner
+promotes it to a differentiable decision variable.
+
 ## Generalization: geometry, modes, and two external validations
 
 Phase A (2026-09-03): the GEOMETRY axis is in and validated —

@@ -62,24 +62,19 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    those four immediately usable. A state-triggered wrap ("wrap at
    165 °F internal") needs event sensitivities — natural where events
    are first-class.
-6. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
-   diffusion (D_salt ~1e-10 m²/s, well-pinned in the ham-curing literature —
-   take it as a constant, don't calibrate): an isothermal fridge-temperature
-   pre-cook solve from t_salt to cook start yields the initial salt profile
-   S0(x); during the cook a fourth PDE state S(x,t) couples through (a) a
-   water-holding-capacity modification of the moisture sink — landing
-   exactly in the `w_retained` juiciness output — (b) a water-activity
-   factor a_w(S) on p_sat in the evaporation BC (smooth, stays
-   differentiable), and optionally (c) a small denaturation-temperature
-   shift. "When to salt" is structurally the same decision variable as
-   "when to light the fire" and joins the same chance-constrained planning
-   problem; d(juiciness)/d(t_salt) flows through the pre-cook horizon for
-   free. Identifiability discipline: temperature logs are nearly blind to
-   salt, so this ships only with the *scale* (item 3) and a designed
-   experiment — identical cuts salted at −24 h / −1 h / unsalted, weighed
-   before and after; mass loss vs salting time is the curve the WHC
-   coupling fits. Non-salt rub effects (sugar browning, emissivity, surface
-   mass transfer) belong to the bark item below, not here.
+6. **Salt: calibrate and plan.** The salt PDE state, the analytic
+   dry-brine profile and the WHC + water-activity couplings are built
+   (`docs/results.md`, "Salt physics"); remaining: (a) promote t_salt
+   from MeatConfig to a differentiable decision variable so "when to
+   salt" joins the chance-constrained planning problem
+   (d(juiciness)/d(t_salt) through the pre-cook horizon); (b) calibrate
+   S_surf/β_whc/k_aw — temperature logs are nearly blind to salt, so
+   this ships only with the *scale* (item 3) and a designed experiment:
+   identical cuts salted at −24 h / −1 h / unsalted, weighed before and
+   after; mass loss vs salting time is the curve the WHC coupling fits;
+   (c) optionally a small denaturation-temperature shift. Non-salt rub
+   effects (sugar browning, emissivity, surface mass transfer) belong to
+   the bark item, not here.
 7. **Bark model calibration.** The Maillard and smoke states, the pit
    `mdot` forcing and the wrap-aware \(L^*\) objective are in; the
    constants are literature scale. Calibrate against standardized-photo

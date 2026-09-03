@@ -11,6 +11,7 @@ const PIT_φ_GRAD = [15e3, 20.0, 3e-4, 1.2e7, 0.2, 3e-4, 0.85]
 @testset "BrisketDynamics.jl" begin
     include("meats/test_common.jl")
     include("meats/test_presets.jl")
+    include("meats/test_salt.jl")
     include("cookers/test_smoker.jl")
     include("test_monolith.jl")
 end

@@ -57,7 +57,7 @@ end
 """
     make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
 
-Build the in-place coupled RHS over `x = [meat(4·nx + 3) | T_pit, m_fuel,
+Build the in-place coupled RHS over `x = [meat(5·nx + 3) | T_pit, m_fuel,
 ignited]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull]`; the damper
 schedule is interpolated from `nu` knots on the uniform grid
 `u_t0 + (i-1)·u_dt`.
@@ -65,7 +65,7 @@ schedule is interpolated from `nu` knots on the uniform grid
 function make_monolith_rhs(
     cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_t0::Real, u_dt::Real, nu::Int
 )
-    nm = 4 * cfg.nx + 3
+    nm = 5 * cfg.nx + 3
     n_s, n_a, v0 = shrink_exponents(cfg)
     return function mono_rhs!(dx, x, p, t)
         θ = (p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8])
@@ -130,7 +130,8 @@ function _monolith_solve_arr(
     Tp = promote_type(eltype(p), Float64)
     # a0 = φ[7] participates in x0 so forward mode carries its sensitivity
     x0 = vcat(
-        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0)),
+        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0,
+                     s0=salt_profile(p[4], cfg))),
         [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP]],
     )
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
@@ -151,7 +152,7 @@ function _monolith_outputs(
     A, p, cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_tknots, tsave, nu::Int
 )
     nx = cfg.nx
-    nm = 4nx + 3
+    nm = 5nx + 3
     nt = length(tsave)
     θ = p[1:MEAT_NP]
     r_max, u_leak = p[MEAT_NP + 3], p[MEAT_NP + 5]
@@ -185,20 +186,22 @@ function _monolith_outputs(
     l_thick = (θ[4] / (nx - 1)) .* vec(wfv' * ((Vmat ./ v0) .^ n_s))
     a_ts = (vec(wfv' * Vmat) ./ ((nx - 1) * v0)) .^ n_a
     c_ts = mixing_coefficient.(a_ts, imair_ts, Ref(cfg))
+    f_aw_ts = 1 ./ (1 .+ cfg.k_aw .* max.(A[5nx, :], 0.0))
     j_evap = surface_j_blended.(
-        Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg)
+        Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg), f_aw_ts
     )
     pv_pit =
         pv_base_ts .+
         c_ts .* evap_flux_fb.(
-            Tsurf, Wsurf, (1 .- cfg.η_evap .* s_ts) .* km_ts, pv_base_ts, c_ts, Ref(cfg)
+            Tsurf, Wsurf, (1 .- cfg.η_evap .* s_ts) .* km_ts, pv_base_ts, c_ts,
+            Ref(cfg), f_aw_ts,
         )
     q_meat =
         cfg.A_meat * cfg.n_meat .* a_ts .*
         surface_q_pit_blended.(Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
-    bark_b = A[4nx + 1, :]
-    bark_s = A[4nx + 2, :]
-    ring = A[4nx + 3, :]
+    bark_b = A[5nx + 1, :]
+    bark_s = A[5nx + 2, :]
+    ring = A[5nx + 3, :]
     w_retained = fv_mean(A[(nx + 1):2nx, end]) / cfg.W0
     F_mean = fv_mean(A[(3nx + 1):4nx, end])
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
@@ -235,6 +238,7 @@ function _monolith_outputs(
         W_field=A[(nx + 1):2nx, :],
         C_field=A[(2nx + 1):3nx, :],
         F_field=A[(3nx + 1):4nx, :],
+        salt_field=A[(4nx + 1):5nx, :],
         t=collect(float.(tsave)),
     )
 end
@@ -470,7 +474,8 @@ function _monolith_solve_arr_s(
     end
     Tp = promote_type(eltype(p), typeof(float(t_f)), Float64)
     x0 = vcat(
-        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0)),
+        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0,
+                     s0=salt_profile(p[4], cfg))),
         [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP]],
     )
     s_grid = collect(Float64, s_save)
