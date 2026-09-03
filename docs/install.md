@@ -1,8 +1,10 @@
 # Install story
 
-What it takes to run this stack today, and what separates it from a
-`pip install`. The native path is the supported one; the container path
-exists for Linux/WSL2; a true non-repo package is scoped but not built.
+What it takes to run this stack. The native clone is the supported path;
+the container path exists for Linux/WSL2. Publishing to PyPI or a Julia
+registry is NOT planned — the clone (or a container) is the
+distribution. The analysis below records what publishing would take, so
+the decision is documented rather than open.
 
 ## Supported today: clone + uv (native)
 
@@ -38,6 +40,6 @@ Docker works; the native path is faster for development.
    first-install regardless of packaging; the container is the better
    distribution unit for non-developers.
 
-Until there are outside users asking for (1)-(3), the clone is the
-package. When that changes, the order of work is: juliapkg manifest ->
-data-dir relocation -> fold scripts into `brisket_app` -> publish.
+The decision: none of (1)-(3) is planned. The clone is the package; a
+container is the hand-off unit if one is ever needed. This section
+exists so the trade-off stays documented, not as a to-do.

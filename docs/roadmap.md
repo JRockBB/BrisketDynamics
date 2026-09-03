@@ -98,12 +98,11 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    the point-vs-flat split — two muscles of different fat and thickness —
    and grain direction, which none of a 1D slab can carry).
 9. **Community/product shape.** The `brisket` CLI shipped, the pooling
-   work is written up, and the install story is documented — the clone is
-   the package until outside users exist (`docs/results.md`,
-   `docs/pooling.md`, `docs/install.md`). Remaining: the bark write-up
-   (once bark is calibrated, item 7), the actual pip-packaging work when
-   demand appears (juliapkg manifest → data-dir relocation → fold scripts
-   into the package), and a schedule/MPC frontend beyond the CLI.
+   work is written up, and the install story is settled: the clone (or a
+   container) IS the distribution — no PyPI/Julia-registry publishing
+   planned (`docs/results.md`, `docs/pooling.md`, `docs/install.md`).
+   Remaining: the bark write-up (once bark is calibrated, item 7) and a
+   schedule/MPC frontend beyond the CLI.
 10. **Generalize across meats and cookers: earn the transfer claims.** The
     architecture is in place and twice externally validated (geometry
     modes, sous vide vs Baldwin, oven roast vs CET 43:151 —
