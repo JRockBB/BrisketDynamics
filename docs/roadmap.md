@@ -8,10 +8,31 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    receding-horizon re-planner; integrate with HeaterMeter (open-source fan
    controller — our planner can sit above its PID as the planning layer).
    The library stops advising and starts piloting. The wrap, pull, chimney
-   and spritz events already commit irreversibly once executed; remaining:
-   pointing the re-planner at a real pit, and a weather input — wind and
-   weather on `UA(t)` are unobserved today and land in the MPC's ambient
-   filter as an effective-loss disturbance.
+   and spritz events already commit irreversibly once executed.
+   **Pilot built and validated end-to-end without hardware (2026-09-04):**
+   `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks
+   the LinkMeter v14 REST API — status GET, setpoint POST + apikey — and
+   `SimPit` is the calibrated plant behind the same contract with an
+   HM-style PI turning setpoints into damper duty), `brisket_app/pilot.py`
+   (the `run_cook` control loop lifted out of simulation: re-plans
+   schedule + wrap + pull each interval, pushes the PLANNED PIT TRAJECTORY
+   as setpoints, advances the belief state under MEASURED fan duty, snaps
+   the pit state to the sensor, runs the ambient KF on the innovation
+   with an optional hourly FORECAST as feedforward — the weather input —
+   and journals everything as JSONL), `scripts/run_pilot.py` (the daemon;
+   wrap/pull are advisories on hardware, auto-executed on sim backends),
+   `scripts/mock_heatermeter.py` (the sim plant behind the real v14
+   endpoints) and `scripts/plot_pilot.py`. Validation: the same 11-h
+   fullplan cook flown twice against an unannounced −15 K cold front at
+   2 h — in-process, and over HTTP through the REAL client path against
+   the mock — lands nearly identically (wrap re-timed 7.06 → 6.83 h,
+   pull 8.39 → 10.07/10.10 h; the KF recovers ~60 % of the ambient drop
+   and the setpoint plan compensates with a ~300 °F push;
+   `figures/pilot_http.png`, `data/control/pilot_{sim,http}*.jsonl/json`).
+   Remaining: pointing it at the REAL pit (needs a cook: apikey, pacing
+   `--wall-pace 1`, advisory-only events), executed-quality scoring on
+   hardware (model-estimated only), and a live forecast fetch
+   (Open-Meteo) for `--forecast`.
 2. **Reverse mode only when the parameter count demands it.** Forward mode
    is the primary derivative now (one Dual solve per JVP, one chunked pass
    per Jacobian; docs/monolith.md). A discrete adjoint (Enzyme through a
