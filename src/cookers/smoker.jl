@@ -40,7 +40,9 @@ function make_pit_rhs(cfg::PitConfig, u_t0, u_dt, u_nk::Int, q_t0, q_dt, q_nk::I
 
         Tp, m, a = x[1], x[2], x[3]
         a = clamp(a, zero(a), one(a))
-        ṁ = r_max * airflow * a * tanh(max(m, zero(m)) / cfg.m_taper)
+        taper = tanh(max(m, zero(m)) / cfg.m_taper)
+        ṁ = cfg.m_auger > 0 ? cfg.m_auger * u * taper :
+            r_max * airflow * a * taper
         # electric source: the element supplies the heat, nothing burns —
         # no fuel loss, no combustion water, no smoke (p_heater = 0 is the
         # bitwise charcoal default; heat adds p_heater·u below)
@@ -142,6 +144,8 @@ function _pit_mdot_row(A, p, cfg::PitConfig, u_tknots, tsave, nu::Int)
             airflow = u_leak + (1 - u_leak) * u
             m = A[2, i]
             a = clamp(A[3, i], zero(A[3, i]), one(A[3, i]))
+            cfg.m_auger > 0 ?
+            cfg.m_auger * u * tanh(max(m, zero(m)) / cfg.m_taper) :
             r_max * airflow * a * tanh(max(m, zero(m)) / cfg.m_taper)
         end for i in eachindex(tsave)
     ]

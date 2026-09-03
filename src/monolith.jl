@@ -41,14 +41,18 @@ pressure reported at the save times are exact.
 function _pit_algebra(ud, m, a, r_max, u_leak, pit::PitConfig, hum::Humidity)
     airflow = u_leak + (1 - u_leak) * ud
     a_c = clamp(a, zero(a), one(a))
-    ṁ = r_max * airflow * a_c * tanh(max(m, zero(m)) / pit.m_taper)
+    taper = tanh(max(m, zero(m)) / pit.m_taper)
+    # controlled-feed (pellet auger) source replaces the Minion bed law
+    ṁ = pit.m_auger > 0 ? pit.m_auger * ud * taper : r_max * airflow * a_c * taper
     # electric source: nothing burns — the fuel, smoke and combustion-water
     # pathways all carry the zeroed burn rate (heat enters via p_heater·ud
     # in the pit energy balance instead)
     if pit.p_heater > 0
         ṁ = zero(ṁ)
     end
-    mair = hum.afr * r_max * airflow
+    # floored: a sealed source (earth pit, r_max = 0) still exchanges a
+    # trace of air — and the humidity algebra must never divide by zero
+    mair = max(hum.afr * r_max * airflow, 1.0e-6)
     pv_base =
         (hum.p_atm / EPS_W) * (hum.omega_amb + (hum.y_w * ṁ + hum.pan_kg_s) / mair)
     return airflow, ṁ, mair, pv_base

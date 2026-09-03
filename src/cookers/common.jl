@@ -47,6 +47,13 @@ Base.@kwdef struct PitConfig
     # placeholder scale (roadmap: standardized-photo colorimetry + a
     # wrapped/unwrapped pair calibrate the bark family; bitterness needs
     # a tasting panel or a smolder-forced designed cook).
+    # Pellet-auger source: when > 0 the fuel feed is CONTROLLED — the
+    # burn rate is m_auger·u·taper(hopper) instead of the Minion bed law
+    # (u becomes the auger duty; the fan is implicit in the same duty).
+    # Combustion water and smoke stay ON (pellets burn), nothing spreads
+    # (pass a0 = 1), and the hopper empties through the same fuel state.
+    # 0 = charcoal (bitwise default).
+    m_auger::Float64 = 0.0       # full-duty pellet feed rate [kg/s]
     r_smolder::Float64 = 0.25    # draft/lit-bed ratio at the clean-dirty midpoint
     δ_smolder::Float64 = 0.08    # logistic width of the transition
 end

@@ -221,6 +221,29 @@ exactly bitterness-free (nothing burns). Constants are placeholder
 scale — bitterness calibration needs a smolder-forced designed cook or
 a tasting panel (roadmap item 7 keeps that).
 
+## Composability presets + the quasi-3D fidelity level (2026-09-04)
+
+The notable cases are now one-call compositions: `pork_butt()` (the
+near-spherical cut — geom_m = 2, R ≈ 5 cm, fattier; same collagen
+kinetics; k_e backed by the five-cook pooling record), `pellet()` (a
+controlled-feed source: `PitConfig.m_auger` replaces the Minion bed law
+with `m_auger·u·taper` — the damper input becomes the auger duty,
+combustion water and smoke stay on, the bed-spread state is inert), and
+`earth_pit()` (the pibil/imu as PURE COMPOSITION: the rock reservoir is
+the pit's precharged lumped mass — C_th = m_rock·c_rock, Tpit0 = 700 K,
+no fuel, r_max = 0 → no smoke — discharging through UA into the meat
+under the existing `pibil_pv` saturated-steam environment; "control"
+becomes rock mass and seal time; a sealed source exposed a
+divide-by-zero in the humidity air-mass flow, now floored). The
+fidelity ladder gains its first rung above 1-D: `newman_center` — the
+Newman product rule combining per-axis 1-D solves into a quasi-3D
+center trajectory (exact for linear conduction under constant ambient;
+the documented approximation here; a finite brick costs ~3 solves).
+Tested: feed law ignores the bed, the earth pit cooks with zero burn,
+Newman bounds and its infinite-axis reduction. Julia 252/252, app
+67/67. All constants placeholder scale; the combi-oven case was already
+reachable (electric source + humidity forcing).
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the

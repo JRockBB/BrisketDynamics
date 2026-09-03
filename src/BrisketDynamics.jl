@@ -12,9 +12,12 @@ include("meats/common.jl")
 include("meats/brisket.jl")
 include("meats/chicken.jl")
 include("meats/ribs.jl")
+include("meats/pork_butt.jl")
+include("meats/newman.jl")
 include("cookers/common.jl")
 include("cookers/smoker.jl")
 include("cookers/sous_vide.jl")
+include("cookers/pellet.jl")
 include("cookers/pibil.jl")
 include("monolith.jl")
 
@@ -47,6 +50,11 @@ export MeatConfig,
     ribs,
     sous_vide,
     pibil_pv,
-    electric_pit
+    electric_pit,
+    pork_butt,
+    pellet,
+    earth_pit,
+    newman_center,
+    burn_cleanliness
 
 end

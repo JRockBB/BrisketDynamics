@@ -59,3 +59,30 @@ end
     never = pit_solve(φ, fill(0.4, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg, t_add=BrisketDynamics.ADD_NEVER)
     @test never.m_fuel == dry.m_fuel
 end
+
+@testset "pellet auger + earth pit recipes" begin
+    hr = 3600.0
+    tsave = collect(0.0:300.0:6hr)
+    u_tknots = collect(range(0.0, 6hr; length=16))
+    φ = PIT_φ_GRAD
+    # controlled feed: the burn follows the duty, not the bed spread —
+    # a barely-lit bed burns the same as a fully-lit one at equal duty
+    cfg_p = pellet(; m_auger=2.0e-4)
+    lo = pit_solve(φ, fill(0.3, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg=cfg_p)
+    hi = pit_solve(φ, fill(0.9, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg=cfg_p)
+    @test hi.m_fuel[end] < lo.m_fuel[end]           # more duty, more pellets burned
+    φ_dim = copy(φ); φ_dim[7] = 0.2                 # a0 barely lit
+    dim = pit_solve(φ_dim, fill(0.9, 16), u_tknots, zeros(length(tsave)), tsave, tsave; cfg=cfg_p)
+    @test abs(dim.m_fuel[end] - hi.m_fuel[end]) < 1e-6  # feed law ignores the bed
+
+    # earth pit: precharged reservoir, nothing burns, the meat still cooks
+    ep = earth_pit()
+    o = monolith_solve(
+        MEAT_θ_DEFAULT, ep.φ_hint, fill(0.0, 8), collect(range(0.0, 8hr; length=8)),
+        collect(0.0:600.0:8hr); pit=ep.pit,
+    )
+    @test abs(o.m_fuel[end] - o.m_fuel[1]) < 1e-9   # no fuel to burn
+    @test maximum(o.mdot) < 1e-12                   # no smoke
+    @test o.Tpit[1] > o.Tpit[end] > 300.0           # the rocks discharge
+    @test o.Tcore[end] > o.Tcore[1] + 25            # and the meat cooks
+end

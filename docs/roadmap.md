@@ -87,12 +87,12 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    smolder-forced designed cook (choke the vents for one hour, taste /
    photograph the difference). To our knowledge unpublished territory.
    (The two-sided mahogany band is already in the objective.)
-8. **Fidelity where new sensors justify it.** Newman product-rule quasi-3D
-   center-line correction (~3× cost, differentiable, cheap taste of 3D);
-   full 2D axisymmetric surface model *only* once thermal-camera surface
-   fields exist to calibrate it (also feeds bark distribution / burnt ends,
-   the point-vs-flat split — two muscles of different fat and thickness —
-   and grain direction, which none of a 1D slab can carry).
+8. **Fidelity where new sensors justify it.** The Newman product-rule
+   quasi-3D center correction is in (`newman_center` — `docs/results.md`);
+   the full 2D axisymmetric surface model waits for thermal-camera
+   surface fields to calibrate it (also feeds bark distribution / burnt
+   ends, the point-vs-flat split — two muscles of different fat and
+   thickness — and grain direction, which none of a 1D slab can carry).
 9. **Community/product shape.** The `brisket` CLI shipped, the pooling
    work is written up, and the install story is settled: the clone (or a
    container) IS the distribution — no PyPI/Julia-registry publishing
@@ -100,17 +100,15 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    Remaining: the bark write-up (once bark is calibrated, item 7) and a
    schedule/MPC frontend beyond the CLI.
 10. **Generalize across meats and cookers: earn the transfer claims.** The
-    architecture is in place and twice externally validated (geometry
-    modes, sous vide vs Baldwin, oven roast vs CET 43:151 —
-    `docs/results.md`); the remaining modes are built but data-blocked:
-    wrap physics beyond one log (item 5), the poultry skin barrier
-    (constants uncalibrated), and saturated steam. Notable cases: pulled
-    pork ≈ free transfer (geometry switch); ribs make wrap physics
-    mandatory; a combi oven identifies meat parameters under controlled
-    T+RH for transfer to any smoker; and the sealed earth pit (pibil/imu)
-    is the jewel — saturated steam kills the stall entirely, the source is
-    an uncontrolled thermal discharge, and "control" becomes design (rock
-    mass, seal time) in an uninstrumented cooking tradition.
+    architecture is in place, twice externally validated, and the notable
+    cases are now one-call compositions — `pork_butt`, `pellet`,
+    `earth_pit` on top of `brisket`/`chicken`/`ribs`/`sous_vide`/
+    `electric_pit` (`docs/results.md`). What remains is DATA: wrap
+    physics beyond one log (item 5), the poultry skin barrier and the
+    pellet/earth-pit constants (all placeholder scale), and any
+    instrumented log from the uncommon cookers. A combi-oven cook
+    (controlled T+RH) remains the best designed experiment for meat
+    parameters that transfer to any smoker.
 
 ## Not modelled
 
