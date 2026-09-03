@@ -89,10 +89,10 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    fields exist to calibrate it (also feeds bark distribution / burnt ends,
    the point-vs-flat split — two muscles of different fat and thickness —
    and grain direction, which none of a 1D slab can carry).
-9. **Community/product shape.** The `brisket` CLI shipped
-   (`docs/results.md`); remaining: write up the pooling and (once
-   calibrated) bark work properly, a packaged non-repo install story, and
-   a schedule/MPC frontend beyond the CLI.
+9. **Community/product shape.** The `brisket` CLI shipped and the pooling
+   work is written up (`docs/results.md`, `docs/pooling.md`); remaining:
+   the bark write-up (once bark is calibrated, item 7), a packaged
+   non-repo install story, and a schedule/MPC frontend beyond the CLI.
 10. **Generalize across meats and cookers: earn the transfer claims.** The
     architecture is in place and twice externally validated (geometry
     modes, sous vide vs Baldwin, oven roast vs CET 43:151 —
