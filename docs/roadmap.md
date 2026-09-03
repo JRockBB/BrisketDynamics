@@ -52,8 +52,16 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    (`docs/results.md`) — a FOIL-wrapped log (maximum contrast) or a
    known-thickness cook breaks the tie. The rest constants (cambro /
    board) still need a log that runs past the pull with the probe left
-   in. A state-triggered wrap ("wrap at 165 °F internal") needs event
-   sensitivities — natural where events are first-class.
+   in. Hunt state (2026-09-04, both graphs threads walked — 42779 fully,
+   45777's 886 posts): the best candidates exist but are unreachable —
+   Antti's Texas-crutch-at-24 h BGE chart is a dead Dropbox link (no
+   archive), and Tim Ka's paper-wrapped Akorn brisket (dual point/flat
+   probes), ChrisB's BGE wrap pair and Marc Strickland's pulled-early
+   butt are TVWBB attachments that are login-gated at full size (guests
+   get 150-325 px thumbnails). **Unlock: a TVWBB account** would make
+   those four immediately usable. A state-triggered wrap ("wrap at
+   165 °F internal") needs event sensitivities — natural where events
+   are first-class.
 6. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
    diffusion (D_salt ~1e-10 m²/s, well-pinned in the ham-curing literature —
    take it as a constant, don't calibrate): an isothermal fridge-temperature
