@@ -1,5 +1,6 @@
 using BrisketDynamics
 using Test
+using ForwardDiff
 
 # shared literature-plausible default parameters used across the test suite
 const MEAT_θ_DEFAULT = [3.8e-9, 0.0018, 10.0, 0.03, 1.0, 5.6e-4, 0.20, 0.6] # D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv

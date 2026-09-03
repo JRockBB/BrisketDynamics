@@ -38,6 +38,21 @@ Base.@kwdef struct MeatConfig
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
     R_gas::Float64 = 8.314
+    # State-triggered wrap (the event-sensitivity mechanism): a smooth
+    # IRREVERSIBLE latch state l with dl/dt = k_latch·σ((T_core −
+    # T_trig)/δ_trig)·(1 − l), driving the wrap blend as the smooth OR
+    # s = 1 − (1 − s_time)(1 − l). Because the latch is an ordinary
+    # smooth state, d(anything)/d(T_trig) exists through plain AD — no
+    # jump conditions. T_trig itself is a meat_solve ARGUMENT
+    # (T_wrap_trigger; Inf = disabled, exactly inert); these two are the
+    # latch dynamics constants.
+    # δ_trig sets BOTH the softness at crossing and the pre-trigger
+    # accumulation: the latch integrates k_latch·σ((T−T_trig)/δ) over the
+    # whole approach, so a wide δ pre-charges it hours early (a 2 K width
+    # was ~97 % committed before the crossing). 0.5 K keeps the tail
+    # negligible until minutes before the trigger reading.
+    δ_trig::Float64 = 0.5       # trigger softness [K]
+    k_latch::Float64 = 1.0 / 60.0  # latch rate [1/s] (~1 min to commit)
     # Bone region (bone-in cuts: butts, drumsticks, ribs near the bone).
     # A central bone out to bone_frac of the half-thickness/radius, as a
     # smooth per-node THERMAL property blend: conductivity and volumetric
@@ -756,7 +771,7 @@ expulsion sink in dW (denaturation purge).
 function meat_rhs_core!(
     du, u, t, θ, Tpit, smoke, pv_base, imair, airflow, t_wrap, t_pull, t_spritz,
     dt_spritz, m_spritz, cfg::MeatConfig, n_s, n_a, v0,
-    wb::AbstractVector=bone_weights(cfg),
+    wb::AbstractVector=bone_weights(cfg), T_trig=Inf,
 )
     nx = cfg.nx
     D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv = θ
@@ -866,7 +881,11 @@ function meat_rhs_core!(
     # the rest environment — carryover, rewetting and continued collagen
     # conversion all follow from the unchanged interior equations)
     Ts, Ws = T[nx], W[nx]
+    # wrap: the time trigger OR the state latch (smooth, irreversible)
+    latch = clamp(u[5nx + 4], zero(u[5nx + 4]), one(u[5nx + 4]))
+    du[5nx + 4] = cfg.k_latch * logistic((T[1] - T_trig) / cfg.δ_trig) * (1 - latch)
     s = wrap_blend(t, t_wrap, cfg)
+    s = 1 - (1 - s) * (1 - latch)
     pl = pull_blend(t, t_pull, cfg)
     # pit humidity: the pit's base vapor pressure plus the meat's own
     # vapor, p_v = pv_base + c·j with c ∝ exposed area / air mass flow
@@ -996,6 +1015,7 @@ function make_meat_rhs(cfg::MeatConfig, tk0::Float64, tkdt::Float64, nk::Int)
             n_a,
             v0,
             wb,
+            p[MEAT_NP + 5nk + 6],
         )
         return nothing
     end
@@ -1028,7 +1048,7 @@ bark restarting at zero would zero the appearance/smoke terms mid-cook.
 function _meat_u0(
     cfg::MeatConfig, T0f::AbstractVector, W0f::AbstractVector, C0f::AbstractVector;
     F0f::AbstractVector = Float64[], B0::Real = NaN, S0::Real = NaN, R0::Real = NaN,
-    Ssalt0f::AbstractVector = Float64[], s0 = nothing,
+    Ssalt0f::AbstractVector = Float64[], s0 = nothing, LATCH0::Real = NaN,
 )
     T = isempty(T0f) ? fill(cfg.T0, cfg.nx) : collect(float.(T0f))
     W = isempty(W0f) ? fill(cfg.W0, cfg.nx) : collect(float.(W0f))
@@ -1044,7 +1064,8 @@ function _meat_u0(
     ) || throw(ArgumentError("field ICs must have length nx=$(cfg.nx)"))
     return vcat(
         T, W, C, F, Sl,
-        [isnan(B0) ? 0.0 : float(B0), isnan(S0) ? 0.0 : float(S0), isnan(R0) ? 0.0 : float(R0)],
+        [isnan(B0) ? 0.0 : float(B0), isnan(S0) ? 0.0 : float(S0),
+         isnan(R0) ? 0.0 : float(R0), isnan(LATCH0) ? 0.0 : float(LATCH0)],
     )
 end
 
@@ -1124,6 +1145,8 @@ function meat_solve(
     t_spritz::Real=SPRITZ_NEVER,
     dt_spritz::Real=3600.0,
     m_spritz::Real=NaN,
+    T_wrap_trigger::Real=Inf,
+    LATCH0::Real=NaN,
 )
     nx = cfg.nx
     msp = isnan(m_spritz) ? cfg.m_spritz : float(m_spritz)
@@ -1138,12 +1161,13 @@ function meat_solve(
     )
     p = vcat(
         θ, Tpit_knots, sk, pvb, im, af, float(t_wrap), float(t_pull), float(t_spritz),
-        float(dt_spritz), msp,
+        float(dt_spritz), msp, float(T_wrap_trigger),
     )
     any(isnan, p) && throw(
         ArgumentError(
             "meat solve got NaN inputs at indices $(findall(isnan, p)) of p " *
-            "(θ|Tpit|smoke|pv_base|imair|airflow|t_wrap|t_pull|t_spritz|dt_spritz|m_spritz)",
+            "(θ|Tpit|smoke|pv_base|imair|airflow|t_wrap|t_pull|t_spritz|" *
+            "dt_spritz|m_spritz|T_wrap_trigger)",
         ),
     )
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
@@ -1152,8 +1176,10 @@ function meat_solve(
     # 8 h/49-knot fixture); backward unaffected
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!,
-        _meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
-                 s0=salt_profile(θ[4], cfg)),
+        promote_type(eltype(p), Float64).(_meat_u0(
+            cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
+            s0=salt_profile(θ[4], cfg), LATCH0,
+        )),
         (float(tsave[1]), float(tsave[end])),
         p,
     )
@@ -1169,7 +1195,8 @@ function meat_solve(
     Wsurf = A[2nx, :]
     Mts = hat_matrix(tsave, tk0, tkdt, length(tknots))
     Tpit_ts = Mts * Tpit_knots
-    s_ts = wrap_blend.(tsave, float(t_wrap), Ref(cfg))
+    latch_ts = clamp.(A[5nx + 4, :], 0.0, 1.0)
+    s_ts = 1 .- (1 .- wrap_blend.(tsave, float(t_wrap), Ref(cfg))) .* (1 .- latch_ts)
     pl_ts = pull_blend.(tsave, float(t_pull), Ref(cfg))
     bark_b = A[5nx + 1, :]
     bark_s = A[5nx + 2, :]
@@ -1226,6 +1253,7 @@ function meat_solve(
         F_field=A[(3nx + 1):4nx, :],
         salt_field=A[(4nx + 1):5nx, :],
         salt_mean=vec(fv_weights(nx)' * A[(4nx + 1):5nx, :]) ./ (nx - 1),
+        wrap_latch=A[5nx + 4, :],
         t=collect(float.(tsave)),
     )
 end

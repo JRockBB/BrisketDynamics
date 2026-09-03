@@ -366,6 +366,25 @@ Measured, 8 h cook at 211 states:
 Forward mode stays the primary derivative in production; MTK remains
 settled.
 
+## Event sensitivities: the state-triggered wrap latch (2026-09-04)
+
+"Wrap at 165 °F internal" is now differentiable without jump conditions:
+a smooth IRREVERSIBLE latch state l with dl/dt = k_latch·σ((T_core −
+T_trig)/δ_trig)·(1 − l) drives the wrap blend as the smooth OR
+s = 1 − (1 − s_time)(1 − l). Because the latch is an ordinary smooth
+state, d(anything)/d(T_trig) exists through plain AD — verified:
+ForwardDiff through the full solve matches central FD within 5 %, and
+the latch commits over the last ~10 minutes of the approach then holds.
+Two lessons the tests encode: (1) δ_trig sets the pre-trigger
+accumulation, not just softness — a 2 K width was 97 % committed hours
+early because the latch integrates the σ tail (0.5 K keeps it
+negligible); (2) the SIGN of d(w_retained)/d(T_trig) is
+model-dependent — wrapping earlier saves evaporation but runs the meat
+hotter and purges more, and at the test fixture the purge effect wins.
+`T_wrap_trigger` is a meat_solve argument (Inf = exactly inert); the
+monolith carries the latch state inert until the planner consumes the
+trigger through the Tesseract (one optional field, like t_f).
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the

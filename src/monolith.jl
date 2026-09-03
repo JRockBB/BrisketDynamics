@@ -83,7 +83,7 @@ end
 """
     make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
 
-Build the in-place coupled RHS over `x = [meat(5·nx + 3) | T_pit, m_fuel,
+Build the in-place coupled RHS over `x = [meat(5·nx + 4) | T_pit, m_fuel,
 ignited, m_pan, T_pan, T_firebox]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull]`; the damper
 schedule is interpolated from `nu` knots on the uniform grid
 `u_t0 + (i-1)·u_dt`.
@@ -91,7 +91,7 @@ schedule is interpolated from `nu` knots on the uniform grid
 function make_monolith_rhs(
     cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_t0::Real, u_dt::Real, nu::Int
 )
-    nm = 5 * cfg.nx + 3
+    nm = 5 * cfg.nx + 4  # + the wrap-latch scalar
     n_s, n_a, v0 = shrink_exponents(cfg)
     wb = bone_weights(cfg)
     return function mono_rhs!(dx, x, p, t)
@@ -202,7 +202,7 @@ function _monolith_outputs(
     A, p, cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_tknots, tsave, nu::Int
 )
     nx = cfg.nx
-    nm = 5nx + 3
+    nm = 5nx + 4  # + the wrap-latch scalar
     nt = length(tsave)
     θ = p[1:MEAT_NP]
     r_max, u_leak = p[MEAT_NP + 3], p[MEAT_NP + 5]

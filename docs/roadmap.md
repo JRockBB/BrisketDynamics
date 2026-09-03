@@ -8,18 +8,16 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
 
 ## Modeling goals
 
-- **M1 — Event sensitivities.** A state-triggered wrap ("wrap at 165 °F
-  internal") needs derivatives through the trigger condition — jump
-  conditions where events are first-class, beyond the current
-  smooth-blend fixed-time events. Differentiable wood-split and fuel-add
-  timing rides on the same machinery.
-- **M2 — Salting-time as a decision variable.** Promote `t_salt` from
+- **M1 — Salting-time as a decision variable.** Promote `t_salt` from
   MeatConfig to a differentiable input so "when to salt" joins the
   chance-constrained planning problem (d(juiciness)/d(t_salt) through
   the analytic pre-cook brine profile); optionally a small
   salt-dependent denaturation-temperature shift. The salt PDE state and
-  couplings are built (`docs/results.md`).
-- **M3 — 2-D axisymmetric slab** (gated on thermal-camera surface fields
+  couplings are built, and the state-triggered wrap latch is done
+  (`docs/results.md`) — t_salt, the wrap trigger T_trig and the
+  wood-split interval dt_add all join the planner the same way: one
+  optional Tesseract input each when it consumes them.
+- **M2 — 2-D axisymmetric slab** (gated on thermal-camera surface fields
   to calibrate it — C2). Feeds bark distribution / burnt ends, the
   point-vs-flat split (two muscles of different fat and thickness) and
   grain direction, which no 1-D slab can carry. The adjoint machinery is
@@ -105,7 +103,7 @@ frontend beyond the CLI; the bark write-up rides on C6.
 ## Not modelled
 
 A homogeneous 1D slab: no point-vs-flat split, no edges or burnt ends, no
-grain direction or slice variance (M3); no animal-to-animal pH, aging or
+grain direction or slice variance (M2); no animal-to-animal pH, aging or
 water-holding capacity (C3); wind and weather on `UA(t)` beyond the
 pilot's forecast feedforward + ambient filter (C1); rub chemistry beyond
 salt (C5, C6); smoke *quality* constants as opposed to smoke mass (C6).
@@ -119,7 +117,7 @@ and which goal above closes it.
   core node of a symmetric slab — the cold spot of *this* geometry, not of
   a point-and-flat; intact-muscle assumption for the surface. The fullplan
   scan rejects cook lengths whose raw residuals fail; the MPC only
-  penalizes and reports. Not a certification. (M3)
+  penalizes and reports. Not a certification. (M2)
 - **Condensation.** Ungated two-sided flux with one mass-transfer
   coefficient both ways, the condensate absorbed into the surface node's
   water (no film, no run-off); it acts through the dew-point crossing in
@@ -136,7 +134,7 @@ and which goal above closes it.
   measurement behind them. An output, never a term in the objective. (C6)
 - **Fuel addition.** Lit chimneys or wood-split pulse trains of fixed
   mass; unlit additions are not modelled, and split timing is config,
-  not a decision variable. (C1; M1 for the timing)
+  not a decision variable. (C1; the split interval joins the planner via M1)
 - **Lid lifts.** A lumped-mass energy loss per lift (\(UA_{\mathrm{open}}\)
   from convective exchange + bed radiation — an estimate, not a
   measurement); a dome probe's one-minute transient is not something a
@@ -147,7 +145,7 @@ and which goal above closes it.
   flashes off within the one-minute pulse: no film state, no run-off; stops
   at the wrap and the pull. (C2: scale)
 - **Multi-meat.** Identical briskets sharing the pit's heat and vapor; no
-  shielding, stacking or grate-position differences. (M3)
+  shielding, stacking or grate-position differences. (M2)
 - **Water pan.** Two states with placeholder conductances (UA_pan, g_pan);
   the pan drives against the pre-pan vapor pressure (self-feedback not
   closed) and holds plain water (no juice/fat film). (C3: the pan
