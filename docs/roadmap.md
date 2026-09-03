@@ -86,8 +86,21 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    machinery.
 
    Two-stage hierarchical pooling (no joint NUTS): per-log GN Laplace, then
-   a Gaussian pool — pit shared, meat partial, ignition iid. Synthetic
-   two-cook check: `scripts/run_hier_synth.py`.
+   a Gaussian pool — pit shared (per smoker), meat partial, ignition iid.
+   Synthetic two-cook check: `scripts/run_hier_synth.py`.
+   **First REAL two-cook pool (2026-09-03,** `scripts/run_pool_real.py`**):**
+   mache_2013 + phillip_2018 (a 15 lb packer at ~1 °F, found, digitized and
+   provenance'd by `tools/loghunt/`; partial log, different smoker → meat
+   partial, pit per-cook). Result: D_eff agrees within 7 % across the two
+   cooks, k_e within 7 %, a_myosin/L/m_conv close — the "briskets I buy"
+   block behaves — while the spread sits on the known confounds (h_c/k_m on
+   the draft ridge between different rigs; k_mult absorbing the
+   uniform-interior slice start). Fits: rms pit 1.33/1.87 K, core
+   3.02/1.43 K (`figures/pool_real.png`, `data/calibration/pool_real.json`).
+   Still wanted: a same-smoker multi-cook set (Dale Ward's Big Steel Keg
+   trio is digitizable-if-needed but two charts are zoomed screenshots),
+   and any log with BEFORE/AFTER weights — none found yet in the graphs
+   thread; pre-cook weights are common, yield pairs are not.
 
    **Not RxInfer / CBFE for this.** Constrained Bethe Free Energy is the
    online-during-cook estimator (a reactive factor graph over pit state and

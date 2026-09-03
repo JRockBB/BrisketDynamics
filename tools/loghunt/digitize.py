@@ -28,13 +28,48 @@ from PIL import Image
 HERE = Path(__file__).resolve().parent
 
 
+# --- palettes: the HM web UI ships in a few color themes ----------------------
+# hm_classic: steel-blue plot, bluish gridlines, one green meat trace, gray
+#   ambient (the 2013 Mache render). hm_dark: black plot, gray gridlines, two
+#   meat traces (light-green "point", teal "flat"), no ambient trace.
+
+
+def _classic_masks(R, G, B):
+    return {
+        "grid": (np.abs(R - 72) < 25) & (np.abs(G - 98) < 25) & (np.abs(B - 125) < 25),
+        "pit": (R > 150) & (R - B > 60) & (R - G > 60) & (G > 60) & (G < 170),
+        "meat": {"meat": (G > 140) & (G - R > 40) & (G - B > 80)},
+        "fan": (B - R > 70) & (B > 130),
+        "amb": (np.abs(R - G) < 25) & (np.abs(G - B) < 32) & (R > 58) & (R < 185),
+        "setpoint": (R > 140) & (G < 70) & (B < 70),
+    }
+
+
+def _dark_masks(R, G, B):
+    return {
+        "grid": (np.abs(R - G) < 14) & (np.abs(G - B) < 14) & (R > 52) & (R < 95),
+        "pit": (R > 150) & (R - B > 60) & (R - G > 60) & (G > 60) & (G < 170),
+        "meat": {
+            "point": (G > 150) & (G - R > 60) & (G - B > 110),
+            "flat": (G > 110) & (G - R > 60) & (G - B > 20) & (G - B < 75) & (B > 60),
+        },
+        "fan": (B > G) & (B - R > 55) & (B > 85),
+        "amb": None,  # ambient probe not plotted in this theme
+        "setpoint": (R > 150) & (G < 80) & (B < 80),
+    }
+
+
+PALETTES = {"hm_classic": _classic_masks, "hm_dark": _dark_masks}
+_PALETTE = _classic_masks  # set per log in main()
+
+
 # --- gridline detection (from the reference's verification helper) -----------
 
 
 def gridline_mask(im: np.ndarray) -> np.ndarray:
-    """Bluish flot-gridline color mask."""
+    """Palette gridline color mask."""
     R, G, B = im[..., 0].astype(int), im[..., 1].astype(int), im[..., 2].astype(int)
-    return (np.abs(R - 72) < 25) & (np.abs(G - 98) < 25) & (np.abs(B - 125) < 25)
+    return _PALETTE(R, G, B)["grid"]
 
 
 def _group(idx: list[int]) -> list[float]:
@@ -74,28 +109,25 @@ def auto_crop(full: np.ndarray) -> tuple[slice, slice]:
 # --- extraction (ported from the reference, parametrized) --------------------
 
 
-def extract(im, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_max_row):
-    """Per-pixel-column color-mask extraction of pit/meat/ambient/fan."""
+def extract(im, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_max_row, meat_probe):
+    """Per-pixel-column color-mask extraction of pit/meat probes/ambient/fan."""
     R, G, B = im[..., 0].astype(int), im[..., 1].astype(int), im[..., 2].astype(int)
     rt, rb = int(row_top) + 3, int(row_bot) - 2
-    line_masks = {
-        "pit": (R > 150) & (R - B > 60) & (R - G > 60) & (G > 60) & (G < 170),
-        "meat": (G > 140) & (G - R > 40) & (G - B > 80),
-    }
-    fan_mask = (B - R > 70) & (B > 130)
-    amb_mask = (np.abs(R - G) < 25) & (np.abs(G - B) < 32) & (R > 58) & (R < 185)
-    white = (R > 180) & (G > 180) & (B > 160)
-    yellow = (R > 200) & (G > 170) & (B < 170) & (R - B > 60)
+    pal = _PALETTE(R, G, B)
+    line_masks = {"pit": pal["pit"], "meat": pal["meat"][meat_probe]}
+    for name, m in pal["meat"].items():
+        if name != meat_probe:
+            line_masks[f"meat2_{name}"] = m
+    fan_mask = pal["fan"]
+    amb_mask = pal["amb"]
 
     cols = np.arange(col_lo, col_hi)
     n = len(cols)
-    out = {
-        "t_raw": np.array([col2min(c) for c in cols]),
-        "pit": np.full(n, np.nan),
-        "meat": np.full(n, np.nan),
-        "amb": np.full(n, np.nan),
-        "fan_pct": np.full(n, np.nan),
-    }
+    out = {"t_raw": np.array([col2min(c) for c in cols])}
+    for name in line_masks:
+        out[name] = np.full(n, np.nan)
+    out["amb"] = np.full(n, np.nan)
+    out["fan_pct"] = np.full(n, np.nan)
     prev_amb = None
     for k, c in enumerate(cols):
         for name, m in line_masks.items():
@@ -105,6 +137,8 @@ def extract(im, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_m
         rr = np.where(fan_mask[rt:rb, c])[0]
         if len(rr):
             out["fan_pct"][k] = row2pct(rr.min() + rt)
+        if amb_mask is None:
+            continue
         rr = np.where(amb_mask[amb_max_row:rb, c])[0] + amb_max_row
         runs, cur = [], None
         for v in rr:
@@ -131,9 +165,6 @@ def extract(im, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_m
                 prev_amb = None
         else:
             prev_amb = None
-    # note: the white/yellow band masks stay available for lid detection but
-    # lid events are config-driven (the judgment layer), matching the method
-    _ = (white, yellow)
     return out
 
 
@@ -149,6 +180,9 @@ def resample(raw, cook_end_min, settle_min, lid_events, setpoint_f, step_min, ma
         "amb_F": raw["amb"][keep],
         "fan_pct": raw["fan_pct"][keep],
     }
+    for k in raw:
+        if k.startswith("meat2_"):
+            series[k.replace("meat2_", "") + "_F"] = raw[k][keep]
     grid = np.arange(0.0, cook_end_min, step_min)
     out = {"t_min": grid}
 
@@ -239,14 +273,20 @@ def main():
         print(f"auto-crop rows {crop[0].start}:{crop[0].stop} cols {crop[1].start}:{crop[1].stop}")
     chart = full[crop]
 
-    rows_g, cols_g = detect_gridlines(chart)
-    if len(rows_g) < 3 or len(cols_g) < 3:
-        raise SystemExit(f"gridline detection too sparse (rows {len(rows_g)}, cols {len(cols_g)})")
+    global _PALETTE
+    ex_palette = cfg.get("extract", {}).get("palette", "hm_classic")
+    _PALETTE = PALETTES[ex_palette]
     ax_cfg = cfg["axes"]
+    have_overrides = "px_per_step_v" in ax_cfg and "px_per_step_h" in ax_cfg and "x_anchor_col" in ax_cfg
+    rows_g, cols_g = detect_gridlines(chart)
+    if (len(rows_g) < 3 or len(cols_g) < 3) and not have_overrides:
+        raise SystemExit(f"gridline detection too sparse (rows {len(rows_g)}, cols {len(cols_g)})")
     cal = cfg.get("calibration", {})
     y_top, y_bot = float(ax_cfg["y_top_f"]), float(ax_cfg["y_bottom_f"])
     step_f = float(ax_cfg.get("grid_step_f", 20.0))
-    px_step_v = float(ax_cfg.get("px_per_step_v", np.median(np.diff(rows_g))))
+    px_step_v = float(
+        ax_cfg["px_per_step_v"] if "px_per_step_v" in ax_cfg else np.median(np.diff(rows_g))
+    )
 
     # Vertical anchor, in order of trust: (1) the red setpoint line — an
     # ABSOLUTE temperature reference (gridlines only supply the px/step
@@ -258,7 +298,7 @@ def main():
     Bc = chart[..., 2].astype(int)
     row_sp = None
     if cal.get("setpoint_f") is not None:
-        sp_mask = (Rc > 140) & (Gc < 70) & (Bc < 70)
+        sp_mask = _PALETTE(Rc, Gc, Bc)["setpoint"]
         sp_rows = [
             float(np.median(np.where(sp_mask[:, c])[0]))
             for c in range(chart.shape[1])
@@ -269,6 +309,9 @@ def main():
     if row_sp is not None:
         f_anchor, row_anchor = float(cal["setpoint_f"]), row_sp
         print(f"vertical anchor: setpoint line at row {row_sp:.1f} = {f_anchor} F")
+    elif "row_top" in ax_cfg:
+        f_anchor, row_anchor = y_top, float(ax_cfg["row_top"])
+        print(f"vertical anchor: configured frame top row {row_anchor} = {y_top} F")
     else:
         f_anchor, row_anchor = y_top, rows_g[0]
         print(
@@ -330,7 +373,8 @@ def main():
     col_lo = int(ex.get("col_lo", 2))
     col_hi = int(ex.get("col_hi", chart.shape[1] - 2))
     raw = extract(
-        chart, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_max_row
+        chart, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_max_row,
+        ex.get("meat_probe", "meat" if ex_palette == "hm_classic" else "flat"),
     )
     df = resample(
         raw,

@@ -1,0 +1,40 @@
+slug = "phillip_2018"
+
+[source]
+url = "https://tvwbb.com/threads/post-your-heatermeter-graphs.42779/post-800697"
+author = "Phillip P"
+image = "cache/b3995e16.png"
+retrieved = "2026-09-03"
+
+[axes]
+# probed on the cached canonical image (2844x1460): frame rows 564-1214
+# = 275..0 F (11 x 25 F steps), frame left col 768 = chart clock 0 (23:36
+# on the UI), right edge = the 10:24 AM screenshot moment
+y_top_f = 275.0
+y_bottom_f = 0.0
+grid_step_f = 25.0
+px_per_step_v = 59.09
+x_step_min = 60.0
+px_per_step_h = 120.19       # (2066-768) px over 648 min of live chart
+x_anchor_col = 53.0          # in-crop frame-left (768 - 715)
+x_anchor_clock_min = 0.0     # chart clock 0 at the frame's left edge
+row_top = 4.0                # in-crop frame top (564 - 560), anchor fallback
+
+[timeline]
+# meat probes come alive at chart clock ~26.5 min (teal onset after the
+# loading lid band); the chart is LIVE so it ends mid-cook at ~648 min —
+# a partial log (rise + stall entry), no pull recorded
+meat_on_min = 26.5
+cook_end_min = 620.0
+settle_min = 15.0
+lid_events = []
+
+[calibration]
+setpoint_f = 225.0
+
+[extract]
+palette = "hm_dark"
+meat_probe = "flat"          # thicker section; matches the Mache convention
+crop = [560, 1218, 715, 2070]
+col_lo = 55
+col_hi = 1350

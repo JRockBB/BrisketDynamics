@@ -46,7 +46,7 @@ def _inputs(x, log: dict) -> dict:
         "u_tknots": np.asarray(log["t"], dtype=float),
         "tsave": np.asarray(log["t"], dtype=float),
         "tpit0": float(log["meta"]["tpit0_K"]),
-        "t_amb": T_AMB,
+        "t_amb": float(log["meta"].get("t_amb_K", T_AMB)),
         "t0_meat": float(log["meta"]["tcore0_K"]),
     }
 

@@ -342,7 +342,7 @@ def bound_model_real(log: dict, tx, tols: dict | None = None):
     )
     ics = {
         "tpit0": log["meta"]["tpit0_K"],
-        "t_amb": 300.0,
+        "t_amb": float(log["meta"].get("t_amb_K", 300.0)),
         "t0_meat": log["meta"]["tcore0_K"],
     }
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}

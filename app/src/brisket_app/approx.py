@@ -577,6 +577,9 @@ def pool_shared(
     (exact for LogNormal sites, local for Beta). Without ``names`` the
     uncorrected pool is returned (negligible for K=2 with wide priors).
     """
+    idx = np.asarray(idx, dtype=int).reshape(-1)
+    if idx.size == 0:  # nothing shared (e.g. different smokers)
+        return np.zeros(0), np.zeros((0, 0))
     prec = np.zeros((idx.size, idx.size))
     rhs = np.zeros(idx.size)
     for m, c in zip(means, covs, strict=True):
