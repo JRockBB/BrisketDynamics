@@ -59,10 +59,30 @@ function _pit_algebra(ud, m, a, r_max, u_leak, pit::PitConfig, hum::Humidity)
 end
 
 """
+    _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit, hum, cfg)
+
+Water-pan fluxes from the pan states: heat drawn from the pit gas
+`q_pan = UA_pan·(Tp − T_pan)` and evaporation
+`ṁ_pan = g_pan·(p_sat(T_pan) − pv_nopan)·taper(m_pan)` (two-sided: a
+cold pan under a humid pit condenses), both gated off entirely when the
+config carries no pan. Returns `(q_pan, ṁ_pan, pv_base)` with the pan
+vapor added onto the pre-pan base.
+"""
+function _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit::PitConfig, hum::Humidity)
+    if pit.m_pan0 <= 0
+        return zero(Tp), zero(Tp), pv_nopan
+    end
+    taper = tanh(max(mp, zero(mp)) / pit.m_pan_taper)
+    ṁ_pan = pit.g_pan * (p_sat(Tpan) - pv_nopan) * taper
+    q_pan = pit.UA_pan * (Tp - Tpan)
+    return q_pan, ṁ_pan, pv_nopan + (hum.p_atm / EPS_W) * ṁ_pan / mair
+end
+
+"""
     make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
 
 Build the in-place coupled RHS over `x = [meat(5·nx + 3) | T_pit, m_fuel,
-ignited]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull]`; the damper
+ignited, m_pan, T_pan]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull]`; the damper
 schedule is interpolated from `nu` knots on the uniform grid
 `u_t0 + (i-1)·u_dt`.
 """
@@ -83,9 +103,11 @@ function make_monolith_rhs(
         m_spritz = p[MONO_NP + nu + 6]
 
         Tp, m, a = x[nm + 1], x[nm + 2], x[nm + 3]
+        mp, Tpan = x[nm + 4], x[nm + 5]
         ud = lininterp(t, u_t0, u_dt, u_knots)
         ud = clamp(ud, zero(ud), one(ud))
-        airflow, ṁ, mair, pv_base = _pit_algebra(ud, m, a, r_max, u_leak, pit, hum)
+        airflow, ṁ, mair, pv_nopan = _pit_algebra(ud, m, a, r_max, u_leak, pit, hum)
+        q_pan, ṁ_pan, pv_base = _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit, hum)
 
         um = @view x[1:nm]
         dum = @view dx[1:nm]
@@ -102,11 +124,19 @@ function make_monolith_rhs(
               (1 - wrap_blend(t, t_wrap, cfg)) * (1 - pull_blend(t, t_pull, cfg))
         q_lid = pit.UA_open * (Tp - pit.T_amb) * lid
         dx[nm + 1] =
-            (ΔH_eff * ṁ + pit.p_heater * ud - UA * (Tp - pit.T_amb) - q_meat - q_lid) /
-            C_th
+            (ΔH_eff * ṁ + pit.p_heater * ud - UA * (Tp - pit.T_amb) - q_meat - q_lid -
+             q_pan) / C_th
         dx[nm + 2] = -ṁ + ṁ_add
         dx[nm + 3] =
             k_spread * a_c * (1 - a_c) * airflow + (1 - a_c) * ṁ_add / max(m, pit.m_taper)
+        # pan: water leaves by evaporation (or arrives by condensation);
+        # its temperature follows the drawn heat minus the latent load,
+        # with the thermal mass shrinking as it dries (metal floor)
+        dx[nm + 4] = -ṁ_pan
+        dx[nm + 5] =
+            pit.m_pan0 > 0 ?
+            (q_pan - cfg.λ_vap * ṁ_pan) /
+            (CP_WATER * max(mp, zero(mp)) + pit.C_pan_dry) : zero(Tp)
         return nothing
     end
 end
@@ -136,7 +166,8 @@ function _monolith_solve_arr(
     x0 = vcat(
         Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0,
                      s0=salt_profile(p[4], cfg))),
-        [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP]],
+        [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP], Tp(pit.m_pan0),
+         Tp(pit.T_pan0)],
     )
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!, x0, (float(tsave[1]), float(tsave[end])), p
@@ -169,13 +200,19 @@ function _monolith_outputs(
     Tpit = A[nm + 1, :]
     m_fuel = A[nm + 2, :]
     ignited = A[nm + 3, :]
+    m_pan = A[nm + 4, :]
+    T_pan = A[nm + 5, :]
     alg = map(1:nt) do i
         ud = lininterp(float(tsave[i]), u_t0, u_dt, uk)
         _pit_algebra(clamp(ud, zero(ud), one(ud)), m_fuel[i], ignited[i], r_max, u_leak, pit, hum)
     end
     mdot = getindex.(alg, 2)
     imair_ts = 1 ./ getindex.(alg, 3)
-    pv_base_ts = getindex.(alg, 4)
+    pan = map(1:nt) do i
+        _pan_algebra(Tpit[i], m_pan[i], T_pan[i], alg[i][3], alg[i][4], pit, hum)
+    end
+    pan_evap = getindex.(pan, 2)
+    pv_base_ts = getindex.(pan, 3)
     g_fac = (getindex.(alg, 1) ./ cfg.g_ref) .^ θ[8]
     h_ts = θ[3] .* g_fac
     km_ts = θ[2] .* g_fac
@@ -254,6 +291,9 @@ function _monolith_outputs(
         salt_field=A[(4nx + 1):5nx, :],
         smoke_clean,
         bitterness,
+        m_pan,
+        T_pan,
+        pan_evap,
         t=collect(float.(tsave)),
     )
 end
@@ -491,7 +531,8 @@ function _monolith_solve_arr_s(
     x0 = vcat(
         Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0,
                      s0=salt_profile(p[4], cfg))),
-        [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP]],
+        [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP], Tp(pit.m_pan0),
+         Tp(pit.T_pan0)],
     )
     s_grid = collect(Float64, s_save)
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(rhs_s!, x0, (0.0, 1.0), p)

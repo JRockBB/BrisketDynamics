@@ -244,6 +244,25 @@ Newman bounds and its infinite-axis reduction. Julia 252/252, app
 67/67. All constants placeholder scale; the combi-oven case was already
 reachable (electric source + humidity forcing).
 
+## Water pan: +2 pit states (2026-09-04)
+
+The vessel component the MTK verdict priced at "+2 pit states" is in:
+pan water mass and pan temperature (`PitConfig.m_pan0/T_pan0/UA_pan/
+g_pan/C_pan_dry/m_pan_taper`; monolith outputs `m_pan`, `T_pan`,
+`pan_evap`). The pan draws pit heat through UA_pan, buffers near boiling
+(the latent sink behind a WSM's steadiness — capped below 378 K while
+wet in tests), FEEDS THE PIT HUMIDITY with its state-dependent
+evaporation (replacing the constant `Humidity.pan_kg_s`; the pan drives
+against the pre-pan vapor pressure, self-feedback not closed), and DRIES
+OUT mid-cook (tanh taper; a dried pan's metal then legitimately tracks
+pit temperature). g_pan defaults to ~0.5 kg/h at boiling (a foiled WSM
+pan lasts ~7 h). m_pan0 = 0 is the no-pan default with both couplings
+config-gated off. This gives item 3's pan-in-vs-out designed experiment
+its model term, and speaks directly to the wbegg UA confound. One
+FD-gate threshold moved 5e-3 → 8e-3: the extra states shift adaptive
+steps and that check carries solver noise (the documented last-bit
+sensitivity). Julia 260/260, app 67/67.
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the

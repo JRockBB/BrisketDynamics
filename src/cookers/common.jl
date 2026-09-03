@@ -47,6 +47,22 @@ Base.@kwdef struct PitConfig
     # placeholder scale (roadmap: standardized-photo colorimetry + a
     # wrapped/unwrapped pair calibrate the bark family; bitterness needs
     # a tasting panel or a smolder-forced designed cook).
+    # Water pan (+2 monolith states: pan water mass and temperature).
+    # The pan draws pit heat through UA_pan, buffers near boiling (the
+    # latent sink behind a WSM's steadiness), FEEDS THE PIT HUMIDITY with
+    # its evaporation — replacing the constant Humidity.pan_kg_s when
+    # present — and can DRY OUT mid-cook (tanh taper on the remaining
+    # water). Evaporation drives against the pre-pan vapor pressure
+    # (combustion + ambient); the pan's own self-feedback through the pit
+    # vapor is second-order and not closed. m_pan0 = 0 is the no-pan
+    # default: both couplings are gated off on the CONFIG (AD-safe), the
+    # two states ride along inert.
+    m_pan0::Float64 = 0.0       # initial pan water [kg] (0 = no pan)
+    T_pan0::Float64 = 293.15    # initial pan water temperature [K]
+    UA_pan::Float64 = 25.0      # pit gas -> pan heat conductance [W/K]
+    g_pan::Float64 = 1.5e-9     # pan evaporation conductance [kg/(s Pa)] (~0.5 kg/h at boiling: a foiled WSM pan lasts ~7 h)
+    C_pan_dry::Float64 = 2000.0 # dry pan + frame heat capacity [J/K]
+    m_pan_taper::Float64 = 0.1  # dry-out taper scale [kg]
     # Pellet-auger source: when > 0 the fuel feed is CONTROLLED — the
     # burn rate is m_auger·u·taper(hopper) instead of the Minion bed law
     # (u becomes the auger duty; the fan is implicit in the same duty).

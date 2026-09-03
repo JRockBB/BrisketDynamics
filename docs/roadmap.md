@@ -43,9 +43,11 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    Still wanted: any SMOKER log with BEFORE/AFTER weights (none found;
    pre-cook weights are common, yield pairs are not); and the designed
    experiment worth running early — water pan in vs. out, two
-   otherwise-identical cooks, to identify the humidity pathway (the
-   same-model WSM pair's UA spread makes this concrete: the second unit
-   ran a dry terra-cotta dish; `docs/results.md`).
+   otherwise-identical cooks, to identify the humidity pathway — the
+   water-pan states now give that experiment its model term
+   (`docs/results.md`, "Water pan"), and the same-model WSM pair's UA
+   spread makes it concrete (the second unit ran a dry terra-cotta
+   dish).
 5. **Wrap and rest constants: finish the identification.** The first wrap
    calibration (butcher paper, documented wrap moment) pinned the total
    post-wrap input reduction but not the η_evap/ε_wrap split
