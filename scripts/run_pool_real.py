@@ -16,6 +16,12 @@ Two supported sets:
                 are per-cook too (butts on brisket priors are a stated
                 placeholder).
 
+--set wsm       mache_2013 x wbegg_2014 — two DIFFERENT UNITS of the
+                same smoker model (WSM 18.5), brisket vs pork butt, a
+                ~50 F ambient spread. The vessel identity is PARTIALLY
+                pooled between units (same design, unit-to-unit spread);
+                everything else per-cook.
+
 Caveats carried explicitly: phillip_2018 is a partial log; keg_2014 is a
 short hot-and-fast log; interiors start uniform at the first unmasked core
 sample; all non-Mache logs borrow the Mache MAP's AR(1) noise scales (same
@@ -67,6 +73,14 @@ SETS = {
         "independent": PIT_SHARED + IGNITION_IID,
         "stem": "pool_real",
         "title": "First real two-cook pooling set: per-log Gauss-Newton MAP fits",
+    },
+    "wsm": {
+        "logs": ("mache_2013", "wbegg_2014"),
+        "shared": [],
+        "partial": VESSEL,
+        "independent": ACTUATOR + IGNITION_IID + MEAT_PARTIAL,
+        "stem": "pool_wsm",
+        "title": "Same-model pooling tier (WSM 18.5, two units): per-log MAP fits",
     },
     "keg": {
         "logs": ("keg_2013", "keg_2014", "keg_2015"),
@@ -199,7 +213,7 @@ def main():
 
     meat_rows = {}
     if spec["partial"]:
-        print("\nmeat block: per-cook MAP -> partial-pool shrinkage -> hypermean")
+        print("\npartial block: per-cook MAP -> partial-pool shrinkage -> hypermean")
         head = "".join(f"{s:>12s}" for s in short) + "".join(
             f"{s + '*':>12s}" for s in short
         )
@@ -223,8 +237,8 @@ def main():
             print(f"{n:10s}{row} {hyper:12.4g}")
 
     label = "per cook" + (
-        " (actuator + meat + ignition)" if args.set_name == "keg" else
-        " (different smokers, nothing shared)"
+        " (different smokers, nothing shared)" if args.set_name == "default"
+        else " (actuator + meat + ignition)"
     )
     print(f"\nindependent block {label}")
     print(f"{'site':10s}" + "".join(f"{s:>12s}" for s in short))

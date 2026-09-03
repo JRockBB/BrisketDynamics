@@ -60,6 +60,7 @@ the cache (fetch it via the imgur URL in `data/cook_log/PROVENANCE.md`).
 | `keg_2014` | TVWBB post-605881 | same keg, pork butt, hot-and-fast 325 F | same-smoker pool, cook 2 (`--set keg`) |
 | `keg_2015` | TVWBB post-660823 | same keg, pork butt, 225 F overnight, RotoDamper era | same-smoker pool, cook 3 (`--set keg`) |
 | `erickson_2013` | TVWBB post-446870 | Char-Griller Kamado, 12 lb brisket, butcher-paper wrap at a documented moment | wrap-constants step response (`run_wrap_fit.py`) |
+| `wbegg_2014` | TVWBB post-592564 | stock WSM 18.5, 8 lb pork butt, 32 F winter start, full timeline | same-model pool (`--set wsm`) |
 
 Each log directory commits `log.toml`, the CSV, `overlay_check.png`, and
 `PROVENANCE.md`; the source screenshots stay in the git-ignored `cache/`.

@@ -37,6 +37,18 @@ LOGS = {
         "t_amb_K": 255.9,  # ~1 F per the post
         "start_at_core_K": 274.8,  # ~35 F: above the phase-change regime
     },
+    # WBegg's stock WSM 18.5 pork butt: same smoker MODEL as mache_2013
+    # but a different physical unit — the same-model pooling tier
+    # (partial vessel pooling between units; run_pool_real.py --set wsm).
+    "wbegg_2014": {
+        "csv": _REPO / "tools" / "loghunt" / "logs" / "wbegg_2014"
+        / "wbegg_2014.csv",
+        "t_end_min": None,
+        "t_amb_K": 278.0,  # ~41 F day-mean estimate; the post documents
+        # 32 F at the 4:30 am start (Australian winter), no ambient trace
+        "start_at_core_K": None,
+        "t_wrap_min": None,
+    },
     # Alan Erickson's Char-Griller Kamado brisket: the WRAP log (roadmap
     # item 6) — butcher paper at a documented moment (t_wrap_min, minutes
     # after meat-on, from the chart's off/on lid-band pair).

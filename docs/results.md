@@ -94,6 +94,28 @@ bug fixed en route (explicit-empty role lists no longer fall back to
 defaults; regression-tested). (`figures/pool_keg.png`,
 `data/calibration/pool_keg.json`.)
 
+## Same-model pool: two WSM 18.5 units (2026-09-04)
+
+`run_pool_real.py --set wsm`: mache_2013 x wbegg_2014 (a stock WSM 18.5
+8 lb pork butt from a 32 F Australian winter start, fully documented
+timeline, found and digitized by `tools/loghunt/` — the 225 F setpoint
+line sits ON the 225 gridline, a 0.5 px anchor cross-check). A NEW
+pooling tier: two different physical units of one smoker model, vessel
+identity PARTIALLY pooled (tau2), everything else per-cook. Fits: mache
+reproduces its historical MAP exactly (F=133.2); wbegg rms pit 5.25 K
+(the pit sits ~5 C low through the cold morning — the scalar 278 K
+day-mean ambient and the terra-cotta-dish-for-water-pan swap are the
+stated confounds), core 1.42 K over 20.8 h. Results: **dH_eff agrees
+within 8 % across units** (fuel energy density is a design+charcoal
+property — it pools hard; hypermean 1.53e7); UA spreads 52 %
+(16.7 vs 11.0 — unit + configuration + ambient-estimate, which is what
+partial pooling is for; shrunk 18.0/10.2, hypermean 13.5); C_th stays on
+its known sloppy ridge (14x apart — closed-loop logs cannot pin it; the
+characterization burn can). Meat side: **k_e now holds within +/-8 %
+across FIVE cooks** (mache, three kegs, wbegg: 0.51-0.57e-3) spanning
+brisket and pork butt, two smoker models, and a 60 F ambient range.
+(`figures/pool_wsm.png`, `data/calibration/pool_wsm.json`.)
+
 ## Wrap constants from a documented butcher-paper wrap (2026-09-04)
 
 `scripts/run_wrap_fit.py` on `erickson_2013`, found by `tools/loghunt/`

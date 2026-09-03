@@ -1,0 +1,44 @@
+slug = "wbegg_2014"
+
+[source]
+url = "https://tvwbb.com/threads/post-your-heatermeter-graphs.42779/post-592564"
+author = "WBegg"
+image = "cache/5c2b5648.jpg"
+retrieved = "2026-09-04"
+
+[axes]
+# full-UI live view (1895x894), classic theme, "WSM Temp" header.
+# Right axis 275-25 F, 25 F gridlines at 41.25 px (rows 351.5-764); the
+# 225 F setpoint line sits ON the 225 gridline (row 434.5 vs 434.9
+# predicted - 0.5 px cross-check). 2-h labels 04:27-02:27 at 73.2 px.
+y_top_f = 275.0
+y_bottom_f = 25.0
+grid_step_f = 25.0
+px_per_step_v = 41.25
+x_step_min = 120.0
+px_per_step_h = 73.2
+x_anchor_col = 13.5          # in-crop col of chart clock 0 (= 04:27)
+x_anchor_clock_min = 0.0
+row_top = 11.5
+
+[timeline]
+# post timeline (all documented): 4:30 charcoal, 5:30 shoulder on (the
+# 05:30 lid band), 17:04 stoked coals (no band), 19:30 added fuel (band
+# pair 19:42/19:57), 21:07 setpoint to 230, 22:47 + 24:00 Thermapen
+# checks (bands 22:51 / 00:01), 1:45 setpoint to 250, 2:30 OFF GRILL
+# (capture 2:33:46). Times below are minutes after meat-on (clock 63).
+meat_on_min = 63.0
+cook_end_min = 1255.0
+settle_min = 10.0
+lid_events = [[849.0, 871.0], [1037.0, 1046.0], [1108.0, 1117.0]]
+
+# no [calibration] setpoint anchor: the 225 F line coincides with the
+# 225 gridline, so the label-derived frame anchor is already verified
+# against it; the setpoint also steps (225 -> 230 -> 250) late in the cook
+
+[extract]
+palette = "hm_classic"
+crop = [340, 785, 530, 1370]
+amb = false  # probes 2/3 off; no ambient trace
+col_lo = 5
+col_hi = 818

@@ -40,12 +40,12 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
    (per-log GN Laplace → Gaussian pool; roles per smoker/meat/ignition)
    is built and has run on a cross-smoker pair and a same-smoker trio
    (`docs/results.md`). Every further logged cook tightens the twin.
-   Still wanted: a same-MODEL different-unit set (e.g. the two WSM 18.5
-   logs in hand would test partial vessel pooling between units); any
-   SMOKER log with BEFORE/AFTER weights (none found; pre-cook weights are
-   common, yield pairs are not); and the designed experiment worth running
-   early — water pan in vs. out, two otherwise-identical cooks, to
-   identify the humidity pathway.
+   Still wanted: any SMOKER log with BEFORE/AFTER weights (none found;
+   pre-cook weights are common, yield pairs are not); and the designed
+   experiment worth running early — water pan in vs. out, two
+   otherwise-identical cooks, to identify the humidity pathway (the
+   same-model WSM pair's UA spread makes this concrete: the second unit
+   ran a dry terra-cotta dish; `docs/results.md`).
 5. **Wrap and rest constants: finish the identification.** The first wrap
    calibration (butcher paper, documented wrap moment) pinned the total
    post-wrap input reduction but not the η_evap/ε_wrap split
