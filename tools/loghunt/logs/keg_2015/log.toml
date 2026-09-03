@@ -1,0 +1,43 @@
+slug = "keg_2015"
+
+[source]
+url = "https://tvwbb.com/threads/help-with-hm-and-keg-dale-andy.59443/post-660823"
+author = "Dale Ward"
+image = "cache/3cfd8e37.png"
+retrieved = "2026-09-03"
+
+[axes]
+# full-UI live view (1280x799), classic steel-blue theme, "BSK HM2 TC"
+# header. Right axis 0-350 F, 50 F gridlines at 46.5 px (rows 350-536 =
+# 300-100 F -> frame top 303.5 = 350 F). Hourly-pair labels 22:04-10:04,
+# 96.5 px per 2 h; the 225 F setpoint line (long visible early stretch)
+# lands at row 420 vs 419.75 predicted from the labels.
+y_top_f = 350.0
+y_bottom_f = 0.0
+grid_step_f = 50.0
+px_per_step_v = 46.5
+x_step_min = 120.0
+px_per_step_h = 96.5
+x_anchor_col = 54.0          # in-crop col of chart clock 0 (= 22:04)
+x_anchor_clock_min = 0.0
+row_top = 8.5
+
+[timeline]
+# post: blower startup 8 %, set 225, top vent 1.5-2; meat in after the
+# overshoot settled ("after put meat in temp dropped"); ~1 am vent
+# closed to ~3/4; PID P12 I.004 D6, left overnight. Live capture
+# 10:35 am with three Butt probes at 172-175 F (partial log, no pull).
+meat_on_min = 35.0
+cook_end_min = 706.0
+settle_min = 10.0
+lid_events = []
+
+[calibration]
+setpoint_f = 225.0
+
+[extract]
+palette = "hm_classic"
+crop = [295, 640, 313, 975]
+amb = false  # no ambient trace; the gray line is a third Butt probe
+col_lo = 4
+col_hi = 650

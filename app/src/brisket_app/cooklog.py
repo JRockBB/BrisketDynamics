@@ -46,6 +46,13 @@ LOGS = {
         "t_amb_K": 294.3,  # ~70 F: pit+meat probes flat for 3 h pre-relight
         "start_at_core_K": None,
     },
+    "keg_2015": {
+        "csv": _REPO / "tools" / "loghunt" / "logs" / "keg_2015"
+        / "keg_2015.csv",
+        "t_end_min": None,
+        "t_amb_K": 294.0,  # ~69.5 F: pit probe flat all afternoon pre-fire
+        "start_at_core_K": None,
+    },
     "keg_2014": {
         "csv": _REPO / "tools" / "loghunt" / "logs" / "keg_2014"
         / "keg_2014.csv",

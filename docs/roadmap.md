@@ -98,28 +98,40 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    uniform-interior slice start). Fits: rms pit 1.33/1.87 K, core
    3.02/1.43 K (`figures/pool_real.png`, `data/calibration/pool_real.json`).
    **Same-smoker pool (2026-09-03,** `run_pool_real.py --set keg`**):**
-   Dale Ward's Big Steel Keg, one vessel a year apart — overnight 225 °F
-   brisket (11.7 h) vs hot-and-fast 325 °F pork butt (4.8 h) — found,
-   digitized (new `hm_dark` palette; lid events read from the HM UI's own
-   lid-detect bands) and provenance'd by `tools/loghunt/`. Roles flipped
-   vs the cross-smoker set: vessel identity (C_th, UA, dH_eff) fully
-   shared, actuator map (r_max, u_leak) per-cook (the thread shows the
-   airflow hardware changing between posts), meat + ignition per-cook.
-   Fits: rms pit 2.6/4.2 K, core 1.1/1.4 K. The data sees the hardware
-   change (u_leak 0.78 vs 0.29) and the meat chemistry transfers across
-   cuts (k_e and a_myosin within 2 % between a brisket and a pork butt)
-   while cut geometry differs as it should (D_eff 24 %, L 31 %). The
-   vessel block itself sits on the C_th/UA sloppy ridge: the short
-   hot-and-fast log trades C_th up against UA down (τ = C_th/UA ≈ 5.6e3
-   vs 5.1e4 s), so the pool leans on the longer 2013 log and the
-   prior-dedup pushes pooled C_th/dH_eff outside the per-cook pair —
-   weak per-cook identification, not a pooling bug (regression-tested:
-   explicit-empty role lists no longer fall back to defaults). A third
-   keg log would pin the ridge. (`figures/pool_keg.png`,
+   Dale Ward's Big Steel Keg, one vessel across THREE cooks — overnight
+   225 °F brisket '13 (11.7 h), hot-and-fast 325 °F pork butt '14
+   (4.8 h), overnight 225 °F butt '15 (11.7 h, RotoDamper era, from the
+   "Help with HM and Keg" thread) — found, digitized (new `hm_dark`
+   palette; lid events read from the HM UI's own lid-detect bands where
+   present) and provenance'd by `tools/loghunt/`. Roles flipped vs the
+   cross-smoker set: vessel identity (C_th, UA, dH_eff) fully shared,
+   actuator map (r_max, u_leak) per-cook (the airflow hardware changed
+   across the years), meat + ignition per-cook. Fits: rms pit
+   2.6/4.2/2.6 K, core 1.1/1.4/1.0 K. Headlines: the two overnight-225
+   cooks TWO YEARS apart, on different actuator hardware, agree on the
+   vessel (UA within 11 %, dH_eff within 5 %, C_th within 27 %) —
+   isolating the '14 outlier as operating-point/short-horizon, not
+   vessel drift; k_e holds within 3.5 % and a_myosin within 8 % across
+   all three cooks (brisket AND butts — meat chemistry transfers);
+   u_leak spans 0.29-0.88 per-cook (hardware + vent settings, incl. a
+   documented mid-cook vent change in '15). Caveat: the pooled shared
+   block is ridge-coupled (C_th/UA trade off; the joint
+   precision-weighted mean with K−1 prior-dedup can land outside the
+   per-coordinate MAP hull) — the cross-cook agreement above is the
+   meaningful validation, and it was checked against a falsy-default
+   pooling bug fixed en route (explicit-empty role lists no longer fall
+   back to defaults; regression-tested). (`figures/pool_keg.png`,
    `data/calibration/pool_keg.json`.)
 
-   Still wanted: any log with BEFORE/AFTER weights — none found yet in
-   the graphs thread; pre-cook weights are common, yield pairs are not.
+   Still wanted: any log with BEFORE/AFTER weights — none found in the
+   graphs thread or the keg threads; pre-cook weights are common, yield
+   pairs are not. Closest leads for the moisture/yield block instead:
+   Blonder's stall experiments (genuineideas.com — core-temp curves at
+   known smoker temps + coarse loss figures, "sponge 90 %, meat ~20 %")
+   and open lab roasting datasets with measured core-temp curves AND
+   weight losses (e.g. Chemical Engineering Transactions 43:151, 2015,
+   beef semitendinosus in a convective oven) — a lab-regime validation
+   of the evaporation submodel rather than a smoker log.
 
    **Not RxInfer / CBFE for this.** Constrained Bethe Free Energy is the
    online-during-cook estimator (a reactive factor graph over pit state and

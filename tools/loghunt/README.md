@@ -58,6 +58,7 @@ the cache (fetch it via the imgur URL in `data/cook_log/PROVENANCE.md`).
 | `phillip_2018` | TVWBB post-800697 | 15 lb packer, 225 F, ~1 F night, partial log | cross-smoker pool (`run_pool_real.py`) |
 | `keg_2013` | TVWBB post-453436 | Big Steel Keg, 13 lb brisket, 225 F overnight | same-smoker pool, cook 1 (`--set keg`) |
 | `keg_2014` | TVWBB post-605881 | same keg, pork butt, hot-and-fast 325 F | same-smoker pool, cook 2 (`--set keg`) |
+| `keg_2015` | TVWBB post-660823 | same keg, pork butt, 225 F overnight, RotoDamper era | same-smoker pool, cook 3 (`--set keg`) |
 
 Each log directory commits `log.toml`, the CSV, `overlay_check.png`, and
 `PROVENANCE.md`; the source screenshots stay in the git-ignored `cache/`.

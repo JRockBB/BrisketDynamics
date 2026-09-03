@@ -11,8 +11,9 @@
 
 ## Cook metadata (from the chart itself; the post has no text)
 - Rig header **"BSK HM1"** = the author's **Big Steel Keg** — the same
-  vessel as `keg_2013`, a year later (same-smoker pooling pair). The
-  thread shows the airflow hardware evolving between the posts, so the
+  vessel as `keg_2013`, a year later (same-smoker pooling pair). The author's
+  posts show the airflow hardware evolving across the years (blower-only
+  and RotoDamper+fan eras; exact sequence per post unknown), so the
   actuator map is treated per-cook.
 - Probe labels name a **pork butt**; setpoint **325 F** — a hot-and-fast
   butt cook. Meat identity differs from the 2013 brisket: in pooling,

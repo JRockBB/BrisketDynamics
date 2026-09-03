@@ -18,9 +18,10 @@
   the same rig (used below to validate the axis calibration).
 - **Same vessel as `keg_2014`** (the 2014 chart header reads "BSK HM1",
   the author's Big Steel Keg rig) — this pair is the same-smoker pooling
-  set. The thread's 2013 -> 2014 posts show the airflow hardware evolving
-  (servo damper era -> blower era), so the actuator map is treated
-  per-cook even where the vessel is shared.
+  set. The author's posts show the airflow hardware evolving across the
+  years (blower-only and RotoDamper+fan eras; the exact sequence per
+  post is unknown), so the actuator map is treated per-cook even where
+  the vessel is shared.
 
 ## Chart facts
 - Two-day live view; the committed CSV is the overnight brisket segment

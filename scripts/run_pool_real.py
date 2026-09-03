@@ -6,14 +6,15 @@ Two supported sets:
                 smokers, an 84 F ambient spread. MEAT partially pooled
                 ("briskets I buy"), pit + ignition per-cook, nothing shared.
 
---set keg       Dale Ward's Big Steel Keg 2013 x 2014 — the SAME vessel a
-                year apart (roadmap 5a): overnight 225 F brisket vs
-                hot-and-fast 325 F pork butt. The vessel's thermal identity
-                (C_th, UA, dH_eff) is fully shared; the actuator map
-                (r_max, u_leak) stays per-cook (the airflow hardware evolved
-                between the posts), and the meats are different cuts, so
-                meat + ignition are per-cook too (a butt on brisket priors
-                is a stated placeholder).
+--set keg       Dale Ward's Big Steel Keg 2013/2014/2015 — the SAME vessel
+                across three cooks (roadmap 5a): overnight 225 F brisket,
+                hot-and-fast 325 F pork butt, and an overnight 225 F butt in
+                the blower era. The vessel's thermal identity (C_th, UA,
+                dH_eff) is fully shared; the actuator map (r_max, u_leak)
+                stays per-cook (the airflow hardware evolved across the
+                posts), and the meats are different cuts, so meat + ignition
+                are per-cook too (butts on brisket priors are a stated
+                placeholder).
 
 Caveats carried explicitly: phillip_2018 is a partial log; keg_2014 is a
 short hot-and-fast log; interiors start uniform at the first unmasked core
@@ -68,12 +69,12 @@ SETS = {
         "title": "First real two-cook pooling set: per-log Gauss-Newton MAP fits",
     },
     "keg": {
-        "logs": ("keg_2013", "keg_2014"),
+        "logs": ("keg_2013", "keg_2014", "keg_2015"),
         "shared": VESSEL,
         "partial": [],
         "independent": ACTUATOR + IGNITION_IID + MEAT_PARTIAL,
         "stem": "pool_keg",
-        "title": "Same-smoker pooling set (Big Steel Keg '13/'14): per-log MAP fits",
+        "title": "Same-smoker pooling set (Big Steel Keg '13/'14/'15): per-log MAP fits",
     },
 }
 
@@ -180,33 +181,35 @@ def main():
         independent=spec["independent"],
         tau2="auto" if args.tau2 == "auto" else float(args.tau2),
     )
-    short = [n.split("_")[0] for n in log_names]
+    short = [n.split("_")[-1] if len(set(n.split("_")[0] for n in log_names)) == 1
+             else n.split("_")[0] for n in log_names]
 
     shared_rows = {}
     if spec["shared"]:
-        print("\nshared block: one vessel, two operating points -> pooled identity")
-        print(
-            f"{'site':10s} {short[0]:>12s} {short[1]:>12s} {'pooled':>12s} {'sd(z)':>8s}"
-        )
+        print("\nshared block: one vessel, multiple operating points -> pooled identity")
+        head = "".join(f"{s:>12s}" for s in short)
+        print(f"{'site':10s}{head} {'pooled':>12s} {'sd(z)':>8s}")
         for i, n in enumerate(spec["shared"]):
             vals = [fits[k]["x"][n] for k in log_names]
             pooled = _x_from_z1(n, float(pool.shared_mean[i]))
             sd = float(np.sqrt(pool.shared_cov[i, i]))
             shared_rows[n] = {"map": vals, "pooled": pooled, "sd_z": sd}
-            print(
-                f"{n:10s} {vals[0]:12.4g} {vals[1]:12.4g} {pooled:12.4g} {sd:8.3f}"
-            )
+            row = "".join(f"{v:12.4g}" for v in vals)
+            print(f"{n:10s}{row} {pooled:12.4g} {sd:8.3f}")
 
     meat_rows = {}
     if spec["partial"]:
         print("\nmeat block: per-cook MAP -> partial-pool shrinkage -> hypermean")
-        print(
-            f"{'site':10s} {short[0]:>12s} {short[1]:>12s} {short[0] + '*':>12s} "
-            f"{short[1] + '*':>12s} {'hyper':>12s}"
+        head = "".join(f"{s:>12s}" for s in short) + "".join(
+            f"{s + '*':>12s}" for s in short
         )
+        print(f"{'site':10s}{head} {'hyper':>12s}")
         for i, n in enumerate(spec["partial"]):
             vals = [fits[k]["x"][n] for k in log_names]
-            shr = [_x_from_z1(n, float(pool.cook_partial_mean[j][i])) for j in range(2)]
+            shr = [
+                _x_from_z1(n, float(pool.cook_partial_mean[j][i]))
+                for j in range(len(log_names))
+            ]
             hyper = _x_from_z1(n, float(pool.partial_hyper_mean[i]))
             meat_rows[n] = {
                 "map": vals,
@@ -214,22 +217,19 @@ def main():
                 "hyper": hyper,
                 "hyper_sd_z": float(np.sqrt(pool.partial_hyper_cov[i, i])),
             }
-            print(
-                f"{n:10s} {vals[0]:12.4g} {vals[1]:12.4g} {shr[0]:12.4g} "
-                f"{shr[1]:12.4g} {hyper:12.4g}"
+            row = "".join(f"{v:12.4g}" for v in vals) + "".join(
+                f"{v:12.4g}" for v in shr
             )
+            print(f"{n:10s}{row} {hyper:12.4g}")
 
     label = "per cook" + (
         " (actuator + meat + ignition)" if args.set_name == "keg" else
         " (different smokers, nothing shared)"
     )
     print(f"\nindependent block {label}")
-    print(f"{'site':10s} {short[0]:>12s} {short[1]:>12s}")
+    print(f"{'site':10s}" + "".join(f"{s:>12s}" for s in short))
     for n in spec["independent"]:
-        print(
-            f"{n:10s} {fits[log_names[0]]['x'][n]:12.4g} "
-            f"{fits[log_names[1]]['x'][n]:12.4g}"
-        )
+        print(f"{n:10s}" + "".join(f"{fits[k]['x'][n]:12.4g}" for k in log_names))
 
     out = {
         "set": args.set_name,
@@ -257,7 +257,8 @@ def _figure(fits: dict, log_names, spec, repo: Path):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(2, 2, figsize=(12.5, 7.2))
+    nr = len(log_names)
+    fig, axes = plt.subplots(nr, 2, figsize=(12.5, 3.6 * nr), squeeze=False)
     for row, name in enumerate(log_names):
         log = cooklog.load(dt_min=10.0, log=name)
         th = log["t"] / 3600.0
