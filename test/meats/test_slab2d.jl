@@ -81,6 +81,39 @@
     @test all(fin.Tcold .<= fin.Tcore .+ 1e-9)
     @test 0 <= fin.C_min <= minimum(fin.C_field[:, :, end])
 
+    # pit coupling: with n_meat = 0 (and humidity constants pinned so
+    # the base vapor pressure equals the standalone constant) the pit
+    # never sees the meat, so replaying the coupled run's own per-step
+    # pit trace through the prescribed-forcing solver reproduces the
+    # meat fields exactly — same stepper, same order of operations
+    φ = [15e3, 20.0, 3e-4, 1.2e7, 0.2, 3e-4, 0.85]
+    utk = collect(range(0.0, 6hr; length=8))
+    uk = fill(0.5, 8)
+    hum0 = BrisketDynamics.Humidity(y_w=0.0,
+                                    omega_amb=cfg0.p_v_pit * 0.622 / 101325.0)
+    cpl0 = coupled_solve_2d(θ2, φ, uk, utk, tknots;
+                            R=R, Hz=0.06, nr=16, nz=14, cfg=cfg0, h=20.0,
+                            hum=hum0, n_meat=0.0)
+    nstep = length(cpl0.Tpit_steps)
+    tk_replay = collect(range(0.0, 20.0 * (nstep - 1); length=nstep))
+    replay = meat_solve_2d(θ2, cpl0.Tpit_steps, tk_replay, tknots;
+                           R=R, Hz=0.06, nr=16, nz=14, cfg=cfg0, h=20.0)
+    @test maximum(abs.(cpl0.Tcore .- replay.Tcore)) < 1e-6
+    @test maximum(abs.(cpl0.W_field .- replay.W_field)) < 1e-8
+
+    # the coupling direction: briskets pull the pit down and humidify it
+    cpl2 = coupled_solve_2d(θ2, φ, uk, utk, tknots;
+                            R=R, Hz=0.06, nr=16, nz=14, cfg=cfg0, h=20.0,
+                            hum=hum0, n_meat=2.0)
+    # the pull-down direction holds while the meat is COLD (early); late
+    # in a declining burn the hot meat legitimately returns heat
+    i1 = findfirst(t -> t >= 1hr, tknots)
+    i4 = findfirst(t -> t >= 4hr, tknots)
+    @test cpl2.Tpit[i1] < cpl0.Tpit[i1] - 0.5
+    @test cpl2.pv_pit[i4] > cpl0.pv_pit[i4]
+    @test cpl2.j_evap[i4] > 0 && cpl2.q_meat[i1] > 0
+    @test all(diff(cpl2.m_fuel) .<= 1e-12)  # fuel only burns down
+
     # differentiable: ForwardDiff through the ADI sweeps matches FD
     f(km) = meat_solve_2d([θ[1], km, θ[3], θ[5], θ[6], θ[7]], Tpit, tknots,
                           tknots; R=R, Hz=0.06, nr=12, nz=10, cfg=cfg0,

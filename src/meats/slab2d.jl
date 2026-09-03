@@ -45,29 +45,17 @@ minimum — the safety margin no symmetric 1-D core can show), and the
 Maillard bark DISTRIBUTION over the exposed faces (area-weighted mean
 and spread — burnt-ends live in the tail).
 """
-function meat_solve_2d(
-    θ2::AbstractVector,
-    Tpit_knots::AbstractVector,
-    tknots::AbstractVector,
-    tsave::AbstractVector;
-    R::Real=0.05,
-    Hz::Real=0.09,
-    nr::Int=20,
-    nz::Int=20,
-    cfg::MeatConfig=MeatConfig(),
-    h::Real=30.0,
-    t_wrap::Real=WRAP_NEVER,
-    k_grain::Real=1.0,
-    D_grain::Real=1.0,
-    F_top::Real=NaN,
-    z_split::Real=1.0,
+# The transport engine shared by the prescribed-forcing solve and the
+# pit-coupled solve: builds the grid state and returns a `step!` closure
+# advancing one fixed step under (t, Tpit, p_v), returning the
+# area-integrated surface heat uptake [W] and evaporation [kg/s] of ONE
+# brisket (what a pit loses to it).
+function _slab2d_engine(
+    θ2, R, Hz, nr, nz, cfg, h, t_wrap, k_grain, D_grain, F_top, z_split, Tv
 )
     D_eff, k_m, h_c, k_mult, k_e, a_myosin = θ2
-    Tv = promote_type(eltype(θ2), Float64)
     Δr = R / (nr - 1)
     Δz = Hz / (nz - 1)
-    tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
-    t0 = float(tsave[1])
 
     # point-vs-flat as stacked muscles: fat fraction F(z) steps smoothly
     # from cfg.F0 (flat) to F_top (point) at z_split·Hz (NaN F_top or
@@ -100,29 +88,25 @@ function meat_solve_2d(
 
     jr_face = zeros(Tv, nz)
     jz_face = zeros(Tv, nr, 2)
+    zw = [j == 1 || j == nz ? Tv(0.5) : Tv(1.0) for j in 1:nz]
 
-    nt_steps = round(Int, (float(tsave[end]) - t0) / h)
-    save_at = [round(Int, (float(ts) - t0) / h) for ts in tsave]
-    Tout = zeros(Tv, nr, nz, length(tsave))
-    Wout = zeros(Tv, nr, nz, length(tsave))
-    Cout = zeros(Tv, nr, nz, length(tsave))
-    Tcold = fill(Tv(cfg.T0), length(tsave))
-    isave = 1
-    while isave <= length(save_at) && save_at[isave] <= 0
-        Tout[:, :, isave] .= T
-        Wout[:, :, isave] .= W
-        isave += 1
-    end
-
-    for n in 1:nt_steps
-        t_now = t0 + (n - 1) * h
-        Tpit = lininterp(t_now, tk0, tkdt, Tpit_knots)
+    function step!(t_now, Tpit, pv)
         # the wrap is the same smooth time blend as the 1-D model: it
         # damps face evaporation by (1 - η_evap·s), convection by
         # (1 - η_h·s) and blends the emissivity toward ε_wrap
         sw = wrap_blend(t_now, t_wrap, cfg)
         km_w = (1 - cfg.η_evap * sw) * k_m
         hc_w = h_c * (1 - cfg.η_h * sw)
+        # pre-step surface heat uptake — what the pit loses to this
+        # brisket this step (rim strips + both end annuli, real areas)
+        q_up = zero(Tv)
+        for j in 1:nz
+            q_up += 2π * R * Δz * zw[j] *
+                    surface_heat_in_wrapped(Tpit, T[nr, j], h_c, sw, cfg)
+        end
+        for i in 1:nr, jz in (1, nz)
+            q_up += 2π * rV[i] * surface_heat_in_wrapped(Tpit, T[i, jz], h_c, sw, cfg)
+        end
         for j in 1:nz, i in 1:nr
             v = specific_volume(W[i, j], Fz[j], cfg)
             kmat[i, j] = k_mult * conductivity_mix(W[i, j], Fz[j], T[i, j], v, cfg)
@@ -158,17 +142,24 @@ function meat_solve_2d(
         δW = Tv(1e-3)
         for j in 1:nz
             C = RHO_DRY * Δr / 2
-            j0 = evap_flux(T[nr, j], W[nr, j], km_w, cfg)
-            s = (evap_flux(T[nr, j], W[nr, j] + δW, km_w, cfg) - j0) / δW
+            j0 = evap_flux(T[nr, j], W[nr, j], km_w, pv, cfg)
+            s = (evap_flux(T[nr, j], W[nr, j] + δW, km_w, pv, cfg) - j0) / δW
             jr_face[j] = j0 / (1 + h * max(s, zero(Tv)) / C)
             W[nr, j] -= h * jr_face[j] / C
         end
         for i in 1:nr, (kz, jz) in enumerate((1, nz))
             C = RHO_DRY * Δz / 2
-            j0 = evap_flux(T[i, jz], W[i, jz], km_w, cfg)
-            s = (evap_flux(T[i, jz], W[i, jz] + δW, km_w, cfg) - j0) / δW
+            j0 = evap_flux(T[i, jz], W[i, jz], km_w, pv, cfg)
+            s = (evap_flux(T[i, jz], W[i, jz] + δW, km_w, pv, cfg) - j0) / δW
             jz_face[i, kz] = j0 / (1 + h * max(s, zero(Tv)) / C)
             W[i, jz] -= h * jz_face[i, kz] / C
+        end
+        j_up = zero(Tv)
+        for j in 1:nz
+            j_up += 2π * R * Δz * zw[j] * jr_face[j]
+        end
+        for i in 1:nr, kz in 1:2
+            j_up += 2π * rV[i] * jz_face[i, kz]
         end
 
         # implicit radial sweeps (each z-row): T with k/ρc, W with D_eff
@@ -241,16 +232,185 @@ function meat_solve_2d(
             end
             _thomas_col!(W, aa, bb, cc, dd, nz, i)
         end
+        return q_up, j_up
+    end
 
+    return (; step!, T, W, Cmat, B_rim, B_end, rV, zw, Δr, Δz, Tv)
+end
+
+function meat_solve_2d(
+    θ2::AbstractVector,
+    Tpit_knots::AbstractVector,
+    tknots::AbstractVector,
+    tsave::AbstractVector;
+    R::Real=0.05,
+    Hz::Real=0.09,
+    nr::Int=20,
+    nz::Int=20,
+    cfg::MeatConfig=MeatConfig(),
+    h::Real=30.0,
+    t_wrap::Real=WRAP_NEVER,
+    k_grain::Real=1.0,
+    D_grain::Real=1.0,
+    F_top::Real=NaN,
+    z_split::Real=1.0,
+)
+    Tv = promote_type(eltype(θ2), Float64)
+    eng = _slab2d_engine(θ2, R, Hz, nr, nz, cfg, h, t_wrap, k_grain, D_grain,
+                         F_top, z_split, Tv)
+    tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
+    t0 = float(tsave[1])
+    nt_steps = round(Int, (float(tsave[end]) - t0) / h)
+    save_at = [round(Int, (float(ts) - t0) / h) for ts in tsave]
+    Tout = zeros(Tv, size(eng.T)..., length(tsave))
+    Wout = zeros(Tv, size(eng.T)..., length(tsave))
+    Cout = zeros(Tv, size(eng.T)..., length(tsave))
+    Tcold = fill(Tv(cfg.T0), length(tsave))
+    isave = 1
+    while isave <= length(save_at) && save_at[isave] <= 0
+        Tout[:, :, isave] .= eng.T
+        Wout[:, :, isave] .= eng.W
+        isave += 1
+    end
+    for n in 1:nt_steps
+        t_now = t0 + (n - 1) * h
+        Tpit = lininterp(t_now, tk0, tkdt, Tpit_knots)
+        eng.step!(t_now, Tpit, cfg.p_v_pit)
         while isave <= length(save_at) && save_at[isave] <= n
-            Tout[:, :, isave] .= T
-            Wout[:, :, isave] .= W
-            Cout[:, :, isave] .= Cmat
-            Tcold[isave] = minimum(T)
+            Tout[:, :, isave] .= eng.T
+            Wout[:, :, isave] .= eng.W
+            Cout[:, :, isave] .= eng.Cmat
+            Tcold[isave] = minimum(eng.T)
             isave += 1
         end
     end
-    zw = [j == 1 || j == nz ? Tv(0.5) : Tv(1.0) for j in 1:nz]
+    return _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
+end
+
+"""
+    coupled_solve_2d(θ2, φ, u_knots, u_tknots, tsave; R, Hz, nr, nz, cfg,
+                     pit, hum, h, n_meat, t_wrap, k_grain, D_grain, F_top,
+                     z_split)
+
+The 2-D meat INSIDE the pit loop: fixed-step co-integration of the six
+pit states (the monolith's pit algebra and energy balance, explicit —
+`h` is far below the pit time constant C_th/UA) with the ADI meat step,
+exchanging the area-integrated surface heat uptake and evaporation of
+`n_meat` briskets; the meat's vapor feeds the pit humidity one step
+lagged. v1 scope: no fuel additions, spritzes or lid lifts (the wrap
+blend is carried); `Tpit_steps` returns the per-step forcing so a
+prescribed-forcing replay reproduces the meat fields exactly.
+
+Returns the [`meat_solve_2d`](@ref) outputs merged with the pit series
+`(Tpit, m_fuel, pv_pit, q_meat, j_evap, Tpit_steps)`.
+"""
+function coupled_solve_2d(
+    θ2::AbstractVector,
+    φ::AbstractVector,
+    u_knots::AbstractVector,
+    u_tknots::AbstractVector,
+    tsave::AbstractVector;
+    R::Real=0.05,
+    Hz::Real=0.09,
+    nr::Int=20,
+    nz::Int=20,
+    cfg::MeatConfig=MeatConfig(),
+    pit::PitConfig=PitConfig(),
+    hum::Humidity=Humidity(),
+    h::Real=30.0,
+    n_meat::Real=1.0,
+    t_wrap::Real=WRAP_NEVER,
+    k_grain::Real=1.0,
+    D_grain::Real=1.0,
+    F_top::Real=NaN,
+    z_split::Real=1.0,
+)
+    length(φ) == PIT_NP ||
+        throw(ArgumentError("φ must have length $PIT_NP; got $(length(φ))"))
+    C_th, UA, r_max, ΔH_eff, u_leak, k_spread, a0 = φ
+    Tv = promote_type(eltype(θ2), eltype(φ), Float64)
+    eng = _slab2d_engine(θ2, R, Hz, nr, nz, cfg, h, t_wrap, k_grain, D_grain,
+                         F_top, z_split, Tv)
+    u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
+    t0 = float(tsave[1])
+    nt_steps = round(Int, (float(tsave[end]) - t0) / h)
+    save_at = [round(Int, (float(ts) - t0) / h) for ts in tsave]
+    nsv = length(tsave)
+    Tout = zeros(Tv, size(eng.T)..., nsv)
+    Wout = zeros(Tv, size(eng.T)..., nsv)
+    Cout = zeros(Tv, size(eng.T)..., nsv)
+    Tcold = fill(Tv(cfg.T0), nsv)
+    Tpit_s = fill(Tv(pit.Tpit0), nsv)
+    mfuel_s = fill(Tv(pit.m0), nsv)
+    pv_s = fill(Tv(cfg.p_v_pit), nsv)
+    q_s = zeros(Tv, nsv)
+    jv_s = zeros(Tv, nsv)
+    Tpit_steps = zeros(Tv, nt_steps + 1)
+
+    Tp = Tv(pit.Tpit0)
+    m = Tv(pit.m0)
+    a = Tv(a0)
+    mp = Tv(pit.m_pan0)
+    Tpan = Tv(pit.T_pan0)
+    Tfb = Tv(pit.Tpit0)
+    j_meat = zero(Tv)
+    q_meat = zero(Tv)
+    pv = Tv(cfg.p_v_pit)
+    isave = 1
+    while isave <= nsv && save_at[isave] <= 0
+        Tout[:, :, isave] .= eng.T
+        Wout[:, :, isave] .= eng.W
+        isave += 1
+    end
+    for n in 1:nt_steps
+        t_now = t0 + (n - 1) * h
+        ud = lininterp(t_now, u_t0, u_dt, u_knots)
+        ud = clamp(ud, zero(ud), one(ud))
+        airflow, ṁ, mair, pv_nopan = _pit_algebra(ud, m, a, r_max, u_leak, pit, hum)
+        q_pan, ṁ_pan, pv_base = _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit, hum)
+        pv = pv_base + (hum.p_atm / EPS_W) * n_meat * j_meat / mair
+        Tpit_steps[n] = Tp
+        q_meat, j_meat = eng.step!(t_now, Tp, pv)
+        if pit.c_duct > 0
+            q_duct = pit.c_duct * airflow * (Tfb - Tp)
+            q_burn = q_duct
+            Tfb += h * (ΔH_eff * ṁ - pit.UA_fb * (Tfb - pit.T_amb) - q_duct) /
+                   pit.C_fb
+        else
+            q_burn = ΔH_eff * ṁ
+        end
+        Tp += h * (q_burn + pit.p_heater * ud - UA * (Tp - pit.T_amb) -
+                   n_meat * q_meat - q_pan) / C_th
+        m = max(m - h * ṁ, zero(Tv))
+        a_c = clamp(a, zero(a), one(a))
+        a += h * k_spread * a_c * (1 - a_c) * airflow
+        if pit.m_pan0 > 0
+            Tpan += h * (q_pan - cfg.λ_vap * ṁ_pan) /
+                    (CP_WATER * max(mp, zero(Tv)) + pit.C_pan_dry)
+            mp = max(mp - h * ṁ_pan, zero(Tv))
+        end
+        while isave <= nsv && save_at[isave] <= n
+            Tout[:, :, isave] .= eng.T
+            Wout[:, :, isave] .= eng.W
+            Cout[:, :, isave] .= eng.Cmat
+            Tcold[isave] = minimum(eng.T)
+            Tpit_s[isave] = Tp
+            mfuel_s[isave] = m
+            pv_s[isave] = pv
+            q_s[isave] = n_meat * q_meat
+            jv_s[isave] = n_meat * j_meat
+            isave += 1
+        end
+    end
+    Tpit_steps[end] = Tp
+    out = _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
+    return merge(out, (; Tpit=Tpit_s, m_fuel=mfuel_s, pv_pit=pv_s,
+                       q_meat=q_s, j_evap=jv_s, Tpit_steps))
+end
+
+function _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
+    (; T, W, Cmat, B_rim, B_end, rV, zw, Δz, Tv) = eng
+    nr, nz = size(T)
     vol = rV * zw'  # (nr, nz) volume weights (z ends are half cells)
     wret = sum(vol .* W) / (sum(vol) * cfg.W0)
     jm = div(nz, 2) + 1

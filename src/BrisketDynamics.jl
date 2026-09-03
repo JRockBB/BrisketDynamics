@@ -16,7 +16,6 @@ include("meats/pork_butt.jl")
 include("meats/newman.jl")
 include("meats/sausage.jl")
 include("meats/salmon.jl")
-include("meats/slab2d.jl")
 include("cookers/common.jl")
 include("cookers/smoker.jl")
 include("cookers/sous_vide.jl")
@@ -24,6 +23,9 @@ include("cookers/pellet.jl")
 include("cookers/offset.jl")
 include("cookers/pibil.jl")
 include("monolith.jl")
+# after the monolith: coupled_solve_2d uses PitConfig, Humidity and the
+# pit algebra
+include("meats/slab2d.jl")
 
 export MeatConfig,
     meat_solve,
@@ -65,6 +67,7 @@ export MeatConfig,
     kamado,
     sausage,
     hot_smoked_salmon,
-    meat_solve_2d
+    meat_solve_2d,
+    coupled_solve_2d
 
 end
