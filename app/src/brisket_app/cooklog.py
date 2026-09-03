@@ -37,6 +37,19 @@ LOGS = {
         "t_amb_K": 255.9,  # ~1 F per the post
         "start_at_core_K": 274.8,  # ~35 F: above the phase-change regime
     },
+    # Alan Erickson's Char-Griller Kamado brisket: the WRAP log (roadmap
+    # item 6) — butcher paper at a documented moment (t_wrap_min, minutes
+    # after meat-on, from the chart's off/on lid-band pair).
+    "erickson_2013": {
+        "csv": _REPO / "tools" / "loghunt" / "logs" / "erickson_2013"
+        / "erickson_2013.csv",
+        "t_end_min": None,
+        "t_amb_K": 291.5,  # nominal summer night (~65 F); no ambient trace,
+        # and the wrap fit drives the meat with the MEASURED pit, so t_amb
+        # is not load-bearing there
+        "start_at_core_K": None,
+        "t_wrap_min": 535.0,
+    },
     # Dale Ward's Big Steel Keg: two cooks on ONE vessel a year apart —
     # the same-smoker pooling pair (roadmap 5a). See each PROVENANCE.md.
     "keg_2013": {
@@ -150,6 +163,7 @@ def load(
             "tpit0_K": float(pit_g[0]),
             "tcore0_K": tcore0,
             "t_amb_K": float(spec["t_amb_K"]),
+            "t_wrap_min": spec.get("t_wrap_min"),
             "t_end_h": float((tg[-1] - tg[0]) / 60.0),
             "n_obs_pit": int(mask_pit.sum()),
             "n_obs_core": int(mask_core.sum()),

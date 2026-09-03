@@ -1,0 +1,43 @@
+slug = "erickson_2013"
+
+[source]
+url = "https://tvwbb.com/threads/post-your-heatermeter-graphs.42779/post-446870"
+author = "Alan Erickson"
+image = "cache/add2ebab.jpg"
+retrieved = "2026-09-04"
+
+[axes]
+# 713x360 JPEG through photobucket's watermarking pipeline (hues survive;
+# hm_flot_jpeg palette). Left axis 0-550 F: frame rows 8-345, 30.64 px /
+# 50 F (the late 275 F setpoint segment reads 278 as a cross-check).
+# X labels 22:42 -> 12:42 every 2 h at 82.9 px; clock 0 = 22:42.
+y_top_f = 550.0
+y_bottom_f = 0.0
+grid_step_f = 50.0
+px_per_step_v = 30.64
+x_step_min = 120.0
+px_per_step_h = 82.9
+x_anchor_col = 79.0          # in-crop col of the 00:42 label (clock 120)
+x_anchor_clock_min = 120.0
+row_top = 4.0
+
+[timeline]
+# post: ~12 lb brisket on a Char-Griller Kamado, ~15 h overnight; started
+# ~250 F, ramped to ~275 mid-cook to push the stall; WRAPPED IN BUTCHER
+# PAPER "after around 8 hours" — the chart's lid-band pair at 8.75 h and
+# 9.15 h (off to wrap, back on wrapped); pulled at the 15.24 h band.
+# Times below are minutes after meat-on (clock 5).
+meat_on_min = 5.0
+cook_end_min = 895.0
+settle_min = 10.0
+lid_events = [[28.0, 40.0], [285.0, 305.0], [329.0, 346.0], [516.0, 530.0], [539.0, 555.0]]
+# wrap event for calibration (min after meat-on): between the off/on pair
+t_wrap_min = 535.0
+
+[extract]
+palette = "hm_flot_jpeg"
+meat_probe = "meat"
+crop = [4, 352, 33, 676]
+amb = false
+col_lo = 4
+col_hi = 630

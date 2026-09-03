@@ -139,12 +139,35 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    factor graph to match NUTS.
 6. **Wrap and rest constants.** Calibrate η_evap / ε_wrap against a wrapped
    cook log — posts document the wrap moment, making the wrap event a
-   known-input step-response experiment — via the two-cook joint fit
-   (pooling, above); the rest constants (cambro / board) against a log that
-   runs past the pull. Log acquisition is user-owned, like the 2013 log. A
-   state-triggered wrap ("wrap at 165 °F internal") needs event
-   sensitivities — natural in the Dyad/monolith exploration where events
-   are first-class.
+   known-input step-response experiment; the rest constants (cambro /
+   board) against a log that runs past the pull. A state-triggered wrap
+   ("wrap at 165 °F internal") needs event sensitivities — natural in the
+   Dyad/monolith exploration where events are first-class.
+   **First wrap calibration (2026-09-04,** `scripts/run_wrap_fit.py`**):**
+   `erickson_2013`, found by `tools/loghunt/` (12 lb brisket, Char-Griller
+   Kamado, ~15 h; BUTCHER PAPER wrap documented in prose AND in the
+   chart's own off/on lid-band pair at 8.75/9.15 h; new watermark-tolerant
+   `hm_flot_jpeg` palette). The observed core DROPS ~7 °C across the wrap
+   — the brisket spent ~24 min off the pit and the probe was re-seated —
+   so the forward model is three chained segments (pit → room interval →
+   pit-wrapped; full state restarts through T/W/C/F fields + bark/smoke/
+   ring) with the probe's material depth as a parameter on each side of
+   the wrap. Measured pit trace as the boundary forcing; 8-parameter
+   FD-LM with z-space priors. Primary fit (L = 0.045, point-end probe;
+   every nuisance lands physical — h_c 11.8, k_m/k_e at priors):
+   **η_evap = 0.17 [0.13, 0.23]** — butcher paper passes ~83 % of the
+   evaporation (paper breathes; the mechanism behind "paper preserves
+   bark") — and **ε_wrap = 0.31 [0.26, 0.37]** (prior-bound); rms 3.6 K;
+   counterfactuals at the fit: foil would have finished hottest,
+   unwrapped middle, paper slowest under this ramped pit. Identifiability
+   caveat (kept in the JSON pair): an L = 0.033 variant fits identically
+   (rms 3.6) but trades the radiative/convective split (h_c → 1.3,
+   η_evap 0.80 / ε_wrap 0.16) — ONE log pins the total post-wrap input
+   reduction, not the full η/ε split; a FOIL-wrapped log (contrast) or a
+   known-thickness cook breaks the tie. Rest constants still open: no
+   found log runs past the pull (WBegg's 22 h butt chart ends 4 min
+   after it). (`data/calibration/wrap_fit_erickson{,_L33}.json`,
+   `figures/wrap_fit_erickson{,_L33}.png`.)
 7. **Salt & seasoning physics + salting-time optimization.** Dry-brining is
    diffusion (D_salt ~1e-10 m²/s, well-pinned in the ham-curing literature —
    take it as a constant, don't calibrate): an isothermal fridge-temperature

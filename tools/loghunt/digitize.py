@@ -60,7 +60,27 @@ def _dark_masks(R, G, B):
     }
 
 
-PALETTES = {"hm_classic": _classic_masks, "hm_dark": _dark_masks}
+def _flot_jpeg_masks(R, G, B):
+    """The 2013 flot render served through a lossy pipeline (JPEG artifacts
+    and a semi-transparent watermark that lightens everything it covers):
+    the hues survive, so the masks are looser hue tests than hm_classic,
+    tuned to still exclude the dark-blue ground, the light-neutral
+    watermark, and the washed-out tan lid bands."""
+    return {
+        "grid": (np.abs(R - 72) < 25) & (np.abs(G - 98) < 25) & (np.abs(B - 125) < 25),
+        "pit": (R > 140) & (R - B > 45) & (R - G > 25) & (G < 210),
+        "meat": {"meat": (G > 95) & (G - R > 22) & (G - B > 12)},
+        "fan": (B - R > 35) & (B > 110) & (B - G > 10),
+        "amb": None,
+        "setpoint": (R > 110) & (R - G > 55) & (R - B > 70) & (G < 80),
+    }
+
+
+PALETTES = {
+    "hm_classic": _classic_masks,
+    "hm_dark": _dark_masks,
+    "hm_flot_jpeg": _flot_jpeg_masks,
+}
 _PALETTE = _classic_masks  # set per log in main()
 
 
