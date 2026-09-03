@@ -1,0 +1,44 @@
+slug = "keg_2013"
+
+[source]
+url = "https://tvwbb.com/threads/post-your-heatermeter-graphs.42779/post-453436"
+author = "Dale Ward"
+image = "cache/6e3272c5.png"
+retrieved = "2026-09-03"
+
+[axes]
+# chart-only screenshot (782x471). Left axis 0-350 F over frame rows
+# 19-342 (0.923 px/F from the axis labels; the 275 F ribs setpoint line
+# lands at row 88 as predicted). Time: 12:48 at frame-left col 54,
+# 29.27 px/hr from the 12:48->10:48 label span. The CROP isolates the
+# overnight relight, where the setpoint is a constant 225 F (the anchor).
+y_top_f = 350.0
+y_bottom_f = 0.0
+grid_step_f = 50.0
+px_per_step_v = 46.14
+x_step_min = 120.0
+px_per_step_h = 58.54
+x_anchor_col = 1.7           # in-crop col of chart clock 600 min (22:48)
+x_anchor_clock_min = 600.0
+row_top = 14.0               # in-crop frame top (fallback anchor)
+
+[timeline]
+# post: fire relit, temp set to 225 and a 13 lb brisket in at 10:48 pm
+# (chart clock 600); ~12 h unwrapped, pulled at 185-190 F at the chart's
+# end, then a 4.5 h cooler rest (not on the chart)
+meat_on_min = 600.0
+cook_end_min = 710.0  # stop before the frame-edge blend (pull was ~188 F here)
+settle_min = 10.0
+lid_events = []
+
+# no [calibration] setpoint anchor: the pit rides AT 225 F all night, so
+# the red line is occluded end to end; the anchor is the label-derived
+# frame top (row_top), which predicts the visible 275 F ribs-segment line
+# to ~1 px on the full image
+
+[extract]
+palette = "hm_classic"
+crop = [5, 350, 345, 705]
+amb = false  # the gray trace is a dome-level probe riding above pit, not ambient
+col_lo = 3
+col_hi = 350  # stop short of the live-view cursor column at the frame edge

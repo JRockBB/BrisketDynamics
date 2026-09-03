@@ -49,3 +49,15 @@ method behind the committed 2013 CSV; `digitize.py` is its
 generalization. `logs/mache_2013/log.toml` re-expresses that log in the
 new format and serves as the regression case when its source image is in
 the cache (fetch it via the imgur URL in `data/cook_log/PROVENANCE.md`).
+
+## Committed logs
+
+| slug | source | cook | role |
+| --- | --- | --- | --- |
+| `mache_2013` | TVWBB (imgur original) | 18.5" WSM, 10.5 lb packer, 225 F, ~19 h | calibration reference; digitizer regression case |
+| `phillip_2018` | TVWBB post-800697 | 15 lb packer, 225 F, ~1 F night, partial log | cross-smoker pool (`run_pool_real.py`) |
+| `keg_2013` | TVWBB post-453436 | Big Steel Keg, 13 lb brisket, 225 F overnight | same-smoker pool, cook 1 (`--set keg`) |
+| `keg_2014` | TVWBB post-605881 | same keg, pork butt, hot-and-fast 325 F | same-smoker pool, cook 2 (`--set keg`) |
+
+Each log directory commits `log.toml`, the CSV, `overlay_check.png`, and
+`PROVENANCE.md`; the source screenshots stay in the git-ignored `cache/`.

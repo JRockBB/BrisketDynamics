@@ -135,6 +135,23 @@ def test_hierarchical_pool_shared_tightens_pit_not_meat():
     np.testing.assert_allclose(pool.cook_independent_mean[1][0], -0.3, atol=1e-12)
 
 
+def test_hierarchical_pool_explicit_empty_roles():
+    # an explicit [] means "no sites in this role" (it must NOT fall back
+    # to the default lists — regression for the `or`-default bug)
+    names = list(ALL_NAMES_SORTED)
+    d = len(names)
+    rng = np.random.default_rng(3)
+    means = [rng.normal(size=d), rng.normal(size=d)]
+    covs = [np.eye(d) * 0.1] * 2
+    pool = hierarchical_pool(
+        means, covs, names=names, shared=[], partial=MEAT_PARTIAL,
+        independent=PIT_SHARED + IGNITION_IID, tau2=0.25,
+        subtract_shared_prior=False,
+    )
+    assert pool.shared_mean.size == 0 and pool.shared_cov.shape == (0, 0)
+    assert len(pool.cook_independent_mean[0]) == len(PIT_SHARED + IGNITION_IID)
+
+
 def test_sd_z_from_draws_keys():
     rng = np.random.default_rng(9)
     Z = rng.normal(size=(20, len(ALL_NAMES_SORTED)))

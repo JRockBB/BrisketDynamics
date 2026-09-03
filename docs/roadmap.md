@@ -97,10 +97,29 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    the draft ridge between different rigs; k_mult absorbing the
    uniform-interior slice start). Fits: rms pit 1.33/1.87 K, core
    3.02/1.43 K (`figures/pool_real.png`, `data/calibration/pool_real.json`).
-   Still wanted: a same-smoker multi-cook set (Dale Ward's Big Steel Keg
-   trio is digitizable-if-needed but two charts are zoomed screenshots),
-   and any log with BEFORE/AFTER weights — none found yet in the graphs
-   thread; pre-cook weights are common, yield pairs are not.
+   **Same-smoker pool (2026-09-03,** `run_pool_real.py --set keg`**):**
+   Dale Ward's Big Steel Keg, one vessel a year apart — overnight 225 °F
+   brisket (11.7 h) vs hot-and-fast 325 °F pork butt (4.8 h) — found,
+   digitized (new `hm_dark` palette; lid events read from the HM UI's own
+   lid-detect bands) and provenance'd by `tools/loghunt/`. Roles flipped
+   vs the cross-smoker set: vessel identity (C_th, UA, dH_eff) fully
+   shared, actuator map (r_max, u_leak) per-cook (the thread shows the
+   airflow hardware changing between posts), meat + ignition per-cook.
+   Fits: rms pit 2.6/4.2 K, core 1.1/1.4 K. The data sees the hardware
+   change (u_leak 0.78 vs 0.29) and the meat chemistry transfers across
+   cuts (k_e and a_myosin within 2 % between a brisket and a pork butt)
+   while cut geometry differs as it should (D_eff 24 %, L 31 %). The
+   vessel block itself sits on the C_th/UA sloppy ridge: the short
+   hot-and-fast log trades C_th up against UA down (τ = C_th/UA ≈ 5.6e3
+   vs 5.1e4 s), so the pool leans on the longer 2013 log and the
+   prior-dedup pushes pooled C_th/dH_eff outside the per-cook pair —
+   weak per-cook identification, not a pooling bug (regression-tested:
+   explicit-empty role lists no longer fall back to defaults). A third
+   keg log would pin the ridge. (`figures/pool_keg.png`,
+   `data/calibration/pool_keg.json`.)
+
+   Still wanted: any log with BEFORE/AFTER weights — none found yet in
+   the graphs thread; pre-cook weights are common, yield pairs are not.
 
    **Not RxInfer / CBFE for this.** Constrained Bethe Free Energy is the
    online-during-cook estimator (a reactive factor graph over pit state and

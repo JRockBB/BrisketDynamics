@@ -696,9 +696,10 @@ def hierarchical_pool(
     HierPool
     """
     names = list(names or ALL_NAMES_SORTED)
-    shared = list(shared or PIT_SHARED)
-    partial = list(partial or MEAT_PARTIAL)
-    independent = list(independent or IGNITION_IID)
+    # None means the default role; an explicit [] means "no sites in this role"
+    shared = list(PIT_SHARED if shared is None else shared)
+    partial = list(MEAT_PARTIAL if partial is None else partial)
+    independent = list(IGNITION_IID if independent is None else independent)
     sidx = _idx(names, shared)
     pidx = _idx(names, partial)
     iidx = _idx(names, independent)

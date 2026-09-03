@@ -1,0 +1,43 @@
+slug = "keg_2014"
+
+[source]
+url = "https://tvwbb.com/threads/post-your-heatermeter-graphs.42779/post-605881"
+author = "Dale Ward"
+image = "cache/85b0ad43.png"
+retrieved = "2026-09-03"
+
+[axes]
+# full-UI page (1275x781), dark plot theme. Right axis 350-50 F over
+# frame rows 293.7-618.7 (1.083 px/F from the labels; the 325 F setpoint
+# line lands at row 320.8, probed at 321). Hourly labels 09:00-16:00,
+# 91.36 px/hr, 09:00 at col 321.5.
+y_top_f = 350.0
+y_bottom_f = 50.0
+grid_step_f = 25.0
+px_per_step_v = 27.08
+x_step_min = 60.0
+px_per_step_h = 91.36
+x_anchor_col = 11.5          # in-crop col of 09:00
+x_anchor_clock_min = 0.0
+row_top = 8.7
+
+[timeline]
+# image-only post ("BSK HM1" header, PORK BUTT probes, Set 325): a
+# hot-and-fast pork butt; the green probe comes alive ~11:05 after a lid
+# band; live view captured 4:00 pm with the probe near 200 F
+meat_on_min = 125.0
+cook_end_min = 292.0
+settle_min = 10.0
+# from the HM UI's own lid-detect bands (measured in the chart):
+# meat insertion 9-17 min and a mid-cook peek 186-196 min after meat-on
+lid_events = [[9.0, 17.0], [186.0, 196.0]]
+
+[calibration]
+setpoint_f = 325.0
+
+[extract]
+palette = "hm_dark"
+meat_probe = "point"
+crop = [285, 625, 310, 970]
+col_lo = 14
+col_hi = 655

@@ -37,6 +37,23 @@ LOGS = {
         "t_amb_K": 255.9,  # ~1 F per the post
         "start_at_core_K": 274.8,  # ~35 F: above the phase-change regime
     },
+    # Dale Ward's Big Steel Keg: two cooks on ONE vessel a year apart —
+    # the same-smoker pooling pair (roadmap 5a). See each PROVENANCE.md.
+    "keg_2013": {
+        "csv": _REPO / "tools" / "loghunt" / "logs" / "keg_2013"
+        / "keg_2013.csv",
+        "t_end_min": None,
+        "t_amb_K": 294.3,  # ~70 F: pit+meat probes flat for 3 h pre-relight
+        "start_at_core_K": None,
+    },
+    "keg_2014": {
+        "csv": _REPO / "tools" / "loghunt" / "logs" / "keg_2014"
+        / "keg_2014.csv",
+        "t_end_min": None,
+        "t_amb_K": 311.0,  # ambient-probe median 100 F (hot day; may be
+        # plume/sun-elevated — see PROVENANCE)
+        "start_at_core_K": None,
+    },
 }
 
 

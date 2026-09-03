@@ -1,18 +1,28 @@
-"""First REAL two-cook pooling: Mache 2013 x Phillip 2018.
+"""Real multi-cook pooling runs (two-stage: per-log GN-MAP + Laplace -> pool).
 
-Two briskets, two smokers, an 84 F ambient spread (summer WSM vs a 1 F
-winter night). Per-log Gauss-Newton MAP + Laplace on the monolith, then
-the two-stage pool: MEAT partially pooled (both packers — "briskets I
-buy"), PIT and ignition per-cook (different smokers share nothing).
+Two supported sets:
 
-Caveats carried explicitly: phillip_2018 is a partial log (rise + stall
-entry, no pull) sliced to start above the phase-change regime (the model
-has no thaw enthalpy), its interior is assumed uniform at the slice-start
-core temperature, and both logs borrow the Mache MAP's AR(1) noise scales
-(same digitization process).
+--set default   Mache 2013 x Phillip 2018 — two briskets, two DIFFERENT
+                smokers, an 84 F ambient spread. MEAT partially pooled
+                ("briskets I buy"), pit + ignition per-cook, nothing shared.
 
-Run from app/:  uv run python -u ../scripts/run_pool_real.py
-Writes data/calibration/pool_real.json and figures/pool_real.png.
+--set keg       Dale Ward's Big Steel Keg 2013 x 2014 — the SAME vessel a
+                year apart (roadmap 5a): overnight 225 F brisket vs
+                hot-and-fast 325 F pork butt. The vessel's thermal identity
+                (C_th, UA, dH_eff) is fully shared; the actuator map
+                (r_max, u_leak) stays per-cook (the airflow hardware evolved
+                between the posts), and the meats are different cuts, so
+                meat + ignition are per-cook too (a butt on brisket priors
+                is a stated placeholder).
+
+Caveats carried explicitly: phillip_2018 is a partial log; keg_2014 is a
+short hot-and-fast log; interiors start uniform at the first unmasked core
+sample; all non-Mache logs borrow the Mache MAP's AR(1) noise scales (same
+digitization process).
+
+Run from app/:  uv run python -u ../scripts/run_pool_real.py [--set keg]
+Writes data/calibration/pool_<set>.json and figures/pool_<set>.png
+(the default set keeps its original pool_real.* names).
 """
 
 import json
@@ -44,7 +54,28 @@ from brisket_app.monolith import (
 )
 
 REPO = Path(__file__).resolve().parents[1]
-LOG_NAMES = ("mache_2013", "phillip_2018")
+
+VESSEL = ["C_th", "UA", "dH_eff"]  # thermal identity of the cooker itself
+ACTUATOR = ["r_max", "u_leak"]  # airflow map (hardware changed between posts)
+
+SETS = {
+    "default": {
+        "logs": ("mache_2013", "phillip_2018"),
+        "shared": [],
+        "partial": MEAT_PARTIAL,
+        "independent": PIT_SHARED + IGNITION_IID,
+        "stem": "pool_real",
+        "title": "First real two-cook pooling set: per-log Gauss-Newton MAP fits",
+    },
+    "keg": {
+        "logs": ("keg_2013", "keg_2014"),
+        "shared": VESSEL,
+        "partial": [],
+        "independent": ACTUATOR + IGNITION_IID + MEAT_PARTIAL,
+        "stem": "pool_keg",
+        "title": "Same-smoker pooling set (Big Steel Keg '13/'14): per-log MAP fits",
+    },
+}
 
 
 def _prior_median_z():
@@ -74,13 +105,16 @@ def _x_from_z1(name, z1):
 
 
 def main():
-    """Fit each log, pool the meat block, report and plot."""
+    """Fit each log in the set, pool per its roles, report and plot."""
     import argparse
 
     ap = argparse.ArgumentParser()
+    ap.add_argument("--set", dest="set_name", default="default", choices=SETS)
     ap.add_argument("--iters", type=int, default=25)
     ap.add_argument("--tau2", default="0.04")
     args = ap.parse_args()
+    spec = SETS[args.set_name]
+    log_names = spec["logs"]
     cal = REPO / "data" / "calibration"
     noise = {
         k: float(v)
@@ -90,7 +124,7 @@ def main():
     print(f"AR(1) noise from map_real.json: {noise} (shared digitization process)")
 
     fits, means, covs = {}, [], []
-    for name in LOG_NAMES:
+    for name in log_names:
         log = cooklog.load(dt_min=10.0, log=name)
         m = log["meta"]
         print(
@@ -137,60 +171,86 @@ def main():
             "mu_core": mu[nt:].tolist(),
         }
 
-    # different smokers: nothing shared; meat partially pooled; pit + ignition
-    # recorded per cook
     pool = hierarchical_pool(
         means,
         covs,
         names=list(ALL_NAMES_SORTED),
-        shared=[],
-        partial=MEAT_PARTIAL,
-        independent=PIT_SHARED + IGNITION_IID,
+        shared=spec["shared"],
+        partial=spec["partial"],
+        independent=spec["independent"],
         tau2="auto" if args.tau2 == "auto" else float(args.tau2),
     )
-    print("\nmeat block: per-cook MAP -> partial-pool shrinkage -> hypermean")
-    print(f"{'site':10s} {'mache':>12s} {'phillip':>12s} {'mache*':>12s} {'phillip*':>12s} {'hyper':>12s}")
-    meat_rows = {}
-    for i, n in enumerate(MEAT_PARTIAL):
-        vals = [fits[k]["x"][n] for k in LOG_NAMES]
-        shr = [_x_from_z1(n, float(pool.cook_partial_mean[j][i])) for j in range(2)]
-        hyper = _x_from_z1(n, float(pool.partial_hyper_mean[i]))
-        meat_rows[n] = {
-            "map": vals,
-            "shrunk": shr,
-            "hyper": hyper,
-            "hyper_sd_z": float(np.sqrt(pool.partial_hyper_cov[i, i])),
-        }
+    short = [n.split("_")[0] for n in log_names]
+
+    shared_rows = {}
+    if spec["shared"]:
+        print("\nshared block: one vessel, two operating points -> pooled identity")
         print(
-            f"{n:10s} {vals[0]:12.4g} {vals[1]:12.4g} {shr[0]:12.4g} "
-            f"{shr[1]:12.4g} {hyper:12.4g}"
+            f"{'site':10s} {short[0]:>12s} {short[1]:>12s} {'pooled':>12s} {'sd(z)':>8s}"
         )
-    print("\npit block (per cook; different smokers, nothing shared)")
-    print(f"{'site':10s} {'mache':>12s} {'phillip':>12s}")
-    for n in PIT_SHARED:
+        for i, n in enumerate(spec["shared"]):
+            vals = [fits[k]["x"][n] for k in log_names]
+            pooled = _x_from_z1(n, float(pool.shared_mean[i]))
+            sd = float(np.sqrt(pool.shared_cov[i, i]))
+            shared_rows[n] = {"map": vals, "pooled": pooled, "sd_z": sd}
+            print(
+                f"{n:10s} {vals[0]:12.4g} {vals[1]:12.4g} {pooled:12.4g} {sd:8.3f}"
+            )
+
+    meat_rows = {}
+    if spec["partial"]:
+        print("\nmeat block: per-cook MAP -> partial-pool shrinkage -> hypermean")
         print(
-            f"{n:10s} {fits['mache_2013']['x'][n]:12.4g} "
-            f"{fits['phillip_2018']['x'][n]:12.4g}"
+            f"{'site':10s} {short[0]:>12s} {short[1]:>12s} {short[0] + '*':>12s} "
+            f"{short[1] + '*':>12s} {'hyper':>12s}"
+        )
+        for i, n in enumerate(spec["partial"]):
+            vals = [fits[k]["x"][n] for k in log_names]
+            shr = [_x_from_z1(n, float(pool.cook_partial_mean[j][i])) for j in range(2)]
+            hyper = _x_from_z1(n, float(pool.partial_hyper_mean[i]))
+            meat_rows[n] = {
+                "map": vals,
+                "shrunk": shr,
+                "hyper": hyper,
+                "hyper_sd_z": float(np.sqrt(pool.partial_hyper_cov[i, i])),
+            }
+            print(
+                f"{n:10s} {vals[0]:12.4g} {vals[1]:12.4g} {shr[0]:12.4g} "
+                f"{shr[1]:12.4g} {hyper:12.4g}"
+            )
+
+    label = "per cook" + (
+        " (actuator + meat + ignition)" if args.set_name == "keg" else
+        " (different smokers, nothing shared)"
+    )
+    print(f"\nindependent block {label}")
+    print(f"{'site':10s} {short[0]:>12s} {short[1]:>12s}")
+    for n in spec["independent"]:
+        print(
+            f"{n:10s} {fits[log_names[0]]['x'][n]:12.4g} "
+            f"{fits[log_names[1]]['x'][n]:12.4g}"
         )
 
     out = {
+        "set": args.set_name,
         "logs": {k: {kk: vv for kk, vv in v.items() if not kk.startswith("mu_")}
                  for k, v in fits.items()},
+        "shared_pool": shared_rows,
         "meat_pool": meat_rows,
         "tau2": args.tau2,
         "noise_from": "map_real.json",
         "roles": {
-            "shared": [],
-            "partial": MEAT_PARTIAL,
-            "independent": PIT_SHARED + IGNITION_IID,
+            "shared": spec["shared"],
+            "partial": spec["partial"],
+            "independent": spec["independent"],
         },
     }
-    (cal / "pool_real.json").write_text(json.dumps(out, indent=2))
-    print("\nwrote data/calibration/pool_real.json")
-    _figure(fits, REPO)
+    (cal / f"{spec['stem']}.json").write_text(json.dumps(out, indent=2))
+    print(f"\nwrote data/calibration/{spec['stem']}.json")
+    _figure(fits, log_names, spec, REPO)
 
 
-def _figure(fits: dict, repo: Path):
+def _figure(fits: dict, log_names, spec, repo: Path):
     """Per-log MAP fits: pit and core against the observations."""
     import matplotlib
 
@@ -198,7 +258,7 @@ def _figure(fits: dict, repo: Path):
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(2, 2, figsize=(12.5, 7.2))
-    for row, name in enumerate(LOG_NAMES):
+    for row, name in enumerate(log_names):
         log = cooklog.load(dt_min=10.0, log=name)
         th = log["t"] / 3600.0
         for col, (mu_key, obs_key, mask_key, label) in enumerate(
@@ -224,13 +284,11 @@ def _figure(fits: dict, repo: Path):
             )
             ax.grid(alpha=0.3)
             ax.legend(fontsize=8)
-    fig.suptitle(
-        "First real two-cook pooling set: per-log Gauss-Newton MAP fits", y=0.995
-    )
+    fig.suptitle(spec["title"], y=0.995)
     fig.tight_layout()
-    fig.savefig(repo / "figures" / "pool_real.png", dpi=140)
+    fig.savefig(repo / "figures" / f"{spec['stem']}.png", dpi=140)
     plt.close(fig)
-    print("wrote figures/pool_real.png")
+    print(f"wrote figures/{spec['stem']}.png")
 
 
 if __name__ == "__main__":

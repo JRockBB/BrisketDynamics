@@ -54,8 +54,9 @@ def _dark_masks(R, G, B):
             "flat": (G > 110) & (G - R > 60) & (G - B > 20) & (G - B < 75) & (B > 60),
         },
         "fan": (B > G) & (B - R > 55) & (B > 85),
-        "amb": None,  # ambient probe not plotted in this theme
-        "setpoint": (R > 150) & (G < 80) & (B < 80),
+        # gray ambient line when present (harmless when absent: no hits -> NaN)
+        "amb": (np.abs(R - G) < 20) & (np.abs(G - B) < 20) & (R > 100) & (R < 200),
+        "setpoint": (R > 120) & (G < 60) & (B < 60),
     }
 
 
@@ -109,11 +110,13 @@ def auto_crop(full: np.ndarray) -> tuple[slice, slice]:
 # --- extraction (ported from the reference, parametrized) --------------------
 
 
-def extract(im, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_max_row, meat_probe):
+def extract(im, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_max_row, meat_probe, want_amb=True):
     """Per-pixel-column color-mask extraction of pit/meat probes/ambient/fan."""
     R, G, B = im[..., 0].astype(int), im[..., 1].astype(int), im[..., 2].astype(int)
     rt, rb = int(row_top) + 3, int(row_bot) - 2
     pal = _PALETTE(R, G, B)
+    if not want_amb:
+        pal["amb"] = None  # e.g. the gray trace is a dome probe, not ambient
     line_masks = {"pit": pal["pit"], "meat": pal["meat"][meat_probe]}
     for name, m in pal["meat"].items():
         if name != meat_probe:
@@ -375,6 +378,7 @@ def main():
     raw = extract(
         chart, row_top, row_bot, col_lo, col_hi, row2F, row2pct, col2min, amb_max_row,
         ex.get("meat_probe", "meat" if ex_palette == "hm_classic" else "flat"),
+        want_amb=ex.get("amb", True),
     )
     df = resample(
         raw,
