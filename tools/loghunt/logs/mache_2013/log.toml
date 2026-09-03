@@ -1,0 +1,32 @@
+slug = "mache_2013"
+
+[source]
+url = "https://tvwbb.com/threads/post-your-heatermeter-graphs.42779/post-474182"
+author = "Mache"
+image = "cache/mache_9aS34Zn.png"
+retrieved = "2026-08-11"
+
+[axes]
+# anchors recorded against the cached canonical image (1600x785 imgur PNG)
+y_top_f = 260.0             # top frame value
+y_bottom_f = 40.0           # bottom frame value
+grid_step_f = 20.0
+px_per_step_v = 29.618      # from the reference derivation; detection agrees ~30.0
+x_step_min = 120.0          # labeled gridlines every 2 h (22:30, 00:30, ...)
+px_per_step_h = 60.2        # 30.1 px/hr (reference derivation)
+x_anchor_col = 95.0         # in-crop column of the 00:30 gridline
+x_anchor_clock_min = 120.0  # chart clock at that gridline (22:30 = 0)
+
+[timeline]
+meat_on_min = 104.1         # chart clock at meat-on (00:30 minus 15.9 min)
+cook_end_min = 1141.0
+settle_min = 12.0
+lid_events = [[1086.0, 1100.0]]
+
+[calibration]
+setpoint_f = 225.0          # the red line; the vertical ANCHOR
+
+[extract]
+crop = [280, 640, 440, 1150]  # plot frame on the canonical image
+col_lo = 30
+col_hi = 668
