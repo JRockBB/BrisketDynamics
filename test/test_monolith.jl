@@ -189,6 +189,29 @@ end
     @test sort(rel2)[ceil(Int, 0.9 * end)] < 1e-2
 end
 
+@testset "monolith: two-zone offset + wood splits" begin
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    one_zone = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
+    @test maximum(abs.(one_zone.T_firebox .- one_zone.T_firebox[1])) < 1e-6  # inert by default
+    pit2 = offset_smoker(; T_amb=300.0, dt_add=Inf)
+    two = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=pit2)
+    mid = div(length(MONO_TSAVE), 2)
+    @test all(two.T_firebox[mid:end] .> two.Tpit[mid:end])   # firebox runs hotter
+    @test two.Tpit[div(mid, 4)] < one_zone.Tpit[div(mid, 4)] # the duct lags startup
+    @test all(isfinite, two.Tcore) && two.Tcore[end] > two.Tcore[1] + 20
+    # hourly wood splits: the pulse train keeps more fuel in the box than
+    # a single addition of the same chimney size
+    hr = 3600.0
+    pit_split = offset_smoker(; T_amb=300.0, dt_add=1.0hr)
+    splits = monolith_solve(
+        θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=pit_split, t_add=2.0hr,
+    )
+    single = monolith_solve(
+        θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=pit2, t_add=2.0hr,
+    )
+    @test splits.m_fuel[end] > single.m_fuel[end] + 0.5
+end
+
 @testset "monolith: water pan" begin
     θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
     dry = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT)

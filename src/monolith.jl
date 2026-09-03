@@ -82,7 +82,7 @@ end
     make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
 
 Build the in-place coupled RHS over `x = [meat(5·nx + 3) | T_pit, m_fuel,
-ignited, m_pan, T_pan]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull]`; the damper
+ignited, m_pan, T_pan, T_firebox]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull]`; the damper
 schedule is interpolated from `nu` knots on the uniform grid
 `u_t0 + (i-1)·u_dt`.
 """
@@ -104,6 +104,7 @@ function make_monolith_rhs(
 
         Tp, m, a = x[nm + 1], x[nm + 2], x[nm + 3]
         mp, Tpan = x[nm + 4], x[nm + 5]
+        Tfb = x[nm + 6]
         ud = lininterp(t, u_t0, u_dt, u_knots)
         ud = clamp(ud, zero(ud), one(ud))
         airflow, ṁ, mair, pv_nopan = _pit_algebra(ud, m, a, r_max, u_leak, pit, hum)
@@ -123,8 +124,19 @@ function make_monolith_rhs(
               lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz), pit.τ_open_spritz) *
               (1 - wrap_blend(t, t_wrap, cfg)) * (1 - pull_blend(t, t_pull, cfg))
         q_lid = pit.UA_open * (Tp - pit.T_amb) * lid
+        # two-zone: the burn heats the FIREBOX and the chamber receives
+        # draft-advected duct heat; single-zone (c_duct = 0): direct, as ever
+        if pit.c_duct > 0
+            q_duct = pit.c_duct * airflow * (Tfb - Tp)
+            q_burn = q_duct
+            dx[nm + 6] =
+                (ΔH_eff * ṁ - pit.UA_fb * (Tfb - pit.T_amb) - q_duct) / pit.C_fb
+        else
+            q_burn = ΔH_eff * ṁ
+            dx[nm + 6] = zero(Tp)
+        end
         dx[nm + 1] =
-            (ΔH_eff * ṁ + pit.p_heater * ud - UA * (Tp - pit.T_amb) - q_meat - q_lid -
+            (q_burn + pit.p_heater * ud - UA * (Tp - pit.T_amb) - q_meat - q_lid -
              q_pan) / C_th
         dx[nm + 2] = -ṁ + ṁ_add
         dx[nm + 3] =
@@ -167,7 +179,7 @@ function _monolith_solve_arr(
         Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0,
                      s0=salt_profile(p[4], cfg))),
         [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP], Tp(pit.m_pan0),
-         Tp(pit.T_pan0)],
+         Tp(pit.T_pan0), Tp(pit.Tpit0)],
     )
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!, x0, (float(tsave[1]), float(tsave[end])), p
@@ -202,6 +214,7 @@ function _monolith_outputs(
     ignited = A[nm + 3, :]
     m_pan = A[nm + 4, :]
     T_pan = A[nm + 5, :]
+    T_firebox = A[nm + 6, :]
     alg = map(1:nt) do i
         ud = lininterp(float(tsave[i]), u_t0, u_dt, uk)
         _pit_algebra(clamp(ud, zero(ud), one(ud)), m_fuel[i], ignited[i], r_max, u_leak, pit, hum)
@@ -294,6 +307,7 @@ function _monolith_outputs(
         m_pan,
         T_pan,
         pan_evap,
+        T_firebox,
         t=collect(float.(tsave)),
     )
 end
@@ -532,7 +546,7 @@ function _monolith_solve_arr_s(
         Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0,
                      s0=salt_profile(p[4], cfg))),
         [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP], Tp(pit.m_pan0),
-         Tp(pit.T_pan0)],
+         Tp(pit.T_pan0), Tp(pit.Tpit0)],
     )
     s_grid = collect(Float64, s_save)
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(rhs_s!, x0, (0.0, 1.0), p)

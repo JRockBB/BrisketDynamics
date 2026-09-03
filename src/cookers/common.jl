@@ -47,6 +47,24 @@ Base.@kwdef struct PitConfig
     # placeholder scale (roadmap: standardized-photo colorimetry + a
     # wrapped/unwrapped pair calibrate the bark family; bitterness needs
     # a tasting panel or a smolder-forced designed cook).
+    # Two-zone offset smoker (+1 monolith state: firebox temperature).
+    # In two-zone mode (c_duct > 0) the fuel burns in the FIREBOX — its
+    # own energy balance with mass C_fb and loss UA_fb — and the cook
+    # chamber (the existing pit state) receives heat by draft-driven
+    # advection through the duct, q_duct = c_duct·airflow·(T_fb − T_pit).
+    # Smoke and combustion water ride the same gas into the chamber, so
+    # the humidity/bark pathways are unchanged. c_duct = 0 is the
+    # single-zone (bitwise) default: the firebox state rides inert and
+    # the burn heats the chamber directly, exactly as before.
+    C_fb::Float64 = 2.0e4       # firebox thermal mass [J/K]
+    UA_fb::Float64 = 12.0       # firebox loss to ambient [W/K]
+    c_duct::Float64 = 0.0       # duct advective conductance at full draft [W/K]
+    # Wood splits: a finite dt_add turns the single mid-cook fuel
+    # addition into a PULSE TRAIN (one split of m_chimney every dt_add
+    # from t_add on — how an offset is actually fed). Inf = one addition
+    # (bitwise default). Config for now; differentiable split timing is a
+    # planner step.
+    dt_add::Float64 = Inf       # interval between fuel additions [s]
     # Water pan (+2 monolith states: pan water mass and temperature).
     # The pan draws pit heat through UA_pan, buffers near boiling (the
     # latent sink behind a WSM's steadiness), FEEDS THE PIT HUMIDITY with
@@ -110,7 +128,8 @@ dumped over `cfg.τ_add` as a smooth unit-area pulse (a logistic derivative)
 centred at `t_add`; `t_add = ADD_NEVER` is exactly zero everywhere.
 """
 function fuel_add_rate(t, t_add, cfg::PitConfig)
-    s = logistic((t - t_add) / cfg.τ_add)
+    tc = isfinite(cfg.dt_add) ? spritz_pulse_time(t, t_add, cfg.dt_add) : t_add
+    s = logistic((t - tc) / cfg.τ_add)
     return cfg.m_chimney * s * (1 - s) / cfg.τ_add
 end
 

@@ -18,6 +18,7 @@ include("cookers/common.jl")
 include("cookers/smoker.jl")
 include("cookers/sous_vide.jl")
 include("cookers/pellet.jl")
+include("cookers/offset.jl")
 include("cookers/pibil.jl")
 include("monolith.jl")
 
@@ -55,6 +56,7 @@ export MeatConfig,
     pellet,
     earth_pit,
     newman_center,
-    burn_cleanliness
+    burn_cleanliness,
+    offset_smoker
 
 end

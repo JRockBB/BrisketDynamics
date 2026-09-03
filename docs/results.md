@@ -263,6 +263,23 @@ FD-gate threshold moved 5e-3 → 8e-3: the extra states shift adaptive
 steps and that check carries solver noise (the documented last-bit
 sensitivity). Julia 260/260, app 67/67.
 
+## Two-zone offset + wood splits (2026-09-04)
+
+The last missing source: in two-zone mode (`PitConfig.c_duct > 0`) the
+fuel burns in a FIREBOX state (mass C_fb, loss UA_fb) and the cook
+chamber receives draft-driven duct advection
+`q_duct = c_duct·airflow·(T_fb − T_pit)`; smoke and combustion water
+ride the same gas, so the humidity/bark pathways are unchanged.
+`offset_smoker()` composes it with HOURLY WOOD SPLITS — a finite
+`dt_add` turns the single fuel addition into a pulse train (how a stick
+burner is actually fed; the standalone pit inherits it for free since
+the machinery is shared). c_duct = 0 is the single-zone bitwise
+default; T_firebox rides inert. Tested: firebox runs hotter than the
+chamber, the duct lags startup, splits keep fuel in the box, default
+inert to 1e-6. Constants placeholder scale — a firebox/chamber probe
+pair is the calibrating experiment. Differentiable split timing is a
+planner step (dt_add is config).
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the
