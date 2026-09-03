@@ -680,9 +680,9 @@ the semi-infinite constant-surface-concentration solution
 `S_surf·erfc(d/(2√(D_salt·t_salt)))` at depth `d = L(1 − ξ̂)` from the
 surface face. `t_salt ≤ 0` returns exact zeros (unsalted).
 """
-function salt_profile(L, cfg::MeatConfig)
-    cfg.t_salt <= 0 && return zeros(cfg.nx)
-    pen = 2 * sqrt(cfg.D_salt * cfg.t_salt)
+function salt_profile(L, cfg::MeatConfig, t_salt=cfg.t_salt)
+    t_salt <= 0 && return zeros(typeof(float(t_salt)), cfg.nx)
+    pen = 2 * sqrt(cfg.D_salt * t_salt)
     return [
         cfg.S_surf * erfc_smooth(L * (1 - (i - 1) / (cfg.nx - 1)) / pen) for
         i in 1:(cfg.nx)
@@ -1147,6 +1147,7 @@ function meat_solve(
     m_spritz::Real=NaN,
     T_wrap_trigger::Real=Inf,
     LATCH0::Real=NaN,
+    t_salt::Real=NaN,
 )
     nx = cfg.nx
     msp = isnan(m_spritz) ? cfg.m_spritz : float(m_spritz)
@@ -1176,9 +1177,13 @@ function meat_solve(
     # 8 h/49-knot fixture); backward unaffected
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!,
-        promote_type(eltype(p), Float64).(_meat_u0(
+        # the brine duration is a differentiable input: NaN defers to the
+        # config, and a Dual t_salt flows into the state through the
+        # analytic profile (the promotion below keeps it alive)
+        promote_type(eltype(p), typeof(float(t_salt)), Float64).(_meat_u0(
             cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
-            s0=salt_profile(θ[4], cfg), LATCH0,
+            s0=salt_profile(θ[4], cfg, isnan(t_salt) ? cfg.t_salt : t_salt),
+            LATCH0,
         )),
         (float(tsave[1]), float(tsave[end])),
         p,

@@ -385,6 +385,20 @@ hotter and purges more, and at the test fixture the purge effect wins.
 monolith carries the latch state inert until the planner consumes the
 trigger through the Tesseract (one optional field, like t_f).
 
+## t_salt as a differentiable input (2026-09-04)
+
+`t_salt` is now a solve argument on `meat_solve`, `monolith_solve` and
+`monolith_solve_tf` (NaN defers to the config): a Dual brine duration
+flows into the state through the analytic erfc profile, kept alive by
+the initial-condition promotion, so d(juiciness)/d(t_salt) exists
+through the full solve. Verified: the override matches the config path
+to 1e-12, and ForwardDiff through an 8 h salted cook matches central FD
+within 5 % with the physically right sign (longer brine → more water
+held). What remains for the planner join is exposure only: one optional
+Tesseract input plus a z-parameter in optimize_schedule — the same
+pattern as t_f — shared with the wrap trigger T_trig and the wood-split
+interval dt_add.
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the

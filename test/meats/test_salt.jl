@@ -114,3 +114,27 @@ end
     @test isfinite(g) && abs(g) > 1e-5
     @test abs(g - fd) / abs(fd) < 0.05
 end
+
+@testset "t_salt as a differentiable input (M-goal)" begin
+    hr = 3600.0
+    tknots = collect(0.0:300.0:8hr)
+    Tpit = fill(383.15, length(tknots))
+    θ = MEAT_θ_DEFAULT
+
+    # override beats config, NaN defers to it
+    a = meat_solve(θ, Tpit, tknots, tknots; t_salt=48hr)
+    b = meat_solve(
+        θ, Tpit, tknots, tknots;
+        cfg=BrisketDynamics.with_config(MeatConfig(); t_salt=48hr),
+    )
+    @test maximum(abs.(a.salt_field .- b.salt_field)) < 1e-12
+
+    # d(w_retained)/d(t_salt) exists through the analytic brine profile,
+    # matches finite differences, and is positive (longer brine, more
+    # water held) — the planner-facing sensitivity
+    wret(ts) = meat_solve(θ, Tpit, tknots, tknots; t_salt=ts).w_retained
+    g = ForwardDiff.derivative(wret, 48hr)
+    fd = (wret(50hr) - wret(46hr)) / (4hr)
+    @test isfinite(g) && g > 0
+    @test abs(g - fd) / abs(fd) < 0.05
+end

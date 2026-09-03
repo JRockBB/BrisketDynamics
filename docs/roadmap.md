@@ -8,15 +8,14 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
 
 ## Modeling goals
 
-- **M1 — Salting-time as a decision variable.** Promote `t_salt` from
-  MeatConfig to a differentiable input so "when to salt" joins the
-  chance-constrained planning problem (d(juiciness)/d(t_salt) through
-  the analytic pre-cook brine profile); optionally a small
-  salt-dependent denaturation-temperature shift. The salt PDE state and
-  couplings are built, and the state-triggered wrap latch is done
-  (`docs/results.md`) — t_salt, the wrap trigger T_trig and the
-  wood-split interval dt_add all join the planner the same way: one
-  optional Tesseract input each when it consumes them.
+- **M1 — Planner exposure of the new decision variables.** t_salt is
+  differentiable through every Julia solve, the wrap-trigger latch
+  carries d/d(T_trig), and the split interval dt_add is config
+  (`docs/results.md`); what remains is exposure: one optional Tesseract
+  input each (the t_f pattern) plus their z-parameters in
+  optimize_schedule, so "when to salt", "wrap at what internal" and
+  "split every how often" join the chance-constrained plan. Optionally a
+  small salt-dependent denaturation-temperature shift.
 - **M2 — 2-D axisymmetric slab** (gated on thermal-camera surface fields
   to calibrate it — C2). Feeds bark distribution / burnt ends, the
   point-vs-flat split (two muscles of different fat and thickness) and
