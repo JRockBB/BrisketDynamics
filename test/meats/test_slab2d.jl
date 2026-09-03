@@ -43,6 +43,44 @@
     @test fin.w_retained < 1.0
     @test all(isfinite, fin.T_field) && all(isfinite, fin.W_field)
 
+    # the layers above the core, each exactly inert at its default:
+    # wrap on every face, grain anisotropy in-plane, point-over-flat
+    fin2 = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                         R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0)
+    @test fin2.Tcore == fin.Tcore  # kwargs defaulted = same solve
+
+    wrapped = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                            R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                            t_wrap=1.5hr)
+    @test wrapped.w_retained > fin.w_retained + 0.02
+
+    grain = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                          R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                          k_grain=1.3)
+    @test grain.Tcore[mid] > fin.Tcore[mid] + 0.1  # in-plane conduction up
+
+    # a uniform cut is z-symmetric to roundoff; a fattier point muscle
+    # above z_split breaks the symmetry (fat insulates and carries less
+    # water) and the whole cut retains differently
+    isym = maximum(abs.(fin.T_field[1, 3, :] .- fin.T_field[1, 18, :]))
+    @test isym < 1e-9
+    pf = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                       R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                       F_top=0.45, z_split=0.5)
+    asym = maximum(abs.(pf.T_field[1, 3, :] .- pf.T_field[1, 18, :]))
+    @test asym > 0.05
+    @test pf.w_retained != fin.w_retained
+
+    # quality fields ride along: collagen at the wide cylinder's axis
+    # matches the 1-D center kinetics; bark grows on the faces and the
+    # wrap suppresses it (cooler, wetter surface); the cold spot is a
+    # real grid minimum below the axis temperature
+    @test maximum(abs.(wide.C_core .- slab.C_field[1, :])) < 0.02
+    @test 0 < fin.bark_mean < 1 && fin.bark_std > 0
+    @test wrapped.bark_mean < fin.bark_mean
+    @test all(fin.Tcold .<= fin.Tcore .+ 1e-9)
+    @test 0 <= fin.C_min <= minimum(fin.C_field[:, :, end])
+
     # differentiable: ForwardDiff through the ADI sweeps matches FD
     f(km) = meat_solve_2d([θ[1], km, θ[3], θ[5], θ[6], θ[7]], Tpit, tknots,
                           tknots; R=R, Hz=0.06, nr=12, nz=10, cfg=cfg0,

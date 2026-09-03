@@ -27,10 +27,23 @@ Axisymmetric finite-cylinder cook: radius `R`, full height `Hz`,
 `nr × nz` nodes (i = 1 on the axis; j = 1 and j = nz are the exposed end
 faces). `θ2 = [D_eff, k_m, h_c, k_mult, k_e, a_myosin]`. Fixed step `h`
 [s]; the pit forcing interpolates from `Tpit_knots` on `tknots`; save
-times `tsave` must start at the cook start. Returns
-`(t, Tcore, T_field, W_field, w_retained)` — Tcore at the axis
-mid-height, fields `nr × nz × nt`, `w_retained` the volume-weighted
-retained-water fraction at the end.
+times `tsave` must start at the cook start.
+
+Layer options (all exactly inert at their defaults): `t_wrap` applies
+the 1-D wrap blend to every exposed face; `k_grain` / `D_grain` scale
+in-plane (along-fiber) conduction and moisture diffusion — the z
+(through-thickness) direction keeps the 1-D-calibrated values;
+`F_top` + `z_split` stack a second muscle of fat fraction `F_top` above
+`z_split`·Hz (the point over the flat, a smooth step).
+
+Returns `(t, Tcore, T_field, W_field, w_retained, C_field, C_core,
+C_min, Tcold, bark_rim, bark_ends, bark_mean, bark_std)` — Tcore at the
+axis mid-height, fields `nr × nz × nt`, `w_retained` the volume-weighted
+retained-water fraction, collagen conversion per cell (`C_min` = the
+last-done spot at serve), `Tcold` the true cold-spot trace (grid
+minimum — the safety margin no symmetric 1-D core can show), and the
+Maillard bark DISTRIBUTION over the exposed faces (area-weighted mean
+and spread — burnt-ends live in the tail).
 """
 function meat_solve_2d(
     θ2::AbstractVector,
@@ -43,6 +56,11 @@ function meat_solve_2d(
     nz::Int=20,
     cfg::MeatConfig=MeatConfig(),
     h::Real=30.0,
+    t_wrap::Real=WRAP_NEVER,
+    k_grain::Real=1.0,
+    D_grain::Real=1.0,
+    F_top::Real=NaN,
+    z_split::Real=1.0,
 )
     D_eff, k_m, h_c, k_mult, k_e, a_myosin = θ2
     Tv = promote_type(eltype(θ2), Float64)
@@ -51,8 +69,22 @@ function meat_solve_2d(
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
     t0 = float(tsave[1])
 
+    # point-vs-flat as stacked muscles: fat fraction F(z) steps smoothly
+    # from cfg.F0 (flat) to F_top (point) at z_split·Hz (NaN F_top or
+    # z_split >= 1 leaves the uniform cut exactly)
+    Ftop = isnan(F_top) ? Tv(cfg.F0) : Tv(F_top)
+    δ_split = Hz / 12
+    Fz = [Tv(cfg.F0) + (Ftop - Tv(cfg.F0)) *
+          logistic(((j - 1) * Δz - z_split * Hz) / δ_split) for j in 1:nz]
+
     T = fill(Tv(cfg.T0), nr, nz)
     W = fill(Tv(cfg.W0), nr, nz)
+    # quality states ride along explicitly (they never feed back into
+    # the transport, exactly like the 1-D model): collagen conversion
+    # per cell, Maillard browning per exposed face cell
+    Cmat = zeros(Tv, nr, nz)
+    B_rim = zeros(Tv, nz)
+    B_end = zeros(Tv, nr, 2)
     kmat = zeros(Tv, nr, nz)
     ρcmat = zeros(Tv, nr, nz)
     nmax = max(nr, nz)
@@ -73,6 +105,8 @@ function meat_solve_2d(
     save_at = [round(Int, (float(ts) - t0) / h) for ts in tsave]
     Tout = zeros(Tv, nr, nz, length(tsave))
     Wout = zeros(Tv, nr, nz, length(tsave))
+    Cout = zeros(Tv, nr, nz, length(tsave))
+    Tcold = fill(Tv(cfg.T0), length(tsave))
     isave = 1
     while isave <= length(save_at) && save_at[isave] <= 0
         Tout[:, :, isave] .= T
@@ -81,11 +115,18 @@ function meat_solve_2d(
     end
 
     for n in 1:nt_steps
-        Tpit = lininterp(t0 + (n - 1) * h, tk0, tkdt, Tpit_knots)
+        t_now = t0 + (n - 1) * h
+        Tpit = lininterp(t_now, tk0, tkdt, Tpit_knots)
+        # the wrap is the same smooth time blend as the 1-D model: it
+        # damps face evaporation by (1 - η_evap·s), convection by
+        # (1 - η_h·s) and blends the emissivity toward ε_wrap
+        sw = wrap_blend(t_now, t_wrap, cfg)
+        km_w = (1 - cfg.η_evap * sw) * k_m
+        hc_w = h_c * (1 - cfg.η_h * sw)
         for j in 1:nz, i in 1:nr
-            v = specific_volume(W[i, j], cfg.F0, cfg)
-            kmat[i, j] = k_mult * conductivity_mix(W[i, j], cfg.F0, T[i, j], v, cfg)
-            ρcmat[i, j] = heat_capacity_dry(W[i, j], cfg.F0, T[i, j], cfg) / v
+            v = specific_volume(W[i, j], Fz[j], cfg)
+            kmat[i, j] = k_mult * conductivity_mix(W[i, j], Fz[j], T[i, j], v, cfg)
+            ρcmat[i, j] = heat_capacity_dry(W[i, j], Fz[j], T[i, j], cfg) / v
         end
 
         # explicit: purge everywhere, evaporative WATER loss on the
@@ -96,6 +137,16 @@ function meat_solve_2d(
         # end faces before this was made implicit)
         for j in 1:nz, i in 1:nr
             W[i, j] -= h * expulsion_rate(W[i, j], T[i, j], k_e, a_myosin, cfg)
+            Cmat[i, j] += h * collagen_rate(T[i, j], cfg) * (1 - Cmat[i, j])
+        end
+        for j in 1:nz
+            B_rim[j] += h * bark_rate(T[nr, j], a_w_oswin(W[nr, j], cfg), cfg) *
+                        (1 - B_rim[j])
+        end
+        for i in 1:nr, (kz, jz) in enumerate((1, nz))
+            B_end[i, kz] += h *
+                            bark_rate(T[i, jz], a_w_oswin(W[i, jz], cfg), cfg) *
+                            (1 - B_end[i, kz])
         end
         # face evaporation is linearized-implicit: an explicit update
         # overshoots the a_w equilibrium once the face dries out, the
@@ -107,15 +158,15 @@ function meat_solve_2d(
         δW = Tv(1e-3)
         for j in 1:nz
             C = RHO_DRY * Δr / 2
-            j0 = evap_flux(T[nr, j], W[nr, j], k_m, cfg)
-            s = (evap_flux(T[nr, j], W[nr, j] + δW, k_m, cfg) - j0) / δW
+            j0 = evap_flux(T[nr, j], W[nr, j], km_w, cfg)
+            s = (evap_flux(T[nr, j], W[nr, j] + δW, km_w, cfg) - j0) / δW
             jr_face[j] = j0 / (1 + h * max(s, zero(Tv)) / C)
             W[nr, j] -= h * jr_face[j] / C
         end
         for i in 1:nr, (kz, jz) in enumerate((1, nz))
             C = RHO_DRY * Δz / 2
-            j0 = evap_flux(T[i, jz], W[i, jz], k_m, cfg)
-            s = (evap_flux(T[i, jz], W[i, jz] + δW, k_m, cfg) - j0) / δW
+            j0 = evap_flux(T[i, jz], W[i, jz], km_w, cfg)
+            s = (evap_flux(T[i, jz], W[i, jz] + δW, km_w, cfg) - j0) / δW
             jz_face[i, kz] = j0 / (1 + h * max(s, zero(Tv)) / C)
             W[i, jz] -= h * jz_face[i, kz] / C
         end
@@ -123,28 +174,30 @@ function meat_solve_2d(
         # implicit radial sweeps (each z-row): T with k/ρc, W with D_eff
         for j in 1:nz
             for i in 1:nr
+                # k_grain scales in-plane (along-fiber) conduction; the z
+                # direction is through-thickness, matching the 1-D values
                 lo = i > 1 ?
-                     (kmat[i - 1, j] + kmat[i, j]) / 2 * rF[i - 1] /
+                     k_grain * (kmat[i - 1, j] + kmat[i, j]) / 2 * rF[i - 1] /
                      (Δr * rV[i] * ρcmat[i, j]) : zero(Tv)
                 up = i < nr ?
-                     (kmat[i, j] + kmat[i + 1, j]) / 2 * rF[i] /
+                     k_grain * (kmat[i, j] + kmat[i + 1, j]) / 2 * rF[i] /
                      (Δr * rV[i] * ρcmat[i, j]) : zero(Tv)
                 aa[i] = -h * lo
                 cc[i] = -h * up
                 bb[i] = 1 + h * (lo + up)
                 dd[i] = T[i, j]
             end
-            βr = h_c / (ρcmat[nr, j] * Δr / 2)
-            qx = (surface_heat_in(Tpit, T[nr, j], h_c, cfg) -
-                  h_c * (Tpit - T[nr, j]) -
+            βr = hc_w / (ρcmat[nr, j] * Δr / 2)
+            qx = (surface_heat_in_wrapped(Tpit, T[nr, j], h_c, sw, cfg) -
+                  hc_w * (Tpit - T[nr, j]) -
                   cfg.λ_vap * jr_face[j]) /
                  (ρcmat[nr, j] * Δr / 2)
             bb[nr] += h * βr
             dd[nr] += h * (βr * Tpit + qx)
             _thomas_row!(T, aa, bb, cc, dd, nr, j)
             for i in 1:nr
-                lo = i > 1 ? D_eff * rF[i - 1] / (Δr * rV[i]) : zero(Tv)
-                up = i < nr ? D_eff * rF[i] / (Δr * rV[i]) : zero(Tv)
+                lo = i > 1 ? D_grain * D_eff * rF[i - 1] / (Δr * rV[i]) : zero(Tv)
+                up = i < nr ? D_grain * D_eff * rF[i] / (Δr * rV[i]) : zero(Tv)
                 aa[i] = -h * lo
                 cc[i] = -h * up
                 bb[i] = 1 + h * (lo + up)
@@ -168,9 +221,9 @@ function meat_solve_2d(
                 dd[j] = T[i, j]
             end
             for (kz, jz) in enumerate((1, nz))
-                βz = h_c / (ρcmat[i, jz] * Δz / 2)
-                qx = (surface_heat_in(Tpit, T[i, jz], h_c, cfg) -
-                      h_c * (Tpit - T[i, jz]) -
+                βz = hc_w / (ρcmat[i, jz] * Δz / 2)
+                qx = (surface_heat_in_wrapped(Tpit, T[i, jz], h_c, sw, cfg) -
+                      hc_w * (Tpit - T[i, jz]) -
                       cfg.λ_vap * jz_face[i, kz]) /
                      (ρcmat[i, jz] * Δz / 2)
                 bb[jz] += h * βz
@@ -192,18 +245,38 @@ function meat_solve_2d(
         while isave <= length(save_at) && save_at[isave] <= n
             Tout[:, :, isave] .= T
             Wout[:, :, isave] .= W
+            Cout[:, :, isave] .= Cmat
+            Tcold[isave] = minimum(T)
             isave += 1
         end
     end
-    vol = rV * ones(Tv, nz)'  # (nr, nz) volume weights (Δz uniform)
+    zw = [j == 1 || j == nz ? Tv(0.5) : Tv(1.0) for j in 1:nz]
+    vol = rV * zw'  # (nr, nz) volume weights (z ends are half cells)
     wret = sum(vol .* W) / (sum(vol) * cfg.W0)
     jm = div(nz, 2) + 1
+    # exposed-area weights for the bark distribution: rim strips R·Δz
+    # (half at the corners), end annuli rV
+    w_rim = [R * Δz * zw[j] for j in 1:nz]
+    aw_sum = sum(w_rim) + 2 * sum(rV)
+    b_sum = sum(w_rim .* B_rim) + sum(rV .* B_end[:, 1]) + sum(rV .* B_end[:, 2])
+    b2_sum = sum(w_rim .* B_rim .^ 2) + sum(rV .* B_end[:, 1] .^ 2) +
+             sum(rV .* B_end[:, 2] .^ 2)
+    b_mean = b_sum / aw_sum
+    b_var = max(b2_sum / aw_sum - b_mean^2, zero(Tv))
     return (
         t=collect(float.(tsave)),
         Tcore=Tout[1, jm, :],
         T_field=Tout,
         W_field=Wout,
         w_retained=wret,
+        C_field=Cout,
+        C_core=Cout[1, jm, :],
+        C_min=minimum(Cmat),
+        Tcold=Tcold,
+        bark_rim=B_rim,
+        bark_ends=B_end,
+        bark_mean=b_mean,
+        bark_std=sqrt(b_var),
     )
 end
 
