@@ -680,8 +680,15 @@ the semi-infinite constant-surface-concentration solution
 `S_surf·erfc(d/(2√(D_salt·t_salt)))` at depth `d = L(1 − ξ̂)` from the
 surface face. `t_salt ≤ 0` returns exact zeros (unsalted).
 """
+_primal(x) = x isa ForwardDiff.Dual ? _primal(ForwardDiff.value(x)) : x
+
 function salt_profile(L, cfg::MeatConfig, t_salt=cfg.t_salt)
-    t_salt <= 0 && return zeros(typeof(float(t_salt)), cfg.nx)
+    # branch on the PRIMAL value: ForwardDiff compares eps-aware, so a
+    # Dual seeded exactly at the unsalted sentinel (Dual(0,1) <= 0 is
+    # false -- 0+eps > 0) would fall into the sqrt(t) singularity and
+    # return NaN partials, killing the whole Dual solve; the disabled
+    # column must be exact zeros instead
+    _primal(t_salt) <= 0 && return zeros(typeof(float(t_salt)), cfg.nx)
     pen = 2 * sqrt(cfg.D_salt * t_salt)
     return [
         cfg.S_surf * erfc_smooth(L * (1 - (i - 1) / (cfg.nx - 1)) / pen) for

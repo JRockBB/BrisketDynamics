@@ -99,6 +99,72 @@ end
     @test abs(J[end - 1, 5]) > 0  # juiciness at serve moves with the pull
 end
 
+@testset "monolith: planner-exposed decisions (t_salt, wrap trigger, split interval)" begin
+    using BrisketDynamics: monolith_stack, monolith_stack_jacobian
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    hr = 3600.0
+    base = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
+    # defaults exactly inert: Inf trigger / config dt_add / zero salt
+    same = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
+                          T_wrap_trigger=Inf, dt_add=Inf, t_salt=0.0)
+    @test same.Tcore == base.Tcore && same.w_retained == base.w_retained
+
+    # the trigger fires the latch in the MONOLITH: wrap engages near the
+    # crossing and the surface stops drying against the never-wrapped run
+    trig = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
+                          T_wrap_trigger=330.0)
+    @test trig.w_retained > base.w_retained + 0.005
+
+    # a finite split interval feeds the fire repeatedly
+    splits = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
+                            t_add=2hr, dt_add=1.5hr)
+    single = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
+                            t_add=2hr)
+    @test splits.m_fuel[end] > single.m_fuel[end] + 2 * MONO_PIT.m_chimney
+
+    # dry-brine hours pull water retention up through the WHC coupling
+    salted = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
+                            t_salt=12hr)
+    @test salted.w_retained > base.w_retained
+
+    # the three new stack columns agree with finite differences
+    nu = length(MONO_U)
+    b = 15 + nu
+    sel = [b + 7, b + 8, b + 9]  # t_salt, T_wrap_trigger, dt_add
+    kw = (; pit=MONO_PIT)
+    args = (θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, 1.0e9, 1.0e9, 2hr, 1.0e9, 1800.0, 0.05)
+    J = monolith_stack_jacobian(args..., sel;
+                                t_salt=12hr, T_wrap_trigger=330.0, dt_add=1.5hr, kw...)
+    @test all(isfinite, J)
+    # t_salt's temperature derivative is ~1e-15 K/s (noise floor for a
+    # central difference through the adaptive solver) — its live signal
+    # is water retention, so that column is checked on w_retained only
+    nrow = 0
+    for (k, name, hstep, tol) in
+        ((1, :t_salt, 1800.0, 0.05), (2, :T_wrap_trigger, 0.25, 0.10),
+         (3, :dt_add, 60.0, 0.10))
+        f = x -> monolith_stack(monolith_solve(args[1:5]...; t_add=2hr,
+                                               dt_spritz=1800.0, m_spritz=0.05,
+                                               t_salt=(name == :t_salt ? x : 12hr),
+                                               T_wrap_trigger=(name == :T_wrap_trigger ? x : 330.0),
+                                               dt_add=(name == :dt_add ? x : 1.5hr), kw...))
+        x0 = name == :t_salt ? 12hr : (name == :T_wrap_trigger ? 330.0 : 1.5hr)
+        fd = (f(x0 + hstep) .- f(x0 - hstep)) ./ (2hstep)
+        nrow = length(fd)
+        rows = name == :t_salt ? [nrow - 2] : collect(1:nrow)  # w_retained
+        scale = maximum(abs.(fd[rows])) + 1e-12
+        @test maximum(abs.(J[rows, k] .- fd[rows])) / scale < tol
+        @test maximum(abs.(fd[rows])) > 0  # the column is live
+    end
+
+    # disabled sentinels seeded by the planner's VJP sweep: exact-zero
+    # columns (the eps-aware Dual comparison once sent t_salt = 0 into
+    # the sqrt(t) brine singularity and killed the whole Dual solve)
+    J0 = monolith_stack_jacobian(args..., sel;
+                                 t_salt=0.0, T_wrap_trigger=Inf, dt_add=Inf, kw...)
+    @test all(iszero, J0)
+end
+
 @testset "monolith: fuel addition, spritz policy and multi-meat load" begin
     θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
     hr = 3600.0

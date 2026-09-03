@@ -126,17 +126,23 @@ end
 const ADD_NEVER = 1.0e9
 
 """
+    fuel_add_rate(t, t_add, dt_add, cfg::PitConfig)
     fuel_add_rate(t, t_add, cfg::PitConfig)
 
 Mass rate of a mid-cook fuel addition [kg/s]: one chimney `cfg.m_chimney`
 dumped over `cfg.τ_add` as a smooth unit-area pulse (a logistic derivative)
-centred at `t_add`; `t_add = ADD_NEVER` is exactly zero everywhere.
+centred at `t_add`; `t_add = ADD_NEVER` is exactly zero everywhere. A
+finite `dt_add` turns it into a wood-split pulse train (one split every
+`dt_add` from `t_add`); the two-argument form reads `cfg.dt_add`. The
+split interval may carry Duals — the monolith exposes it as a
+differentiable input.
 """
-function fuel_add_rate(t, t_add, cfg::PitConfig)
-    tc = isfinite(cfg.dt_add) ? spritz_pulse_time(t, t_add, cfg.dt_add) : t_add
+function fuel_add_rate(t, t_add, dt_add, cfg::PitConfig)
+    tc = isfinite(dt_add) ? spritz_pulse_time(t, t_add, dt_add) : t_add
     s = logistic((t - tc) / cfg.τ_add)
     return cfg.m_chimney * s * (1 - s) / cfg.τ_add
 end
+fuel_add_rate(t, t_add, cfg::PitConfig) = fuel_add_rate(t, t_add, cfg.dt_add, cfg)
 
 # φ = [C_th, UA, r_max, ΔH_eff, u_leak, k_spread, a0]
 const PIT_NP = 7

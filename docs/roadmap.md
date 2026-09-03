@@ -8,14 +8,6 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
 
 ## Modeling goals
 
-- **M1 — Planner exposure of the new decision variables.** t_salt is
-  differentiable through every Julia solve, the wrap-trigger latch
-  carries d/d(T_trig), and the split interval dt_add is config
-  (`docs/results.md`); what remains is exposure: one optional Tesseract
-  input each (the t_f pattern) plus their z-parameters in
-  optimize_schedule, so "when to salt", "wrap at what internal" and
-  "split every how often" join the chance-constrained plan. Optionally a
-  small salt-dependent denaturation-temperature shift.
 - **M2 — 2-D slab, the layers above the core.** The axisymmetric
   heat-moisture core is in and limit-verified (`meat_solve_2d`,
   `docs/results.md`); what remains: couple it to the pit (it runs on a
@@ -135,8 +127,9 @@ and which goal above closes it.
   dependence on the fire, constants at literature scale with no ring
   measurement behind them. An output, never a term in the objective. (C6)
 - **Fuel addition.** Lit chimneys or wood-split pulse trains of fixed
-  mass; unlit additions are not modelled, and split timing is config,
-  not a decision variable. (C1; the split interval joins the planner via M1)
+  mass; unlit additions are not modelled. The addition time (opt_add)
+  and split interval (opt_splits) are planner decisions; the per-split
+  mass is config. (C1)
 - **Lid lifts.** A lumped-mass energy loss per lift (\(UA_{\mathrm{open}}\)
   from convective exchange + bed radiation — an estimate, not a
   measurement); a dome probe's one-minute transient is not something a

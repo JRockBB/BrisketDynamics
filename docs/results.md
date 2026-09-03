@@ -399,6 +399,50 @@ Tesseract input plus a z-parameter in optimize_schedule — the same
 pattern as t_f — shared with the wrap trigger T_trig and the wood-split
 interval dt_add.
 
+## Planner exposure of t_salt / T_trig / dt_add (2026-09-04, M1 complete)
+
+The three decision variables the physics already carried are now
+first-class through the whole chain, the t_f pattern end to end:
+
+- **Julia**: the monolith p-tail grew to 8 entries (`T_wrap_trigger`,
+  `dt_add`); `fuel_add_rate` takes the split interval as a parameter (so
+  it can carry Duals); `monolith_solve`/`monolith_solve_tf` take
+  `t_salt` / `T_wrap_trigger` / `dt_add` (`frac_dt_add` in duration
+  mode — a fraction of the cook like `dt_spritz`; `t_salt` stays seconds
+  in both modes, salting happens before the cook) and the stack
+  jacobian/jvp carry three more columns. The wrap latch now actually
+  fires inside the monolith (it existed as a state; the trigger never
+  reached the RHS before).
+- **Tesseract**: `t_salt` / `t_trig` / `dt_add` optional differentiable
+  scalar inputs, 0 = off; disabled sentinels map to the exactly-inert
+  values (Inf trigger/interval) whose derivative columns are exactly
+  zero through the smooth blends — no special-casing needed beyond the
+  seconds-mode t_f zero column.
+- **Planner**: `opt_salt` / `opt_trig` / `opt_splits` flags with bounded
+  sigmoid maps (48 h brine cap; 335–372 K trigger; 0.5–4 h splits) join
+  `optimize_schedule` and `optimize_schedule_expected`; the objective
+  prices a wood-split pulse train correctly (one m_chimney per split
+  counted by its own before-the-pull gate). All three default OFF: the
+  salt decision has no saltiness counterweight in the objective yet, so
+  enabling `opt_salt` pins the brine at its bound — the spritz lesson;
+  it gets a taste band when the salt constants are calibrated (C5).
+
+Verified: defaults bit-identical to the old monolith; trigger-wrap
+retains +0.12 water on the 8 h fixture; the split train adds 3+
+chimneys of fuel mass; the three Jacobian columns match finite
+differences (each on the output it actually drives — t_salt's
+temperature derivative is ~1e-15 K/s, below FD noise, its signal is
+`w_retained`; `dt_add` moves `m_fuel`, not the 2 h fixture's core) and
+jvp matches jacobian in both time modes. Julia 305/305, app 73/73.
+
+One Dual lesson worth keeping: ForwardDiff compares eps-aware —
+`Dual(0,1) <= 0` is FALSE (0+eps > 0) — so a derivative seeded exactly
+at the unsalted sentinel skipped `salt_profile`'s early return, fell
+into the sqrt(t) brine singularity, and returned NaN partials that
+killed the whole Dual solve (the planner's VJP sweeps every
+differentiable input, sentinels included). Sentinel branches guarding a
+singular limit must compare the PRIMAL value.
+
 ## 2-D axisymmetric core (2026-09-04, M2 solver half)
 
 `src/meats/slab2d.jl`: `meat_solve_2d(θ2, ...)` — temperature and

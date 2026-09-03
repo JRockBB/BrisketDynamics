@@ -104,6 +104,8 @@ function make_monolith_rhs(
         t_spritz = p[MONO_NP + nu + 4]
         dt_spritz = p[MONO_NP + nu + 5]
         m_spritz = p[MONO_NP + nu + 6]
+        T_trig = p[MONO_NP + nu + 7]
+        dt_add = p[MONO_NP + nu + 8]
 
         Tp, m, a = x[nm + 1], x[nm + 2], x[nm + 3]
         mp, Tpan = x[nm + 4], x[nm + 5]
@@ -117,10 +119,10 @@ function make_monolith_rhs(
         dum = @view dx[1:nm]
         q_meat = meat_rhs_core!(
             dum, um, t, θ, Tp, ṁ, pv_base, 1 / mair, airflow, t_wrap, t_pull, t_spritz,
-            dt_spritz, m_spritz, cfg, n_s, n_a, v0, wb,
+            dt_spritz, m_spritz, cfg, n_s, n_a, v0, wb, T_trig,
         )
         a_c = clamp(a, zero(a), one(a))
-        ṁ_add = fuel_add_rate(t, t_add, pit)
+        ṁ_add = fuel_add_rate(t, t_add, dt_add, pit)
         # the lid comes off to dump the chimney and for every spritz while the
         # policy runs (in the pit, unwrapped)
         lid = lid_open(t, t_add, pit.τ_open_add) +
@@ -371,6 +373,8 @@ function monolith_solve(
     S0::Real=NaN,
     R0::Real=NaN,
     t_salt::Real=NaN,
+    T_wrap_trigger::Real=Inf,
+    dt_add::Real=NaN,
     abstol=1e-6,
     reltol=1e-6,
 )
@@ -384,14 +388,15 @@ function monolith_solve(
         ),
     )
     msp = isnan(m_spritz) ? cfg.m_spritz : float(m_spritz)
+    dta = isnan(dt_add) ? pit.dt_add : float(dt_add)
     p = vcat(
         θ, φ, u_knots, float(t_wrap), float(t_pull), float(t_add), float(t_spritz),
-        float(dt_spritz), msp,
+        float(dt_spritz), msp, float(T_wrap_trigger), dta,
     )
     any(isnan, p) && throw(
         ArgumentError(
             "monolith solve got NaN inputs at indices $(findall(isnan, p)) of p " *
-            "(θ|φ|u|t_wrap|t_pull|t_add|t_spritz|dt_spritz|m_spritz)",
+            "(θ|φ|u|t_wrap|t_pull|t_add|t_spritz|dt_spritz|m_spritz|T_trig|dt_add)",
         ),
     )
     nu = length(u_knots)
@@ -445,22 +450,27 @@ end
                    t_spritz, dt_spritz, m_spritz; kw...)
 
 `(g, v0)`: the stacked outputs as a function of the full input vector
-`v = [θ; φ; u_knots; t_wrap; t_pull]`, and the vector's value.
+`v = [θ; φ; u_knots; t_wrap; t_pull; t_add; t_spritz; dt_spritz; m_spritz;
+t_salt; T_wrap_trigger; dt_add]`, and the vector's value. The last three
+ride as keyword arguments (NaN t_salt / dt_add fall back to the configs;
+Inf trigger and interval are exactly inert).
 """
 function _mono_stack_fn(
     θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz, m_spritz;
-    kw...,
+    t_salt::Real=NaN, T_wrap_trigger::Real=Inf, dt_add::Real=NaN, kw...,
 )
     nθ, nφ, nu = length(θ), length(φ), length(u_knots)
     v0 = vcat(
         float.(θ), float.(φ), float.(u_knots), float(t_wrap), float(t_pull), float(t_add),
-        float(t_spritz), float(dt_spritz), float(m_spritz),
+        float(t_spritz), float(dt_spritz), float(m_spritz), float(t_salt),
+        float(T_wrap_trigger), float(dt_add),
     )
     g(v) = monolith_stack(
         monolith_solve(
             v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)], u_tknots,
-            tsave; t_wrap=v[end - 5], t_pull=v[end - 4], t_add=v[end - 3],
-            t_spritz=v[end - 2], dt_spritz=v[end - 1], m_spritz=v[end], kw...,
+            tsave; t_wrap=v[end - 8], t_pull=v[end - 7], t_add=v[end - 6],
+            t_spritz=v[end - 5], dt_spritz=v[end - 4], m_spritz=v[end - 3],
+            t_salt=v[end - 2], T_wrap_trigger=v[end - 1], dt_add=v[end], kw...,
         ),
     )
     return g, v0
@@ -471,7 +481,8 @@ end
                             t_spritz, dt_spritz, m_spritz, sel; kw...)
 
 Forward-mode Jacobian of [`monolith_stack`](@ref) w.r.t. the entries `sel`
-(1-based indices into `[θ; φ; u_knots; t_wrap; t_pull]`): one chunked
+(1-based indices into `[θ; φ; u_knots; t_wrap; …; dt_add]` — the
+`_mono_stack_fn` layout): one chunked
 ForwardDiff pass per ~12 selected inputs. Keyword arguments go to
 [`monolith_solve`](@ref).
 """
@@ -508,6 +519,8 @@ function monolith_stack_jvp(
         m_spritz; kw...,
     )
     dv = collect(Float64, dv)
+    # a shorter tangent is zero-extended over the trailing inputs
+    length(dv) < length(v0) && (dv = vcat(dv, zeros(length(v0) - length(dv))))
     return ForwardDiff.derivative(t -> g(v0 .+ t .* dv), 0.0)
 end
 
@@ -610,6 +623,8 @@ function monolith_solve_tf(
     S0::Real=NaN,
     R0::Real=NaN,
     t_salt::Real=NaN,
+    T_wrap_trigger::Real=Inf,
+    frac_dt_add::Real=NaN,
     abstol=1e-6,
     reltol=1e-6,
 )
@@ -625,9 +640,15 @@ function monolith_solve_tf(
     value_of(x) = x isa ForwardDiff.Dual ? ForwardDiff.value(x) : x
     value_of(t_f) > 0 || throw(ArgumentError("t_f must be positive; got $t_f"))
     msp = isnan(value_of(m_spritz)) ? cfg.m_spritz : m_spritz
+    # the split interval is a fraction of the cook like dt_spritz; NaN
+    # reads the config (seconds, NOT scaled), Inf = single addition
+    dta = isnan(value_of(frac_dt_add)) ? oftype(float(t_f), pit.dt_add) :
+          (isfinite(value_of(frac_dt_add)) ? frac_dt_add * t_f :
+           oftype(float(t_f), Inf))
     p = vcat(
         float.(θ), float.(φ), float.(u_knots), frac_wrap * t_f, frac_pull * t_f,
         frac_add * t_f, frac_spritz * t_f, frac_dt_spritz * t_f, float(msp),
+        float(T_wrap_trigger), dta,
     )
     any(x -> isnan(value_of(x)), p) && throw(
         ArgumentError("monolith_solve_tf got NaN inputs in p"),
@@ -648,24 +669,27 @@ end
 
 `(g, v0)`: the stacked outputs as a function of
 `v = [θ; φ; u_knots; t_f; frac_wrap; frac_pull; frac_add; frac_spritz;
-frac_dt_spritz; m_spritz]`, and that vector's value.
+frac_dt_spritz; m_spritz; t_salt; T_wrap_trigger; frac_dt_add]`, and that
+vector's value.
 """
 function _mono_stack_fn_tf(
     θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull, frac_add, frac_spritz,
-    frac_dt_spritz, m_spritz; kw...,
+    frac_dt_spritz, m_spritz;
+    t_salt::Real=NaN, T_wrap_trigger::Real=Inf, frac_dt_add::Real=NaN, kw...,
 )
     nθ, nφ, nu = length(θ), length(φ), length(u_knots)
     v0 = vcat(
         float.(θ), float.(φ), float.(u_knots), float(t_f), float(frac_wrap),
         float(frac_pull), float(frac_add), float(frac_spritz), float(frac_dt_spritz),
-        float(m_spritz),
+        float(m_spritz), float(t_salt), float(T_wrap_trigger), float(frac_dt_add),
     )
     g(v) = monolith_stack(
         monolith_solve_tf(
             v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)],
-            v[end - 6], s_u, s_save; frac_wrap=v[end - 5], frac_pull=v[end - 4],
-            frac_add=v[end - 3], frac_spritz=v[end - 2], frac_dt_spritz=v[end - 1],
-            m_spritz=v[end], kw...,
+            v[end - 9], s_u, s_save; frac_wrap=v[end - 8], frac_pull=v[end - 7],
+            frac_add=v[end - 6], frac_spritz=v[end - 5], frac_dt_spritz=v[end - 4],
+            m_spritz=v[end - 3], t_salt=v[end - 2], T_wrap_trigger=v[end - 1],
+            frac_dt_add=v[end], kw...,
         ),
     )
     return g, v0
@@ -713,6 +737,7 @@ function monolith_stack_jvp_tf(
         frac_dt_spritz, m_spritz; kw...,
     )
     dv = collect(Float64, dv)
+    length(dv) < length(v0) && (dv = vcat(dv, zeros(length(v0) - length(dv))))
     return ForwardDiff.derivative(t -> g(v0 .+ t .* dv), 0.0)
 end
 

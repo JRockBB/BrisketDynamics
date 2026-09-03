@@ -33,6 +33,10 @@ ADD_Z_INIT = 2.2
 SPRITZ_Z_INIT = 2.2
 SPRITZ_DT_Z_INIT = 0.0
 SPRITZ_DOSE_Z_INIT = 0.0
+# salting / wrap-trigger / wood-split decisions start mid-range
+SALT_Z_INIT = 0.0
+TRIG_Z_INIT = 0.0
+SPLIT_Z_INIT = 0.0
 TAU_ADD_S = 300.0  # PitConfig.τ_add: the chimney dump duration
 
 
@@ -137,6 +141,18 @@ class ControlConfig:
     dt_spritz_max: float = 7200.0
     m_spritz_min: float = 0.02  # [kg/m²] spritz dose bounds (a light to a heavy spray)
     m_spritz_max: float = 0.10
+    # the M1 planner decisions (all OFF by default; the salt decision has
+    # no saltiness counterweight in the objective yet -- enabling opt_salt
+    # pins t_salt at its bound, the spritz lesson all over again)
+    opt_salt: bool = False  # optimize the dry-brine time t_salt
+    t_salt_max: float = 48 * 3600.0  # [s] dry-brine bound (two days)
+    opt_trig: bool = False  # optimize the wrap-trigger core temperature
+    t_trig_min: float = 335.0  # [K] wrap-trigger bounds (~62-99 C core)
+    t_trig_max: float = 372.0
+    opt_splits: bool = False  # optimize the wood-split interval dt_add
+    dt_add_min: float = 1800.0  # [s] split-interval bounds
+    dt_add_max: float = 4 * 3600.0
+    n_split_cap: int = 24  # pulse-train pricing terms (covers t_end/dt_add_min)
     lr: float = 0.05
     n_iter: int = 200  # iteration CAP; convergence stop below usually binds
     # plateau stop: quit when the best loss has not improved by more than
@@ -241,6 +257,12 @@ def objective(
     t_spritz_override: float | None = None,
     spritz_dose: float = 0.05,
     z_m=None,
+    t_salt: float = 0.0,
+    z_ts=None,
+    t_trig: float = 0.0,
+    z_tg=None,
+    dt_add: float = 0.0,
+    z_da=None,
 ):
     """Scalar quality objective of one simulated cook (lower is better).
 
@@ -341,6 +363,20 @@ def objective(
         )
     elif z_m is not None:
         spritz_dose = spritz_dose + 0.0 * z_m
+    # the M1 decisions: dry-brine time, wrap-trigger core temperature and
+    # wood-split interval -- bounded sigmoid maps like the spritz interval
+    if cc.opt_salt and z_ts is not None:
+        t_salt = cc.t_salt_max * jax.nn.sigmoid(z_ts)
+    elif z_ts is not None:
+        t_salt = t_salt + 0.0 * z_ts
+    if cc.opt_trig and z_tg is not None:
+        t_trig = cc.t_trig_min + (cc.t_trig_max - cc.t_trig_min) * jax.nn.sigmoid(z_tg)
+    elif z_tg is not None:
+        t_trig = t_trig + 0.0 * z_tg
+    if cc.opt_splits and z_da is not None:
+        dt_add = cc.dt_add_min + (cc.dt_add_max - cc.dt_add_min) * jax.nn.sigmoid(z_da)
+    elif z_da is not None:
+        dt_add = dt_add + 0.0 * z_da
     sim = coupled_cook(
         theta,
         phi,
@@ -355,6 +391,9 @@ def objective(
         t_spritz=t_spritz,
         dt_spritz=dt_spritz,
         spritz_dose=spritz_dose,
+        t_salt=t_salt,
+        t_trig=t_trig,
+        dt_add=dt_add,
         **tols,
     )
 
@@ -365,6 +404,7 @@ def objective(
         t_pull,
         t_add,
         cc,
+        dt_add=dt_add,
         leth_banked=leth_banked,
         danger_banked_h=danger_banked_h,
         leth_banked_core=leth_banked_core,
@@ -379,6 +419,7 @@ def score_outputs(
     t_pull,
     t_add,
     cc: ControlConfig,
+    dt_add=0.0,
     leth_banked: float = 0.0,
     danger_banked_h: float = 0.0,
     leth_banked_core: float = 0.0,
@@ -427,8 +468,17 @@ def score_outputs(
     in_pit = 1.0 - jax.nn.sigmoid((t_s - t_pull) / DELTA_PULL_S)
     surf_term = jnp.sum(in_pit * surf_over**2) / jnp.sum(in_pit)
     m_at_pull = jnp.interp(jnp.minimum(t_pull, t_s[-1]), t_s, sim["m_fuel"])
-    # fuel burned = load + chimney (if it arrived before the pull) - fuel at the pull
-    m_added = cc.m_chimney * jax.nn.sigmoid((t_pull - t_add) / TAU_ADD_S)
+    # fuel burned = load + additions before the pull - fuel at the pull.
+    # A finite dt_add prices the whole wood-split pulse train (one
+    # m_chimney per split, each counted by its own smooth before-the-pull
+    # gate); a static dt_add <= 0 reduces to the single-chimney term.
+    if isinstance(dt_add, (int, float)) and dt_add <= 0:
+        m_added = cc.m_chimney * jax.nn.sigmoid((t_pull - t_add) / TAU_ADD_S)
+    else:
+        ks = jnp.arange(cc.n_split_cap)
+        m_added = cc.m_chimney * jnp.sum(
+            jax.nn.sigmoid((t_pull - (t_add + ks * dt_add)) / TAU_ADD_S)
+        )
     fuel_frac = (sim["m_fuel"][0] + m_added - m_at_pull) / cc.m0_ref
 
     # food safety (unconditional): lethality curve + growth-phase dwell on
@@ -503,8 +553,11 @@ def objective_tf(
 
 
 def _mask_decision_grads(grads, cc: ControlConfig):
-    """Zero the gradients of decisions that are switched off (z, z_w, z_p, z_a, z_s, z_d, z_m)."""
-    g, g_w, g_p, g_a, g_s, g_d, g_m = grads
+    """Zero the gradients of decisions that are switched off.
+
+    Order: (z, z_w, z_p, z_a, z_s, z_d, z_m, z_ts, z_tg, z_da).
+    """
+    g, g_w, g_p, g_a, g_s, g_d, g_m, g_ts, g_tg, g_da = grads
     if not cc.opt_wrap:
         g_w = jnp.zeros_like(g_w)
     if not cc.opt_pull:
@@ -513,7 +566,13 @@ def _mask_decision_grads(grads, cc: ControlConfig):
         g_a = jnp.zeros_like(g_a)
     if not cc.opt_spritz:
         g_s, g_d, g_m = (jnp.zeros_like(g_s), jnp.zeros_like(g_d), jnp.zeros_like(g_m))
-    return [g, g_w, g_p, g_a, g_s, g_d, g_m]
+    if not cc.opt_salt:
+        g_ts = jnp.zeros_like(g_ts)
+    if not cc.opt_trig:
+        g_tg = jnp.zeros_like(g_tg)
+    if not cc.opt_splits:
+        g_da = jnp.zeros_like(g_da)
+    return [g, g_w, g_p, g_a, g_s, g_d, g_m, g_ts, g_tg, g_da]
 
 
 def _decisions(
@@ -559,6 +618,24 @@ def _decisions(
     return ta, ts, td, tm
 
 
+def _decisions_m1(cc: ControlConfig, z_ts, z_tg, z_da, t_salt, t_trig, dt_add):
+    """Map the optimized salt / wrap-trigger / split variables back to values."""
+    tsalt = (
+        float(cc.t_salt_max * jax.nn.sigmoid(z_ts)) if cc.opt_salt else float(t_salt)
+    )
+    ttrig = (
+        float(cc.t_trig_min + (cc.t_trig_max - cc.t_trig_min) * jax.nn.sigmoid(z_tg))
+        if cc.opt_trig
+        else float(t_trig)
+    )
+    tda = (
+        float(cc.dt_add_min + (cc.dt_add_max - cc.dt_add_min) * jax.nn.sigmoid(z_da))
+        if cc.opt_splits
+        else float(dt_add)
+    )
+    return tsalt, ttrig, tda
+
+
 def optimize_schedule_expected(
     thetas,
     phis,
@@ -582,6 +659,12 @@ def optimize_schedule_expected(
     dt_spritz: float = 3600.0,
     z_m_init: float | None = None,
     spritz_dose: float = 0.05,
+    z_ts_init: float | None = None,
+    z_tg_init: float | None = None,
+    z_da_init: float | None = None,
+    t_salt: float = 0.0,
+    t_trig: float = 0.0,
+    dt_add: float = 0.0,
 ):
     """Optimize the damper schedule against the EXPECTED objective.
 
@@ -600,7 +683,7 @@ def optimize_schedule_expected(
     phis = jnp.asarray(phis)
     n = thetas.shape[0]
 
-    def expected_obj(z, z_w, z_p, z_a, z_s, z_d, z_m, ths, phs):
+    def expected_obj(z, z_w, z_p, z_a, z_s, z_d, z_m, z_ts, z_tg, z_da, ths, phs):
         # differentiate w.r.t. ALL differentiable inputs (see optimize_schedule)
         return (
             sum(
@@ -625,6 +708,12 @@ def optimize_schedule_expected(
                     z_d=z_d,
                     spritz_dose=spritz_dose,
                     z_m=z_m,
+                    t_salt=t_salt,
+                    z_ts=z_ts,
+                    t_trig=t_trig,
+                    z_tg=z_tg,
+                    dt_add=dt_add,
+                    z_da=z_da,
                 )
                 for i in range(n)
             )
@@ -641,11 +730,16 @@ def optimize_schedule_expected(
     z_s = jnp.asarray(SPRITZ_Z_INIT if z_s_init is None else z_s_init)
     z_d = jnp.asarray(SPRITZ_DT_Z_INIT if z_d_init is None else z_d_init)
     z_m = jnp.asarray(SPRITZ_DOSE_Z_INIT if z_m_init is None else z_m_init)
+    z_ts = jnp.asarray(SALT_Z_INIT if z_ts_init is None else z_ts_init)
+    z_tg = jnp.asarray(TRIG_Z_INIT if z_tg_init is None else z_tg_init)
+    z_da = jnp.asarray(SPLIT_Z_INIT if z_da_init is None else z_da_init)
     opt = optax.adam(cc.lr)
-    vars_ = (z, z_w, z_p, z_a, z_s, z_d, z_m)
+    vars_ = (z, z_w, z_p, z_a, z_s, z_d, z_m, z_ts, z_tg, z_da)
     state = opt.init(vars_)
     val_grad = jax.jit(
-        jax.value_and_grad(expected_obj, argnums=(0, 1, 2, 3, 4, 5, 6, 7, 8))
+        jax.value_and_grad(
+            expected_obj, argnums=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+        )
     )
 
     losses = []
@@ -666,7 +760,11 @@ def optimize_schedule_expected(
             callback(i, lf, np.asarray(jax.nn.sigmoid(z)))
         if _plateau_stop(losses, cc):
             break
-    best_z, best_z_w, best_z_p, best_z_a, best_z_s, best_z_d, best_z_m = best
+    (best_z, best_z_w, best_z_p, best_z_a, best_z_s, best_z_d, best_z_m,
+     best_z_ts, best_z_tg, best_z_da) = best
+    tsalt, ttrig, tda = _decisions_m1(
+        cc, best_z_ts, best_z_tg, best_z_da, t_salt, t_trig, dt_add
+    )
     tw = float(grids.t_end * jax.nn.sigmoid(best_z_w)) if cc.opt_wrap else 1.0e9
     tp = float(grids.t_end * jax.nn.sigmoid(best_z_p)) if cc.opt_pull else t_pull
     ta, ts, td, tm = _decisions(
@@ -691,6 +789,9 @@ def optimize_schedule_expected(
         "t_spritz": ts,
         "dt_spritz": td,
         "spritz_dose": tm,
+        "t_salt": tsalt,
+        "t_trig": ttrig,
+        "dt_add": tda,
         "best_loss": best_loss,
         "converged": _plateau_stop(losses, cc),
         "n_iter_run": len(losses),
@@ -728,6 +829,12 @@ def optimize_schedule(
     t_spritz_override: float | None = None,
     z_m_init: float | None = None,
     spritz_dose: float = 0.05,
+    z_ts_init: float | None = None,
+    z_tg_init: float | None = None,
+    z_da_init: float | None = None,
+    t_salt: float = 0.0,
+    t_trig: float = 0.0,
+    dt_add: float = 0.0,
 ):
     """Optimize the damper schedule at fixed (theta, phi) with Adam.
 
@@ -756,8 +863,11 @@ def optimize_schedule(
     z_s = jnp.asarray(SPRITZ_Z_INIT if z_s_init is None else z_s_init)
     z_d = jnp.asarray(SPRITZ_DT_Z_INIT if z_d_init is None else z_d_init)
     z_m = jnp.asarray(SPRITZ_DOSE_Z_INIT if z_m_init is None else z_m_init)
+    z_ts = jnp.asarray(SALT_Z_INIT if z_ts_init is None else z_ts_init)
+    z_tg = jnp.asarray(TRIG_Z_INIT if z_tg_init is None else z_tg_init)
+    z_da = jnp.asarray(SPLIT_Z_INIT if z_da_init is None else z_da_init)
     opt = optax.adam(cc.lr)
-    vars_ = (z, z_w, z_p, z_a, z_s, z_d, z_m)
+    vars_ = (z, z_w, z_p, z_a, z_s, z_d, z_m, z_ts, z_tg, z_da)
     state = opt.init(vars_)
     # Two deliberate choices here:
     # 1. Differentiate w.r.t. ALL differentiable Tesseract inputs (z via u,
@@ -772,7 +882,7 @@ def optimize_schedule(
     #    exhibited the race across thousands of calls.
     val_grad = jax.jit(
         jax.value_and_grad(
-            lambda zz, zw, zp, za, zs, zd, zm, th, ph: objective(
+            lambda zz, zw, zp, za, zs, zd, zm, zts, ztg, zda, th, ph: objective(
                 zz,
                 zw,
                 th,
@@ -800,8 +910,14 @@ def optimize_schedule(
                 t_spritz_override=t_spritz_override,
                 spritz_dose=spritz_dose,
                 z_m=zm,
+                t_salt=t_salt,
+                z_ts=zts,
+                t_trig=t_trig,
+                z_tg=ztg,
+                dt_add=dt_add,
+                z_da=zda,
             ),
-            argnums=(0, 1, 2, 3, 4, 5, 6, 7, 8),
+            argnums=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
         )
     )
 
@@ -834,7 +950,11 @@ def optimize_schedule(
                 callback(i, lf, np.asarray(jax.nn.sigmoid(best[0])))
         if _plateau_stop(losses, cc):
             break
-    best_z, best_z_w, best_z_p, best_z_a, best_z_s, best_z_d, best_z_m = best
+    (best_z, best_z_w, best_z_p, best_z_a, best_z_s, best_z_d, best_z_m,
+     best_z_ts, best_z_tg, best_z_da) = best
+    tsalt, ttrig, tda = _decisions_m1(
+        cc, best_z_ts, best_z_tg, best_z_da, t_salt, t_trig, dt_add
+    )
     if t_wrap_override is not None:
         tw = float(t_wrap_override)
     elif cc.opt_wrap:
@@ -865,6 +985,9 @@ def optimize_schedule(
         "t_spritz": ts,
         "dt_spritz": td,
         "spritz_dose": tm,
+        "t_salt": tsalt,
+        "t_trig": ttrig,
+        "dt_add": tda,
         "best_loss": best_loss,
         "wall_s": time.perf_counter() - t0,
         "grids": grids,
