@@ -53,8 +53,10 @@ function _pit_algebra(ud, m, a, r_max, u_leak, pit::PitConfig, hum::Humidity)
     # floored: a sealed source (earth pit, r_max = 0) still exchanges a
     # trace of air — and the humidity algebra must never divide by zero
     mair = max(hum.afr * r_max * airflow, 1.0e-6)
+    ṁ_gas_w = pit.y_gas_w * pit.p_heater * ud  # burner combustion water
     pv_base =
-        (hum.p_atm / EPS_W) * (hum.omega_amb + (hum.y_w * ṁ + hum.pan_kg_s) / mair)
+        (hum.p_atm / EPS_W) *
+        (hum.omega_amb + (hum.y_w * ṁ + hum.pan_kg_s + ṁ_gas_w) / mair)
     return airflow, ṁ, mair, pv_base
 end
 

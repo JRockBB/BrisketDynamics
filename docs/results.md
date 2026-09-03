@@ -296,6 +296,22 @@ note the tests encode: cortical bone conducts slightly better than
 meat but stores far less heat, so a bone-in center heats FASTER — the
 "cold near the bone" folklore is about joints and mass, not material.
 
+## Preset batch: kamado, gas, sausage, salmon (2026-09-04)
+
+Four more one-call compositions. `kamado()` is the first DATA-BACKED
+cooker hint — vessel block seeded from the three-cook keg pool,
+actuator from keg_2015, with the C_th/UA ridge caveat attached.
+`gas_grill()` fills the gap between electric and charcoal: heat like
+the element plus the burner's combustion water into the pit humidity
+(`PitConfig.y_gas_w`, ~4.5e-8 kg H2O/J for natural gas), smoke exactly
+zero — tested: same pit temperature as electric, wetter pit, no smoke.
+`sausage()` composes the casing as the existing skin barrier on a small
+cylinder (why sausages burst instead of stalling), and
+`hot_smoked_salmon()` makes the doneness-kinetics-as-configuration
+claim concrete by swapping the Arrhenius triple to a fish-myosin scale
+(T_ref 50 °C) on a thin slab. All constants placeholder scale except
+where the pooling record backs them.
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the

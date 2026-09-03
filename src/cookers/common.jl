@@ -38,6 +38,11 @@ Base.@kwdef struct PitConfig
     # smoke ring are inert, which is what an electric cooker does. Pass
     # a0 = 1 (nothing to ignite). 0 = charcoal (bitwise default).
     p_heater::Float64 = 0.0      # max heater power [W]
+    # Gas mode: a burner is an electric-like source that also makes
+    # WATER (CH4 + 2 O2 -> CO2 + 2 H2O: ~4.5e-8 kg H2O per J at LHV).
+    # y_gas_w > 0 with p_heater > 0 adds that vapor to the pit humidity;
+    # smoke stays exactly zero (nothing chars). 0 = dry element.
+    y_gas_w::Float64 = 0.0       # combustion water yield [kg H2O / J]
     # Smoke QUALITY ("thin blue" vs smoldering; the bitterness variable):
     # combustion runs clean when the draft is large relative to the lit
     # bed and smolders when it is starved — cleanliness is a logistic in

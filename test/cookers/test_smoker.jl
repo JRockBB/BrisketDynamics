@@ -86,3 +86,25 @@ end
     @test o.Tpit[1] > o.Tpit[end] > 300.0           # the rocks discharge
     @test o.Tcore[end] > o.Tcore[1] + 25            # and the meat cooks
 end
+
+@testset "gas mode + kamado + meat preset batch" begin
+    hr = 3600.0
+    utk = collect(range(0.0, 6hr; length=8))
+    ts = collect(0.0:600.0:6hr)
+    θ = MEAT_θ_DEFAULT
+    φ = PIT_φ_DEFAULT  # a0 = 1
+    dry = monolith_solve(θ, φ, fill(0.5, 8), utk, ts;
+                         pit=PitConfig(; T_amb=300.0, p_heater=3000.0))
+    gas = monolith_solve(θ, φ, fill(0.5, 8), utk, ts;
+                         pit=gas_grill(; p_heater=3000.0, T_amb=300.0))
+    @test maximum(gas.mdot) < 1e-12                 # a burner makes no smoke
+    @test sum(gas.pv_base) > sum(dry.pv_base)       # but it makes water
+    @test abs(gas.Tpit[end] - dry.Tpit[end]) < 2.0  # same heat source
+
+    k = kamado()
+    @test length(k.φ_hint) == 7 && k.φ_hint[2] ≈ 22.1
+    s = sausage()
+    @test s.cfg.geom_m == 1.0 && isfinite(s.cfg.k_skin)
+    f = hot_smoked_salmon()
+    @test f.cfg.T_ref < 330.0 && f.θ[4] ≈ 0.015
+end

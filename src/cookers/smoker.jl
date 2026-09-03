@@ -233,3 +233,28 @@ water, no smoke, so bark deposition and the smoke ring are inert. Pass
 uncalibrated.
 """
 electric_pit(; p_heater::Real=2500.0, kw...) = PitConfig(; p_heater=float(p_heater), kw...)
+
+"""
+    gas_grill(; p_heater=8000.0, kw...)
+
+Gas-burner preset: heat like the electric element plus the burner's
+combustion water into the pit humidity (`y_gas_w`, ~4.5e-8 kg H2O per J
+for natural gas at LHV); smoke exactly zero. Pass a0 = 1 in φ.
+"""
+gas_grill(; p_heater::Real=8000.0, kw...) =
+    PitConfig(; p_heater=float(p_heater), y_gas_w=4.5e-8, kw...)
+
+"""
+    kamado()
+
+Kamado-class preset — the first DATA-BACKED cooker hint: the vessel
+block is seeded from the same-smoker Big Steel Keg pool
+(`data/calibration/pool_keg.json`; three cooks, one vessel) and the
+actuator from its best-documented cook (keg_2015, RotoDamper era).
+Returns `(pit, φ_hint)`; the pooled C_th/UA carry the documented
+C_th/UA ridge caveat (docs/pooling.md), and ignition is per-fire.
+"""
+kamado() = (
+    pit=PitConfig(),
+    φ_hint=[2.06e5, 22.1, 1.63e-4, 1.25e7, 0.88, 1.4e-3, 0.9],
+)

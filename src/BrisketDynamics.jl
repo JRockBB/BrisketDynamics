@@ -14,6 +14,8 @@ include("meats/chicken.jl")
 include("meats/ribs.jl")
 include("meats/pork_butt.jl")
 include("meats/newman.jl")
+include("meats/sausage.jl")
+include("meats/salmon.jl")
 include("cookers/common.jl")
 include("cookers/smoker.jl")
 include("cookers/sous_vide.jl")
@@ -57,6 +59,10 @@ export MeatConfig,
     earth_pit,
     newman_center,
     burn_cleanliness,
-    offset_smoker
+    offset_smoker,
+    gas_grill,
+    kamado,
+    sausage,
+    hot_smoked_salmon
 
 end
