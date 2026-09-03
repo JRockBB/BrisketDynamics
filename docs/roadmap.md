@@ -16,21 +16,32 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
    is the primary derivative now (one Dual solve per JVP, one chunked pass
    per Jacobian; docs/monolith.md). A discrete adjoint (Enzyme through a
    fixed-step stiff stepper) becomes worth its cost only for hundreds of
-   parameters — dense controls, spatial fields, bark chemistry.
+   parameters — dense controls, spatial fields, bark chemistry. The 2-D
+   axisymmetric slab (item 9) is the concrete trigger: ~3000 states kill
+   forward mode, and the investment there is this item plus stencil
+   Jacobian sparsity/coloring — not a modeling-framework change (item 3).
 3. **Monolith: done in shape (a)** (`src/monolith.jl`, one Tesseract around
-   the whole physics). Remaining: the acausal component version (pit, fuel
-   bed, wrap, rest, ambient as ports; the slab as a generated component)
-   with the hand-written monolith as its oracle — benchmark
-   `structural_simplify` time, generated-code size, and derivative cost
-   before adopting it. Same-monolith prerequisites for items 5 and 11.
-   Sequencing (decided 2026-09-03): the parametric model family FIRST
-   (item 11 — it discovers empirically what the component ports must
-   express, with the existing verified derivative machinery); then the
-   MTK spike exactly as gated above, adding one measurement — does
-   ForwardDiff-through-solve survive the generated code at our
-   tolerances, with the smooth event blends reproduced inside components
-   (MTK's discrete events are LESS differentiable than the blends)?
-   Adopt as the composition layer only on that evidence.
+   the whole physics). **MTK/acausal: NOT pursued (decided 2026-09-03).**
+   Phase A of the generalization tested the premise empirically: cuts and
+   cookers turned out to be *configurations of shared physics*
+   (`src/meats/`, `src/cookers/` — four cookers cost two config fields and
+   two config recipes), so the composition layer already exists as thin
+   presets over `common.jl` cores, and the system-level composition
+   boundary is the Tesseract itself. MTK's strengths map badly here:
+   nothing is a DAE (the humidity loop is deliberately quasi-steady
+   closed-form), its first-class events are discrete — the smooth blends
+   are the differentiability story and would have to be re-derived inside
+   components — and large MOL stencils are its weak spot. Revisit ONLY on
+   one of these triggers, and then for NEW components with the monolith
+   as oracle, never as a rewrite: (a) heterogeneous multi-meat wiring
+   becomes painful (N different cuts sharing one pit — the hand-rolled
+   form is a vector of meat state-blocks generalizing `n_meat`); (b)
+   outside contributors need to extend the model without touching the
+   core (item 10); (c) an actual DAE enters (flow networks). Small fixed
+   vessel graphs (water pan = +2 pit states; two-zone offset = +2 states
+   and a duct coupling) are component enrichment, hand-written per
+   archetype. The multi-dimensional slab (item 9) activates item 2
+   (adjoint + Jacobian sparsity at thousands of states), not this item.
 4. **The ~$150 instrument package + data flywheel.** In value order: a
    two-hour open-loop *characterization burn* (step the fan 10→30→15%, no
    meat, no controller — free, and the only way to identify the pit's fast
