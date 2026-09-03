@@ -339,6 +339,33 @@ when the 2-D slab arrives, the investment is a specialized
 IMEX/ADI-tridiagonal stepper differentiated by Enzyme — not Enzyme
 through the adaptive FBDF solve.
 
+## Adjoint port to the full physics (2026-09-04, M1 complete)
+
+`adjoint/full_port.jl`: the fixed-step IMEX-BE stepper now runs the FULL
+production RHS — the explicit part IS `meat_rhs_core!` (Enzyme reverses
+through it unmodified: closures, views, Choi-Okos, Oswin, all of it —
+`adjoint/probe_rhs.jl`), and the implicit part subtracts and re-solves
+the T/W diffusion operators as tridiagonals assembled from the same
+finite-volume metric formulas at the lagged state; reactions, surface
+fluxes, salt (4 orders less stiff) and the scalars stay explicit.
+Measured, 8 h cook at 211 states:
+
+- **Accuracy vs FBDF: clean first order** — max |ΔTcore| 0.28 K at
+  h = 60 s, 0.14 K at 30 s, 0.048 K at 10 s, 0.024 K at 5 s. At 30 s the
+  fixed-step trade is an order below observation noise. (Debug note: the
+  first comparison showed a 2.8 K h-independent offset — `meat_solve`
+  integrates from `tsave[1]`, so a reference grid starting at 300 s
+  cooked five minutes less. Match the horizons.)
+- **Gradients: 7e-14** Enzyme-reverse vs ForwardDiff on the same
+  stepper, through 960 implicit steps of the full physics.
+- **Cost: reverse 5.3× the primal, flat in parameter count; crossover
+  ~10 parameters.** Forward mode's chunked duals remain fine at the
+  current 8-19; the adjoint is ready the moment parameter counts grow
+  (per-node fields, dense controls, the 2-D slab's ADI sweeps).
+
+Forward mode stays the primary derivative in production; MTK remains
+settled.
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the

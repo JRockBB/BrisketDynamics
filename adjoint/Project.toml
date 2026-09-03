@@ -1,3 +1,4 @@
 [deps]
+BrisketDynamics = "0b554440-95f8-4cc8-a6a9-fc8d24c79110"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"

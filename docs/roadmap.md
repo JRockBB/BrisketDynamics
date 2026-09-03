@@ -8,31 +8,23 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
 
 ## Modeling goals
 
-- **M1 — Adjoint port.** The discrete-adjoint legwork is done (Enzyme
-  reverse through a fixed-step IMEX-BE + hand-coded tridiagonal stepper:
-  2e-11 vs ForwardDiff on Windows, 3.6× the primal flat in parameter
-  count, crossover ~14 parameters on the reduced proxy —
-  `docs/results.md`). Remaining: port the stepper to the full
-  `meat_rhs_core!` (shrink metrics, Choi-Okos, bark states) and quantify
-  the fixed-step accuracy trade against FBDF. Forward mode stays the
-  primary derivative until the parameter count demands otherwise; MTK is
-  settled (`docs/results.md`).
-- **M2 — Event sensitivities.** A state-triggered wrap ("wrap at 165 °F
+- **M1 — Event sensitivities.** A state-triggered wrap ("wrap at 165 °F
   internal") needs derivatives through the trigger condition — jump
   conditions where events are first-class, beyond the current
   smooth-blend fixed-time events. Differentiable wood-split and fuel-add
   timing rides on the same machinery.
-- **M3 — Salting-time as a decision variable.** Promote `t_salt` from
+- **M2 — Salting-time as a decision variable.** Promote `t_salt` from
   MeatConfig to a differentiable input so "when to salt" joins the
   chance-constrained planning problem (d(juiciness)/d(t_salt) through
   the analytic pre-cook brine profile); optionally a small
   salt-dependent denaturation-temperature shift. The salt PDE state and
   couplings are built (`docs/results.md`).
-- **M4 — 2-D axisymmetric slab** (gated on thermal-camera surface fields
+- **M3 — 2-D axisymmetric slab** (gated on thermal-camera surface fields
   to calibrate it — C2). Feeds bark distribution / burnt ends, the
   point-vs-flat split (two muscles of different fat and thickness) and
-  grain direction, which no 1-D slab can carry. This is what triggers
-  M1's full investment, as Enzyme-differentiated ADI sweeps — not Enzyme
+  grain direction, which no 1-D slab can carry. The adjoint machinery is
+  ready for it (full-RHS port validated, crossover ~10 parameters —
+  `docs/results.md`): Enzyme-differentiated ADI sweeps, not Enzyme
   through the adaptive solver. The Newman quasi-3D correction rung is
   already in (`docs/results.md`).
 
@@ -113,7 +105,7 @@ frontend beyond the CLI; the bark write-up rides on C6.
 ## Not modelled
 
 A homogeneous 1D slab: no point-vs-flat split, no edges or burnt ends, no
-grain direction or slice variance (M4); no animal-to-animal pH, aging or
+grain direction or slice variance (M3); no animal-to-animal pH, aging or
 water-holding capacity (C3); wind and weather on `UA(t)` beyond the
 pilot's forecast feedforward + ambient filter (C1); rub chemistry beyond
 salt (C5, C6); smoke *quality* constants as opposed to smoke mass (C6).
@@ -127,7 +119,7 @@ and which goal above closes it.
   core node of a symmetric slab — the cold spot of *this* geometry, not of
   a point-and-flat; intact-muscle assumption for the surface. The fullplan
   scan rejects cook lengths whose raw residuals fail; the MPC only
-  penalizes and reports. Not a certification. (M4)
+  penalizes and reports. Not a certification. (M3)
 - **Condensation.** Ungated two-sided flux with one mass-transfer
   coefficient both ways, the condensate absorbed into the surface node's
   water (no film, no run-off); it acts through the dew-point crossing in
@@ -144,7 +136,7 @@ and which goal above closes it.
   measurement behind them. An output, never a term in the objective. (C6)
 - **Fuel addition.** Lit chimneys or wood-split pulse trains of fixed
   mass; unlit additions are not modelled, and split timing is config,
-  not a decision variable. (C1; M2 for the timing)
+  not a decision variable. (C1; M1 for the timing)
 - **Lid lifts.** A lumped-mass energy loss per lift (\(UA_{\mathrm{open}}\)
   from convective exchange + bed radiation — an estimate, not a
   measurement); a dome probe's one-minute transient is not something a
@@ -155,7 +147,7 @@ and which goal above closes it.
   flashes off within the one-minute pulse: no film state, no run-off; stops
   at the wrap and the pull. (C2: scale)
 - **Multi-meat.** Identical briskets sharing the pit's heat and vapor; no
-  shielding, stacking or grate-position differences. (M4)
+  shielding, stacking or grate-position differences. (M3)
 - **Water pan.** Two states with placeholder conductances (UA_pan, g_pan);
   the pan drives against the pre-pan vapor pressure (self-feedback not
   closed) and holds plain water (no juice/fat film). (C3: the pan
