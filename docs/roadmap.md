@@ -227,6 +227,15 @@ optimizer output as a USDA cook, a judge score, or a 95% on-time guarantee.
 10. **Community/product shape.** Publish as a usable open-source stack
     (calibrate-from-your-log CLI, schedule/MPC frontend); write up the bark
     and pooling work properly if the data supports it.
+    **CLI shipped (2026-09-04,** `brisket_app/cli.py`**):** one `brisket`
+    entry point (`uv run brisket ...` from app/) — `logs`, `digitize`,
+    `calibrate` (any registry log OR a user CSV via the cook-log column
+    convention; GN-MAP + Laplace; writes a `--params`-compatible
+    `fit_<name>.json`), and verbatim forwards to the canonical scripts for
+    `plan`, `pilot`, `pool`, `mock-pit`. The your-log -> your-plan ->
+    your-pilot flow is three commands (README "Using it on your own
+    cook"). Remaining here: the pooling/bark write-up, and a packaged
+    (non-repo) install story.
 11. **Generalize across meats and cookers.** The architecture already is the
     generalization — heat source ⇄ meat through (T_source, q_load), i.e. swap
     one Tesseract, keep the other. The model family is small: geometry mode

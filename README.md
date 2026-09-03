@@ -98,6 +98,27 @@ re-run the same command to resume; `merge_nuts_mono.py` pools the chains and
 reports r̂ / ESS. The cheap-posterior scoreboard (per-site 1-Wasserstein to
 NUTS, Pareto-khat, wall time) lands in `data/calibration/approx_summary.md`.
 
+## Using it on your own cook (`brisket` CLI)
+
+The supported chain has one entry point (run from `app/`):
+
+```bash
+uv run brisket logs                       # the cook logs the repo knows
+uv run brisket digitize my/log.toml       # chart screenshot -> CSV (tools/loghunt)
+uv run brisket calibrate --csv my.csv --t-amb-k 294 --name mycook
+uv run brisket plan  --params fit_mycook.json          # schedule optimum
+uv run brisket pilot --params fit_mycook.json     --pit http://heatermeter.local --apikey XXXX --wall-pace 1 --advisory-only
+```
+
+`calibrate` fits any registry log or your own CSV (column convention in
+[tools/loghunt/README.md](tools/loghunt/README.md): `t_min, pit_F, meat_F,
+amb_F, fan_pct, setpoint_F, lid_event`, t = 0 at meat-on) with the
+Gauss-Newton MAP + Laplace chain, and writes a `--params`-compatible
+calibration that `plan` and `pilot` consume directly. `pilot` flies a cook
+against a real HeaterMeter (LinkMeter v14 REST API) — or against
+`brisket mock-pit`, the calibrated sim plant behind the same API, for a
+hardware-free dry run. Multi-cook pooling: `brisket pool --set keg`.
+
 ## Containers (Linux/WSL2 + Docker)
 
 ```bash
