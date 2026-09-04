@@ -8,16 +8,17 @@ as a USDA cook, a judge score, or a 95% on-time guarantee.
 
 ## Modeling goals
 
-- **M2 — 2-D slab, the layers above the core.** The axisymmetric
-  heat-moisture core is in and limit-verified (`meat_solve_2d`,
-  `docs/results.md`); what remains: couple it to the pit (it runs on a
-  prescribed Tpit forcing, not inside the monolith), put the quality
-  states on the grid (bark *distribution* / burnt ends, shrink metrics,
-  wrap/spritz/salt), the point-vs-flat split (two muscles of different
-  fat and thickness) and grain-direction anisotropy, and the Enzyme
-  adjoint of the ADI sweeps (the machinery is validated on the 1-D
-  stepper, crossover ~10 parameters — `docs/results.md`). Bark
-  calibration is gated on thermal-camera surface fields (C2).
+- **M1 — 2-D productionization.** The 2-D line is built and verified
+  (`meat_solve_2d` + `coupled_solve_2d`: limit-verified core, wrap /
+  grain / point-over-flat layers, bark distribution + cold spot,
+  pit-coupled with an exact replay test, Enzyme-reverse validated to
+  1.3e-14 — `docs/results.md`); what remains before it can carry
+  production decisions: a Tesseract endpoint and planner wiring (the
+  monolith and every planner stay 1-D), shrink metrics on the grid,
+  spritz/salt on the 2-D faces, and reverse-mode performance (blackbox
+  reverse runs 46x primal; the fix is the full_port-style
+  explicit-argument stepper). Bark calibration is gated on
+  thermal-camera surface fields (C2).
 
 ## Calibration & data goals
 
@@ -95,9 +96,10 @@ frontend beyond the CLI; the bark write-up rides on C6.
 
 ## Not modelled
 
-A homogeneous 1-D slab in the production monolith (the standalone 2-D
-axisymmetric core exists — `docs/results.md`): no point-vs-flat split, no
-edges or burnt ends, no grain direction or slice variance (M2); no animal-to-animal pH, aging or
+A homogeneous 1-D slab in the production monolith — the standalone 2-D
+solver carries point-vs-flat, grain, bark distribution and the true cold
+spot (`docs/results.md`) but is not wired into the Tesseract or the
+planners (M1); no animal-to-animal pH, aging or
 water-holding capacity (C3); wind and weather on `UA(t)` beyond the
 pilot's forecast feedforward + ambient filter (C1); rub chemistry beyond
 salt (C5, C6); smoke *quality* constants as opposed to smoke mass (C6).
@@ -111,7 +113,8 @@ and which goal above closes it.
   core node of a symmetric slab — the cold spot of *this* geometry, not of
   a point-and-flat; intact-muscle assumption for the surface. The fullplan
   scan rejects cook lengths whose raw residuals fail; the MPC only
-  penalizes and reports. Not a certification. (M2)
+  penalizes and reports. Not a certification. (M1: the standalone 2-D
+  already reports the true grid cold spot)
 - **Condensation.** Ungated two-sided flux with one mass-transfer
   coefficient both ways, the condensate absorbed into the surface node's
   water (no film, no run-off); it acts through the dew-point crossing in
@@ -140,7 +143,7 @@ and which goal above closes it.
   flashes off within the one-minute pulse: no film state, no run-off; stops
   at the wrap and the pull. (C2: scale)
 - **Multi-meat.** Identical briskets sharing the pit's heat and vapor; no
-  shielding, stacking or grate-position differences. (M2)
+  shielding, stacking or grate-position differences. (M1)
 - **Water pan.** Two states with placeholder conductances (UA_pan, g_pan);
   the pan drives against the pre-pan vapor pressure (self-feedback not
   closed) and holds plain water (no juice/fat film). (C3: the pan

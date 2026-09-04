@@ -480,6 +480,47 @@ implicit Robin term inside the sweeps, and face moisture by
 backward-Euler on the W-linearized flux, with the SAME applied flux
 feeding the heat sink — after which both limits are refinement-stable.
 
+## 2-D slab: layers, pit coupling, reverse gradient (2026-09-04, M2 code complete)
+
+Three commits finish the code half of M2 on top of the limit-verified
+core:
+
+- **Layers** (each exactly inert at its default): the 1-D wrap blend on
+  every exposed face; `k_grain` / `D_grain` in-plane (along-fiber)
+  anisotropy with the z through-thickness direction keeping the
+  1-D-calibrated values; point-over-flat as stacked muscles (smooth fat
+  step `F_top` above `z_split`·Hz — a uniform cut stays z-symmetric to
+  roundoff, which is the asymmetry test). Quality states ride along
+  explicitly: collagen per cell (`C_min` = last-done spot), Maillard
+  bark per face cell with an area-weighted distribution (burnt ends =
+  the tail), and `Tcold`, the true grid-minimum cold spot. Collagen at
+  the thick-slab limit matches the 1-D center kinetics to < 0.02.
+- **Pit coupling**: the transport refactored into an engine + `step!`
+  closure; `coupled_solve_2d` co-integrates the six pit states (the
+  monolith's algebra, two-zone included) with the area-integrated heat
+  uptake and evaporation of `n_meat` briskets, vapor feeding the
+  humidity one step lagged, face evaporation now p_v-aware. The
+  consistency test is exact by construction: at `n_meat = 0` with
+  pinned humidity, replaying the coupled run's own per-step pit trace
+  through the prescribed-forcing solver reproduces the meat fields to
+  roundoff. (And a small physical truth the direction test tripped on:
+  late in a declining burn the hot meat returns heat to the pit — the
+  pull-down only holds while the meat is cold.)
+- **Enzyme reverse** (`adjoint/slab2d_reverse.jl`): blackbox
+  `Enzyme.autodiff(Reverse, ...)` through the WHOLE solver — engine
+  closure, linearized-implicit faces, quality states — matches
+  ForwardDiff to **1.3e-14**. But it runs at 46x primal while chunked
+  forward over all 6 parameters costs 1.4x primal: for
+  calibration-scale parameter counts the forward endpoint stays the
+  right choice, and the reverse-mode optimization path is the
+  full_port-style explicit-argument stepper (3.6x primal there), not
+  blackbox autodiff over the closure engine.
+
+Suite 322/322 after the coupling commit; app gate 73/73. What remains
+of the 2-D line is productionization (Tesseract/planner exposure,
+shrink on the grid, reverse-mode performance) and the C2-gated bark
+calibration — the roadmap's remaining M-goal.
+
 ## The cook pilot, validated without hardware (2026-09-04)
 
 `brisket_app/pit_io.py` (one pit contract: `HeaterMeterClient` speaks the
