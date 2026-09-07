@@ -428,14 +428,17 @@ function surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig,
 end
 
 """
-    mixing_coefficient(a_area, imair, cfg::MeatConfig)
+    mixing_coefficient(a_area, imair, cfg::MeatConfig[, A_meat])
 
 Vapor-balance mixing coefficient `c = (p_atm/0.622)·A(t)/ṁ_air`
 [Pa per kg m⁻² s⁻¹] from the exposed-area factor and the inverse air mass
-flow `imair` [s/kg].
+flow `imair` [s/kg]. The exposed area defaults to `cfg.A_meat`; the
+monolith passes a runtime value when the area is a latent (dual-capable).
 """
 mixing_coefficient(a_area, imair, cfg::MeatConfig) =
-    P_ATM / EPS_W * cfg.A_meat * cfg.n_meat * a_area * imair
+    mixing_coefficient(a_area, imair, cfg, cfg.A_meat)
+mixing_coefficient(a_area, imair, cfg::MeatConfig, A_meat) =
+    P_ATM / EPS_W * A_meat * cfg.n_meat * a_area * imair
 
 """
     surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg::MeatConfig)
@@ -792,6 +795,8 @@ expulsion sink in dW (denaturation purge).
   at the wrap and the pull.
 - `cfg::MeatConfig`: Physical configuration.
 - `n_s, n_a, v0`: [`shrink_exponents`](@ref) of `cfg` (hoisted by the caller).
+- `A_meat` (keyword): the exposed area [m²], `cfg.A_meat` unless the caller
+  carries it as a runtime parameter (the estimator's area latent; duals ok).
 
 # Returns
 - `q_meat::Number`: Heat the meat draws from the pit [W] (surface-area
@@ -800,7 +805,7 @@ expulsion sink in dW (denaturation purge).
 function meat_rhs_core!(
     du, u, t, θ, Tpit, smoke, pv_base, imair, airflow, t_wrap, t_pull, t_spritz,
     dt_spritz, m_spritz, cfg::MeatConfig, n_s, n_a, v0,
-    wb::AbstractVector=bone_weights(cfg), T_trig=Inf,
+    wb::AbstractVector=bone_weights(cfg), T_trig=Inf; A_meat=cfg.A_meat,
 )
     nx = cfg.nx
     D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv = θ
@@ -918,7 +923,7 @@ function meat_rhs_core!(
     pl = pull_blend(t, t_pull, cfg)
     # pit humidity: the pit's base vapor pressure plus the meat's own
     # vapor, p_v = pv_base + c·j with c ∝ exposed area / air mass flow
-    c_mix = mixing_coefficient(a_area, imair, cfg)
+    c_mix = mixing_coefficient(a_area, imair, cfg, A_meat)
     f_aw = 1 / (1 + cfg.k_aw * max(Sl[nx], zero(Sl[nx])))
     j = surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c_mix, cfg, f_aw)
     q_pit = surface_q_pit_blended(Tpit, Ts, h_c, s, pl, cfg)
@@ -983,7 +988,7 @@ function meat_rhs_core!(
     T_front = temperature_at_depth(T, R, Δξ, nx)
     du[5nx + 3] =
         cfg.D_ring * Θ * logistic((cfg.T_ring - T_front) / cfg.δ_ring) / (R + cfg.r_ring0)
-    return cfg.A_meat * cfg.n_meat * a_area * q_pit
+    return A_meat * cfg.n_meat * a_area * q_pit
 end
 
 """

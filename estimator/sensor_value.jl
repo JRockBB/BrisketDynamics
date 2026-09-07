@@ -24,16 +24,20 @@ nz = raw["noise"]
 nt = length(d.t)
 L_map = exp(d.z_map[4])
 
-# latents: the 15 physics sites + the core probe's depth from the surface
-# (prior: median 0.8 L, 30 % — "about the middle")
-extra = [LatentSpec("core_depth", "lognormal", log(0.8 * L_map), 0.3)]
+# latents: the 15 physics sites + the exposed area (prior median the
+# config's 0.12 m², 30 %) + the core probe's depth from the surface
+# (prior median 0.8 L, 30 % — "about the middle")
+A_cfg = d.cfg.A_meat
+extra = [LatentSpec("A_meat", "lognormal", log(A_cfg), 0.3),
+         LatentSpec("core_depth", "lognormal", log(0.8 * L_map), 0.3)]
 prior = vcat(d.prior, [e.site for e in extra])
 names = vcat(d.names, [e.name for e in extra])
-z = vcat(d.z_map, [log(0.8 * L_map)])
+z = vcat(d.z_map, [log(A_cfg), log(0.8 * L_map)])
+AREA = length(z) - 1
 DEPTH = length(z)
 
 t0 = time()
-S, J, lay = physics_outputs(z, d)
+S, J, lay = physics_outputs(z, d; area_latent=AREA)
 @printf("stacked outputs: %d rows, Jacobian %d x %d (%.1f s incl. compile)\n", length(S), size(J)..., time() - t0)
 
 # --- consistency with the gate: pit + core-at-center must give the gate's rows
@@ -44,9 +48,11 @@ _, Jz = physics_mean_jac(d.z_map, d)
 Bg = d.L * Jz
 @printf("registry vs gate rows: max |dB| / max |B| = %.2e  (%d x %d)\n",
         maximum(abs.(Bc[:, 1:N_PHYS] .- Bg)) / maximum(abs.(Bg)), size(Bg)...)
-covc, sdc = fisher_cov([pit, core_center], z, S, J, prior, lay)
+# conditioned on the area and the depth (the gate had the area fixed at the
+# config's value and the probe at the center)
+covc, sdc = fisher_cov([pit, core_center], z, S, J, prior, lay; fix=[AREA, DEPTH])
 sd_gate = sqrt.(diag(d.cov_map))
-@printf("registry vs gate Fisher sd, max rel diff over the 15 sites: %.2e\n",
+@printf("registry vs gate Fisher sd (area, depth fixed), max rel diff over the 15 sites: %.2e\n",
         maximum(abs.(sdc[1:N_PHYS] .- sd_gate) ./ sd_gate))
 
 # --- the candidate channels
@@ -54,11 +60,12 @@ full = trues(nt)
 ends = falses(nt); ends[1] = true; ends[end] = true
 core_unknown = MeatProbe(σc, ρc, mask_core; depth_latent=DEPTH)
 second_probe = MeatProbe(σc, ρc, full; depth=0.010)            # 1 cm below the surface, depth known
-humidity = Humidity(100.0, 0.8, full)                          # ~5 % RH, 10-min grid
+humidity = HumiditySensor(100.0, 0.8, full)                          # ~5 % RH, 10-min grid
 surface_ir = SurfaceIR(2.0, 0.8, full)
-scale_cont = MassScale(0.02, 0.5, full)                        # 20 g, every 10 min
-scale_ends = MassScale(0.02, 0.0, ends)                        # before / after only
+scale_cont = MassScale(0.02, 0.5, full; area_latent=AREA)      # 20 g, every 10 min
+scale_ends = MassScale(0.02, 0.0, ends; area_latent=AREA)      # before / after only
 ruler = StaticReading(4, 0.003)                                # 3 mm on the half-thickness
+footprint = StaticReading(AREA, 0.01)                          # 0.01 m² (~8 %) on the exposed area
 depth_ruler = StaticReading(DEPTH, 0.003)                      # the insertion depth measured
 
 sets = [
@@ -71,8 +78,11 @@ sets = [
     ("+ surface IR", [pit, core_unknown, surface_ir]),
     ("+ scale, before/after", [pit, core_unknown, scale_ends]),
     ("+ scale, continuous", [pit, core_unknown, scale_cont]),
-    ("+ ruler + scale + second probe", [pit, core_unknown, ruler, second_probe, scale_cont]),
-    ("+ everything", [pit, core_unknown, ruler, depth_ruler, second_probe, humidity, surface_ir, scale_cont]),
+    ("+ scale, continuous + footprint ruler", [pit, core_unknown, scale_cont, footprint]),
+    ("+ rulers (thickness, footprint) + scale + second probe",
+     [pit, core_unknown, ruler, footprint, second_probe, scale_cont]),
+    ("+ everything", [pit, core_unknown, ruler, footprint, depth_ruler, second_probe, humidity,
+                      surface_ir, scale_cont]),
 ]
 results = []
 covs = Dict{String,Matrix{Float64}}()
@@ -123,6 +133,7 @@ out = Dict(
                     "humidity_Pa" => 100.0, "ir_K" => 2.0, "scale_kg" => 0.02, "ruler_m" => 0.003),
     "second_probe_depth_m" => 0.010,
     "core_depth_prior" => Dict("median_m" => 0.8 * L_map, "sd_log" => 0.3),
+    "area_prior" => Dict("median_m2" => A_cfg, "sd_log" => 0.3, "footprint_ruler_m2" => 0.01),
 )
 dst = joinpath(REPO, "data", "calibration", "sensor_value_real.json")
 open(dst, "w") do io

@@ -92,9 +92,11 @@ end
     make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
 
 Build the in-place coupled RHS over `x = [meat(5·nx + 4) | T_pit, m_fuel,
-ignited, m_pan, T_pan, T_firebox]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull]`; the damper
-schedule is interpolated from `nu` knots on the uniform grid
-`u_t0 + (i-1)·u_dt`.
+ignited, m_pan, T_pan, T_firebox]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull |
+t_add | t_spritz | dt_spritz | m_spritz | T_trig | dt_add | (A_meat)]` — the
+last entry optional: the exposed area as a runtime parameter (the
+estimator's latent), `cfg.A_meat` when absent; the damper schedule is
+interpolated from `nu` knots on the uniform grid `u_t0 + (i-1)·u_dt`.
 """
 function make_monolith_rhs(
     cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_t0::Real, u_dt::Real, nu::Int
@@ -114,6 +116,8 @@ function make_monolith_rhs(
         m_spritz = p[MONO_NP + nu + 6]
         T_trig = p[MONO_NP + nu + 7]
         dt_add = p[MONO_NP + nu + 8]
+        # the exposed area: a runtime parameter when p carries it (dual-capable)
+        A_m = length(p) > MONO_NP + nu + 8 ? p[MONO_NP + nu + 9] : oftype(p[1], cfg.A_meat)
 
         Tp, m, a = x[nm + 1], x[nm + 2], x[nm + 3]
         mp, Tpan = x[nm + 4], x[nm + 5]
@@ -127,7 +131,7 @@ function make_monolith_rhs(
         dum = @view dx[1:nm]
         q_meat = meat_rhs_core!(
             dum, um, t, θ, Tp, ṁ, pv_base, 1 / mair, airflow, t_wrap, t_pull, t_spritz,
-            dt_spritz, m_spritz, cfg, n_s, n_a, v0, wb, T_trig,
+            dt_spritz, m_spritz, cfg, n_s, n_a, v0, wb, T_trig; A_meat=A_m,
         )
         a_c = clamp(a, zero(a), one(a))
         ṁ_add = fuel_add_rate(t, t_add, dt_add, pit)
@@ -257,7 +261,8 @@ function _monolith_outputs(
     Vmat = specific_volume.(A[(nx + 1):2nx, :], A[(3nx + 1):4nx, :], Ref(cfg))
     l_thick = (θ[4] / (nx - 1)) .* vec(wfv' * ((Vmat ./ v0) .^ n_s))
     a_ts = (vec(wfv' * Vmat) ./ ((nx - 1) * v0)) .^ n_a
-    c_ts = mixing_coefficient.(a_ts, imair_ts, Ref(cfg))
+    A_m = length(p) > MONO_NP + nu + 8 ? p[MONO_NP + nu + 9] : oftype(p[1], cfg.A_meat)
+    c_ts = mixing_coefficient.(a_ts, imair_ts, Ref(cfg), A_m)
     f_aw_ts = 1 ./ (1 .+ cfg.k_aw .* max.(A[5nx, :], 0.0))
     j_evap = surface_j_blended.(
         Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg), f_aw_ts
@@ -269,7 +274,7 @@ function _monolith_outputs(
             Ref(cfg), f_aw_ts,
         )
     q_meat =
-        cfg.A_meat * cfg.n_meat .* a_ts .*
+        A_m * cfg.n_meat .* a_ts .*
         surface_q_pit_blended.(Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
     bark_b = A[5nx + 1, :]
     bark_s = A[5nx + 2, :]
@@ -388,6 +393,7 @@ function monolith_solve(
     dt_add::Real=NaN,
     abstol=1e-6,
     reltol=1e-6,
+    A_meat::Real=NaN,
 )
     length(θ) == MEAT_NP ||
         throw(ArgumentError("θ must have length $MEAT_NP; got $(length(θ))"))
@@ -410,6 +416,9 @@ function monolith_solve(
             "(θ|φ|u|t_wrap|t_pull|t_add|t_spritz|dt_spritz|m_spritz|T_trig|dt_add)",
         ),
     )
+    # the exposed area as a runtime parameter (NaN = the config's constant):
+    # appended last so every fixed offset above is untouched
+    isnan(A_meat) || (p = vcat(p, A_meat))
     nu = length(u_knots)
     A = _monolith_solve_arr(
         p, cfg, pit, hum, u_tknots, tsave, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0, S0,

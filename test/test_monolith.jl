@@ -353,3 +353,30 @@ end
     @test o.bark_s[end] < 1e-9                      # no smoke deposition
     @test o.Tcore[end] > o.Tcore[1] + 25            # the meat still cooks
 end
+
+@testset "monolith: runtime exposed area (the estimator's latent)" begin
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    base = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
+    same = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
+                          A_meat=MeatConfig().A_meat)
+    @test same.Tpit == base.Tpit && same.Tcore == base.Tcore && same.q_meat == base.q_meat
+    @test same.pv_pit == base.pv_pit
+    # a bigger cut draws more heat and humidifies the pit more
+    big = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, A_meat=0.24)
+    mid = div(length(MONO_TSAVE), 2)
+    @test big.Tpit[mid] < base.Tpit[mid]
+    @test big.pv_pit[mid] > base.pv_pit[mid]
+    @test big.q_meat[mid] > base.q_meat[mid]
+    # forward mode through the area matches central differences
+    function g(a)
+        o = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT, A_meat=a)
+        return vcat(o.Tpit, o.Tcore)
+    end
+    a0 = 0.12
+    da = ForwardDiff.derivative(g, a0)
+    h = 1e-3 * a0
+    fd = (g(a0 + h) .- g(a0 - h)) ./ (2h)
+    err = maximum(abs.(da .- fd)) / (maximum(abs.(fd)) + 1e-12)
+    @info "FD gate A_meat: relative error $(round(err; sigdigits=3))"
+    @test all(isfinite, da) && err < 2e-2
+end

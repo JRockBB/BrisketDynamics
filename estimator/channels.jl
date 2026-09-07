@@ -18,7 +18,7 @@
 
 using LinearAlgebra
 
-export Channel, PitProbe, MeatProbe, SurfaceIR, Humidity, MassScale, StaticReading,
+export Channel, PitProbe, MeatProbe, SurfaceIR, HumiditySensor, MassScale, StaticReading,
        LatentSpec, physics_outputs, assemble, fisher_cov, contiguous_runs, whitening_rows,
        OutputLayout
 
@@ -39,24 +39,41 @@ end
 Base.length(lay::OutputLayout) = 3 * lay.nt + 3 * lay.nx * lay.nt
 
 """
-    physics_outputs(z, d) -> (S, J_S, lay)
+    physics_outputs(z, d; area_latent=0) -> (S, J_S, lay)
 
 The stacked monolith outputs on the log grid at the latents `z` (the
 first 15 entries are the physics latents), and their Jacobian w.r.t. the
-FULL latent vector (zero columns for estimator-only latents; the chain
-rule to those is the channels' job).
+FULL latent vector. With `area_latent > 0` the exposed area is the
+LogNormal latent at that index and enters the solve as the monolith's
+runtime `A_meat` (one more ForwardDiff column); other estimator-only
+latents get zero columns here and the chain rule in their channels.
 """
-function physics_outputs(z, d::GateData)
+function physics_outputs(z, d::GateData; area_latent::Int=0)
     zp = z[1:N_PHYS]
     x = from_z(zp, d.prior[1:N_PHYS])
-    θ, φ = x[1:N_THETA], x[(N_THETA + 1):end]
     kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol)
     stack(o) = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o.F_field), o.pv_pit)
-    o = monolith_solve(θ, φ, d.u, d.t, d.t; kw...)
-    S = stack(o)
-    Jx = monolith_jacobian(stack, θ, φ, d.u, d.t, d.t; kw...)
-    Jz = zeros(length(S), length(z))
-    Jz[:, 1:N_PHYS] = Jx .* permutedims(dx_dz(zp, d.prior[1:N_PHYS]))
+    Jz = nothing
+    if area_latent > 0
+        A = exp(z[area_latent])
+        v = vcat(x, A)
+        g(v) = stack(monolith_solve(v[1:N_THETA], v[(N_THETA + 1):N_PHYS], d.u, d.t, d.t;
+                                    kw..., A_meat=v[end]))
+        o = monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw..., A_meat=A)
+        S = stack(o)
+        cfgj = ForwardDiff.JacobianConfig(g, v, ForwardDiff.Chunk{length(v)}())
+        Jv = ForwardDiff.jacobian(g, v, cfgj)
+        Jz = zeros(length(S), length(z))
+        Jz[:, 1:N_PHYS] = Jv[:, 1:N_PHYS] .* permutedims(dx_dz(zp, d.prior[1:N_PHYS]))
+        Jz[:, area_latent] = Jv[:, end] .* A
+    else
+        θ, φ = x[1:N_THETA], x[(N_THETA + 1):end]
+        o = monolith_solve(θ, φ, d.u, d.t, d.t; kw...)
+        S = stack(o)
+        Jx = monolith_jacobian(stack, θ, φ, d.u, d.t, d.t; kw...)
+        Jz = zeros(length(S), length(z))
+        Jz[:, 1:N_PHYS] = Jx .* permutedims(dx_dz(zp, d.prior[1:N_PHYS]))
+    end
     lay = OutputLayout(size(o.T_field, 1), length(d.t))
     return S, Jz, lay
 end
@@ -146,27 +163,31 @@ end
 SurfaceIR(σ, ρ, mask; data=nothing) = SurfaceIR(σ, ρ, collect(Bool, mask), data)
 
 "Pit vapor pressure [Pa] (a humidity sensor; the wet-bulb is a psychrometric map of it)."
-struct Humidity <: Channel
+struct HumiditySensor <: Channel
     σ::Float64
     ρ::Float64
     mask::Vector{Bool}
     data::Union{Nothing,Vector{Float64}}
 end
-Humidity(σ, ρ, mask; data=nothing) = Humidity(σ, ρ, collect(Bool, mask), data)
+HumiditySensor(σ, ρ, mask; data=nothing) = HumiditySensor(σ, ρ, collect(Bool, mask), data)
 
 """
 Meat mass on a scale [kg] at the log times in `mask`:
 m = ρ_d A_meat L (1 + W̄ + F̄), the model's own bookkeeping (purge and
-rendered fat leave); A_meat is the config's exposed area, L the latent.
+rendered fat leave). The exposed area is the latent `area_latent` when
+given (its column in J then carries the pit coupling as well), else the
+constant `A_meat`; L is the thickness latent.
 """
 struct MassScale <: Channel
     σ::Float64
     ρ::Float64
     mask::Vector{Bool}
     A_meat::Float64
+    area_latent::Int
     data::Union{Nothing,Vector{Float64}}
 end
-MassScale(σ, ρ, mask; A_meat=0.12, data=nothing) = MassScale(σ, ρ, collect(Bool, mask), A_meat, data)
+MassScale(σ, ρ, mask; A_meat=0.12, area_latent=0, data=nothing) =
+    MassScale(σ, ρ, collect(Bool, mask), A_meat, area_latent, data)
 
 "A direct reading of one latent's constrained value (a ruler on L, an inserted depth, ...)."
 struct StaticReading <: Channel
@@ -193,7 +214,7 @@ function predict(ch::SurfaceIR, S, J, z, prior, lay)
     idx = lay.oTsurf .+ (1:lay.nt)
     return S[idx], J[idx, :]
 end
-function predict(ch::Humidity, S, J, z, prior, lay)
+function predict(ch::HumiditySensor, S, J, z, prior, lay)
     idx = lay.opv .+ (1:lay.nt)
     return S[idx], J[idx, :]
 end
@@ -228,10 +249,11 @@ end
 function predict(ch::MassScale, S, J, z, prior, lay)
     nx, nt = lay.nx, lay.nt
     L = exp(z[L_INDEX])
+    A = ch.area_latent > 0 ? exp(z[ch.area_latent]) : ch.A_meat
     w = fv_weights(nx)
     r = zeros(nt)
     Jr = zeros(nt, length(z))
-    base = RHO_DRY_EST * ch.A_meat * L
+    base = RHO_DRY_EST * A * L
     for k in 1:nt
         cW = _col(lay, lay.oW, k)
         cF = _col(lay, lay.oF, k)
@@ -239,6 +261,7 @@ function predict(ch::MassScale, S, J, z, prior, lay)
         r[k] = base * (1 + Wm + Fm)
         Jr[k, :] = base .* (permutedims(w) * J[cW, :] .+ permutedims(w) * J[cF, :])[1, :]
         Jr[k, L_INDEX] += base * (1 + Wm + Fm)          # d/d log L of the explicit factor
+        ch.area_latent > 0 && (Jr[k, ch.area_latent] += base * (1 + Wm + Fm))  # d/d log A, explicit
     end
     return r, Jr
 end
@@ -252,7 +275,7 @@ end
 
 whitening(ch::PitProbe) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::SurfaceIR) = whitening_rows(ch.mask, ch.σ, ch.ρ)
-whitening(ch::Humidity) = whitening_rows(ch.mask, ch.σ, ch.ρ)
+whitening(ch::HumiditySensor) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::MeatProbe) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::MassScale) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::StaticReading) = fill(1 / ch.σ, 1, 1)
@@ -289,12 +312,17 @@ The Gauss-Newton (Fisher) posterior covariance of the latents under the
 registry at `z`: (Σ Bᵀ B + prior curvature)⁻¹. Needs no data — the value
 of a sensor before it exists.
 """
-function fisher_cov(channels, z, S, J, prior, lay)
+function fisher_cov(channels, z, S, J, prior, lay; fix::AbstractVector{<:Integer}=Int[])
     _, B, _ = assemble(channels, z, S, J, prior, lay)
     _, _, h = prior_terms(z, prior)
     H = B' * B + Diagonal(h)
-    cov = inv(Symmetric(H))
-    return cov, sqrt.(diag(cov))
+    n = length(z)
+    keep = setdiff(1:n, fix)          # latents in `fix` are treated as known (conditioned on)
+    cov = fill(NaN, n, n)
+    cov[keep, keep] = inv(Symmetric(H[keep, keep]))
+    sd = fill(NaN, n)
+    sd[keep] = sqrt.(diag(cov[keep, keep]))
+    return cov, sd
 end
 
 "A prior site for an estimator-only latent, appended after the physics block."

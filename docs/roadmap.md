@@ -101,10 +101,9 @@ remains, in order:
   pit and meat probes at any depth, surface IR, humidity, a scale and
   static readings; still to add: fuel mass, bark color, the wet-bulb as
   a psychrometric map of the vapor pressure, ambient and rest-environment
-  readings. Exposed area as a latent (so a footprint ruler and a scale
-  constrain area and thickness separately) needs the parameter-layout
-  change — a ninth meat parameter through the Tesseract columns and the
-  calibration artifacts.
+  readings. (The exposed area is a runtime parameter of the monolith
+  now, `A_meat=`, and a latent of the estimator; the Tesseract and the
+  calibration artifacts still carry it as the config constant.)
 - **Noise as graph structure.** The AR(1) discrepancy and its scale as
   nodes (RxInfer's AR node) instead of a fixed whitening; the pooled
   posterior as the prior in data form (one source for priors).

@@ -285,5 +285,7 @@ end
 
 # --- the channel registry (sensors as nodes on the same latent) ---------------
 include(joinpath(@__DIR__, "channels.jl"))
+# --- streaming: full-history refits per batch over the registry ---------------
+include(joinpath(@__DIR__, "stream.jl"))
 
 end # module
