@@ -4,8 +4,10 @@ What is left, split by what it takes: **modeling goals** need code and
 design work only; **calibration & data goals** need logs, instruments,
 or a cook. Completed work and the results behind it: `docs/results.md`.
 Equations of what exists: `docs/model.md`. Independent review of
-correctness, theory gaps, and next steps: `docs/review.md` (laptop-only
-list first — no cook or instruments until travel ends). Do not treat
+correctness, theory gaps, and next steps: `docs/review.md` (its
+laptop-only items 1–7 were acted on 2026-09-07 — `docs/results.md`,
+review fixes; item 8, the output-feedback estimator, is open; no cook or
+instruments until travel ends). Do not treat
 optimizer output as a USDA cook, a judge score, or a 95% on-time
 guarantee.
 
@@ -78,6 +80,41 @@ guarantee.
   combi-oven cook (controlled T+RH) remains the best designed experiment
   for meat parameters that transfer to any smoker.
 
+## Online estimator (review item 8)
+
+The estimator lives in Julia next to the physics as an RxInfer factor
+graph (`estimator/`, its own project). The acceptance gate is passed:
+on the real 19 h cook the graph reproduces the Gauss–Newton MAP within a
+third of a standard deviation and the Fisher widths within 3 %
+(`docs/results.md`, RxInfer estimator). Its structure is fixed by three
+measured RxInfer behaviours (per-residual nodes, one latent block,
+affine relinearization; `estimator/test_rules.jl` guards them). What
+remains, in order:
+
+- **Channel registry.** Sensors as node families on the same latent:
+  static readings on latents (thickness, footprint, probe depth,
+  initial mass, fuel load, ambient) and dynamic readings on the
+  trajectory (probes at depth, surface IR, wet-bulb from the pit vapor,
+  a scale on retained mass, fuel mass, bark color). A missing reading is
+  an absent node, never a fallback branch; an unmeasured quantity is a
+  wider marginal the robust planner already consumes. Needs two monolith
+  outputs (probe temperature at a differentiable depth; retained mass
+  over time) and exposed area as a differentiable input.
+- **Noise as graph structure.** The AR(1) discrepancy and its scale as
+  nodes (RxInfer's AR node) instead of a fixed whitening; the pooled
+  posterior as the prior in data form (one source for priors).
+- **Sensor-value table.** Fisher information per channel on the
+  calibrated cook: which ridges a second probe, a wet-bulb, a scale, a
+  ruler collapse, before anyone buys one (the quantitative form of C2).
+- **Streaming.** Hourly batches through `autoupdates`, the previous
+  posterior as the next linearization point (the iterated EKF per
+  batch), the pilot consuming mean and draws through juliacall.
+- **Mock-pit runs.** Matched and mismatched plants, two channel sets,
+  the posterior-width-versus-hour figure and the decision drift.
+- **Upstream.** File the two RxInfer findings: the silent prior on a
+  singular forward output covariance; iterations not moving the
+  linearization point.
+
 ## Product
 
 The `brisket` CLI shipped, the pooling work is written up, and the
@@ -88,10 +125,11 @@ frontend beyond the CLI; the bark write-up rides on C6.
 
 ## Not modelled
 
-A 2-D axisymmetric surrogate at highest fidelity, not a true
-point-and-flat geometry: the slab2d Tesseract shadow-scores plans (true
-cold spot, bark distribution — `docs/results.md`) while the planners
-optimize on the 1-D monolith; no animal-to-animal pH, aging or
+A 2-D axisymmetric surrogate at highest fidelity (a point-over-flat
+stack is available, inert by default), not a true packer geometry: the
+slab2d Tesseract shadow-scores plans to serve (true cold spot, come-up
+time, bark distribution, a doubled-grid check — `docs/results.md`) while
+the planners optimize on the 1-D monolith; no animal-to-animal pH, aging or
 water-holding capacity (C3); wind and weather on `UA(t)` beyond the
 pilot's forecast feedforward + ambient filter (C1); rub chemistry beyond
 salt (C5, C6); smoke *quality* constants as opposed to smoke mass (C6).
@@ -101,12 +139,16 @@ salt (C5, C6); smoke *quality* constants as opposed to smoke mass (C6).
 Not missing features — how the current physics is wrong or uncalibrated,
 and which goal above closes it.
 
-- **Food safety.** Lethality and danger-zone dwell on the surface and the
-  core node of a symmetric slab — the cold spot of *this* geometry, not of
-  a point-and-flat; intact-muscle assumption for the surface. The fullplan
-  scan rejects cook lengths whose raw residuals fail; the MPC only
-  penalizes and reports. Not a certification. (The slab2d shadow report
-  scores the true grid cold spot after planning — `run_shadow2d.py`.)
+- **Food safety.** Lethality on the surface and the core node of a
+  symmetric slab — the cold spot of *this* geometry, not of a
+  point-and-flat; intact-muscle assumption for the surface; the Appendix A
+  surface-humidity condition is not modelled. The come-up time
+  (10–54.4 °C, 6 h) is reported and, for brisket, not binding (FSIS
+  Scientific Gap 6); `cut_critical` binds it for products where Appendix
+  A's CUT applies. The fullplan scan rejects cook lengths whose raw
+  residuals fail; the MPC only penalizes and reports. Not a certification.
+  (The slab2d shadow report scores the true grid cold spot to serve after
+  planning — `run_shadow2d.py`.)
 - **Condensation.** Ungated two-sided flux with one mass-transfer
   coefficient both ways, the condensate absorbed into the surface node's
   water (no film, no run-off); it acts through the dew-point crossing in
@@ -138,9 +180,9 @@ and which goal above closes it.
   shielding, stacking or grate-position differences — n_meat scales one
   cut's exchange in both fidelities. (C3)
 - **Water pan.** Two states with placeholder conductances (UA_pan, g_pan);
-  the pan drives against the pre-pan vapor pressure (self-feedback not
-  closed) and holds plain water (no juice/fat film). (C3: the pan
-  experiment)
+  the pan's humidity balance is closed (it sees its own vapor) but the
+  pan and the meat are closed sequentially, not jointly, and the pan holds
+  plain water (no juice/fat film). (C3: the pan experiment)
 - **Sources.** Firebox mass/loss/duct conductance, the pellet feed, the
   gas water yield, the earth-pit reservoir and the kamado actuator hint
   are placeholder scale (a firebox/chamber probe pair calibrates the
@@ -157,7 +199,9 @@ and which goal above closes it.
   14.5 kg/m² a 3.9 cm slab holds; a real flat loses ~40 %. Either the
   heat input to the meat is ~2× too high or the slab is thermally thin
   for the water it carries. The scale settles it (C2); the old moisture
-  switch hid this by capping surface loss.
+  switch hid this by capping surface loss. The \((h_c, D_{\mathrm{eff}},
+  L)\) sensitivity map on the calibrated cook (`docs/results.md`,
+  water-budget scan) says which of those the scale should expect to find.
 - **Purge sink.** Softplus still removes \(\sim k_e \delta_e \ln 2\) water
   at \(W = W_{\mathrm{eq}}\); the calibrated \(k_e\) absorbs the offset.
 - **Shrinkage.** Isotropic (`n_shrink = 1/3`); the anisotropy is a config
@@ -184,11 +228,14 @@ and which goal above closes it.
   and the component densities fixed (their 5–95 °C drift is under 3 %); no
   bound-water correction to \(c_p\); the Oswin isotherm's two constants are
   literature values shared with the bark model.
-- **Quality scales.** Collagen \(C=0.90\), bark \(k_0\times 5\) and the
-  dry-side browning floor \(g_{\mathrm{dry}} = 0.5\), \(L^*\)
-  affine map, charcoal-burn smoke proxy, and \(\beta_{\mathrm{fat}}\) are
-  literature or placeholders — not texture or color calibrated. KCBS
-  weights do not make those proxies into judge scores. (C6)
+- **Quality scales.** Collagen \(C=0.90\) and the enzymatic route's
+  scale (\(k_{\mathrm{enz}}\): 24 h at 55 °C from Baldwin / Tornberg, one
+  state for two mechanisms), bark \(k_0\times 5\) and the dry-side
+  browning floor \(g_{\mathrm{dry}} = 0.5\), \(L^*\) affine map,
+  charcoal-burn smoke proxy, and \(\beta_{\mathrm{fat}}\) are literature
+  or placeholders — not texture or color calibrated. KCBS weights do not
+  make those proxies into judge scores. (C6; texture data for the two
+  routes: a Warner–Bratzler or probe-force series on a designed hold)
 - **Likelihood.** Real-cook calibration is AR(1) on contiguous non-lid
   runs; fan duty is treated as exact, per-log ambients are scalars, and
   AR(1) is a discrepancy process, not probe noise. (C3)

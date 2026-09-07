@@ -27,10 +27,14 @@ ever enters the derivatives.
 | symbol | meaning |
 |---|---|
 | $T, W, C, F$ | meat fields: temperature [K], dry-basis moisture [kg/kg], collagen conversion [0–1], un-rendered fat [kg/kg] |
+| $s$ | dry-basis salt field [kg/kg] (dry brine; section 1, salt) |
 | $B, S$ | surface bark states: Maillard browning, smoke deposition (each in [0,1)) |
+| $R$ | smoke-ring penetration depth [m] (an output, never in the objective) |
+| $\ell$ | wrap latch in [0,1]: the state-triggered wrap (section 1, latch) |
 | $T_s, W_s$ | field values at the surface node $x = L$ |
 | $C_0$ | collagen conversion at the center node (the probe location) — "doneness" |
 | $T_p, m, a$ | pit states: gas temperature [K], fuel mass [kg], ignited bed fraction |
+| $m_{\mathrm{pan}}, T_{\mathrm{pan}}, T_{fb}$ | pit states: pan water [kg] and temperature [K], firebox temperature [K] (inert without a pan / a two-zone duct) |
 
 **Latents.** θ = $[D_{\mathrm{eff}}, k_m, h_c, L, k_{\mathrm{mult}},
 k_e, a_{\mathrm{myo}}, m_{\mathrm{conv}}]$ (moisture transport, evaporative
@@ -91,15 +95,23 @@ weight $\beta_{\mathrm{fat}}$; rest constants $T_r, h_r, \varepsilon_r,
 \eta_r, p_{v,r}, \delta_p$ (`T_rest`, `h_rest`, `ε_rest`, `η_rest`,
 `p_v_rest`, `δ_pull`); shrinkage exponent $n_{sh}$ (`n_shrink`, 0 =
 fixed slab) and component densities $\rho_{\mathrm{sol}}, \rho_f,
-\rho_w$.
+\rho_w$; enzymatic collagen route $k_{\mathrm{enz}}, T_{\mathrm{on}},
+T_{\mathrm{off}}, \delta_{\mathrm{enz}}$ (`k_enz0`, `T_enz_on`,
+`T_enz_off`, `δ_enz`); salt $D_{\mathrm{salt}}, S_{\mathrm{surf}},
+\beta_{\mathrm{whc}}, k_{aw}$; latch $k_\ell, \delta_{\mathrm{trig}}$
+(`k_latch`, `δ_trig`); pan $UA_{\mathrm{pan}}, g_{\mathrm{pan}},
+C_{\mathrm{pan}}, m_\tau$; the come-up window and cap (`cut_t_lo`,
+`cut_t_hi`, `cut_cap_h`, `cut_critical`, section 4).
 
-## 1. Meat: 1-D heat–moisture–kinetics PDE (163 ODEs after MOL)
+## 1. Meat: 1-D heat–moisture–salt–kinetics PDE ($5n_x + 4$ ODEs after MOL)
 
 Half-slab $x \in [0, L]$, symmetry at the center $x=0$ (probe location),
 convective/radiative/evaporative boundary at the surface $x=L$. Method of
-lines on $n_x = 40$ uniform nodes → $4n_x + 3 = 163$ meat ODEs (the
-fields, two bark states and the smoke-ring depth), 166 with the three
-pit states, one stiff system (FBDF).
+lines on $n_x = 40$ uniform nodes → $5n_x + 4 = 204$ meat ODEs (five
+fields $T, W, C, F, s$; the two bark states, the smoke-ring depth and the
+wrap latch), 210 with the six pit states of section 2, one stiff system
+(FBDF). The count is the layout, not a constant: five fields times $n_x$,
+plus four meat scalars, plus six pit states.
 
 **Interior fields** (θ: $D_{\mathrm{eff}}$, $k_{\mathrm{mult}}$, $k_e$;
 with $\alpha = k / (\rho c_p)$ of the local mixture, below), written
@@ -124,10 +136,28 @@ functions
 
 $$
 k_C(T) = k_{\mathrm{ref}}\,
-\exp\!\Big[-\frac{E_a}{R}\Big(\frac{1}{T} - \frac{1}{T_{\mathrm{ref}}}\Big)\Big],
+\exp\!\Big[-\frac{E_a}{R}\Big(\frac{1}{T} - \frac{1}{T_{\mathrm{ref}}}\Big)\Big]
++ k_{\mathrm{enz}}\,
+\sigma\!\Big(\frac{T - T_{\mathrm{on}}}{\delta_{\mathrm{enz}}}\Big)\,
+\sigma\!\Big(\frac{T_{\mathrm{off}} - T}{\delta_{\mathrm{enz}}}\Big),
 \qquad
 k_f(T) = k_{f0}\;\sigma\!\Big(\frac{T - T_{\mathrm{render}}}{\delta_{\mathrm{render}}}\Big)
 $$
+
+Two routes to tenderness share the one collagen state: the thermal
+(gelatinization) Arrhenius route referenced at 60 °C ($E_a = 173$ kJ/mol,
+$k_{\mathrm{ref}} = 10^{-6}$ s⁻¹ — literature scale, the $C^\star = 0.90$
+pull anchored on one TVWBB cook), and the enzymatic (collagenase /
+cathepsin) route active only in the 45–60 °C window
+($T_{\mathrm{on}} = 45$ °C, $T_{\mathrm{off}} = 60$ °C,
+$\delta_{\mathrm{enz}} = 3$ K) — the sous-vide mechanism (Tornberg 2005;
+Bouton & Harris 1981; Baldwin), sized so 24 h at the peak converts 90 %
+($k_{\mathrm{enz}} = \ln 10 / 24\,\mathrm{h} = 2.7\times10^{-5}$ s⁻¹).
+Above the inactivation edge only the thermal route remains, so a BBQ core
+that crosses the window in 1–3 h gains a few percent of $C$ that the
+later thermal conversion largely overwrites (`docs/results.md`, two-route
+collagen: the pull anchor moves by minutes). $k_{\mathrm{enz}} = 0$
+recovers the single Arrhenius exactly (the fish preset).
 
 (collagen: Arrhenius referenced to $T_{\mathrm{ref}} = 60$ °C; fat: render
 switch ~55 °C). The expulsion sink (the purge; θ: $k_e$,
@@ -182,6 +212,23 @@ yield $y_w$, water-pan rate $\dot m_{\mathrm{pan}}$, air–fuel ratio of the
 draft AFR — plain constants in `coupled.Humidity`). AFR is the
 air-to-fuel ratio at full burn, so the air flow is set by the draft, not
 by the burn: a spreading or tapering bed burns leaner in the same air.
+With a water pan (section 2) $\dot m_{\mathrm{pan}}$ is a flux of the pan
+states, not a constant, and it is closed against the pit vapor it
+creates: with $p_{v,0}$ the pre-pan vapor pressure (ambient +
+combustion), $K = p_{\mathrm{atm}}/(0.622\,\dot m_{\mathrm{air}})$ and
+$\tau = \tanh(m_{\mathrm{pan}}/m_\tau)$ the dry-out taper,
+
+$$
+\dot m_{\mathrm{pan}} = \frac{g_{\mathrm{pan}}\,\tau\,
+\big(p_{\mathrm{sat}}(T_{\mathrm{pan}}) - p_{v,0}\big)}{1 + g_{\mathrm{pan}}\,\tau\,K},
+\qquad
+p_{v,\mathrm{base}} = p_{v,0} + K\,\dot m_{\mathrm{pan}},
+$$
+
+the same closed linear balance as $j$ below: the pan sees its own vapor
+and can never drive the pit past its own saturation (two-sided: a cold
+pan under a humid pit condenses). The meat's flux is then closed against
+$p_{v,\mathrm{base}}$ — sequentially, not jointly with the pan.
 $j$ then solves
 $j = a\,(a_w p_{\mathrm{sat}} - p_{v,\mathrm{base}} - c j)$, $a = k_m/(R_v T_s)$
 — linear, so $j = a\,(a_w p_{\mathrm{sat}} - p_{v,\mathrm{base}})/(1 + c\,a)$
@@ -216,6 +263,16 @@ the deposition state. $t_{\mathrm{wrap}}$ is a differentiable decision
 variable; $t_{\mathrm{wrap}} = 10^9$ puts the logistic blend at numerical
 zero over any cook horizon (Python no-wrap is `WRAP_NEVER = 1e9 + 0\cdot z_w`
 so the unused wrap logit stays in the tape).
+
+**State-triggered wrap (latch).** The wrap can also fire on the core
+temperature: an irreversible latch state $\ell \in [0,1]$,
+$\dot\ell = k_\ell\,\sigma\!\big((T_0 - T_{\mathrm{trig}})/\delta_{\mathrm{trig}}\big)\,(1-\ell)$
+($k_\ell = 1/60$ s⁻¹, about a minute to commit), drives the wrap blend as
+the smooth OR $s = 1 - (1 - s_{\mathrm{time}})(1 - \ell)$. Because $\ell$
+is an ordinary smooth state, $\partial(\cdot)/\partial T_{\mathrm{trig}}$
+exists through plain forward mode — no event jump conditions;
+$T_{\mathrm{trig}} = \infty$ (the planner's 0 sentinel) leaves the latch
+identically zero.
 
 **Spritz.** A spritz policy — first spritz $t_{\mathrm{sp}}$, interval
 $\Delta_{\mathrm{sp}}$, dose $m_{\mathrm{sp}}$ (0.02–0.10 kg/m²: a light
@@ -275,6 +332,21 @@ input like $t_{\mathrm{wrap}}$ (`PULL_NEVER = 1e9` puts the blend at
 numerical zero). With a rest appended to the horizon, every quality
 summary below is evaluated at serve; the objective prices fuel at the pull
 and the bark-burn cap in the pit only.
+
+**Dry brine (salt).** The fifth field, the dry-basis salt $s(\xi, t)$,
+starts from the analytic semi-infinite rub profile of a brine applied
+$t_{\mathrm{salt}}$ before the fire,
+$s_0 = S_{\mathrm{surf}}\,\mathrm{erfc}\!\big(d/(2\sqrt{D_{\mathrm{salt}}\,t_{\mathrm{salt}}})\big)$
+with $d$ the depth below the rubbed face ($t_{\mathrm{salt}} = 0$: exactly
+unsalted), and diffuses inward on the same material grid,
+$\partial_t s = \partial_\xi(D_{\mathrm{salt}}\,\partial_\xi s)$ with a
+no-flux face ($D_{\mathrm{salt}} = 10^{-10}$ m²/s, ham-curing literature,
+fixed). Salt enters the water physics twice: the water-holding coupling
+$W_{\mathrm{eq}} \to W_{\mathrm{eq}}\,(1 + \beta_{\mathrm{whc}}\, s)$ in the
+purge sink, and the surface water activity
+$a_w \to a_w/(1 + k_{aw}\, s_L)$ (Raoult depression) in the evaporative
+flux. $\beta_{\mathrm{whc}}$, $k_{aw}$, $S_{\mathrm{surf}}$ are placeholder
+scale (roadmap C5); $t_{\mathrm{salt}}$ is a differentiable input.
 
 **Shrinkage (material coordinate).** The fields above are integrated on
 the dry-matter (Lagrangian) coordinate $\xi \in [0, L]$ — $L$ is the raw
@@ -397,7 +469,7 @@ $r_0 = 0.5$ mm. The physical depth is $r$ times the final stretch
 $l(t_f)/L$. Literature-scale constants with no ring measurement behind
 them (`docs/roadmap.md`, *Residues of the implemented physics*).
 
-## 2. Pit: lumped 3-state ODE
+## 2. Pit: lumped ODE (six states)
 
 With damper $u(t) \in [0,1]$ and airflow
 $g(u) = u_{\mathrm{leak}} + (1 - u_{\mathrm{leak}})\,u$ (the leak floor
@@ -411,7 +483,7 @@ $$
 
 $$
 C_{th}\,\dot T_p = \Delta H_{e\!f\!f}\,\dot m_b
-- UA\,(T_p - T_{\mathrm{amb}}) - q_{\mathrm{meat}} - q_{\mathrm{lid}},
+- UA\,(T_p - T_{\mathrm{amb}}) - q_{\mathrm{meat}} - q_{\mathrm{lid}} - q_{\mathrm{pan}},
 \qquad
 \dot a = k_{\mathrm{spr}}\, a\,(1-a)\, g(u)
 + (1-a)\,\frac{\dot m_{\mathrm{add}}}{\max(m, m_t)},\quad a(0) = a_0 .
@@ -439,6 +511,31 @@ horizon, exactly zero); the lid lift it costs is $q_{\mathrm{lid}}$ below.
 At $a_0 = 1$ the spread term vanishes and the two-state model is
 recovered exactly. $\dot m_b$ is exported (exact algebraic recompute at
 save times) as the smoke-flux forcing to the bark model.
+
+**Water pan** ($m_{\mathrm{pan}}, T_{\mathrm{pan}}$; both inert at
+$m_{\mathrm{pan}}(0) = 0$). The pan draws
+$q_{\mathrm{pan}} = UA_{\mathrm{pan}}\,(T_p - T_{\mathrm{pan}})$ from the
+gas and evaporates $\dot m_{\mathrm{pan}}$ — the closed balance of section 1
+(humidity) — into the pit vapor:
+
+$$
+\frac{d m_{\mathrm{pan}}}{dt} = -\,\dot m_{\mathrm{pan}},
+\qquad
+\big(c_w\, m_{\mathrm{pan}} + C_{\mathrm{pan}}\big)\,\dot T_{\mathrm{pan}}
+= q_{\mathrm{pan}} - \lambda\,\dot m_{\mathrm{pan}},
+$$
+
+$q_{\mathrm{pan}}$ being the sink in the pit balance above: the latent
+buffer behind a WSM's steadiness, which can dry out mid-cook (the
+$\tanh$ taper). $UA_{\mathrm{pan}}, g_{\mathrm{pan}}, C_{\mathrm{pan}}$ are
+placeholder scale (roadmap C3: the pan-in / pan-out cook).
+
+**Two-zone firebox** ($T_{fb}$; inert at $c_{\mathrm{duct}} = 0$). An
+offset burns in a firebox and the chamber receives draft-advected duct
+heat: $C_{fb}\,\dot T_{fb} = \Delta H_{e\!f\!f}\,\dot m_b
+- UA_{fb}\,(T_{fb} - T_{\mathrm{amb}}) - q_{\mathrm{duct}}$,
+$q_{\mathrm{duct}} = c_{\mathrm{duct}}\, g(u)\,(T_{fb} - T_p)$, which
+replaces $\Delta H_{e\!f\!f}\,\dot m_b$ in the chamber balance.
 
 ## 3. Coupling: one solve
 
@@ -510,16 +607,28 @@ point to heat, since the condition must hold in all parts of the product.
 Lethality via the z-value equivalence (the FSIS Appendix A 6.5-log line:
 720 s at the 60 °C reference,
 $z = 6$ K, requirement $F_{\mathrm{req}} = 720$ equivalent seconds),
-penalized on the log shortfall, plus a danger-zone dwell cap
-($h_{\mathrm{zone}}$ = hours with $T$ in 4.4–60 °C, cap 4 h), each for
-$T \in \{T_s, T_{\mathrm{core}}\}$:
+penalized on the log shortfall, for $T \in \{T_s, T_{\mathrm{core}}\}$:
 
 $$
 F_{\mathrm{leth}}[T] = \int_0^{t_f} 10^{(T - T_{\mathrm{ref}})/z}\, dt,
 \qquad
 \mathcal S = \sum_{T} w_F\,\mathrm{sp}\Big(\tfrac{\log_{10} F_{\mathrm{req}} - \log_{10} F_{\mathrm{leth}}[T]}{0.2}\Big)^2
-+ w_D\,\mathrm{sp}\Big(\tfrac{h_{\mathrm{zone}}[T] - 4\,\mathrm{h}}{0.5}\Big)^2 .
++ [\text{critical}]\; w_C\,\mathrm{sp}\Big(\tfrac{h_{\mathrm{CUT}}[T] - 6\,\mathrm{h}}{0.5}\Big)^2 .
 $$
+
+The **come-up time** $h_{\mathrm{CUT}}[T]$ — hours with $T$ inside the
+FSIS Appendix A window 10–54.4 °C (50–130 °F), as a smooth window — is
+always integrated and reported against the 6 h Appendix A limit
+(*S. aureus* enterotoxin), but it enters $\mathcal S$ and the fullplan
+rejection only when the cut declares it critical (`cut_critical`). For
+brisket it does not: FSIS Scientific Gap 6 states that a whole-muscle
+beef cut cooked low-and-slow is expected to exceed a 6 h come-up and that
+the CUT is not a critical operating parameter for it. The consumer
+"danger zone 4.4–60 °C, 4 h" cap that used to sit here was a holding rule
+for cooked food left out, not a roasting limit, and was removed
+(`docs/review.md`). Appendix A also conditions its lethality table on the
+surface humidity during the cook; the model does not represent that
+condition and the report says so. None of this is a certification.
 
 **Total** — the diagram's $\mathrm{ops}(T_s, m, u)$ collects the three
 operational terms (bark-burn surface cap, fuel fraction, schedule
@@ -567,3 +676,29 @@ as the routine posterior, PSIS-checked against the true ODE
 (`scripts/run_psis_laplace.py`). Exact posterior by NUTS
 (`scripts/run_nuts_mono.py`), every leapfrog step pulling one VJP through
 the Tesseract.
+
+## 6. The 2-D shadow (`src/meats/slab2d.jl`)
+
+The planners optimize on the 1-D monolith; a plan is then re-simulated
+to serve on an axisymmetric finite cylinder $(r, z)$ with the same
+property functions, purge sink, Oswin isotherm and face conditions
+(convective + radiative + evaporative on the rim and both end faces),
+by fixed-step lagged-coefficient ADI (implicit tridiagonal sweeps in $r$
+then $z$; the face heat flux as an implicit Robin term, the face
+evaporation linearized-implicit), co-integrated with the six pit states
+(the meat's vapor feeds the pit humidity one step lagged). Every 1-D
+layer rides along, each exactly inert at its default: shrink metrics per
+direction, the wrap blend and the **pull blend on every face** — after
+$t_{\mathrm{pull}}$ a face sees $h_r, T_r, \varepsilon_r$ and the
+blocked rest evaporation while the pit stops seeing the meat, so the
+shadow ends at serve, not at the horizon — dry brine from every rubbed
+face, spritz, grain anisotropy, a point-over-flat stack, Maillard bark on
+the faces. Geometry: height $2L$; radius, by default, the one whose two
+end faces carry the 1-D exposed area $A_{\mathrm{meat}}$,
+$R = \sqrt{A_{\mathrm{meat}}/2\pi}$ (13.8 cm for 0.12 m²); the report
+records which radius was used and, on request, the change of the serve
+cold spot, its peak and $C_{\min}$ under grid doubling. Not in 2-D: bone,
+smoke deposition and the ring, fuel additions and lid lifts. Forward-mode
+derivatives w.r.t. $\theta_2, \phi$, the damper knots and the five
+decision scalars (wrap, salt, spritz start and interval, pull) are the
+`slab2d` Tesseract's endpoints.

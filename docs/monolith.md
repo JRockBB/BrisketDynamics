@@ -8,8 +8,11 @@ meat stencil (`meat_rhs_core!`) is shared with the component solvers, so the
 exchange-grid oracle below integrates the same physics and differs only in
 how the coupling is closed.
 
-State `x = [T(nx) | W(nx) | C(nx) | F(nx) | B | S | T_pit | m_fuel | ignited]`,
-parameters `p = [θ(8) | φ(7) | u_knots | t_wrap | t_pull]`.
+State `x = [T(nx) | W(nx) | C(nx) | F(nx) | s(nx) | B | S | R | ℓ | T_pit | m_fuel | ignited | m_pan | T_pan | T_firebox]`
+— five fields, the two bark states, the smoke-ring depth, the wrap latch,
+six pit states: 5·nx + 4 + 6 = 210 at the default nx = 40 (the count is
+the layout, not a constant). Parameters
+`p = [θ(8) | φ(7) | u_knots | t_wrap | t_pull | t_add | t_spritz | dt_spritz | m_spritz | T_trig | dt_add]`.
 
 ```julia
 out = monolith_solve(θ, φ, u_knots, u_tknots, tsave; pit=PitConfig(T_amb=300.0))

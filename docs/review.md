@@ -24,6 +24,30 @@ new data — an honest 2-D shadow, green CI, a safety term that matches
 FSIS brisket practice, and an equation sheet that matches the state
 vector.
 
+**Status (2026-09-07, after verification against the tree).** Items 1–7
+of the laptop list below were acted on the same day: CI runs the real
+app suite; the pan humidity balance is closed; the 2-D shadow pulls and
+rests to serve, derives its radius from the 1-D exposed area and reports
+a doubled-grid check; the 4 h danger-zone cap is replaced by the FSIS
+come-up time, reported and not binding for brisket (Gap 6); the equation
+sheet matches the 210-state vector; the water-budget sensitivity map and
+the two-route collagen structure are in (`docs/results.md`, 2026-09-07
+entries). Item 8 was started the same night as an RxInfer factor graph
+in Julia (`estimator/`); its acceptance gate against the Gauss–Newton
+MAP and Fisher covariance of the real cook is passed, and the sensor
+registry, streaming and mock-pit runs are the remaining work
+(`docs/roadmap.md`, online estimator). Seven details of this review did
+not survive verification: only `scratchpad/` is untracked (figures are tracked); the
+Aug 30 equation review already carried a Historical banner; the shadow
+scored the *robust* schedule, which pulls at 9.66 h, so the excess pit
+time was ~1.3 h, not 2.6 h; `docs/monolith.md` did not say 166 (its
+state list omitted six states instead); the 4 h cap did not bind on the
+calibrated slab (core dwell 1.40 h), so "fights every real cook" was
+overstated for this calibration; the app CI job failed red on a missing
+path rather than passing green; and the 2-D engine already carried a
+point-over-flat stack (inert by default). The review text below is left
+as written.
+
 ---
 
 ## What is already in good shape
@@ -195,7 +219,8 @@ exists.
   spritz policies will have derivative kinks.
 - Dual sentinel lesson (`Dual(0,1) <= 0` is false) is documented and
   easy to regress; keep those tests.
-- Untracked figures/GIFs and `scratchpad/` will keep the tree noisy.
+- `scratchpad/` is the only untracked path (figures are tracked; this
+  bullet originally claimed otherwise).
 
 ---
 
@@ -375,7 +400,7 @@ IMEX number applies to the monolith the planners actually call.
 | Issue | Why it matters |
 |---|---|
 | README / writeup still framed as the Aug 3–31 hackathon, while `docs/results.md` runs through 2026-09-04 | Attribution and “all code in window” claims are stale |
-| `equation_correctness_review.md` not marked superseded | Readers will think H2/H5 are still open |
+| `equation_correctness_review.md` — carries a Historical banner (verified 2026-09-07; this row was wrong) | nothing to do |
 | Install story correctly refuses PyPI; CI app job is broken | New contributors get a false green |
 | Pilot has never seen a pit | C1 is the only test that can falsify the twin |
 | No smoker yield pair in the log hunt | Moisture physics is identified from temperature, which is the wrong observable |

@@ -16,7 +16,7 @@ into one end-to-end differentiable function orchestrated from JAX:
 
 | Component | Physics | States | Differentiation strategy |
 |---|---|---|---|
-| **Monolith Tesseract** | Pit ODE (energy balance + fuel burn + Minion ignition spread) + 1D slab heat-moisture PDE (denaturation expulsion, fat rendering, smoothed evaporative surface BC, collagen kinetics, Maillard + smoke bark states) + quasi-steady pit humidity, as ONE stiff system | T, W, C, F × 40 nodes + B, S, R + T_pit, m_fuel, ignited (166 ODEs, FBDF) | **Forward-mode ForwardDiff**: `jacobian_vector_product` = one Dual solve, `vector_jacobian_product` / `jacobian` = one chunked pass over the requested inputs |
+| **Monolith Tesseract** | Pit ODE (energy balance + fuel burn + Minion ignition spread, water pan, two-zone firebox) + 1D slab heat–moisture–salt PDE (denaturation expulsion, fat rendering, smoothed evaporative surface BC, two-route collagen kinetics, Maillard + smoke bark states, smoke ring, state-triggered wrap latch) + quasi-steady pit humidity, as ONE stiff system | five fields (T, W, C, F, salt) × nx + four meat scalars (B, S, R, wrap latch) + six pit states (T_pit, m_fuel, ignited, m_pan, T_pan, T_firebox): 5·40 + 4 + 6 = **210 ODEs** at the default nx = 40, FBDF | **Forward-mode ForwardDiff**: `jacobian_vector_product` = one Dual solve, `vector_jacobian_product` / `jacobian` = one chunked pass over the requested inputs |
 
 Pit temperature → meat boundary condition and meat evaporative + sensible
 load → pit energy balance are integrated together in one stiff solve, so
@@ -35,6 +35,8 @@ second-order control affordable ([docs/monolith.md](docs/monolith.md)).
 | **The plan** | cook length × wrap × pull × chimney × spritz policy × vents optimized jointly, quality scored at serve: the 11 h cook wraps at 7.1 h, pulls at 8.4 h, rests 2.6 h, adds no fuel and does not spritz ([figure](figures/fullplan.png)) — 13 cook lengths in 95 min |
 | **MPC** | hourly replans of vents, crutch, pull, chimney and spritz policy from the full meat field through the Tesseract; a 15 K cold front the open-loop plan does not survive (doneness 0.57) is absorbed (0.945) ([demo](figures/mpc_demo.png)) — 4 cooks in 68 min |
 | **Robust control** | E[J] over 8 posterior draws vs the plan-optimal schedule on 30 held-out draws: half the spread, the hedge is in the wrap and pull times ([comparison](figures/control_robust.png)) |
+| **Online estimator** | the calibration as an RxInfer factor graph in Julia ([estimator/](estimator/)): one node per whitened residual, one latent block, the monolith affine around a relinearized point. On the real 19 h cook it reproduces the Gauss–Newton MAP within a third of a standard deviation and the Fisher widths within 3 %, 17 outer iterations in about two minutes ([docs/results.md](docs/results.md)) |
+| **2-D shadow** | the planned cook re-simulated to serve on the axisymmetric 2-D Tesseract, pull and rest included: true cold-spot lethality and come-up time, bark distribution, shrunk dimensions, a doubled-grid discretization check, radius derived from the 1-D exposed area ([figure](figures/slab2d/slab2d_plan.png), [docs/results.md](docs/results.md)) |
 | **Mechanistic bark model** | Maillard + smoke deposition as meat states, smoke flux = pit burn rate; hot-fast vs low-slow vs wrap reproduced ([figure](figures/bark_model.png)) |
 | **Animated cook** | calibrated T/W fields evolving through the real cook ([gif](figures/cook_animation.gif)) |
 
@@ -45,9 +47,10 @@ src/, test/            Julia package: component solvers, the coupled monolith, p
 tesseracts/monolith/   Tesseract API (Pydantic schemas + juliacall bridge, threading notes)
 app/                   uv-managed Python: JAX orchestrator, NumPyro calibration,
                        Optax control, plots; boundary + composed-gradient tests
+estimator/             Julia subproject: the online estimator as an RxInfer factor graph (its own Project.toml)
 scripts/               one script per result (see below) + container build
 data/                  synthetic dataset, real cook log (+provenance), posteriors
-docs/                  writeup, verification record, project brief
+docs/                  writeup, equation sheet, results record, roadmap, review, verification record
 figures/               all generated figures
 ```
 
@@ -133,7 +136,9 @@ verification artifact.
 
 ## License & data
 
-Apache 2.0; all code authored during the hackathon window (Aug 3–31, 2026).
+Apache 2.0. The hackathon entry is the Aug 3–31, 2026 window; development
+continued after it (the 2-D line, salt, the water pan, pooling, the
+2026-09-07 review fixes — dated entries in [docs/results.md](docs/results.md)).
 Real cook log digitized from a public 2013 post by "Mache" (The Virtual Weber
 Bulletin Board) with attribution — see
 [data/cook_log/PROVENANCE.md](data/cook_log/PROVENANCE.md).

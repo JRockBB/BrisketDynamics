@@ -1,7 +1,7 @@
 # Differentiable BBQ: Bayesian Calibration and Optimal Control of a Coupled Smoker–Brisket System
 
 **Track 04 — Differentiable inference & UQ** (cross-track: 02 — Multi-physics & coupled systems)
-**Repo:** https://github.com/JRock95/BrisketDynamics · Apache 2.0 · all code authored Aug 3–31, 2026
+**Repo:** https://github.com/JRock95/BrisketDynamics · Apache 2.0 · hackathon window Aug 3–31, 2026; development continued after it (docs/results.md)
 
 Real barbecue is a coupled multi-physics control problem. A charcoal pit with
 its own thermal dynamics drives heat into a brisket whose internal physics —
@@ -26,8 +26,11 @@ the brisket (denaturation-driven water expulsion, fat rendering, collagen
 kinetics, a two-sided surface flux — evaporation and condensation — against
 the pit's vapor pressure, draft-scaled convection, Maillard and
 smoke-deposition bark states, a smoke-ring front), and the quasi-steady pit
-humidity balance, integrated together as a 166-ODE stiff system (method of
-lines, FBDF). Its inputs are the meat and pit parameters, the damper schedule,
+humidity balance, integrated together as one stiff system — five meat
+fields (T, W, C, F, salt) on n_x nodes plus the two bark states, the ring
+depth and the wrap latch, and six pit states (temperature, fuel, ignition,
+pan water and temperature, firebox): 5·n_x + 4 + 6 = 210 ODEs at n_x = 40
+(method of lines, FBDF). Its inputs are the meat and pit parameters, the damper schedule,
 the wrap, pull and fuel-addition times, the spritz policy, the number of
 briskets, initial conditions (including the full meat field
 for state handoff) and the rest-environment constants; its outputs are the

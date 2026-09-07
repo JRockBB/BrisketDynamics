@@ -1,5 +1,10 @@
 # Submission package (drafts)
 
+> **Note (2026-09-07).** The submission text as filed. The state counts it
+> quotes (166 / 165 ODEs) were right on Aug 31; the monolith has since grown
+> to 5·n_x + 4 + 6 = 210 states at n_x = 40 (`docs/model.md`). Left as
+> submitted.
+
 Author notes (not posted): the NUTS-on-monolith diagnostics and the
 robust-control numbers below are from `scripts/merge_nuts_mono.py` and
 `data/control/schedule_robust.json`. Repo:

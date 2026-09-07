@@ -4,6 +4,195 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## RxInfer estimator: the calibration as a factor graph, gate passed (2026-09-07)
+
+Review item 8 (the output-feedback estimator), redesigned in discussion:
+the sensor suite must be composable (different users, different
+instruments), every derivative comes from the AD already in the library,
+scale and ruler readings are measurements like any probe, a missing
+reading is an absent node rather than a fallback branch, and the
+estimator lives in Julia next to the physics. RxInfer (reactive message
+passing on a factor graph) was chosen as the host and put through two
+steps the same night.
+
+**Step 1, compatibility and the three findings.** RxInfer v5.5.2
+resolves next to the package on Julia 1.11.9 with no conflicts;
+deterministic nodes take the solves under ForwardDiff, constants and
+data pass into them, the AR node exists. Three behaviours of its
+deterministic (delta) node under `Linearization`, each measured on
+linear cases where the exact posterior is known (`estimator/test_rules.jl`
+keeps them measured), fix the graph's structure:
+
+1. A node with more outputs than latent inputs silently returns the
+   prior — the joint-marginal rule inverts the forward output covariance,
+   singular there. No error, no warning. The graph therefore carries one
+   node per whitened residual, scalar output.
+2. The rule linearizes at the incoming message mean and `iterations`
+   never moves that point (a constant free energy over ten iterations);
+   from the calibration-width priors one step overshoots (one batch sent
+   log k_m from −6 to +24) or is dropped. The physics therefore enters
+   each node affine around a linearization point passed as data,
+   f(c) + J(c)(z − c) with J by ForwardDiff through the FBDF solve, and an
+   outer loop moves c with a descent safeguard: Gauss–Newton with the
+   prior intact, as message passing.
+3. Separate latent blocks feeding one node come back with the right
+   means and variances narrower than the marginals (a block
+   factorization, not the joint; 2–5× too narrow on the real problem).
+   The latents are therefore one multivariate block; sensor nuisances
+   will live inside it.
+
+With those, on a 3-latent, 37-reading meat solve, the graph reproduced
+the direct Gauss–Newton MAP and Laplace widths to four decimals, and one
+pass equalled one Gauss–Newton step exactly; twelve graph solves took
+1.3 s after compile. Two items to file upstream: the silent prior on a
+singular forward output covariance, and iterations not moving the
+linearization point.
+
+**Step 2, the gate on the real cook.** `estimator/export_gate_data.py`
+writes everything `run_gn_map.py` sees — the resampled log, the
+whitening operator of the masked AR(1) likelihood at the MAP's noise
+parameters, the priors, the MAP, the Gauss–Newton Hessian and its
+inverse — and `estimator/gate_real_cook.jl` rebuilds the objective as a
+graph: one 15-dimensional latent block in the unconstrained space, a
+prior node that is the local quadratic of −log p(z) at the
+linearization point (exact for the LogNormal sites, the logit-Beta
+curvature for the Beta sites, so the fixed point and the covariance are
+the Python ones), 222 residual nodes, twenty message-passing iterations
+per outer step. The objective evaluated in Julia at the Python MAP
+agrees to 1.4e-13. From the cold start (F = 5317) the outer loop reached
+F = 133.1206 in 17 iterations and 155 s, against the stored
+MAP's 133.2059 — a lower value of the same objective; the stored MAP
+sits at a residual gradient of 4.8 in whitened units, the known last-bit
+Jacobian jitter near the optimum, which is exactly the slack the
+pit-ridge sites show below.
+
+  | site | z MAP (GN) | z graph | \|Δ\| / sd | sd GN | sd graph | ratio |
+  |---|---|---|---|---|---|---|
+  | D_eff | -18.7271 | -18.7099 | 0.051 | 0.3357 | 0.3346 | 0.997 |
+  | k_m | -6.2096 | -6.2221 | 0.079 | 0.1586 | 0.1582 | 0.998 |
+  | h_c | 2.4856 | 2.4754 | 0.045 | 0.2248 | 0.2234 | 0.994 |
+  | L | -3.9379 | -3.9326 | 0.046 | 0.1159 | 0.1159 | 1.000 |
+  | k_mult | -0.0882 | -0.0783 | 0.043 | 0.2277 | 0.2278 | 1.000 |
+  | k_e | -7.5898 | -7.5920 | 0.004 | 0.4987 | 0.4987 | 1.000 |
+  | a_myosin | -1.9717 | -1.9773 | 0.015 | 0.3849 | 0.3851 | 1.001 |
+  | m_conv | 0.1119 | 0.1364 | 0.039 | 0.6275 | 0.6291 | 1.002 |
+  | C_th | 10.6247 | 10.5773 | 0.162 | 0.2931 | 0.2934 | 1.001 |
+  | UA | 2.8175 | 2.8406 | 0.101 | 0.2294 | 0.2289 | 0.998 |
+  | r_max | -8.5084 | -8.5517 | 0.318 | 0.1358 | 0.1320 | 0.972 |
+  | dH_eff | 16.5022 | 16.5264 | 0.109 | 0.2229 | 0.2225 | 0.999 |
+  | u_leak | -0.2932 | -0.2043 | 0.325 | 0.2731 | 0.2738 | 1.003 |
+  | k_spread | -8.2234 | -8.1980 | 0.041 | 0.6144 | 0.6175 | 1.005 |
+  | a0 | 3.0077 | 3.0354 | 0.036 | 0.7729 | 0.7902 | 1.022 |
+
+Max \|Δ\| / sd 0.325 (r_max, u_leak: the pit ridge), covariance entries
+within 4.5 % of the largest, correlations within 0.032. The
+per-outer-step cost is the monolith solve plus its 15-column Jacobian;
+the 222-node graph solve is a fraction of a second. The estimator
+subproject (`estimator/`, own `Project.toml`, RxInfer + ForwardDiff +
+JSON over the package) is where the channel registry, the AR node, the
+sensor-value table, streaming and the mock-pit runs go next
+(`docs/roadmap.md`, online estimator).
+
+## Review fixes: pan closure, 2-D shadow to serve, FSIS come-up time, two-route collagen, water-budget map (2026-09-07)
+
+The independent review (`docs/review.md`) was verified claim by claim
+against the tree and its laptop-only items 1–7 acted on the same day
+(item 8, the output-feedback estimator, is open).
+
+- **CI.** The app job ran a test file that did not exist
+  (`tests/test_local_apply.py`; only a stale `.pyc` remained), so the
+  composed-gradient gate, MPC, planner and 2-D tests never ran on CI. It
+  now runs the whole app suite (76 tests, 4.5 min locally including the
+  Julia init).
+- **Water pan: closed humidity balance.** `_pan_algebra` now solves
+  \(\dot m_{\mathrm{pan}} = g\tau\,(p_{\mathrm{sat}} - p_{v,0})/(1 + g\tau K)\),
+  \(K = p_{\mathrm{atm}}/(0.622\,\dot m_{\mathrm{air}})\) — the same linear
+  self-consistent closure the meat's `evap_flux_fb` uses — so the pan sees
+  its own vapor and cannot drive the pit past its own saturation. Tests:
+  the closed form against the open-loop flux, \(p_{v,\mathrm{base}} <
+  p_{\mathrm{sat}}(T_{\mathrm{pan}})\) while evaporating, pan-off inert.
+  The 2-D coupled loop shares the function.
+- **2-D shadow pulls and rests to serve.** The 1-D pull blend is on every
+  face of the 2-D engine (rest convection and radiation, the blocked rest
+  evaporation with \(k_m h_r/h_c\), the pit's share of heat and vapor
+  gated by \(1 - p\)); `t_pull` is the fifth differentiable input of the
+  `slab2d` Tesseract (column FD-checked; never-pulled is bitwise the
+  pit-only solve); the plan's rest constants pass through; the radius
+  defaults to the 1-D exposed-area equivalent
+  \(R = \sqrt{A_{\mathrm{meat}}/2\pi} = 13.8\) cm (it was 10 cm by hand)
+  and the report records which was used; `refine` re-runs on a doubled
+  grid. On the committed robust plan (11 h; wrap 6.72 h; pull 9.66 h):
+
+  | | before: cooked to the horizon, R 10 cm | after: rested to serve, R 13.8 cm |
+  |---|---|---|
+  | cold-spot lethality F [60 °C-eq s] | 3.8e11 | 2.5e9 (720 required) |
+  | cold-spot come-up 10–54 °C | 1.40 h (as "dwell 4.4–60 °C") | 1.05 h |
+  | C_min at serve | 0.99998 | 0.979 |
+  | water retained | 0.189 | 0.277 |
+  | cold spot at serve | 112 °C (= pit; uniformly done) | 68 °C (peak 94 °C; the rim cools in the cambro) |
+  | core at serve | 112 °C | 82 °C |
+  | shrunk radius / thickness | 7.7 / 3.1 cm | 11.0 / 3.2 cm |
+  | 16×14 → 32×28 grid | — | ΔT_cold(serve) −0.08 K, Δpeak +0.004 K, ΔC_min +0.0005, Δw +0.0003 |
+
+  The old numbers were the surrogate left on the fire 1.3 h past the pull
+  (the robust plan pulls at 9.66 h — not the nominal plan's 8.4 h the
+  review assumed) on a thinner puck. The shadow now scores in 2-D what the
+  plan scored in 1-D (C_min 0.979 against the robust plan's 1-D doneness
+  0.975), and the grid check says the 16×14 default is not hiding
+  anything. `figures/slab2d/` regenerated (pull marker; "resting" in the
+  animation); the math diagram re-rendered.
+- **Food safety: the FSIS come-up time replaces the 4 h danger-zone cap.**
+  The cap (4.4–60 °C, 4 h, weight 500, on surface and core) was the
+  consumer holding rule for cooked food left out, not a roasting limit.
+  Replaced by the Appendix A come-up time (10–54.4 °C, 6 h), integrated
+  and reported on surface and core; for brisket it is not binding (FSIS
+  Scientific Gap 6, `cut_critical=False` default) and `cut_critical=True`
+  makes it a penalty and a fullplan rejection for products where Appendix
+  A's CUT applies. The report states that the Appendix A humidity
+  condition is not modelled; `brisket plan` / `brisket pilot` print the
+  disclaimer. On the calibrated slab the old cap never bound (core dwell
+  1.40 h), so the published plans are unchanged in substance; the banking
+  keys are renamed (`cut_h`, `cut_h_core`). Tests: the Gap 6 semantics
+  (reported, not rejected; rejected when critical) and the FSIS window.
+- **Two-route collagen.** \(\dot C = [k_C(T) + k_{\mathrm{enz}}(T)](1 - C)\)
+  with an enzymatic (collagenase) window 45–60 °C at
+  \(2.7\times10^{-5}\) s⁻¹ peak (90 % in 24 h; Baldwin, Tornberg 2005),
+  the thermal Arrhenius unchanged, `k_enz0 = 0` bitwise the old rate (the
+  salmon preset). Effect on the anchors: the 19 h calibrated cook's core
+  \(C\) at the end 0.863 → 0.875; in a bare replay of the robust
+  schedule the \(C = 0.90\) crossing moves 7.39 → 7.37 h (2 min earlier)
+  and \(C\) at serve and retention do not move; sous vide at 55 °C:
+  core \(C\) 0.031 → 0.848 at 24 h and 0.063 → 0.978 at 48 h — the regime
+  the single rate could not represent. \(E_a\), \(k_{\mathrm{ref}}\) not
+  retuned. The plan chain (fullplan → MPC → robust) has not been re-run
+  under this change; the shift it would see is minutes.
+- **Water-budget map.** `scripts/run_water_budget.py` re-runs the
+  calibrated 19 h cook over \(h_c \times 0.25\)–1, \(D_{\mathrm{eff}}
+  \times 0.1\)–3 and \(L \times 1\)–2.5 (196 solves, 57 s) and maps the
+  retained water against the stall (hours in the 65–78 °C band; the MAP
+  stalls 13.5 h and retains 3.9 %). At the calibrated half-thickness
+  (1.95 cm) **no** combination retains more than 33 %. Retaining 50–60 %
+  with a ≥ 4 h stall appears only at \(L \times 2\)–2.5 (3.9–4.9 cm
+  half-thickness — a packer point, not a flat) with \(h_c \times
+  0.4\)–0.63 (4.8–7.6 W/m²K against the MAP 12): 13 such cells inside
+  the 2σ prior. Reading: the temperature log pulled \(L\) thin
+  (\(z = -1.7\) on its prior) and the water budget wants it thick — the
+  thickness / probe-depth ridge, not \(k_m\). The prediction for the
+  scale experiment (C2): the ~40 % loss of a real flat is consistent with
+  this model only if the cut is about twice the calibrated thickness and
+  the meat-side heat input about half the MAP, so the scale cook must
+  come with a ruler; if a thick cut still calibrates to a thin \(L\), the
+  Fickian slab (review T1) is the wrong model. Figure
+  `figures/water_budget_scan.png`, data
+  `data/validation/water_budget_scan.json`.
+- **Docs.** README, writeup, `model.md`, `monolith.md` and a note on the
+  submission carry the \(5n_x + 4 + 6 = 210\) layout; `model.md` gained
+  the salt field, the wrap latch, the six-state pit (pan, firebox), the
+  closed pan humidity, the two-route rate, the come-up safety term and a
+  2-D shadow section; the `slab2d.jl` header and the `timeplan.py`
+  docstring match the code; the review's seven inaccuracies are recorded
+  at the top of `docs/review.md`.
+
 ## One monolith Tesseract; MTK not pursued (2026-09-03)
 
 The monolith landed in shape (a): `src/monolith.jl`, one Tesseract around
@@ -510,7 +699,9 @@ last modeling goal:
   with margin (F_cold 3.8e11 vs 720 required, dwell 1.40 h vs the 4 h
   cap), retention 0.189, c_min 0.99997 — the 11 h plan leaves the
   surrogate uniformly done, the cold gap closed by serve — and the
-  shrunk dimensions (R 10 → 7.7 cm) are reported per cook.
+  shrunk dimensions (R 10 → 7.7 cm) are reported per cook. *(Superseded
+  2026-09-07: those numbers cooked the surrogate to the horizon; the
+  rested-to-serve shadow is in the review-fixes entry above.)*
 - **Reverse-mode performance.** `adjoint/slab2d_port.jl` — the
   transport core as explicit-argument top-level functions (the
   full_port pattern, no closures): gradient exact to 8.7e-15 and
