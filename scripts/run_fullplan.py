@@ -128,6 +128,12 @@ def main():
         default=CC.n_iter,
         help="iteration cap of the inner schedule optimizer (default %(default)s)",
     )
+    ap.add_argument(
+        "--t-salt-h",
+        type=float,
+        default=12.0,
+        help="dry-brine hours before the cook (overnight rub; 0 = unsalted)",
+    )
     args = ap.parse_args()
     cc = replace(CC, n_iter=args.n_iter)
     durations_h = args.durations or [float(h) for h in range(8, 21)]
@@ -147,7 +153,8 @@ def main():
         print(f"replotting {result_name}", flush=True)
     else:
         print("full composition scan: cook length x wrap x pull x schedule")
-        records = plan_duration(theta, phi, tx, durations_h, cc=cc, ics=ICS)
+        records = plan_duration(theta, phi, tx, durations_h, cc=cc, ics=ICS,
+                                t_salt=args.t_salt_h * HR)
         best = optimal_duration(records)
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(
@@ -200,6 +207,7 @@ def main():
         spritz_dose=best.get("spritz_dose", 0.05),
         t_pull=best["t_pull"],
         rest=best.get("rest"),
+        t_salt=args.t_salt_h * HR,
     )
     sim = {k: np.asarray(v) for k, v in sim.items()}
     doneness = float(sim["c_field_final"][0])

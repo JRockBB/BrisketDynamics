@@ -90,6 +90,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=100)
     ap.add_argument(
+        "--t-salt-h",
+        type=float,
+        default=12.0,
+        help="dry-brine hours before the cook (overnight rub; 0 = unsalted)",
+    )
+    ap.add_argument(
         "--samples",
         default="laplace_samples_real.npz",
         help="posterior sample file(s) under data/calibration, "
@@ -152,6 +158,7 @@ def main():
     cc = ControlConfig(n_iter=args.iters, opt_wrap=True)
 
     print(f"optimizing E[J] over {N_OPT} posterior draws, warm start from plan")
+    t_salt = args.t_salt_h * HR
     u_rob, hist = optimize_schedule_expected(
         th_opt,
         ph_opt,
@@ -159,6 +166,7 @@ def main():
         grids=grids,
         cc=cc,
         tols=TOLS,
+        t_salt=t_salt,
         u_init=u_map,
         z_w_init=float(logit(t_wrap_map / t_f)),
         z_p_init=float(logit(min(t_pull_map, t_f) / t_f)),
@@ -224,6 +232,7 @@ def main():
                 t_spritz=ts,
                 dt_spritz=td,
                 spritz_dose=tm,
+                t_salt=t_salt,
             )
         )
         out = coupled_cook(
@@ -239,6 +248,7 @@ def main():
             t_spritz=ts,
             dt_spritz=td,
             spritz_dose=tm,
+            t_salt=t_salt,
         )
         return j, float(out["c_field_final"][0]), float(out["juiciness"])
 

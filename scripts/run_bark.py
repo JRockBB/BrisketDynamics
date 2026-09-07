@@ -23,6 +23,8 @@ from brisket_app.calibrate import THETA_SITES, phi_full
 from brisket_app.clients import monolith_client
 from brisket_app.coupled import HR, CookGrids, coupled_cook
 
+T_SALT = 12.0 * HR  # overnight dry brine, the standard cook
+
 REPO = Path(__file__).resolve().parents[1]
 GRIDS = CookGrids(t_end=14 * HR, dt_exchange=600.0, n_u=8)
 ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
@@ -58,6 +60,7 @@ def run(theta, phi, u, tx, t_wrap=1.0e9):
         GRIDS,
         ics=ICS,
         t_wrap=t_wrap,
+        t_salt=T_SALT,
     )
     return {k: np.asarray(v) for k, v in sim.items()}
 

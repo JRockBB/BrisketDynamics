@@ -38,7 +38,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=200)
     ap.add_argument("--u-init", type=float, default=0.5)
+    ap.add_argument(
+        "--t-salt-h",
+        type=float,
+        default=12.0,
+        help="dry-brine hours before the cook (overnight rub; 0 = unsalted)",
+    )
     args = ap.parse_args()
+    t_salt = args.t_salt_h * HR
 
     map_file = REPO / "data" / "calibration" / "map_result.json"
     m = json.loads(map_file.read_text())
@@ -56,6 +63,7 @@ def main():
         jnp.full(grids.n_u, args.u_init),
         tx,
         grids,
+        t_salt=t_salt,
     )
     c0 = float(baseline["c_field_final"][0])
     print(
@@ -70,6 +78,7 @@ def main():
         grids=grids,
         cc=cc,
         u_init=args.u_init,
+        t_salt=t_salt,
         callback=lambda i, l, u: print(
             f"  iter {i:4d}  J={l:10.4f}  u=[{u.min():.2f}..{u.max():.2f}]"
         ),
@@ -80,6 +89,7 @@ def main():
         jnp.asarray(u_opt),
         tx,
         grids,
+        t_salt=t_salt,
     )
     c1 = float(after["c_field_final"][0])
     print(

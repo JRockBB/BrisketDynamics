@@ -48,6 +48,7 @@ def main():
         jnp.full(grids.n_u, 0.4),
         tx,
         grids,
+        t_salt=12.0 * HR,  # overnight dry brine, the standard cook
     )
     dt = time.perf_counter() - t0
     print(f"coupled forward: {dt:.1f} s wall")
@@ -62,7 +63,7 @@ def main():
     ax.plot(th, to_c(out["tcore"]), label="core (probe)", color="tab:blue", lw=2)
     ax.set_ylabel("temperature [°C]")
     ax.legend()
-    ax.set_title("Coupled 12-h cook, damper = 0.4")
+    ax.set_title("Coupled 12-h cook, damper = 0.4, overnight dry brine")
 
     ax = axes[1]
     ax.plot(th, 1e6 * np.asarray(out["j_evap"]), color="tab:cyan")

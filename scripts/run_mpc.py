@@ -371,6 +371,12 @@ def main():
         default="",
         help="plan json under data/control (default fullplan_result.json)",
     )
+    ap.add_argument(
+        "--t-salt-h",
+        type=float,
+        default=12.0,
+        help="dry-brine hours before the cook (overnight rub; 0 = unsalted)",
+    )
     ap.add_argument("--figure", default="mpc_demo.png")
     ap.add_argument("--out", default="mpc_result.json")
     ap.add_argument(
@@ -463,6 +469,7 @@ def main():
         "t_spritz_init_abs": T_SPRITZ,
         "dt_spritz_init": DT_SPRITZ,
         "spritz_dose_init": SPRITZ_DOSE,
+        "t_salt": args.t_salt_h * HR,
     }
 
     print("reference (no disturbance):")
