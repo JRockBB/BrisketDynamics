@@ -129,6 +129,23 @@
     @test sprz.w_retained > fin.w_retained
     @test sprz.bark_mean < fin.bark_mean
 
+    # pull / rest on the faces: never pulled is bitwise the pit-only
+    # solve; a pull mid-cook swaps every face to the cambro — the rim
+    # cools, most evaporation stops, the cut retains more water, and
+    # nothing before the pull changes
+    never = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                          R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                          t_pull=PULL_NEVER)
+    @test never.Tcore == fin.Tcore && never.W_field == fin.W_field
+    pulled = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                           R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                           t_pull=3hr)
+    @test pulled.T_field[24, 10, end] < fin.T_field[24, 10, end] - 5.0
+    @test pulled.w_retained > fin.w_retained + 0.01
+    @test maximum(pulled.Tcold) <= maximum(fin.Tcold) + 1e-9
+    ipre = findfirst(t -> t >= 1hr, tknots)
+    @test maximum(abs.(pulled.T_field[:, :, 1:ipre] .- fin.T_field[:, :, 1:ipre])) < 1e-6
+
     # pit coupling: with n_meat = 0 (and humidity constants pinned so
     # the base vapor pressure equals the standalone constant) the pit
     # never sees the meat, so replaying the coupled run's own per-step
@@ -162,6 +179,17 @@
     @test cpl2.j_evap[i4] > 0 && cpl2.q_meat[i1] > 0
     @test all(diff(cpl2.m_fuel) .<= 1e-12)  # fuel only burns down
 
+    # the pull in the pit loop: after t_pull the meat's heat and vapor
+    # exchange vanish (the pit sees no load), the pit humidity returns to
+    # the no-meat base exactly (same fuel state), and the cut rests
+    cplp = coupled_solve_2d(θ2, φ, uk, utk, tknots;
+                            R=R, Hz=0.06, nr=16, nz=14, cfg=cfg0, h=20.0,
+                            hum=hum0, n_meat=2.0, t_pull=3hr)
+    @test abs(cplp.q_meat[end]) < 1e-6 && abs(cplp.j_evap[end]) < 1e-12
+    @test abs(cplp.pv_pit[end] - cpl0.pv_pit[end]) < 1e-9
+    @test cplp.q_meat[i1] ≈ cpl2.q_meat[i1] rtol = 1e-6
+    @test cplp.Tcore[end] < cpl2.Tcore[end]
+
     # differentiable: ForwardDiff through the ADI sweeps matches FD
     f(km) = meat_solve_2d([θ[1], km, θ[3], θ[5], θ[6], θ[7]], Tpit, tknots,
                           tknots; R=R, Hz=0.06, nr=12, nz=10, cfg=cfg0,
@@ -169,4 +197,10 @@
     g = ForwardDiff.derivative(f, θ[2])
     fd = (f(θ[2] * 1.02) - f(θ[2] * 0.98)) / (0.04 * θ[2])
     @test isfinite(g) && abs(g - fd) / (abs(fd) + 1e-12) < 0.05
+    # ... and w.r.t. the pull time (later pull = longer in the pit = drier)
+    fp(tp) = meat_solve_2d(θ2, Tpit, tknots, tknots; R=R, Hz=0.06, nr=12,
+                           nz=10, cfg=cfg0, h=30.0, t_pull=tp).w_retained
+    gp = ForwardDiff.derivative(fp, 3hr)
+    fdp = (fp(3hr + 60.0) - fp(3hr - 60.0)) / 120.0
+    @test isfinite(gp) && gp < 0 && abs(gp - fdp) / (abs(fdp) + 1e-12) < 0.05
 end

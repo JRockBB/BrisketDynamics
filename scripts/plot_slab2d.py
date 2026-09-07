@@ -30,7 +30,7 @@ sys.path.insert(0, str(REPO / "app" / "src"))
 
 from brisket_app.calibrate import PHI_SITES, PHI_SITES_IGNITION, THETA_SITES
 from brisket_app.coupled import HR
-from brisket_app.shadow2d import THETA2_IDX
+from brisket_app.shadow2d import THETA2_IDX, equivalent_radius
 
 OUT = REPO / "figures" / "slab2d"
 
@@ -52,6 +52,7 @@ def simulate(args):
     tw = plan.get("t_wrap_robust_h", plan.get("t_wrap_plan_h"))
     tsp = plan.get("t_spritz_robust_h", plan.get("t_spritz_plan_h"))
     dts = plan.get("dt_spritz_robust_min", plan.get("dt_spritz_plan_min"))
+    tp = plan.get("t_pull_robust_h", plan.get("t_pull_plan_h"))
 
     jl = juliacall.newmodule("Slab2dPlot")
     jl.seval(f'import Pkg; Pkg.activate(raw"{REPO}"; io=devnull)')
@@ -62,16 +63,25 @@ def simulate(args):
     tsave = np.arange(0.0, t_end + 1, 600.0)
     utk = np.linspace(0.0, t_end, len(u))
     kw = dict(
-        R=args.radius,
+        R=(args.radius if args.radius is not None else equivalent_radius()),
         Hz=2.0 * theta[3],
         nr=args.nr,
         nz=args.nz,
         h=20.0,
         t_wrap=(tw * HR if tw is not None else 1.0e9),
+        t_pull=(tp * HR if tp is not None else 1.0e9),
         t_salt=args.t_salt_h * HR,
         t_spritz=(tsp * HR if tsp is not None else 1.0e9),
         dt_spritz=(dts * 60.0 if dts is not None else 3600.0),
     )
+    rest = plan.get("rest") or {}
+    if rest:  # the plan's rest environment (cambro / board), as the monolith took it
+        kw["cfg"] = jl.MeatConfig(
+            T_rest=float(rest.get("rest_t", 293.15)),
+            h_rest=float(rest.get("rest_h", 1.5)),
+            ε_rest=float(rest.get("rest_eps", 0.10)),
+            η_rest=float(rest.get("rest_eta", 0.9)),
+        )
     o = jl.coupled_solve_2d(jv(theta[list(THETA2_IDX)]), jv(phi), jv(u),
                             jv(utk), jv(tsave), **kw)
     get = lambda name: np.asarray(jl.getproperty(o, jl.Symbol(name)))
@@ -88,6 +98,8 @@ def simulate(args):
     sim["bark_std"] = float(get("bark_std"))
     sim["t"] = tsave
     sim["t_wrap_h"] = tw
+    sim["t_pull_h"] = tp
+    sim["radius_m"] = kw["R"]
     sim["plan"] = args.plan
     return sim
 
@@ -119,10 +131,14 @@ def fig_plan(sim):
         ax.axvline(sim["t_wrap_h"], color="gray", lw=1, ls=":")
         ax.annotate("wrap", (sim["t_wrap_h"], ax.get_ylim()[0] + 5),
                     color="gray", fontsize=9, ha="right", rotation=90)
+    if sim["t_pull_h"]:
+        ax.axvline(sim["t_pull_h"], color="gray", lw=1, ls="--")
+        ax.annotate("pull", (sim["t_pull_h"], ax.get_ylim()[0] + 5),
+                    color="gray", fontsize=9, ha="right", rotation=90)
     ax.set_ylabel("temperature [\N{DEGREE SIGN}C]")
-    ax.legend(loc="lower right", fontsize=9)
+    ax.legend(loc="upper left", fontsize=9)  # the pull marker lives lower right
     ax.set_title(f"2-D shadow of the planned cook ({sim['plan']}, "
-                 "overnight dry brine)")
+                 "overnight dry brine, rested to serve)")
 
     ax = axes[1]
     rim = sim["bark_rim_t"]  # (nz, nt)
@@ -271,6 +287,8 @@ def anim_cook(sim, fps):
         state = ""
         if sim["t_wrap_h"] and th[k] >= sim["t_wrap_h"]:
             state = " \N{MIDDLE DOT} wrapped"
+        if sim["t_pull_h"] and th[k] >= sim["t_pull_h"]:
+            state += " \N{MIDDLE DOT} resting"
         title.set_text(
             f"the cook in 2-D \N{MIDDLE DOT} t = {th[k]:4.1f} h{state} "
             f"\N{MIDDLE DOT} cold spot {np.min(Tf) - 273.15:5.1f} "
@@ -329,7 +347,8 @@ def main():
     """Simulate the planned cook in 2-D and render figures + animations."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--plan", default="schedule_robust.json")
-    ap.add_argument("--radius", type=float, default=0.10)
+    ap.add_argument("--radius", type=float, default=None,
+                    help="cylinder radius [m]; default: the 1-D exposed-area equivalent")
     ap.add_argument("--nr", type=int, default=24)
     ap.add_argument("--nz", type=int, default=20)
     ap.add_argument("--t-salt-h", type=float, default=12.0)

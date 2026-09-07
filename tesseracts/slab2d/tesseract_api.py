@@ -2,11 +2,15 @@
 
 The fidelity rung above the 1-D monolith: `coupled_solve_2d` co-integrates
 the six pit states with the 2-D ADI meat (shrink metrics, dry-brine salt
-field, spritz, wrap, grain anisotropy, point-over-flat), and the stacked
-forward-mode endpoints differentiate w.r.t. theta2, phi, the damper
-schedule and the four decision scalars. Intended use: full-fidelity
-SHADOW SCORING of 1-D plans (true cold-spot safety, bark distribution) —
-the planners themselves stay on the 1-D monolith.
+field, spritz, wrap, PULL and rest, grain anisotropy, point-over-flat),
+and the stacked forward-mode endpoints differentiate w.r.t. theta2, phi,
+the damper schedule and the five decision scalars (wrap, salt, spritz
+start and interval, pull). The solve runs to SERVE: after `t_pull` the
+meat rests in the configured environment while the pit runs on, exactly
+as the 1-D plan is scored. Intended use: full-fidelity SHADOW SCORING of
+1-D plans (true cold-spot safety, bark distribution) — the planners
+themselves stay on the 1-D monolith. Geometry has no default: pass the
+radius and height (see `brisket_app.shadow2d.equivalent_radius`).
 """
 
 import os
@@ -64,8 +68,10 @@ def _init():
         """
         function _s2_kw(radius, height, nr, nz, h_step, n_meat, k_grain,
                         d_grain, f_top, z_split, t0_meat, tpit0, t_amb, m0,
-                        afr, y_w, pan, omega)
-            cfg = MeatConfig(T0=t0_meat)
+                        afr, y_w, pan, omega, rest_t, rest_h, rest_eps,
+                        rest_eta)
+            cfg = MeatConfig(T0=t0_meat, T_rest=rest_t, h_rest=rest_h,
+                             ε_rest=rest_eps, η_rest=rest_eta)
             pit = PitConfig(T_amb=t_amb, Tpit0=tpit0, m0=m0)
             hum = BrisketDynamics.Humidity(afr=afr, y_w=y_w, pan_kg_s=pan,
                                            omega_amb=omega)
@@ -74,26 +80,26 @@ def _init():
                     F_top=f_top, z_split)
         end
         function _s2_apply(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
-                           dt_spritz, kwargs...)
+                           dt_spritz, t_pull, kwargs...)
             kw = _s2_kw(kwargs...)
             o = coupled_solve_2d(θ2, φ, u, utk, tsave; t_wrap, t_salt,
-                                 t_spritz, dt_spritz, kw...)
+                                 t_spritz, dt_spritz, t_pull, kw...)
             return (o.Tpit, o.Tcore, o.Tcold, o.m_fuel, o.w_retained, o.C_min,
                     o.bark_mean, o.bark_std, o.salt_mean, o.R_eff, o.Hz_eff,
                     o.pv_pit, o.j_evap)
         end
         function _s2_jac(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
-                         dt_spritz, sel, kwargs...)
+                         dt_spritz, t_pull, sel, kwargs...)
             kw = _s2_kw(kwargs...)
             return slab2d_stack_jacobian(θ2, φ, u, utk, tsave, t_wrap, t_salt,
-                                         t_spritz, dt_spritz,
+                                         t_spritz, dt_spritz, t_pull,
                                          collect(Int, sel); kw...)
         end
         function _s2_jvp(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
-                         dt_spritz, dv, kwargs...)
+                         dt_spritz, t_pull, dv, kwargs...)
             kw = _s2_kw(kwargs...)
             return slab2d_stack_jvp(θ2, φ, u, utk, tsave, t_wrap, t_salt,
-                                    t_spritz, dt_spritz,
+                                    t_spritz, dt_spritz, t_pull,
                                     collect(Float64, dv); kw...)
         end
         """
@@ -124,6 +130,7 @@ DIFF_INPUTS = (
     "t_salt",
     "t_spritz",
     "dt_spritz",
+    "t_pull",
 )
 
 
@@ -160,8 +167,15 @@ class InputSchema(BaseModel):
     dt_spritz: Differentiable[Array[(), Float64]] = Field(
         default=3600.0, description="Spritz interval [s]"
     )
-    radius: float = Field(default=0.10, description="Cylinder radius [m]")
-    height: float = Field(default=0.06, description="Cylinder full height [m]")
+    t_pull: Differentiable[Array[(), Float64]] = Field(
+        default=1.0e9,
+        description="Pull time [s]; the meat rests to the horizon after it; 1e9 = never",
+    )
+    radius: float = Field(
+        description="Cylinder radius [m]; no default — derive it from the cut "
+        "(shadow2d.equivalent_radius: the 1-D exposed area A_meat)"
+    )
+    height: float = Field(description="Cylinder full height [m] (2L for a flat)")
     nr: int = Field(default=16, description="Radial nodes")
     nz: int = Field(default=14, description="Axial nodes")
     h_step: float = Field(default=30.0, description="Fixed step [s]")
@@ -181,6 +195,10 @@ class InputSchema(BaseModel):
     y_w: float = Field(default=0.28, description="Combustion water yield [kg/kg]")
     pan_kg_s: float = Field(default=0.0, description="Water-pan evaporation [kg/s]")
     omega_amb: float = Field(default=0.007, description="Ambient humidity [kg/kg]")
+    rest_t: float = Field(default=293.15, description="Rest environment temperature [K]")
+    rest_h: float = Field(default=1.5, description="Convective coefficient at rest [W/m²K]")
+    rest_eps: float = Field(default=0.10, description="Emissivity at rest")
+    rest_eta: float = Field(default=0.9, description="Evaporation suppression at rest")
 
 
 class OutputSchema(BaseModel):
@@ -232,6 +250,7 @@ def _packed(inputs: InputSchema):
         float(np.asarray(inputs.t_salt)),
         float(np.asarray(inputs.t_spritz)),
         float(np.asarray(inputs.dt_spritz)),
+        float(np.asarray(inputs.t_pull)),
     )
     tail = (
         float(inputs.radius),
@@ -252,14 +271,18 @@ def _packed(inputs: InputSchema):
         float(inputs.y_w),
         float(inputs.pan_kg_s),
         float(inputs.omega_amb),
+        float(inputs.rest_t),
+        float(inputs.rest_h),
+        float(inputs.rest_eps),
+        float(inputs.rest_eta),
     )
     return head, tail
 
 
 def _jl_args(head):
-    t2, phi, u, utk, tsave, tw, ts, tsp, dts = head
+    t2, phi, u, utk, tsave, tw, ts, tsp, dts, tp = head
     return [_jvec(t2), _jvec(phi), _jvec(u), _jvec(utk), _jvec(tsave),
-            tw, ts, tsp, dts]
+            tw, ts, tsp, dts, tp]
 
 
 def _stack_layout(nt: int):
@@ -276,6 +299,7 @@ def _input_slices(nu: int) -> dict[str, slice]:
         "t_salt": slice(b + 1, b + 2),
         "t_spritz": slice(b + 2, b + 3),
         "dt_spritz": slice(b + 3, b + 4),
+        "t_pull": slice(b + 4, b + 5),
     }
 
 
@@ -358,7 +382,7 @@ def jacobian(inputs: InputSchema, jac_inputs: set, jac_outputs: set):
             blk = rows[:, a:b]
             if k in STACK_SCALARS:
                 blk = blk[0]
-            if name in ("t_wrap", "t_salt", "t_spritz", "dt_spritz"):
+            if name in ("t_wrap", "t_salt", "t_spritz", "dt_spritz", "t_pull"):
                 blk = blk[..., 0]
             blocks[name] = np.array(blk, dtype=np.float64)
         out[k] = blocks
@@ -371,7 +395,7 @@ def jacobian_vector_product(
     """J·tangent (one Dual solve)."""
     nu = len(inputs.u_knots)
     sl = _input_slices(nu)
-    dv = np.zeros(N_THETA2 + N_PHI + nu + 4)
+    dv = np.zeros(N_THETA2 + N_PHI + nu + 5)
     for n in DIFF_INPUTS:
         if n in jvp_inputs and n in tangent_vector:
             dv[sl[n]] = np.atleast_1d(

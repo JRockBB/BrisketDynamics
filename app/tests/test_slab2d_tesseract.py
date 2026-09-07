@@ -68,3 +68,38 @@ def test_remap_and_shadow(case):
     assert rep["F_cold"] <= rep["F_core"] + 1e-9  # the cold spot lags
     assert 0 < rep["w_retained"] < 1
     assert isinstance(rep["cold_ok"], bool)
+
+
+def test_pull_rests_to_serve(case):
+    """t_pull is a differentiable input: after it the pit sees no meat, the
+    cut rests (cooler cold spot at serve, more water), and the shadow report
+    scores serve, with the doubled-grid check and the geometry it used."""
+    tx, inputs, grids = case
+    base = tx.apply(inputs)
+    pulled = tx.apply({**inputs, "t_pull": 1.0 * HR})
+    # half an hour after the pull the blend has cut the pit's share of the
+    # meat vapor by >100x (the blend width is 5 min; the horizon is short)
+    assert abs(float(np.asarray(pulled["j_evap"])[-1])) < 1e-2 * abs(
+        float(np.asarray(base["j_evap"])[-1])
+    )
+    assert float(pulled["w_retained"]) > float(base["w_retained"])
+    assert float(np.asarray(pulled["tcold"])[-1]) < float(np.asarray(base["tcold"])[-1])
+    J = tx.jacobian({**inputs, "t_pull": 1.0 * HR}, ["t_pull"], ["w_retained"])
+    assert abs(float(J["w_retained"]["t_pull"])) > 0
+    rep = shadow_report(
+        np.asarray(THETA_DEFAULT), np.asarray(PHI_DEFAULT), np.full(3, 0.5),
+        grids, t_wrap=0.75 * HR, t_pull=1.0 * HR, t_salt=10.0 * HR, tx=tx,
+        radius=GEOM["radius"], nr=GEOM["nr"], nz=GEOM["nz"], t_amb=300.0,
+        refine=True,
+    )
+    assert rep["t_pull_h"] == pytest.approx(1.0)
+    assert rep["radius_source"] == "given"
+    assert np.isfinite(rep["dtcold_serve_K"]) and rep["grid_fine"] == "16x16"
+    assert "cut_h_cold" in rep and isinstance(rep["cold_ok"], bool)
+    # the default geometry is the 1-D exposed-area equivalent, and is recorded
+    rep2 = shadow_report(
+        np.asarray(THETA_DEFAULT), np.asarray(PHI_DEFAULT), np.full(3, 0.5),
+        grids, tx=tx, nr=GEOM["nr"], nz=GEOM["nz"], t_amb=300.0,
+    )
+    assert rep2["radius_source"].startswith("equivalent")
+    assert rep2["radius_m"] == pytest.approx(0.1382, abs=2e-3)

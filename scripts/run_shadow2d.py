@@ -32,10 +32,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--plan", default="schedule_robust.json",
                     help="plan json in data/control (robust schedule format)")
-    ap.add_argument("--radius", type=float, default=0.10,
+    ap.add_argument("--radius", type=float, default=None,
                     help="2-D surrogate radius [m]")
     ap.add_argument("--nr", type=int, default=16)
     ap.add_argument("--nz", type=int, default=14)
+    ap.add_argument("--no-refine", action="store_true",
+                    help="skip the doubled-grid discretization check")
     ap.add_argument("--t-salt-h", type=float, default=0.0,
                     help="dry-brine hours before the cook")
     args = ap.parse_args()
@@ -55,6 +57,7 @@ def main() -> None:
     tw = plan.get("t_wrap_robust_h", plan.get("t_wrap_plan_h"))
     tsp = plan.get("t_spritz_robust_h", plan.get("t_spritz_plan_h"))
     dts = plan.get("dt_spritz_robust_min", plan.get("dt_spritz_plan_min"))
+    tp = plan.get("t_pull_robust_h", plan.get("t_pull_plan_h"))
 
     rep = shadow_report(
         theta, phi, u, grids,
@@ -62,14 +65,16 @@ def main() -> None:
         t_salt=args.t_salt_h * HR,
         t_spritz=(tsp * HR if tsp is not None else 1.0e9),
         dt_spritz=(dts * 60.0 if dts is not None else 3600.0),
+        t_pull=(tp * HR if tp is not None else 1.0e9),
+        rest=plan.get("rest"),
         radius=args.radius, nr=args.nr, nz=args.nz,
+        refine=not args.no_refine,
     )
     print("2-D shadow report for", args.plan)
     for k, v in rep.items():
         print(f"  {k}: {v}")
     out = REPO / "data" / "control" / "shadow2d.json"
-    out.write_text(json.dumps({"plan": args.plan, "radius_m": args.radius,
-                               **rep}, indent=1))
+    out.write_text(json.dumps({"plan": args.plan, **rep}, indent=1))
     print("wrote", out)
 
 
