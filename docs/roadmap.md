@@ -3,8 +3,11 @@
 What is left, split by what it takes: **modeling goals** need code and
 design work only; **calibration & data goals** need logs, instruments,
 or a cook. Completed work and the results behind it: `docs/results.md`.
-Equations of what exists: `docs/model.md`. Do not treat optimizer output
-as a USDA cook, a judge score, or a 95% on-time guarantee.
+Equations of what exists: `docs/model.md`. Independent review of
+correctness, theory gaps, and next steps: `docs/review.md` (laptop-only
+list first — no cook or instruments until travel ends). Do not treat
+optimizer output as a USDA cook, a judge score, or a 95% on-time
+guarantee.
 
 ## Calibration & data goals
 

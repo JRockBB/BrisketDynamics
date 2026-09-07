@@ -1,5 +1,10 @@
 # Equation and correctness review
 
+> **Historical (30 Aug 2026).** Several physics findings below (H2 water
+> activity in \(j\), H5 live Choi–Okos) were later implemented. For a
+> current review of correctness, theory gaps, and next steps see
+> `docs/review.md` (2026-09-07).
+
 Audit of the working tree, 30 Aug 2026, verified finding by finding against
 the code the same day; each finding below carries its verdict and what was
 done. The coupled monolith is the production path (166 ODEs, FBDF,
