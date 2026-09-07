@@ -19,7 +19,13 @@ guarantee.
   first (`brisket pilot --wall-pace 1 --advisory-only` at real
   hardware), then executed-quality scoring on hardware (today it is
   model-estimated — a real pit has no ground-truth juiciness).
-- **C2 — The ~$150 instrument package + data flywheel.** In value order:
+- **C2 — The ~$150 instrument package + data flywheel.** The sensor-value
+  table (`docs/results.md`, 2026-09-08) ranks the additions on the
+  calibrated cook: a humidity sensor first (it measures the burn rate
+  through the combustion water and breaks the pit ridge in closed loop),
+  then a scale (the only observer of the water-holding latents), then a
+  second probe at known depth, then IR, then the ruler. In value order as
+  planned before that table:
   a two-hour open-loop *characterization burn* (step the fan 10→30→15%,
   no meat, no controller — free, and the only way to identify the pit's
   fast fan-response dynamics and the draft exponent
@@ -91,21 +97,17 @@ measured RxInfer behaviours (per-residual nodes, one latent block,
 affine relinearization; `estimator/test_rules.jl` guards them). What
 remains, in order:
 
-- **Channel registry.** Sensors as node families on the same latent:
-  static readings on latents (thickness, footprint, probe depth,
-  initial mass, fuel load, ambient) and dynamic readings on the
-  trajectory (probes at depth, surface IR, wet-bulb from the pit vapor,
-  a scale on retained mass, fuel mass, bark color). A missing reading is
-  an absent node, never a fallback branch; an unmeasured quantity is a
-  wider marginal the robust planner already consumes. Needs two monolith
-  outputs (probe temperature at a differentiable depth; retained mass
-  over time) and exposed area as a differentiable input.
+- **More channels.** The registry (`estimator/channels.jl`) carries
+  pit and meat probes at any depth, surface IR, humidity, a scale and
+  static readings; still to add: fuel mass, bark color, the wet-bulb as
+  a psychrometric map of the vapor pressure, ambient and rest-environment
+  readings. Exposed area as a latent (so a footprint ruler and a scale
+  constrain area and thickness separately) needs the parameter-layout
+  change — a ninth meat parameter through the Tesseract columns and the
+  calibration artifacts.
 - **Noise as graph structure.** The AR(1) discrepancy and its scale as
   nodes (RxInfer's AR node) instead of a fixed whitening; the pooled
   posterior as the prior in data form (one source for priors).
-- **Sensor-value table.** Fisher information per channel on the
-  calibrated cook: which ridges a second probe, a wet-bulb, a scale, a
-  ruler collapse, before anyone buys one (the quantitative form of C2).
 - **Streaming.** Hourly batches through `autoupdates`, the previous
   posterior as the next linearization point (the iterated EKF per
   batch), the pilot consuming mean and draws through juliacall.

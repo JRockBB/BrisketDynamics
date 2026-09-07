@@ -4,6 +4,77 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Sensor value on the calibrated cook: the channel registry (2026-09-08)
+
+`estimator/channels.jl` is the sensor registry the estimator design
+asked for: every channel is a measurement operator on ONE stacked
+monolith output (pit and surface temperature, the temperature, water and
+fat fields over time, the pit vapor pressure) with its own AR(1) or iid
+whitening, plus static readings on latents; one solve and one
+forward-mode Jacobian of that stack serve any sensor set. Channels so
+far: pit probe; meat probe at a fixed or latent depth (linear
+interpolation in the material coordinate, the chain rule to the depth
+and to the thickness analytic); surface IR; humidity (pit vapor
+pressure); a scale reading \(\rho_d A_{\mathrm{meat}} L\,(1 + \bar W + \bar F)\),
+the model's own bookkeeping; a static reading of any latent (a ruler on
+the thickness, a measured insertion depth). Rows built from the registry
+reproduce the gate's whitened Jacobian to 2e-18 and its Fisher widths to
+4e-5. No monolith change was needed: the fields and the vapor pressure
+were already outputs. Exposed area stays a config constant (a latent
+there needs the parameter-layout change; noted below).
+
+`estimator/sensor_value.jl` then answers "what does a sensor buy" from
+the Fisher information at the MAP, before the instrument exists: the
+core probe's depth is a 16th latent (median 0.8 L, 30 %, since nobody
+hits the exact center), and each candidate channel is added to the
+pit + core baseline. Posterior width ratios against that baseline, and
+the information gained (nats, half the log-determinant ratio):
+
+| channel added to pit + core (depth unknown) | nats | D_eff | k_m | h_c | L | k_e | a_myosin | m_conv | r_max | u_leak | a0 | core_depth |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ruler (3 mm on L) | 0.2 | 0.94 | 0.89 | 0.84 | 0.80 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.99 | 0.99 |
+| insertion depth measured | 0.4 | 1.00 | 0.99 | 1.00 | 0.99 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.67 |
+| second probe, 1 cm, known depth | 2.1 | 0.71 | 0.67 | 0.64 | 0.58 | 1.00 | 0.99 | 0.98 | 0.95 | 0.95 | 0.96 | 0.95 |
+| humidity sensor | 5.2 | 0.67 | 0.49 | 0.38 | 0.46 | 0.99 | 0.90 | 0.62 | 0.61 | 0.63 | 0.69 | 0.97 |
+| surface IR | 2.0 | 0.81 | 0.83 | 0.81 | 0.90 | 1.00 | 0.94 | 0.96 | 0.97 | 0.97 | 0.97 | 0.98 |
+| scale, before/after | 3.1 | 0.62 | 0.65 | 0.45 | 0.06 | 1.00 | 0.99 | 1.00 | 0.99 | 0.99 | 0.97 | 0.98 |
+| scale, continuous | 7.9 | 0.39 | 0.56 | 0.37 | 0.04 | 0.72 | 0.40 | 1.00 | 0.97 | 0.96 | 0.96 | 0.98 |
+| ruler + scale + second probe | 9.1 | 0.34 | 0.48 | 0.34 | 0.04 | 0.71 | 0.35 | 0.96 | 0.91 | 0.91 | 0.93 | 0.95 |
+| everything | 13.1 | 0.28 | 0.32 | 0.22 | 0.04 | 0.68 | 0.29 | 0.54 | 0.52 | 0.53 | 0.65 | 0.64 |
+
+Baseline widths (sd of the unconstrained latents): 0.345 | 0.155 | 0.231 | 0.116 | 0.499 | 0.386 | 0.628 | 0.136 | 0.273 | 0.784 | 0.213. Assumed
+noise: humidity 100 Pa, IR 2 K, scale 20 g, ruler 3 mm, second probe as
+the core probe, AR(1) correlation 0.8 on the hypothetical channels.
+
+Reading it:
+
+- **A humidity sensor is the single most informative addition** (5.2
+  nats). The pit vapor pressure carries the combustion water, so it
+  measures the burn rate, which breaks the pit ridge a closed-loop
+  temperature log cannot (r_max 0.61, u_leak 0.63, a0 0.69, m_conv 0.62)
+  and the evaporation ridge as well (h_c 0.38, k_m 0.49). That is the
+  characterization burn's information, obtainable during a cook. It
+  rests on the vapor balance's literature constants (AFR, the water
+  yield), which is exactly what the wet-bulb probe of C2 validates.
+- **A scale is the only channel that moves the water-holding latents**
+  (k_e 0.72, a_myosin 0.40 with a continuous scale; nothing else touches
+  them) and it pins the thickness through the initial mass (L 0.06 with
+  two weighings). The thickness figure assumes the exposed area is known;
+  with the footprint unmeasured the mass pins the product of area and
+  thickness, so the scale cook needs the ruler on the footprint too.
+- **A second probe at a known 1 cm depth** buys 2.1 nats, on thickness
+  and transport (L 0.58, h_c 0.64, k_m 0.67).
+- A ruler alone buys 0.2 nats; measuring the insertion depth constrains
+  only itself, because a probe near 0.8 L is weakly coupled to the
+  physics. Assuming the probe sits exactly at the center, as the
+  calibration does, overstates the information by 0.3 nats.
+- The value ordering for C2 is therefore humidity, scale, second probe,
+  IR, ruler; the three together give 9 nats, everything 13.
+
+Linearized information at the MAP with assumed noise, not a posterior;
+the registry's fitting path (the same affine nodes as the gate) is what
+turns readings into one.
+
 ## RxInfer estimator: the calibration as a factor graph, gate passed (2026-09-07)
 
 Review item 8 (the output-feedback estimator), redesigned in discussion:

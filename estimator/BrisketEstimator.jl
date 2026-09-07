@@ -30,7 +30,7 @@ using Printf
 using BrisketDynamics
 
 export GateData, load_gate, from_z, prior_terms, physics_mean, physics_mean_jac,
-       objective_value, solve_map, compare_gate
+       objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, logistic
 
 const N_THETA = 8
 const N_PHYS = 15
@@ -282,5 +282,8 @@ function compare_gate(res, d::GateData; wall=NaN)
         "history" => [Dict(pairs(h)) for h in res.hist],
     )
 end
+
+# --- the channel registry (sensors as nodes on the same latent) ---------------
+include(joinpath(@__DIR__, "channels.jl"))
 
 end # module
