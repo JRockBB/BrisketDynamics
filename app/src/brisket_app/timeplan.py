@@ -43,6 +43,7 @@ def plan_duration(
     log=print,
     seed: dict | None = None,
     rest: dict | None = None,
+    t_salt: float = 0.0,
 ):
     """Outer scan over candidate cook durations, inner schedule optimum.
 
@@ -112,6 +113,7 @@ def plan_duration(
             z_s_init=zs_prev,
             z_d_init=zd_prev,
             z_m_init=zm_prev,
+            t_salt=t_salt,
         )
         u_prev, grids_prev = u_opt, grids
         t_wrap = hist.get("t_wrap", 1.0e9)
@@ -152,6 +154,7 @@ def plan_duration(
             t_spritz=t_spritz,
             dt_spritz=dt_spritz,
             spritz_dose=spritz_dose,
+            t_salt=t_salt,
         )
         c_end = float(np.asarray(sim["c_field_final"])[0])
         w_ret = float(np.asarray(sim["w_retained"]))
@@ -243,6 +246,7 @@ def chance_of_done(
     c_serveable: float = 0.85,
     ics: dict | None = None,
     log=print,
+    t_salt: float = 0.0,
 ):
     """Empirical fraction of posterior draws that are serveably done at t_f.
 
@@ -267,6 +271,7 @@ def chance_of_done(
             t_wrap=t_wrap,
             t_pull=t_pull,
             rest=record.get("rest"),
+            t_salt=t_salt,
         )
         done.append(float(np.asarray(sim["c_field_final"])[0]))
     done = np.asarray(done)

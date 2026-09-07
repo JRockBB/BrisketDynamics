@@ -113,9 +113,9 @@
                             t_salt=12hr)
     @test salted2.salt_mean > 0
     jmid = 10
-    @test salted2.salt_field[2, 1] <= salted2.salt_field[24, 1] + 1e-12
-    @test salted2.salt_field[24, 1] > salted2.salt_field[24, jmid] - 1e-12
-    @test salted2.salt_field[1, jmid] < 1e-3  # core untouched by the rub
+    @test salted2.salt_field[2, 1, end] <= salted2.salt_field[24, 1, end] + 1e-12
+    @test salted2.salt_field[24, 1, end] > salted2.salt_field[24, jmid, end] - 1e-12
+    @test salted2.salt_field[1, jmid, end] < 1e-3  # core untouched by the rub
     @test salted2.w_retained > fin.w_retained
     zero_salt = meat_solve_2d(θ2, Tpit, tknots, tknots;
                               R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,

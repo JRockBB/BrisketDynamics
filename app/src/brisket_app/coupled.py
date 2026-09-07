@@ -71,6 +71,7 @@ ICS_KEYS = (
     "w_field0",
     "c_field0",
     "f_field0",
+    "s_field0",
     "bark_b0",
     "bark_s0",
     "ring0",

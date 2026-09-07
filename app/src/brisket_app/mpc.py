@@ -49,6 +49,7 @@ class CookState:
     c_field0: np.ndarray
     f_field0: np.ndarray
     t0_meat: float = 281.15
+    s_field0: np.ndarray = None  # brine state; None = fresh (t_salt applies)
     bark_b0: float = float("nan")  # NaN = fresh (0)
     bark_s0: float = float("nan")
     ring0: float = float("nan")  # smoke-ring depth, material coordinate [m]
@@ -74,6 +75,7 @@ def _ics(state: CookState, t_amb: float) -> dict:
         "w_field0": state.w_field0,
         "c_field0": state.c_field0,
         "f_field0": state.f_field0,
+        "s_field0": (state.s_field0 if state.s_field0 is not None else np.zeros(0)),
         "bark_b0": state.bark_b0,
         "bark_s0": state.bark_s0,
         "ring0": state.ring0,
@@ -105,6 +107,7 @@ def advance_plant(
     t_spritz_seg: float = 1.0e9,
     dt_spritz_seg: float = 3600.0,
     spritz_dose_seg: float = 0.05,
+    t_salt: float = 0.0,
 ) -> tuple[CookState, dict]:
     """Run the plant one interval; return (new state, trajectories).
 
@@ -130,6 +133,9 @@ def advance_plant(
         t_spritz=t_spritz_seg,
         dt_spritz=dt_spritz_seg,
         spritz_dose=spritz_dose_seg,
+        # the brine: t_salt seeds the analytic profile on a FRESH cut;
+        # once the state carries a salt field the profile rides the ICs
+        t_salt=(t_salt if state.s_field0 is None else 0.0),
         **tols,
     )
     new = CookState(
@@ -141,6 +147,7 @@ def advance_plant(
         w_field0=np.asarray(sim["w_field_final"]),
         c_field0=np.asarray(sim["c_field_final"]),
         f_field0=np.asarray(sim["f_field_final"]),
+        s_field0=np.asarray(sim["salt_field_final"]),
         bark_b0=float(sim["bark_b"][-1]),
         bark_s0=float(sim["bark_s"][-1]),
         ring0=float(sim["ring"]),
@@ -291,6 +298,7 @@ def plan(
     t_spritz_override: float | None = None,
     z_m_init: float | None = None,
     spritz_dose: float = 0.05,
+    t_salt: float = 0.0,
 ):
     """Re-optimize the remaining-horizon plan from the current state.
 
@@ -337,6 +345,7 @@ def plan(
         t_spritz_override=t_spritz_override,
         z_m_init=z_m_init,
         spritz_dose=spritz_dose,
+        t_salt=(t_salt if state.s_field0 is None else 0.0),
     )
     return u_opt, grids, hist
 
@@ -431,6 +440,7 @@ def run_cook(
     t_spritz_init_abs: float | None = None,
     dt_spritz_init: float | None = None,
     spritz_dose_init: float | None = None,
+    t_salt: float = 0.0,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
@@ -636,6 +646,7 @@ def run_cook(
                 t_spritz_override=ts_override,
                 z_m_init=zm0,
                 spritz_dose=spritz_dose_cur,
+                t_salt=t_salt,
             )
             # each live decision: the planned moment tracks the candidate,
             # execution is gated by wrap_commit (deferral on ridge noise)
@@ -750,6 +761,7 @@ def run_cook(
             t_spritz_seg=ts_seg,
             dt_spritz_seg=dt_spritz_cur,
             spritz_dose_seg=spritz_dose_cur,
+            t_salt=t_salt,
         )
         if pull_now:
             pulled = True

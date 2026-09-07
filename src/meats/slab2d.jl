@@ -321,7 +321,11 @@ function _slab2d_engine(
         return q_up, j_up
     end
 
-    return (; step!, T, W, Cmat, B_rim, B_end, rV, zw, Δr, Δz, Tv, stmat, S)
+    dims() = (Δr * sum((i == 1 || i == nr ? 0.5 : 1.0) * stmat[i, div(nz, 2) + 1]
+                       for i in 1:nr),
+              Δz * sum(zw[j] * stmat[1, j] for j in 1:nz))
+    return (; step!, T, W, Cmat, B_rim, B_end, rV, zw, Δr, Δz, Tv, stmat, S,
+            dims)
 end
 
 function meat_solve_2d(
@@ -358,11 +362,15 @@ function meat_solve_2d(
     Tout = zeros(Tv, size(eng.T)..., length(tsave))
     Wout = zeros(Tv, size(eng.T)..., length(tsave))
     Cout = zeros(Tv, size(eng.T)..., length(tsave))
+    Sout = zeros(Tv, size(eng.T)..., length(tsave))
     Tcold = fill(Tv(cfg.T0), length(tsave))
+    sv = _slab2d_series(eng, length(tsave))
     isave = 1
     while isave <= length(save_at) && save_at[isave] <= 0
         Tout[:, :, isave] .= eng.T
         Wout[:, :, isave] .= eng.W
+        Sout[:, :, isave] .= eng.S
+        _slab2d_save!(sv, eng, isave, R, Hz)
         isave += 1
     end
     for n in 1:nt_steps
@@ -373,11 +381,33 @@ function meat_solve_2d(
             Tout[:, :, isave] .= eng.T
             Wout[:, :, isave] .= eng.W
             Cout[:, :, isave] .= eng.Cmat
+            Sout[:, :, isave] .= eng.S
             Tcold[isave] = minimum(eng.T)
+            _slab2d_save!(sv, eng, isave, R, Hz)
             isave += 1
         end
     end
-    return _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
+    return merge(
+        _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Sout, Tcold, tsave), sv
+    )
+end
+
+# per-save quality/dimension series (the animation feed): bark on the
+# faces and the current (shrunk) dimensions at every save time
+function _slab2d_series(eng, nt)
+    nr, nz = size(eng.T)
+    return (; bark_rim_t=zeros(eng.Tv, nz, nt),
+            bark_ends_t=zeros(eng.Tv, nr, 2, nt),
+            R_eff_t=zeros(eng.Tv, nt), Hz_eff_t=zeros(eng.Tv, nt))
+end
+
+function _slab2d_save!(sv, eng, isave, R, Hz)
+    sv.bark_rim_t[:, isave] .= eng.B_rim
+    sv.bark_ends_t[:, :, isave] .= eng.B_end
+    re, he = eng.dims()
+    sv.R_eff_t[isave] = re
+    sv.Hz_eff_t[isave] = he
+    return nothing
 end
 
 """
@@ -440,6 +470,7 @@ function coupled_solve_2d(
     Tout = zeros(Tv, size(eng.T)..., nsv)
     Wout = zeros(Tv, size(eng.T)..., nsv)
     Cout = zeros(Tv, size(eng.T)..., nsv)
+    Sout = zeros(Tv, size(eng.T)..., nsv)
     Tcold = fill(Tv(cfg.T0), nsv)
     Tpit_s = fill(Tv(pit.Tpit0), nsv)
     mfuel_s = fill(Tv(pit.m0), nsv)
@@ -447,6 +478,7 @@ function coupled_solve_2d(
     q_s = zeros(Tv, nsv)
     jv_s = zeros(Tv, nsv)
     Tpit_steps = zeros(Tv, nt_steps + 1)
+    sv = _slab2d_series(eng, nsv)
 
     Tp = Tv(pit.Tpit0)
     m = Tv(pit.m0)
@@ -461,6 +493,8 @@ function coupled_solve_2d(
     while isave <= nsv && save_at[isave] <= 0
         Tout[:, :, isave] .= eng.T
         Wout[:, :, isave] .= eng.W
+        Sout[:, :, isave] .= eng.S
+        _slab2d_save!(sv, eng, isave, R, Hz)
         isave += 1
     end
     for n in 1:nt_steps
@@ -494,7 +528,9 @@ function coupled_solve_2d(
             Tout[:, :, isave] .= eng.T
             Wout[:, :, isave] .= eng.W
             Cout[:, :, isave] .= eng.Cmat
+            Sout[:, :, isave] .= eng.S
             Tcold[isave] = minimum(eng.T)
+            _slab2d_save!(sv, eng, isave, R, Hz)
             Tpit_s[isave] = Tp
             mfuel_s[isave] = m
             pv_s[isave] = pv
@@ -504,12 +540,12 @@ function coupled_solve_2d(
         end
     end
     Tpit_steps[end] = Tp
-    out = _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
-    return merge(out, (; Tpit=Tpit_s, m_fuel=mfuel_s, pv_pit=pv_s,
-                       q_meat=q_s, j_evap=jv_s, Tpit_steps))
+    out = _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Sout, Tcold, tsave)
+    return merge(out, sv, (; Tpit=Tpit_s, m_fuel=mfuel_s, pv_pit=pv_s,
+                           q_meat=q_s, j_evap=jv_s, Tpit_steps))
 end
 
-function _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
+function _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Sout, Tcold, tsave)
     (; T, W, Cmat, B_rim, B_end, rV, zw, Δz, Tv, stmat, S) = eng
     nr, nz = size(T)
     vol = rV * zw'  # (nr, nz) volume weights (z ends are half cells)
@@ -538,7 +574,7 @@ function _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
         bark_ends=B_end,
         bark_mean=b_mean,
         bark_std=sqrt(b_var),
-        salt_field=S,
+        salt_field=Sout,
         salt_mean=sum(vol .* S) / sum(vol),
         R_eff=eng.Δr * sum((i == 1 || i == nr ? 0.5 : 1.0) * stmat[i, div(nz, 2) + 1]
                            for i in 1:nr),

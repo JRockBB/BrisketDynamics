@@ -79,14 +79,14 @@ def _init():
     jl.seval(
         """
         function _mono_kw(abstol, reltol, tpit0, t_amb, m0, t0, T0f, W0f, C0f, F0f,
-                          b0, s0, r0, rest_t, rest_h, rest_eps, rest_eta, n_shrink,
-                          afr, y_w, pan, omega, n_meat)
+                          Sf0, b0, s0, r0, rest_t, rest_h, rest_eps, rest_eta,
+                          n_shrink, afr, y_w, pan, omega, n_meat)
             cfg = MeatConfig(T0=t0, T_rest=rest_t, h_rest=rest_h, ε_rest=rest_eps,
                              η_rest=rest_eta, n_shrink=n_shrink, n_meat=n_meat)
             pit = PitConfig(T_amb=t_amb, Tpit0=tpit0, m0=m0)
             hum = Humidity(afr=afr, y_w=y_w, pan_kg_s=pan, omega_amb=omega)
-            return (; cfg, pit, hum, abstol, reltol, T0f, W0f, C0f, F0f, B0=b0, S0=s0,
-                    R0=r0)
+            return (; cfg, pit, hum, abstol, reltol, T0f, W0f, C0f, F0f, Ssalt0f=Sf0,
+                    B0=b0, S0=s0, R0=r0)
         end
         # t_f > 0 switches to duration (fractional-time) mode: utk/tsave and
         # the event times are fractions of the cook length t_f, and t_f is
@@ -119,7 +119,8 @@ def _init():
                     o.q_meat, o.C_field_final, o.w_retained, o.bark_b, o.bark_s,
                     o.l_star, o.juiciness, o.fat_rendered, o.l_thick, o.pv_pit,
                     o.pv_base, o.evap_w, o.drip_w, o.drip_f, o.T_field[:, end],
-                    o.W_field[:, end], o.F_field[:, end], o.ring[end], o.spritz_w)
+                    o.W_field[:, end], o.F_field[:, end], o.ring[end], o.spritz_w,
+                    o.salt_field[:, end])
         end
         # python column layout (1-based): 1..b core, b+1..b+6 event tail,
         # b+7 t_f, b+8 t_salt, b+9 t_trig, b+10 dt_add
@@ -310,6 +311,12 @@ class InputSchema(BaseModel):
     w_field0: Array[(None,), Float64] = Field(
         default_factory=list, description="Initial W field (len nx) or empty"
     )
+    s_field0: Array[(None,), Float64] = Field(
+        default_factory=list,
+        description="Initial salt field, dry basis (len nx) or empty; a "
+        "receding-horizon replan hands the brine state forward with it "
+        "(t_salt then stays 0)",
+    )
     c_field0: Array[(None,), Float64] = Field(
         default_factory=list, description="Initial C field (len nx) or empty"
     )
@@ -400,6 +407,9 @@ class OutputSchema(BaseModel):
     drip_w: Array[(), Float64] = Field(description="Dripped water (dry-basis mean)")
     drip_f: Array[(), Float64] = Field(description="Drained fat (dry-basis mean)")
     t_field_final: Array[(NX,), Float64] = Field(description="Final T field (handoff)")
+    salt_field_final: Array[(NX,), Float64] = Field(
+        description="Final salt field, dry basis (handoff)"
+    )
     w_field_final: Array[(NX,), Float64] = Field(description="Final W field (handoff)")
     f_field_final: Array[(NX,), Float64] = Field(
         description="Final fat field (handoff)"
@@ -486,6 +496,7 @@ def _packed(inputs: InputSchema):
         _own(inputs.w_field0),
         _own(inputs.c_field0),
         _own(inputs.f_field0),
+        _own(inputs.s_field0),
         float(inputs.bark_b0),
         float(inputs.bark_s0),
         float(inputs.ring0),
@@ -597,6 +608,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
             zx,
             0.0,
             0.0,
+            zx,
         ]
     keys = (
         "tpit",
@@ -625,6 +637,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
         "f_field_final",
         "ring",
         "spritz_w",
+        "salt_field_final",
     )
     return OutputSchema(**dict(zip(keys, vals, strict=True)))
 
@@ -644,6 +657,7 @@ def abstract_eval(abstract_inputs):
     out.update(
         {"t_field_final": vec(NX), "w_field_final": vec(NX), "f_field_final": vec(NX)}
     )
+    out["salt_field_final"] = vec(NX)
     out["ring"] = sc
     out["spritz_w"] = sc
     return out

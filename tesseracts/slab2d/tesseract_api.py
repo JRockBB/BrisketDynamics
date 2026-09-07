@@ -10,6 +10,7 @@ the planners themselves stay on the 1-D monolith.
 """
 
 import os
+import sys
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +24,17 @@ from tesseract_core.runtime import Array, Differentiable, Float64, ShapeDType
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _DIRECT = os.environ.get("BRISKET_JL_DIRECT", "0") == "1"
-_JL_THREAD = ThreadPoolExecutor(max_workers=1)
+# the ONE process-wide Julia thread, shared with the monolith API:
+# libjulia initializes on the first module's executor thread, and a
+# second module driving it from its own thread deadlocks the process
+_EXEC_ATTR = "_brisket_julia_executor"
+if getattr(sys, _EXEC_ATTR, None) is None:
+    setattr(
+        sys,
+        _EXEC_ATTR,
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="juliacall"),
+    )
+_JL_THREAD: ThreadPoolExecutor = getattr(sys, _EXEC_ATTR)
 _INIT_LOCK = threading.Lock()
 juliacall = None
 jl = None

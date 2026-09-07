@@ -176,14 +176,16 @@ function _monolith_solve_arr(
     S0=NaN,
     R0=NaN,
     t_salt=NaN,
+    Ssalt0f=Float64[],
 )
     u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
     rhs! = make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
     Tp = promote_type(eltype(p), typeof(float(t_salt)), Float64)
     # a0 = φ[7] participates in x0 so forward mode carries its sensitivity
-    # (and so does a Dual t_salt, through the analytic brine profile)
+    # (and so does a Dual t_salt, through the analytic brine profile); a
+    # handed-off salt field (Ssalt0f) takes precedence inside _meat_u0
     x0 = vcat(
-        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0,
+        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
                      s0=salt_profile(p[4], cfg,
                                      isnan(t_salt) ? cfg.t_salt : t_salt))),
         [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP], Tp(pit.m_pan0),
@@ -373,6 +375,7 @@ function monolith_solve(
     S0::Real=NaN,
     R0::Real=NaN,
     t_salt::Real=NaN,
+    Ssalt0f::AbstractVector=Float64[],
     T_wrap_trigger::Real=Inf,
     dt_add::Real=NaN,
     abstol=1e-6,
@@ -402,7 +405,7 @@ function monolith_solve(
     nu = length(u_knots)
     A = _monolith_solve_arr(
         p, cfg, pit, hum, u_tknots, tsave, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0, S0,
-        R0, t_salt,
+        R0, t_salt, Ssalt0f,
     )
     return _monolith_outputs(A, p, cfg, pit, hum, u_tknots, tsave, nu)
 end
@@ -548,6 +551,7 @@ function _monolith_solve_arr_s(
     S0=NaN,
     R0=NaN,
     t_salt=NaN,
+    Ssalt0f=Float64[],
 )
     # u_t0/u_dt in seconds may carry Duals of t_f; the interp ratio
     # (s·t_f − u_t0)/u_dt cancels t_f exactly, value and derivative
@@ -564,7 +568,7 @@ function _monolith_solve_arr_s(
     end
     Tp = promote_type(eltype(p), typeof(float(t_f)), typeof(float(t_salt)), Float64)
     x0 = vcat(
-        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0,
+        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
                      s0=salt_profile(p[4], cfg,
                                      isnan(t_salt) ? cfg.t_salt : t_salt))),
         [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP], Tp(pit.m_pan0),
@@ -623,6 +627,7 @@ function monolith_solve_tf(
     S0::Real=NaN,
     R0::Real=NaN,
     t_salt::Real=NaN,
+    Ssalt0f::AbstractVector=Float64[],
     T_wrap_trigger::Real=Inf,
     frac_dt_add::Real=NaN,
     abstol=1e-6,
@@ -658,7 +663,7 @@ function monolith_solve_tf(
     tsave = float.(s_save) .* t_f
     A = _monolith_solve_arr_s(
         p, cfg, pit, hum, u_tk, s_save, t_f, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0,
-        S0, R0, t_salt,
+        S0, R0, t_salt, Ssalt0f,
     )
     return _monolith_outputs(A, p, cfg, pit, hum, u_tk, tsave, nu)
 end
