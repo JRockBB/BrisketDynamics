@@ -75,9 +75,10 @@ Base.@kwdef struct PitConfig
     # latent sink behind a WSM's steadiness), FEEDS THE PIT HUMIDITY with
     # its evaporation — replacing the constant Humidity.pan_kg_s when
     # present — and can DRY OUT mid-cook (tanh taper on the remaining
-    # water). Evaporation drives against the pre-pan vapor pressure
-    # (combustion + ambient); the pan's own self-feedback through the pit
-    # vapor is second-order and not closed. m_pan0 = 0 is the no-pan
+    # water). Evaporation drives against the pit vapor pressure INCLUDING
+    # the pan's own contribution — a closed, linear balance solved in
+    # closed form (monolith `_pan_algebra`), so a pan never pushes the pit
+    # past its own saturation. m_pan0 = 0 is the no-pan
     # default: both couplings are gated off on the CONFIG (AD-safe), the
     # two states ride along inert.
     m_pan0::Float64 = 0.0       # initial pan water [kg] (0 = no pan)

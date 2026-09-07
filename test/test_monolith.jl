@@ -291,6 +291,22 @@ end
     @test wet.Tpit[i_mid] < dry.Tpit[i_mid]
     @test sum(wet.pv_base) > sum(dry.pv_base)
     @test all(wet.pan_evap[(end - 5):end] .>= -1e-9)  # steady pan evaporates, not condenses
+    # the closed pan balance: the pan drives against the pit vapor that
+    # includes its own contribution, so while it evaporates the pit vapor
+    # stays below the pan's saturation (it can never push the pit past it)
+    @test all(i -> wet.pan_evap[i] <= 0 ||
+                   wet.pv_base[i] < BrisketDynamics.p_sat(wet.T_pan[i]),
+              eachindex(MONO_TSAVE))
+    # closed form vs the open-loop (pre-pan) flux: ṁ = g·taper·(p_sat − pv0)/(1 + g·taper·K)
+    hum0 = BrisketDynamics.Humidity()
+    q, ṁc, pvb = BrisketDynamics._pan_algebra(380.0, 2.0, 360.0, 0.01, 2000.0, pit_pan, hum0)
+    K = hum0.p_atm / 0.622 / 0.01
+    gt = pit_pan.g_pan * tanh(2.0 / pit_pan.m_pan_taper)
+    ṁ_open = gt * (BrisketDynamics.p_sat(360.0) - 2000.0)
+    @test ṁc ≈ ṁ_open / (1 + gt * K)
+    @test 0 < ṁc < ṁ_open
+    @test pvb ≈ 2000.0 + K * ṁc && pvb < BrisketDynamics.p_sat(360.0)
+    @test q ≈ pit_pan.UA_pan * 20.0
     # a small pan DRIES OUT and the pit warms back toward the dry trace
     tiny = monolith_solve(
         θ, φ, MONO_U, MONO_UTK, MONO_TSAVE;

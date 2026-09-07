@@ -61,23 +61,31 @@ function _pit_algebra(ud, m, a, r_max, u_leak, pit::PitConfig, hum::Humidity)
 end
 
 """
-    _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit, hum, cfg)
+    _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit, hum)
 
 Water-pan fluxes from the pan states: heat drawn from the pit gas
-`q_pan = UA_pan·(Tp − T_pan)` and evaporation
-`ṁ_pan = g_pan·(p_sat(T_pan) − pv_nopan)·taper(m_pan)` (two-sided: a
-cold pan under a humid pit condenses), both gated off entirely when the
-config carries no pan. Returns `(q_pan, ṁ_pan, pv_base)` with the pan
-vapor added onto the pre-pan base.
+`q_pan = UA_pan·(Tp − T_pan)` and evaporation against the pit vapor
+INCLUDING the pan's own contribution — the closed balance
+`ṁ_pan = g_pan·taper·(p_sat(T_pan) − pv_nopan − K·ṁ_pan)`,
+`K = p_atm/(0.622·ṁ_air)`, is linear in `ṁ_pan`, so
+`ṁ_pan = g_pan·taper·(p_sat(T_pan) − pv_nopan)/(1 + g_pan·taper·K)` in
+closed form (the same self-consistent closure the meat's `evap_flux_fb`
+uses); two-sided, a cold pan under a humid pit condenses. Both fluxes
+are gated off entirely when the config carries no pan. Returns
+`(q_pan, ṁ_pan, pv_base)` with `pv_base = pv_nopan + K·ṁ_pan` the pit
+vapor pressure the meat then sees — a pan can never drive the pit past
+its own saturation.
 """
 function _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit::PitConfig, hum::Humidity)
     if pit.m_pan0 <= 0
         return zero(Tp), zero(Tp), pv_nopan
     end
     taper = tanh(max(mp, zero(mp)) / pit.m_pan_taper)
-    ṁ_pan = pit.g_pan * (p_sat(Tpan) - pv_nopan) * taper
+    K = (hum.p_atm / EPS_W) / mair
+    gt = pit.g_pan * taper
+    ṁ_pan = gt * (p_sat(Tpan) - pv_nopan) / (1 + gt * K)
     q_pan = pit.UA_pan * (Tp - Tpan)
-    return q_pan, ṁ_pan, pv_nopan + (hum.p_atm / EPS_W) * ṁ_pan / mair
+    return q_pan, ṁ_pan, pv_nopan + K * ṁ_pan
 end
 
 """
