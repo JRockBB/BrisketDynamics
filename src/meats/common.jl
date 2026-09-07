@@ -37,6 +37,21 @@ Base.@kwdef struct MeatConfig
     Ea::Float64 = 173e3         # collagen denaturation activation energy [J mol⁻¹]
     k_ref::Float64 = 1e-6       # collagen rate at T_ref [s⁻¹]
     T_ref::Float64 = 333.15     # collagen reference temperature [K] (60 °C)
+    # Second route to tenderness: ENZYMATIC (collagenase / cathepsin)
+    # weakening below the thermal window — the sous-vide mechanism
+    # (Tornberg 2005; Bouton & Harris 1981; Baldwin: tough cuts tender
+    # after 24–48 h at 55 °C). A bell in T, rising from ~45 °C and killed
+    # by enzyme inactivation above ~60 °C, ADDED to the thermal Arrhenius
+    # rate: dC/dt = [k_C(T) + k_enz(T)] (1 − C). Sized so 24 h at the
+    # peak converts 90 %; on a BBQ come-up the core crosses the window in
+    # 1–3 h, so the route contributes a few % of C that the later thermal
+    # conversion mostly overwrites (docs/results.md, two-rate collagen).
+    # Literature scale, not texture-calibrated (roadmap C6).
+    # k_enz0 = 0 is bitwise the single Arrhenius (fish / myosin presets).
+    k_enz0::Float64 = 2.7e-5    # peak enzymatic conversion rate [s⁻¹] (ln 10 / 24 h)
+    T_enz_on::Float64 = 318.15  # enzymatic onset [K] (45 °C)
+    T_enz_off::Float64 = 333.15 # enzyme inactivation [K] (60 °C)
+    δ_enz::Float64 = 3.0        # width of both edges [K]
     R_gas::Float64 = 8.314
     # State-triggered wrap (the event-sensitivity mechanism): a smooth
     # IRREVERSIBLE latch state l with dl/dt = k_latch·σ((T_core −
@@ -730,18 +745,25 @@ log1pexp(x) = max(x, zero(x)) + log1p(exp(-abs(x)))
 """
     collagen_rate(T::Number, cfg::MeatConfig)
 
-Arrhenius collagen-denaturation (doneness) rate, referenced to `k_ref` at
-`T_ref`.
+Collagen conversion (doneness) rate: the thermal Arrhenius route
+referenced to `k_ref` at `T_ref` PLUS the enzymatic (collagenase) route
+`k_enz0·σ((T − T_on)/δ)·σ((T_off − T)/δ)`, active only in the 45–60 °C
+window (sous-vide tenderization; gone above the inactivation edge).
+`k_enz0 = 0` recovers the single Arrhenius exactly.
 
 # Arguments
 - `T::Number`: Local temperature [K].
-- `cfg::MeatConfig`: Physical configuration (`Ea`, `k_ref`, `T_ref`).
+- `cfg::MeatConfig`: Physical configuration (`Ea`, `k_ref`, `T_ref`,
+  `k_enz0`, `T_enz_on`, `T_enz_off`, `δ_enz`).
 
 # Returns
 - `r::Number`: Conversion rate [1/s].
 """
 function collagen_rate(T, cfg::MeatConfig)
-    return cfg.k_ref * exp(-(cfg.Ea / cfg.R_gas) * (1 / T - 1 / cfg.T_ref))
+    k_th = cfg.k_ref * exp(-(cfg.Ea / cfg.R_gas) * (1 / T - 1 / cfg.T_ref))
+    k_enz = cfg.k_enz0 * logistic((T - cfg.T_enz_on) / cfg.δ_enz) *
+            logistic((cfg.T_enz_off - T) / cfg.δ_enz)
+    return k_th + k_enz
 end
 
 """

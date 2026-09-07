@@ -631,3 +631,34 @@ end
     @test i85s !== nothing
     @test i85d === nothing || tsave[i85s] < 0.8 * tsave[i85d]
 end
+
+@testset "collagen: two routes (thermal Arrhenius + enzymatic window)" begin
+    cfg = MeatConfig()
+    rate(T, c) = BrisketDynamics.collagen_rate(T, c)
+    thermal(T) = cfg.k_ref * exp(-(cfg.Ea / cfg.R_gas) * (1 / T - 1 / cfg.T_ref))
+    # in the sous-vide window the enzymatic route dominates by an order of
+    # magnitude; above the inactivation edge it is gone
+    @test rate(328.15, cfg) > 10 * thermal(328.15)                 # 55 °C
+    @test rate(353.15, cfg) < thermal(353.15) * (1 + 1e-3)          # 80 °C
+    @test rate(368.15, cfg) ≈ thermal(368.15) rtol = 1e-5           # 95 °C: enzymatic tail ~1e-6 of thermal
+    # k_enz0 = 0 is bitwise the single Arrhenius
+    off = BrisketDynamics.with_config(cfg; k_enz0=0.0)
+    @test all(T -> rate(T, off) === thermal(T), 300.0:5.0:370.0)
+    # 24 h at 55 °C converts ~90 % (Baldwin's tough-cut hold); the thermal
+    # route alone would barely move in that time
+    k55 = rate(328.15, cfg)
+    @test 0.85 < 1 - exp(-k55 * 24 * 3600) < 0.95
+    @test 1 - exp(-thermal(328.15) * 24 * 3600) < 0.05
+    # the sous-vide preset carries the route through the solver: a 24 h
+    # bath at 55 °C makes a slab probe-tender, which the thermal rate
+    # alone never does at that temperature
+    hr = 3600.0
+    sv = BrisketDynamics.sous_vide(cfg; T_bath=328.15)
+    tk = collect(0.0:600.0:24hr)
+    θ = MEAT_θ_DEFAULT
+    bath = meat_solve(θ, fill(328.15, length(tk)), tk, tk; cfg=sv.cfg, t_pull=sv.t_pull)
+    @test bath.C_field[1, end] > 0.8
+    svoff = BrisketDynamics.sous_vide(off; T_bath=328.15)
+    cold = meat_solve(θ, fill(328.15, length(tk)), tk, tk; cfg=svoff.cfg, t_pull=svoff.t_pull)
+    @test cold.C_field[1, end] < 0.1
+end
