@@ -1,7 +1,9 @@
 # 2-D axisymmetric core: limit validations against the 1-D solver and
-# the finite-size sanity Newman predicts. The 1-D comparisons disable
-# shrink (the 2-D v1 has none) — everything else matches by construction
-# (same property functions, same purge, same surface fluxes).
+# the finite-size sanity Newman predicts. Shrink is ON (the default
+# n_shrink = 1/3, where the per-direction 2-D stretch coincides with
+# each 1-D limit's resolved-direction metric) — everything matches by
+# construction (same property functions, purge, surface fluxes and
+# material-coordinate metrics).
 
 @testset "2-D axisymmetric core" begin
     hr = 3600.0
@@ -9,7 +11,7 @@
     Tpit = fill(383.15, length(tknots))
     θ = MEAT_θ_DEFAULT
     θ2 = [θ[1], θ[2], θ[3], θ[5], θ[6], θ[7]]
-    cfg0 = BrisketDynamics.with_config(MeatConfig(); n_shrink=0.0)
+    cfg0 = MeatConfig()
 
     # long-cylinder limit: a tall 2-D cylinder's mid-height axis vs the
     # 1-D radial solve (geom_m = 1, L = R)
@@ -54,10 +56,22 @@
                             t_wrap=1.5hr)
     @test wrapped.w_retained > fin.w_retained + 0.02
 
-    grain = meat_solve_2d(θ2, Tpit, tknots, tknots;
-                          R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
-                          k_grain=1.3)
-    @test grain.Tcore[mid] > fin.Tcore[mid] + 0.1  # in-plane conduction up
+    # grain anisotropy directions, each on the physics it drives: with
+    # evaporation off (k_m = 0) faster in-plane conduction must heat the
+    # core strictly faster (with evap on, the hotter rim also dries
+    # harder and the net sign is marginal); faster in-plane moisture
+    # transport feeds the faces and lowers retention
+    θ2dry = [θ[1], 0.0, θ[3], θ[5], θ[6], θ[7]]
+    base_dry = meat_solve_2d(θ2dry, Tpit, tknots, tknots;
+                             R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0)
+    grain_dry = meat_solve_2d(θ2dry, Tpit, tknots, tknots;
+                              R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                              k_grain=1.3)
+    @test grain_dry.Tcore[mid] > base_dry.Tcore[mid] + 0.1
+    grD = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                        R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                        D_grain=2.0)
+    @test grD.w_retained < fin.w_retained - 1e-4
 
     # a uniform cut is z-symmetric to roundoff; a fattier point muscle
     # above z_split breaks the symmetry (fat insulates and carries less
@@ -71,6 +85,16 @@
     @test asym > 0.05
     @test pf.w_retained != fin.w_retained
 
+    # shrink: the cut contracts (current dimensions below raw) and
+    # n_shrink = 0 is exactly inert (unit metrics)
+    @test fin.R_eff < R - 1e-4 && fin.Hz_eff < 0.06 - 1e-4
+    ns0 = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                        R=R, Hz=0.06, nr=24, nz=20,
+                        cfg=BrisketDynamics.with_config(MeatConfig(); n_shrink=0.0),
+                        h=20.0)
+    @test ns0.R_eff ≈ R atol = 1e-12
+    @test ns0.Hz_eff ≈ 0.06 atol = 1e-12
+
     # quality fields ride along: collagen at the wide cylinder's axis
     # matches the 1-D center kinetics; bark grows on the faces and the
     # wrap suppresses it (cooler, wetter surface); the cold spot is a
@@ -80,6 +104,30 @@
     @test wrapped.bark_mean < fin.bark_mean
     @test all(fin.Tcold .<= fin.Tcore .+ 1e-9)
     @test 0 <= fin.C_min <= minimum(fin.C_field[:, :, end])
+
+    # salt on the faces: t_salt = 0 exactly inert; a dry brine loads
+    # every face (corners saltiest — the union of fronts), diffuses
+    # inward, and retains water through the WHC coupling
+    salted2 = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                            R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                            t_salt=12hr)
+    @test salted2.salt_mean > 0
+    jmid = 10
+    @test salted2.salt_field[2, 1] <= salted2.salt_field[24, 1] + 1e-12
+    @test salted2.salt_field[24, 1] > salted2.salt_field[24, jmid] - 1e-12
+    @test salted2.salt_field[1, jmid] < 1e-3  # core untouched by the rub
+    @test salted2.w_retained > fin.w_retained
+    zero_salt = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                              R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                              t_salt=0.0)
+    @test zero_salt.Tcore == fin.Tcore && zero_salt.w_retained == fin.w_retained
+
+    # spritz on the faces: wets the cut and cools the crust
+    sprz = meat_solve_2d(θ2, Tpit, tknots, tknots;
+                         R=R, Hz=0.06, nr=24, nz=20, cfg=cfg0, h=20.0,
+                         t_spritz=1.5hr, dt_spritz=1800.0)
+    @test sprz.w_retained > fin.w_retained
+    @test sprz.bark_mean < fin.bark_mean
 
     # pit coupling: with n_meat = 0 (and humidity constants pinned so
     # the base vapor pressure equals the standalone constant) the pit

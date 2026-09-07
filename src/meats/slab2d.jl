@@ -51,7 +51,8 @@ and spread — burnt-ends live in the tail).
 # area-integrated surface heat uptake [W] and evaporation [kg/s] of ONE
 # brisket (what a pit loses to it).
 function _slab2d_engine(
-    θ2, R, Hz, nr, nz, cfg, h, t_wrap, k_grain, D_grain, F_top, z_split, Tv
+    θ2, R, Hz, nr, nz, cfg, h, t_wrap, k_grain, D_grain, F_top, z_split, Tv,
+    t_salt, t_spritz, dt_spritz, m_spritz
 )
     D_eff, k_m, h_c, k_mult, k_e, a_myosin = θ2
     Δr = R / (nr - 1)
@@ -67,6 +68,23 @@ function _slab2d_engine(
 
     T = fill(Tv(cfg.T0), nr, nz)
     W = fill(Tv(cfg.W0), nr, nz)
+    # dry-brine initial condition: the 1-D erfc profile from EVERY rubbed
+    # face as a smooth union (exactly the single-face profile away from
+    # corners, capped at S_surf where fronts overlap); t_salt <= 0 is
+    # exact zeros — compare the PRIMAL, the eps-aware Dual lesson
+    S = zeros(Tv, nr, nz)
+    ts_v = isnan(_primal(t_salt)) ? cfg.t_salt : t_salt
+    if _primal(ts_v) > 0
+        pen = 2 * sqrt(cfg.D_salt * ts_v)
+        for j in 1:nz, i in 1:nr
+            e_r = erfc_smooth((R - (i - 1) * Δr) / pen)
+            e_lo = erfc_smooth((j - 1) * Δz / pen)
+            e_hi = erfc_smooth((Hz - (j - 1) * Δz) / pen)
+            S[i, j] = Tv(cfg.S_surf) *
+                      (1 - (1 - e_r) * (1 - e_lo) * (1 - e_hi))
+        end
+    end
+    msp = isnan(_primal(m_spritz)) ? cfg.m_spritz : m_spritz
     # quality states ride along explicitly (they never feed back into
     # the transport, exactly like the 1-D model): collagen conversion
     # per cell, Maillard browning per exposed face cell
@@ -75,6 +93,16 @@ function _slab2d_engine(
     B_end = zeros(Tv, nr, 2)
     kmat = zeros(Tv, nr, nz)
     ρcmat = zeros(Tv, nr, nz)
+    # shrink metrics, mirroring the 1-D material coordinate per
+    # direction: st = (v/v0)^n_shrink is the local stretch of BOTH the r
+    # and z spacings (at the default n_shrink = 1/3 this is the
+    # isotropic split, and both 1-D limits use the same exponent for
+    # their resolved direction); the exposed-area factor (v̄/v0)^n_a
+    # multiplies the dry-basis moisture flux only — for heat it cancels
+    # between current-area intake and current-volume capacity, exactly
+    # as in meat_rhs_core!. n_shrink = 0 makes every factor exactly 1.
+    n_s, n_a, v0s = shrink_exponents(cfg)
+    stmat = ones(Tv, nr, nz)
     nmax = max(nr, nz)
     aa = zeros(Tv, nmax); bb = zeros(Tv, nmax)
     cc = zeros(Tv, nmax); dd = zeros(Tv, nmax)
@@ -97,6 +125,10 @@ function _slab2d_engine(
         sw = wrap_blend(t_now, t_wrap, cfg)
         km_w = (1 - cfg.η_evap * sw) * k_m
         hc_w = h_c * (1 - cfg.η_h * sw)
+        # spritz: water lands on every exposed face while unwrapped, a
+        # fraction f_abs soaks in, the rest flashes off with its latent
+        # heat (the 1-D q_net terms, mirrored per face)
+        j_sp = spritz_rate(t_now, t_spritz, dt_spritz, msp, cfg) * (1 - sw)
         # pre-step surface heat uptake — what the pit loses to this
         # brisket this step (rim strips + both end annuli, real areas)
         q_up = zero(Tv)
@@ -107,11 +139,17 @@ function _slab2d_engine(
         for i in 1:nr, jz in (1, nz)
             q_up += 2π * rV[i] * surface_heat_in_wrapped(Tpit, T[i, jz], h_c, sw, cfg)
         end
+        vbar = zero(Tv)
+        wsum = zero(Tv)
         for j in 1:nz, i in 1:nr
             v = specific_volume(W[i, j], Fz[j], cfg)
             kmat[i, j] = k_mult * conductivity_mix(W[i, j], Fz[j], T[i, j], v, cfg)
             ρcmat[i, j] = heat_capacity_dry(W[i, j], Fz[j], T[i, j], cfg) / v
+            stmat[i, j] = (v / v0s)^n_s
+            vbar += rV[i] * zw[j] * v
+            wsum += rV[i] * zw[j]
         end
+        a_area = (vbar / (wsum * v0s))^n_a
 
         # explicit: purge everywhere, evaporative WATER loss on the
         # exposed faces (mild rates); the surface HEAT flux is handled
@@ -120,7 +158,8 @@ function _slab2d_engine(
         # over-dries it (measured: +9 K and 4x the drying rate on the
         # end faces before this was made implicit)
         for j in 1:nz, i in 1:nr
-            W[i, j] -= h * expulsion_rate(W[i, j], T[i, j], k_e, a_myosin, cfg)
+            W[i, j] -= h * expulsion_rate_salted(W[i, j], T[i, j], S[i, j],
+                                                 k_e, a_myosin, cfg)
             Cmat[i, j] += h * collagen_rate(T[i, j], cfg) * (1 - Cmat[i, j])
         end
         for j in 1:nz
@@ -142,17 +181,19 @@ function _slab2d_engine(
         δW = Tv(1e-3)
         for j in 1:nz
             C = RHO_DRY * Δr / 2
-            j0 = evap_flux(T[nr, j], W[nr, j], km_w, pv, cfg)
-            s = (evap_flux(T[nr, j], W[nr, j] + δW, km_w, pv, cfg) - j0) / δW
-            jr_face[j] = j0 / (1 + h * max(s, zero(Tv)) / C)
-            W[nr, j] -= h * jr_face[j] / C
+            fa = 1 / (1 + cfg.k_aw * max(S[nr, j], zero(Tv)))
+            j0 = evap_flux(T[nr, j], W[nr, j], km_w, pv, cfg, fa)
+            s = (evap_flux(T[nr, j], W[nr, j] + δW, km_w, pv, cfg, fa) - j0) / δW
+            jr_face[j] = j0 / (1 + h * a_area * max(s, zero(Tv)) / C)
+            W[nr, j] += h * a_area * (cfg.f_abs * j_sp - jr_face[j]) / C
         end
         for i in 1:nr, (kz, jz) in enumerate((1, nz))
             C = RHO_DRY * Δz / 2
-            j0 = evap_flux(T[i, jz], W[i, jz], km_w, pv, cfg)
-            s = (evap_flux(T[i, jz], W[i, jz] + δW, km_w, pv, cfg) - j0) / δW
-            jz_face[i, kz] = j0 / (1 + h * max(s, zero(Tv)) / C)
-            W[i, jz] -= h * jz_face[i, kz] / C
+            fa = 1 / (1 + cfg.k_aw * max(S[i, jz], zero(Tv)))
+            j0 = evap_flux(T[i, jz], W[i, jz], km_w, pv, cfg, fa)
+            s = (evap_flux(T[i, jz], W[i, jz] + δW, km_w, pv, cfg, fa) - j0) / δW
+            jz_face[i, kz] = j0 / (1 + h * a_area * max(s, zero(Tv)) / C)
+            W[i, jz] += h * a_area * (cfg.f_abs * j_sp - jz_face[i, kz]) / C
         end
         j_up = zero(Tv)
         for j in 1:nz
@@ -169,32 +210,54 @@ function _slab2d_engine(
                 # direction is through-thickness, matching the 1-D values
                 lo = i > 1 ?
                      k_grain * (kmat[i - 1, j] + kmat[i, j]) / 2 * rF[i - 1] /
-                     (Δr * rV[i] * ρcmat[i, j]) : zero(Tv)
+                     ((stmat[i - 1, j] + stmat[i, j]) / 2 * Δr * rV[i] *
+                      stmat[i, j] * ρcmat[i, j]) : zero(Tv)
                 up = i < nr ?
                      k_grain * (kmat[i, j] + kmat[i + 1, j]) / 2 * rF[i] /
-                     (Δr * rV[i] * ρcmat[i, j]) : zero(Tv)
+                     ((stmat[i, j] + stmat[i + 1, j]) / 2 * Δr * rV[i] *
+                      stmat[i, j] * ρcmat[i, j]) : zero(Tv)
                 aa[i] = -h * lo
                 cc[i] = -h * up
                 bb[i] = 1 + h * (lo + up)
                 dd[i] = T[i, j]
             end
-            βr = hc_w / (ρcmat[nr, j] * Δr / 2)
+            βr = hc_w / (ρcmat[nr, j] * stmat[nr, j] * Δr / 2)
             qx = (surface_heat_in_wrapped(Tpit, T[nr, j], h_c, sw, cfg) -
                   hc_w * (Tpit - T[nr, j]) -
-                  cfg.λ_vap * jr_face[j]) /
-                 (ρcmat[nr, j] * Δr / 2)
+                  cfg.λ_vap * (jr_face[j] + (1 - cfg.f_abs) * j_sp) -
+                  CP_WATER * (T[nr, j] - cfg.T_spritz) * j_sp) /
+                 (ρcmat[nr, j] * stmat[nr, j] * Δr / 2)
             bb[nr] += h * βr
             dd[nr] += h * (βr * Tpit + qx)
             _thomas_row!(T, aa, bb, cc, dd, nr, j)
             for i in 1:nr
-                lo = i > 1 ? D_grain * D_eff * rF[i - 1] / (Δr * rV[i]) : zero(Tv)
-                up = i < nr ? D_grain * D_eff * rF[i] / (Δr * rV[i]) : zero(Tv)
+                lo = i > 1 ? D_grain * D_eff * rF[i - 1] /
+                             (((stmat[i - 1, j] + stmat[i, j]) / 2)^2 * Δr *
+                              rV[i]) : zero(Tv)
+                up = i < nr ? D_grain * D_eff * rF[i] /
+                              (((stmat[i, j] + stmat[i + 1, j]) / 2)^2 * Δr *
+                               rV[i]) : zero(Tv)
                 aa[i] = -h * lo
                 cc[i] = -h * up
                 bb[i] = 1 + h * (lo + up)
                 dd[i] = W[i, j]
             end
             _thomas_row!(W, aa, bb, cc, dd, nr, j)
+            if cfg.D_salt > 0
+                for i in 1:nr
+                    lo = i > 1 ? D_grain * cfg.D_salt * rF[i - 1] /
+                                 (((stmat[i - 1, j] + stmat[i, j]) / 2)^2 * Δr *
+                                  rV[i]) : zero(Tv)
+                    up = i < nr ? D_grain * cfg.D_salt * rF[i] /
+                                  (((stmat[i, j] + stmat[i + 1, j]) / 2)^2 * Δr *
+                                   rV[i]) : zero(Tv)
+                    aa[i] = -h * lo
+                    cc[i] = -h * up
+                    bb[i] = 1 + h * (lo + up)
+                    dd[i] = S[i, j]
+                end
+                _thomas_row!(S, aa, bb, cc, dd, nr, j)
+            end
         end
         # implicit axial sweeps (each r-column)
         for i in 1:nr
@@ -203,39 +266,62 @@ function _slab2d_engine(
                 # diffusion coefficient doubles, matching the flux terms
                 cell = (j == 1 || j == nz) ? Δz / 2 : Δz
                 lo = j > 1 ? (kmat[i, j - 1] + kmat[i, j]) / 2 /
-                             (Δz * cell * ρcmat[i, j]) : zero(Tv)
+                             ((stmat[i, j - 1] + stmat[i, j]) / 2 * Δz * cell *
+                              stmat[i, j] * ρcmat[i, j]) : zero(Tv)
                 up = j < nz ? (kmat[i, j] + kmat[i, j + 1]) / 2 /
-                              (Δz * cell * ρcmat[i, j]) : zero(Tv)
+                              ((stmat[i, j] + stmat[i, j + 1]) / 2 * Δz * cell *
+                               stmat[i, j] * ρcmat[i, j]) : zero(Tv)
                 aa[j] = -h * lo
                 cc[j] = -h * up
                 bb[j] = 1 + h * (lo + up)
                 dd[j] = T[i, j]
             end
             for (kz, jz) in enumerate((1, nz))
-                βz = hc_w / (ρcmat[i, jz] * Δz / 2)
+                βz = hc_w / (ρcmat[i, jz] * stmat[i, jz] * Δz / 2)
                 qx = (surface_heat_in_wrapped(Tpit, T[i, jz], h_c, sw, cfg) -
                       hc_w * (Tpit - T[i, jz]) -
-                      cfg.λ_vap * jz_face[i, kz]) /
-                     (ρcmat[i, jz] * Δz / 2)
+                      cfg.λ_vap * (jz_face[i, kz] + (1 - cfg.f_abs) * j_sp) -
+                      CP_WATER * (T[i, jz] - cfg.T_spritz) * j_sp) /
+                     (ρcmat[i, jz] * stmat[i, jz] * Δz / 2)
                 bb[jz] += h * βz
                 dd[jz] += h * (βz * Tpit + qx)
             end
             _thomas_col!(T, aa, bb, cc, dd, nz, i)
             for j in 1:nz
                 cell = (j == 1 || j == nz) ? Δz / 2 : Δz
-                lo = j > 1 ? D_eff / (Δz * cell) : zero(Tv)
-                up = j < nz ? D_eff / (Δz * cell) : zero(Tv)
+                lo = j > 1 ? D_eff /
+                             (((stmat[i, j - 1] + stmat[i, j]) / 2)^2 * Δz *
+                              cell) : zero(Tv)
+                up = j < nz ? D_eff /
+                              (((stmat[i, j] + stmat[i, j + 1]) / 2)^2 * Δz *
+                               cell) : zero(Tv)
                 aa[j] = -h * lo
                 cc[j] = -h * up
                 bb[j] = 1 + h * (lo + up)
                 dd[j] = W[i, j]
             end
             _thomas_col!(W, aa, bb, cc, dd, nz, i)
+            if cfg.D_salt > 0
+                for j in 1:nz
+                    cell = (j == 1 || j == nz) ? Δz / 2 : Δz
+                    lo = j > 1 ? cfg.D_salt /
+                                 (((stmat[i, j - 1] + stmat[i, j]) / 2)^2 * Δz *
+                                  cell) : zero(Tv)
+                    up = j < nz ? cfg.D_salt /
+                                  (((stmat[i, j] + stmat[i, j + 1]) / 2)^2 * Δz *
+                                   cell) : zero(Tv)
+                    aa[j] = -h * lo
+                    cc[j] = -h * up
+                    bb[j] = 1 + h * (lo + up)
+                    dd[j] = S[i, j]
+                end
+                _thomas_col!(S, aa, bb, cc, dd, nz, i)
+            end
         end
         return q_up, j_up
     end
 
-    return (; step!, T, W, Cmat, B_rim, B_end, rV, zw, Δr, Δz, Tv)
+    return (; step!, T, W, Cmat, B_rim, B_end, rV, zw, Δr, Δz, Tv, stmat, S)
 end
 
 function meat_solve_2d(
@@ -254,10 +340,17 @@ function meat_solve_2d(
     D_grain::Real=1.0,
     F_top::Real=NaN,
     z_split::Real=1.0,
+    t_salt::Real=NaN,
+    t_spritz::Real=SPRITZ_NEVER,
+    dt_spritz::Real=3600.0,
+    m_spritz::Real=NaN,
 )
-    Tv = promote_type(eltype(θ2), Float64)
+    Tv = promote_type(eltype(θ2), eltype(Tpit_knots), typeof(float(t_wrap)),
+                      typeof(float(t_salt)), typeof(float(t_spritz)),
+                      typeof(float(dt_spritz)), Float64)
     eng = _slab2d_engine(θ2, R, Hz, nr, nz, cfg, h, t_wrap, k_grain, D_grain,
-                         F_top, z_split, Tv)
+                         F_top, z_split, Tv, t_salt, t_spritz, dt_spritz,
+                         m_spritz)
     tk0, tkdt = float(tknots[1]), float(tknots[2] - tknots[1])
     t0 = float(tsave[1])
     nt_steps = round(Int, (float(tsave[end]) - t0) / h)
@@ -324,13 +417,21 @@ function coupled_solve_2d(
     D_grain::Real=1.0,
     F_top::Real=NaN,
     z_split::Real=1.0,
+    t_salt::Real=NaN,
+    t_spritz::Real=SPRITZ_NEVER,
+    dt_spritz::Real=3600.0,
+    m_spritz::Real=NaN,
 )
     length(φ) == PIT_NP ||
         throw(ArgumentError("φ must have length $PIT_NP; got $(length(φ))"))
     C_th, UA, r_max, ΔH_eff, u_leak, k_spread, a0 = φ
-    Tv = promote_type(eltype(θ2), eltype(φ), Float64)
+    Tv = promote_type(eltype(θ2), eltype(φ), eltype(u_knots),
+                      typeof(float(t_wrap)), typeof(float(t_salt)),
+                      typeof(float(t_spritz)), typeof(float(dt_spritz)),
+                      Float64)
     eng = _slab2d_engine(θ2, R, Hz, nr, nz, cfg, h, t_wrap, k_grain, D_grain,
-                         F_top, z_split, Tv)
+                         F_top, z_split, Tv, t_salt, t_spritz, dt_spritz,
+                         m_spritz)
     u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
     t0 = float(tsave[1])
     nt_steps = round(Int, (float(tsave[end]) - t0) / h)
@@ -409,7 +510,7 @@ function coupled_solve_2d(
 end
 
 function _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
-    (; T, W, Cmat, B_rim, B_end, rV, zw, Δz, Tv) = eng
+    (; T, W, Cmat, B_rim, B_end, rV, zw, Δz, Tv, stmat, S) = eng
     nr, nz = size(T)
     vol = rV * zw'  # (nr, nz) volume weights (z ends are half cells)
     wret = sum(vol .* W) / (sum(vol) * cfg.W0)
@@ -437,6 +538,11 @@ function _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Tcold, tsave)
         bark_ends=B_end,
         bark_mean=b_mean,
         bark_std=sqrt(b_var),
+        salt_field=S,
+        salt_mean=sum(vol .* S) / sum(vol),
+        R_eff=eng.Δr * sum((i == 1 || i == nr ? 0.5 : 1.0) * stmat[i, div(nz, 2) + 1]
+                           for i in 1:nr),
+        Hz_eff=Δz * sum(zw[j] * stmat[1, j] for j in 1:nz),
     )
 end
 
@@ -464,4 +570,83 @@ function _thomas_col!(X, aa, bb, cc, dd, n, i)
         X[i, j] = (dd[j] - cc[j] * X[i, j + 1]) / bb[j]
     end
     return nothing
+end
+
+
+# --- the 2-D Tesseract's derivative endpoints --------------------------------
+
+"""
+    slab2d_stack(o)
+
+The differentiable outputs of [`coupled_solve_2d`](@ref) as one vector:
+`Tpit, Tcore, Tcold, m_fuel` (each nt) then the scalars `w_retained,
+C_min, bark_mean, bark_std, salt_mean, R_eff, Hz_eff`.
+"""
+function slab2d_stack(o)
+    return vcat(o.Tpit, o.Tcore, o.Tcold, o.m_fuel,
+                [o.w_retained, o.C_min, o.bark_mean, o.bark_std, o.salt_mean,
+                 o.R_eff, o.Hz_eff])
+end
+
+function _slab2d_stack_fn(
+    θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt, t_spritz, dt_spritz; kw...
+)
+    nθ, nφ, nu = length(θ2), length(φ), length(u_knots)
+    v0 = vcat(
+        float.(θ2), float.(φ), float.(u_knots), float(t_wrap), float(t_salt),
+        float(t_spritz), float(dt_spritz),
+    )
+    g(v) = slab2d_stack(
+        coupled_solve_2d(
+            v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)],
+            u_tknots, tsave; t_wrap=v[end - 3], t_salt=v[end - 2],
+            t_spritz=v[end - 1], dt_spritz=v[end], kw...,
+        ),
+    )
+    return g, v0
+end
+
+"""
+    slab2d_stack_jacobian(θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt,
+                          t_spritz, dt_spritz, sel; kw...)
+
+Forward-mode Jacobian of [`slab2d_stack`](@ref) w.r.t. the entries `sel`
+(1-based indices into `[θ2; φ; u_knots; t_wrap; t_salt; t_spritz;
+dt_spritz]`); keyword arguments go to [`coupled_solve_2d`](@ref).
+"""
+function slab2d_stack_jacobian(
+    θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt, t_spritz, dt_spritz,
+    sel::AbstractVector{<:Integer}; kw...,
+)
+    g, v0 = _slab2d_stack_fn(
+        θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt, t_spritz, dt_spritz;
+        kw...,
+    )
+    sel = collect(Int, sel)
+    function gs(vs)
+        v = convert(Vector{eltype(vs)}, copy(v0))
+        v[sel] .= vs
+        return g(v)
+    end
+    return ForwardDiff.jacobian(gs, v0[sel])
+end
+
+"""
+    slab2d_stack_jvp(θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt,
+                     t_spritz, dt_spritz, dv; kw...)
+
+Directional derivative of [`slab2d_stack`](@ref) along the full-length
+tangent `dv` — one Dual solve.
+"""
+function slab2d_stack_jvp(
+    θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt, t_spritz, dt_spritz,
+    dv; kw...,
+)
+    g, v0 = _slab2d_stack_fn(
+        θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt, t_spritz, dt_spritz;
+        kw...,
+    )
+    dv = collect(Float64, dv)
+    length(dv) < length(v0) && (dv = vcat(dv, zeros(length(v0) - length(dv))))
+    return ForwardDiff.derivative(t -> g(v0 .+ t .* dv), 0.0)
 end

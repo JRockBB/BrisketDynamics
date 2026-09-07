@@ -68,6 +68,9 @@ export MeatConfig,
     sausage,
     hot_smoked_salmon,
     meat_solve_2d,
-    coupled_solve_2d
+    coupled_solve_2d,
+    slab2d_stack,
+    slab2d_stack_jacobian,
+    slab2d_stack_jvp
 
 end
