@@ -15,7 +15,9 @@ durations with the inner Optax schedule optimization per duration
 (warm-started along the scan), then a chance layer that re-simulates each
 duration's optimized schedule over posterior draws to find the shortest
 planned duration with P(serveably done) above target. The differentiable-
-duration variant (s = t/t_f time-scaling) is the documented next step.
+duration variant (s = t/t_f time-scaling) is `run_duration_opt.py` /
+`coupled_cook_tf` (docs/results.md, differentiable duration); this scan
+remains the reference that shows the plateau it climbs.
 """
 
 from __future__ import annotations
@@ -194,7 +196,7 @@ def plan_duration(
                 "ring_mm": ring_mm,
                 "safety_ok": safety["ok"],
                 "F_core": safety["F_core"],
-                "danger_h_core": safety["danger_h_core"],
+                "cut_h_core": safety["cut_h_core"],
             }
         )
         log(

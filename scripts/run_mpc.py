@@ -568,8 +568,8 @@ def main():
         print(f"    components: {jj}")
         sr = safety_report(r["tsurf"], r["tcore"], r["t"], cc)
         print(
-            f"    safety: surface F={sr['F_s']:.3g}s dwell={sr['danger_h']:.2f}h; "
-            f"core F={sr['F_core']:.3g}s dwell={sr['danger_h_core']:.2f}h; ok={sr['ok']}"
+            f"    safety: surface F={sr['F_s']:.3g}s come-up={sr['cut_h']:.2f}h; "
+            f"core F={sr['F_core']:.3g}s come-up={sr['cut_h_core']:.2f}h; ok={sr['ok']}"
         )
 
     out = REPO / "data" / "control"

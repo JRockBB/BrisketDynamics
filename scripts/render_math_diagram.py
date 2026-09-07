@@ -130,9 +130,9 @@ box(
     2.9,
     PIT_FC,
     PIT_EC,
-    "PIT — lumped ODEs (3 states)",
+    "PIT — lumped ODEs (6 states)",
     [
-        r"$C_{th}\,\dot T_p \,=\, \Delta H_{e\!f\!f}\,\dot m_b \;-\; UA\,(T_p - T_{amb}) \;-\; q_{meat} \;-\; q_{lid}$",
+        r"$C_{th}\,\dot T_p \,=\, \Delta H_{e\!f\!f}\,\dot m_b \;-\; UA\,(T_p - T_{amb}) \;-\; q_{meat} \;-\; q_{lid} \;-\; q_{pan}$",
         r"$\dot m = -\,\dot m_b + \dot m_{add}(t)\,,\qquad \dot m_b = r_{max}\; g(u)\; a\,\tanh(m/m_t)$",
         r"$\dot a \,=\, k_{spr}\, a\,(1-a)\;g(u)$",
         r"$g(u) = u_{leak} + (1-u_{leak})\,u\quad$ (leaky damper airflow)",
@@ -147,7 +147,7 @@ box(
     6.65,
     MEAT_FC,
     MEAT_EC,
-    "MEAT — 1-D PDE + kinetics ($x\\in[0,L]$, 163 ODEs after MOL)",
+    "MEAT — 1-D PDE + kinetics ($x\\in[0,L]$, $5n_x + 4 = 204$ ODEs after MOL)",
     [],
 )
 # interior transport
@@ -212,7 +212,7 @@ box(
     "QUALITY OBJECTIVE  $J$  (KCBS weights; every term a smooth band)",
     [
         r"$J = 0.14\,\mathcal{A}(L^*) \;+\; 0.57\,\left[\mathcal{G}_{smoke}(S) + w_d\,(1-\mathrm{juiciness}(W,F))^2\right] \;+\; 0.29\,\mathcal{T}(C_0) \;+\; \mathrm{ops}(T_s, m, u)$",
-        r"$+\;\; \mathcal{S}_{safety}\ (T_s$ and $T_{core}):\ \ F_{leth} = \int 10^{(T - T_{ref})/z}\,dt \geq F_{req}\,,\quad$ danger-zone dwell $\leq 4\,$h",
+        r"$+\;\; \mathcal{S}_{safety}\ (T_s$ and $T_{core}):\ \ F_{leth} = \int 10^{(T - T_{ref})/z}\,dt \geq F_{req}\,,\quad$ come-up 10–54 °C reported (FSIS Gap 6)",
     ],
     size=10.5,
 )

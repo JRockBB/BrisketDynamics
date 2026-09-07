@@ -99,9 +99,10 @@ def main():
     sr = safety_report(after["tsurf"], after["tcore"], grids.tknots, cc)
     print(
         f"safety (soft penalties, not a certification): surface F={sr['F_s']:.3g}s "
-        f"dwell={sr['danger_h']:.2f}h; core F={sr['F_core']:.3g}s "
-        f"dwell={sr['danger_h_core']:.2f}h; ok={sr['ok']}"
+        f"come-up={sr['cut_h']:.2f}h; core F={sr['F_core']:.3g}s "
+        f"come-up={sr['cut_h_core']:.2f}h; ok={sr['ok']}"
     )
+    print("  " + sr["assumption"])
 
     out_dir = REPO / "data" / "control"
     out_dir.mkdir(parents=True, exist_ok=True)

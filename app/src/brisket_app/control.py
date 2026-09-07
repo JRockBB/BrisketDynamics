@@ -99,18 +99,38 @@ class ControlConfig:
     # on the SURFACE (intact-muscle contamination) and on the CORE node —
     # the cold spot of the symmetric slab, the last point to heat — since
     # FSIS Appendix A requires the condition in all parts of the product.
-    # Danger-zone dwell is checked on both as well. The terms are weighted
-    # softplus penalties an optimizer can trade against quality; the
-    # fullplan scan rejects cook lengths whose raw residuals fail
-    # (safety_report), the MPC only penalizes. Not a certification.
+    # The requirement is the Appendix A 6.5-log Salmonella line (60 C for
+    # 12 min). Appendix A also conditions the table on the SURFACE
+    # HUMIDITY during the cook (relative humidity / sealed-oven rules);
+    # this model does not represent that condition and does not certify
+    # it — the report says so.
+    #
+    # Heating come-up time (CUT): FSIS Appendix A (2021) limits the time
+    # the product spends between 50 and 130 F (10-54.4 C) to 6 h against
+    # S. aureus enterotoxin. It is reported on the surface and the core.
+    # FSIS Scientific Gap 6 names BRISKET explicitly: a whole-muscle beef
+    # cut cooked low-and-slow is EXPECTED to exceed a 6 h come-up, and the
+    # CUT is not a critical operating parameter for it until more research
+    # exists. So the DEFAULT (brisket) keeps the CUT a report: never a
+    # penalty, never a rejection. Set cut_critical=True for products where
+    # Appendix A's CUT applies (poultry, comminuted product): then it is
+    # penalized and the fullplan scan rejects on it. The old consumer
+    # "danger zone 40-140 F, 4 h" cap was a HOLDING rule for cooked food
+    # left out, not a roasting limit, and was removed (docs/review.md).
+    #
+    # The terms are weighted softplus penalties an optimizer can trade
+    # against quality; the fullplan scan rejects cook lengths whose raw
+    # residuals fail (safety_report), the MPC only penalizes. Not a
+    # certification.
     leth_t_ref: float = 333.15  # 60 C
     leth_z: float = 6.0  # z-value [K]
     leth_f_req: float = 720.0  # 60 C-equivalent seconds (FSIS Appendix A 6.5-log line)
     w_lethality: float = 500.0
-    t_danger_lo: float = 277.6  # 4.4 C
-    t_danger_hi: float = 333.15  # 60 C
-    danger_cap_h: float = 4.0
-    w_dwell: float = 500.0
+    cut_t_lo: float = 283.15  # 10 C (50 F)
+    cut_t_hi: float = 327.6  # 54.4 C (130 F)
+    cut_cap_h: float = 6.0  # Appendix A come-up limit [h]
+    w_cut: float = 500.0  # applied only when cut_critical
+    cut_critical: bool = False  # brisket: FSIS Scientific Gap 6 — report, do not bind
     # ambient Kalman filter (MPC state estimation; see mpc.AmbientKF).
     # R: variance of the segment-end pit innovation — from the CALIBRATED
     # pit noise (sigma_0 + sigma_pit ~ 1.42 K at the real-cook AR(1) MAP).
@@ -178,54 +198,77 @@ def _softplus_np(x):
     return np.log1p(np.exp(-np.abs(x))) + np.maximum(x, 0.0)
 
 
-def lethality_dwell(temps, t_s, cc: ControlConfig, xp=np):
-    """Lethality F [T_ref-equivalent s] and danger-zone dwell [h] of a temperature trace.
+SAFETY_DISCLAIMER = (
+    "model output, not a USDA-certified cook: lethality is a soft curve "
+    "check on a modelled surface and core, the Appendix A humidity "
+    "condition is not modelled, the come-up time is reported and not "
+    "binding for brisket (FSIS Scientific Gap 6); quality is not a KCBS "
+    "judge score and the schedule is not a 95% on-time guarantee"
+)
 
-    `xp` is numpy or jax.numpy; the integrals are trapezoids on `t_s` [s].
+
+def lethality_cut(temps, t_s, cc: ControlConfig, xp=np):
+    """Lethality F [T_ref-equivalent s] and come-up time [h] of a temperature trace.
+
+    The come-up time is the time spent between `cut_t_lo` and `cut_t_hi`
+    (FSIS Appendix A: 50-130 F), as a smooth window. `xp` is numpy or
+    jax.numpy; the integrals are trapezoids on `t_s` [s].
     """
     F = xp.trapezoid(10.0 ** ((temps - cc.leth_t_ref) / cc.leth_z), t_s)
-    lo = 1.0 / (1.0 + xp.exp(-(temps - cc.t_danger_lo) / 2.0))
-    hi = 1.0 / (1.0 + xp.exp(-(cc.t_danger_hi - temps) / 2.0))
+    lo = 1.0 / (1.0 + xp.exp(-(temps - cc.cut_t_lo) / 2.0))
+    hi = 1.0 / (1.0 + xp.exp(-(cc.cut_t_hi - temps) / 2.0))
     return F, xp.trapezoid(lo * hi, t_s / 3600.0)
 
 
-def safety_penalty(F, dwell_h, cc: ControlConfig, xp=np):
-    """Soft penalties: lethality short of the requirement (log scale), dwell past the cap."""
+def safety_penalty(F, cut_h, cc: ControlConfig, xp=np):
+    """Soft penalties: lethality shortfall (log scale) plus, when critical, the come-up excess.
+
+    The come-up term enters only when `cc.cut_critical` (never for the
+    brisket default, FSIS Scientific Gap 6).
+    """
     sp = jax.nn.softplus if xp is jnp else _softplus_np
     leth = (
         cc.w_lethality * sp((xp.log10(cc.leth_f_req) - xp.log10(F + 1e-9)) / 0.2) ** 2
     )
-    dwell = cc.w_dwell * sp((dwell_h - cc.danger_cap_h) / 0.5) ** 2
-    return leth + dwell
+    if not cc.cut_critical:
+        return leth
+    return leth + cc.w_cut * sp((cut_h - cc.cut_cap_h) / 0.5) ** 2
 
 
 def safety_report(tsurf, tcore, t, cc: ControlConfig, banked: dict | None = None):
-    """Raw lethality / danger-zone dwell of the surface and the core vs the thresholds.
+    """Raw lethality / come-up time of the surface and the core vs the thresholds.
 
     The core node is the cold spot of the symmetric slab. `banked` carries
-    an executed cook's integrals (keys leth_f, danger_h, leth_f_core,
-    danger_h_core) into the whole-cook accounting. Soft objective
-    penalties are NOT a certification; this reports the residuals.
+    an executed cook's integrals (keys leth_f, cut_h, leth_f_core,
+    cut_h_core) into the whole-cook accounting. `ok` is the lethality
+    check, plus the come-up cap only when `cc.cut_critical` (never for
+    the brisket default — FSIS Scientific Gap 6). Soft objective penalties
+    are NOT a certification; this reports the residuals.
     """
     b = banked or {}
     tt = np.asarray(t, dtype=np.float64)
-    F_s, d_s = lethality_dwell(np.asarray(tsurf, dtype=np.float64), tt, cc)
-    F_c, d_c = lethality_dwell(np.asarray(tcore, dtype=np.float64), tt, cc)
+    F_s, c_s = lethality_cut(np.asarray(tsurf, dtype=np.float64), tt, cc)
+    F_c, c_c = lethality_cut(np.asarray(tcore, dtype=np.float64), tt, cc)
     F_s = float(F_s) + b.get("leth_f", 0.0)
     F_c = float(F_c) + b.get("leth_f_core", 0.0)
-    d_s = float(d_s) + b.get("danger_h", 0.0)
-    d_c = float(d_c) + b.get("danger_h_core", 0.0)
+    c_s = float(c_s) + b.get("cut_h", 0.0)
+    c_c = float(c_c) + b.get("cut_h_core", 0.0)
     lethality_ok = bool(F_s >= cc.leth_f_req and F_c >= cc.leth_f_req)
-    dwell_ok = bool(d_s <= cc.danger_cap_h and d_c <= cc.danger_cap_h)
+    cut_ok = bool(c_s <= cc.cut_cap_h and c_c <= cc.cut_cap_h)
     return {
         "F_s": F_s,
         "F_core": F_c,
-        "danger_h": d_s,
-        "danger_h_core": d_c,
+        "cut_h": c_s,
+        "cut_h_core": c_c,
         "lethality_ok": lethality_ok,
-        "dwell_ok": dwell_ok,
-        "ok": lethality_ok and dwell_ok,
-        "assumption": "1D slab: core node is the cold spot; soft penalties, not a certification",
+        "cut_ok": cut_ok,
+        "cut_critical": bool(cc.cut_critical),
+        "ok": lethality_ok and (cut_ok or not cc.cut_critical),
+        "assumption": (
+            "1D slab: core node is the cold spot; soft penalties, not a "
+            "certification; Appendix A humidity not modelled; come-up time "
+            + ("binding" if cc.cut_critical else "reported, not binding (brisket, FSIS Gap 6)")
+        ),
     }
 
 
@@ -240,9 +283,9 @@ def objective(
     tols,
     ics=None,
     leth_banked: float = 0.0,
-    danger_banked_h: float = 0.0,
+    cut_banked_h: float = 0.0,
     leth_banked_core: float = 0.0,
-    danger_banked_core_h: float = 0.0,
+    cut_banked_core_h: float = 0.0,
     t_wrap_override: float | None = None,
     t_pull: float = 1.0e9,
     rest: dict | None = None,
@@ -267,7 +310,7 @@ def objective(
     """Scalar quality objective of one simulated cook (lower is better).
 
     KCBS-weighted appearance/taste/tenderness bands plus operational terms
-    and the food-safety *soft penalties* (lethality + danger-zone dwell on
+    and the food-safety *soft penalties* (lethality + come-up time on
     the surface and on the core node — see ControlConfig / safety_report).
     With ``t_pull`` inside the horizon the quality terms are evaluated at
     SERVE (the horizon end) — after the rest's carryover, continued
@@ -296,11 +339,11 @@ def objective(
         Lethality already accumulated by the executed cook [60C-equivalent
         seconds]; replans pass it so the safety constraint sees the whole
         cook, not just the remaining horizon.
-    danger_banked_h : float, optional
-        Danger-zone dwell already spent by the executed cook [h]; same
+    cut_banked_h : float, optional
+        Come-up time already spent by the executed cook [h]; same
         whole-cook accounting as leth_banked (the 4 h cap is cumulative,
         not per-replan).
-    leth_banked_core, danger_banked_core_h : float, optional
+    leth_banked_core, cut_banked_core_h : float, optional
         The same two integrals on the core node.
     t_wrap_override : float, optional
         Bypass the z_w mapping with an explicit wrap time [s], possibly
@@ -406,9 +449,9 @@ def objective(
         cc,
         dt_add=dt_add,
         leth_banked=leth_banked,
-        danger_banked_h=danger_banked_h,
+        cut_banked_h=cut_banked_h,
         leth_banked_core=leth_banked_core,
-        danger_banked_core_h=danger_banked_core_h,
+        cut_banked_core_h=cut_banked_core_h,
     )
 
 
@@ -421,9 +464,9 @@ def score_outputs(
     cc: ControlConfig,
     dt_add=0.0,
     leth_banked: float = 0.0,
-    danger_banked_h: float = 0.0,
+    cut_banked_h: float = 0.0,
     leth_banked_core: float = 0.0,
-    danger_banked_core_h: float = 0.0,
+    cut_banked_core_h: float = 0.0,
 ):
     """Score a simulated cook's outputs (the quality objective; lower is better).
 
@@ -481,14 +524,15 @@ def score_outputs(
         )
     fuel_frac = (sim["m_fuel"][0] + m_added - m_at_pull) / cc.m0_ref
 
-    # food safety (unconditional): lethality curve + growth-phase dwell on
-    # the surface and on the core node (the slab's cold spot), through the
-    # rest as well (a long board rest re-enters the zone)
-    F_s, d_s = lethality_dwell(sim["tsurf"], t_s, cc, jnp)
-    F_c, d_c = lethality_dwell(sim["tcore"], t_s, cc, jnp)
+    # food safety (unconditional): lethality curve on the surface and on
+    # the core node (the slab's cold spot), through the rest as well; the
+    # come-up time is integrated the same way and penalized only when the
+    # cut makes it critical (never for brisket, FSIS Gap 6)
+    F_s, c_s = lethality_cut(sim["tsurf"], t_s, cc, jnp)
+    F_c, c_c = lethality_cut(sim["tcore"], t_s, cc, jnp)
     safety = safety_penalty(
-        leth_banked + F_s, danger_banked_h + d_s, cc, jnp
-    ) + safety_penalty(leth_banked_core + F_c, danger_banked_core_h + d_c, cc, jnp)
+        leth_banked + F_s, cut_banked_h + c_s, cc, jnp
+    ) + safety_penalty(leth_banked_core + F_c, cut_banked_core_h + c_c, cc, jnp)
 
     return (
         cc.w_appearance * appearance
@@ -812,9 +856,9 @@ def optimize_schedule(
     z_w_init: float = 0.0,
     z_w_pin: float = 8.0,
     leth_banked: float = 0.0,
-    danger_banked_h: float = 0.0,
+    cut_banked_h: float = 0.0,
     leth_banked_core: float = 0.0,
-    danger_banked_core_h: float = 0.0,
+    cut_banked_core_h: float = 0.0,
     t_wrap_override: float | None = None,
     t_pull: float = 1.0e9,
     rest: dict | None = None,
@@ -893,9 +937,9 @@ def optimize_schedule(
                 tols,
                 ics=ics,
                 leth_banked=leth_banked,
-                danger_banked_h=danger_banked_h,
+                cut_banked_h=cut_banked_h,
                 leth_banked_core=leth_banked_core,
-                danger_banked_core_h=danger_banked_core_h,
+                cut_banked_core_h=cut_banked_core_h,
                 t_wrap_override=t_wrap_override,
                 t_pull=t_pull,
                 rest=rest,

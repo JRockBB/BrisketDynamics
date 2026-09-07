@@ -1,6 +1,6 @@
 """MPC receding-horizon correctness: the review-mandated invariants.
 
-Covers: cumulative safety banking (lethality + danger dwell), configured
+Covers: cumulative safety banking (lethality + come-up time), configured
 (non-default) safety constants reaching the banking, wrap-blend continuity
 across segment boundaries, and horizons not divisible by the replan
 interval. Open-loop mode throughout (no optimization) so each test is a
@@ -50,7 +50,7 @@ def _openloop(theta, phi, t_f, cc=None, t_wrap=None, n_u=4):
 
 
 def test_cumulative_safety_banking(clients, theta_phi):
-    """Banked lethality/danger equal the whole-cook integrals of the
+    """Banked lethality/come-up equal the whole-cook integrals of the
     executed surface trace (segment banking must not reset or drift)."""
     theta, phi = theta_phi
     cc = ControlConfig()
@@ -59,28 +59,51 @@ def test_cumulative_safety_banking(clients, theta_phi):
     t = np.asarray(out["t"])
     ts = np.asarray(out["tsurf"])
     leth_ref = float(np.trapezoid(10.0 ** ((ts - cc.leth_t_ref) / cc.leth_z), t))
-    in_zone = 1.0 / (1.0 + np.exp(-(ts - cc.t_danger_lo) / 2.0))
-    in_zone *= 1.0 / (1.0 + np.exp(-(cc.t_danger_hi - ts) / 2.0))
-    danger_ref = float(np.trapezoid(in_zone, t / 3600.0))
+    in_zone = 1.0 / (1.0 + np.exp(-(ts - cc.cut_t_lo) / 2.0))
+    in_zone *= 1.0 / (1.0 + np.exp(-(cc.cut_t_hi - ts) / 2.0))
+    cut_ref = float(np.trapezoid(in_zone, t / 3600.0))
     assert st.leth_f > 0
-    assert st.danger_h > 0
+    assert st.cut_h > 0
     # per-segment trapezoids vs whole-trace trapezoid differ only at the
     # segment joints
     assert st.leth_f == pytest.approx(leth_ref, rel=0.05)
-    assert st.danger_h == pytest.approx(danger_ref, rel=0.05)
+    assert st.cut_h == pytest.approx(cut_ref, rel=0.05)
     # the cold spot is banked the same way and is the slower of the two
     tc = np.asarray(out["tcore"])
     leth_core_ref = float(np.trapezoid(10.0 ** ((tc - cc.leth_t_ref) / cc.leth_z), t))
     assert st.leth_f_core == pytest.approx(leth_core_ref, rel=0.05)
     assert st.leth_f_core <= st.leth_f
-    assert st.danger_h_core >= st.danger_h
+    assert st.cut_h_core >= st.cut_h
+
+
+def test_cut_reported_not_binding_for_brisket():
+    """FSIS Scientific Gap 6: a brisket's long come-up is reported, never a
+    penalty or a rejection; a cut flagged critical is penalized and rejected."""
+    from brisket_app.control import safety_penalty, safety_report
+
+    cc = ControlConfig()
+    t = np.linspace(0.0, 10 * HR, 601)
+    # 8 h climbing through 10-52 C, then pasteurizing at 75 C
+    T = np.where(t < 8 * HR, 283.15 + (325.0 - 283.15) * t / (8 * HR), 348.15)
+    rep = safety_report(T, T, t, cc)
+    assert rep["cut_h"] > cc.cut_cap_h and rep["cut_ok"] is False
+    assert rep["lethality_ok"] and rep["ok"]
+    assert safety_penalty(rep["F_s"], rep["cut_h"], cc) == pytest.approx(0.0, abs=1e-6)
+    crit = ControlConfig(cut_critical=True)
+    rep2 = safety_report(T, T, t, crit)
+    assert rep2["ok"] is False and rep2["cut_critical"] is True
+    assert safety_penalty(rep2["F_s"], rep2["cut_h"], crit) > 1.0
+    # and the come-up window is the FSIS one: a trace parked at 70 C is out of
+    # it (the smooth 2 K edge still leaks ~6 % at 60 C, by construction)
+    hot = np.full_like(t, 343.15)
+    assert safety_report(hot, hot, t, cc)["cut_h"] < 0.05
 
 
 def test_custom_safety_constants_reach_banking(clients, theta_phi):
     """A customized ControlConfig must drive the banked integrals (a
     hard-coded 60C/6K banking would ignore it)."""
     theta, phi = theta_phi
-    cc2 = ControlConfig(leth_t_ref=343.15, leth_z=8.0, t_danger_hi=343.15)
+    cc2 = ControlConfig(leth_t_ref=343.15, leth_z=8.0, cut_t_hi=343.15)
     out = _openloop(theta, phi, 2 * HR, cc=cc2)
     st = out["final_state"]
     t = np.asarray(out["t"])

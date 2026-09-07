@@ -51,6 +51,12 @@ def _forward(script: Path, argv: list[str]) -> None:
     runpy.run_path(str(script), run_name="__main__")
 
 
+def _disclaimer() -> None:
+    from .control import SAFETY_DISCLAIMER
+
+    print(f"note: {SAFETY_DISCLAIMER}.")
+
+
 def cmd_logs(_argv: list[str]) -> None:
     from . import cooklog
 
@@ -205,6 +211,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_calibrate(rest)
     elif cmd in FORWARDED:
         _forward(FORWARDED[cmd], rest)
+        if cmd in ("plan", "pilot"):
+            _disclaimer()
     else:
         sys.exit(f"unknown command {cmd!r}; try one of: {', '.join(cmds)}")
 

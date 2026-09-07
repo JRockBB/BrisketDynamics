@@ -24,7 +24,7 @@ import numpy as np
 
 from .control import (
     ControlConfig,
-    lethality_dwell,
+    lethality_cut,
     optimize_schedule,
     safety_penalty,
 )
@@ -54,9 +54,9 @@ class CookState:
     bark_s0: float = float("nan")
     ring0: float = float("nan")  # smoke-ring depth, material coordinate [m]
     leth_f: float = 0.0  # banked surface lethality [60C-equivalent s] of executed cook
-    danger_h: float = 0.0  # banked surface danger-zone dwell [h] of executed cook
+    cut_h: float = 0.0  # banked surface come-up time [h] of executed cook
     leth_f_core: float = 0.0  # the same two on the core node (cold spot)
-    danger_h_core: float = 0.0
+    cut_h_core: float = 0.0
 
     @classmethod
     def fresh(cls, tpit0=293.15, m0=7.0, a0=1.0, t0_meat=281.15):
@@ -151,12 +151,12 @@ def advance_plant(
         bark_b0=float(sim["bark_b"][-1]),
         bark_s0=float(sim["bark_s"][-1]),
         ring0=float(sim["ring"]),
-        # safety banking (leth_f / danger_h) is applied by run_cook, which
+        # safety banking (leth_f / cut_h) is applied by run_cook, which
         # owns the ControlConfig and therefore the correct constants
         leth_f=state.leth_f,
-        danger_h=state.danger_h,
+        cut_h=state.cut_h,
         leth_f_core=state.leth_f_core,
-        danger_h_core=state.danger_h_core,
+        cut_h_core=state.cut_h_core,
     )
     return new, {
         k: np.asarray(sim[k]) for k in ("tpit", "tcore", "tsurf", "m_fuel", "ignited")
@@ -245,8 +245,8 @@ def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
     fuel_frac = out.get("fuel_frac", 0.0)
 
     tcore = np.asarray(out["tcore"])
-    safety = safety_penalty(*lethality_dwell(tsurf, t, cc), cc) + safety_penalty(
-        *lethality_dwell(tcore, t, cc), cc
+    safety = safety_penalty(*lethality_cut(tsurf, t, cc), cc) + safety_penalty(
+        *lethality_cut(tcore, t, cc), cc
     )
 
     # smoothness over the executed per-segment means (hourly steps)
@@ -328,9 +328,9 @@ def plan(
         z_w_init=z_w_init,
         z_w_pin=z_w_pin,
         leth_banked=state.leth_f,
-        danger_banked_h=state.danger_h,
+        cut_banked_h=state.cut_h,
         leth_banked_core=state.leth_f_core,
-        danger_banked_core_h=state.danger_h_core,
+        cut_banked_core_h=state.cut_h_core,
         t_wrap_override=t_wrap_override,
         t_pull=t_pull,
         rest=rest,
@@ -514,12 +514,12 @@ def run_cook(
         # here would silently disagree with a customized ControlConfig)
         nseg_t = len(seg_traj["tpit"])
         tseg = np.linspace(0.0, dt_seg, nseg_t)
-        F_s, d_s = lethality_dwell(np.asarray(seg_traj["tsurf"]), tseg, cc)
-        F_c, d_c = lethality_dwell(np.asarray(seg_traj["tcore"]), tseg, cc)
+        F_s, c_s = lethality_cut(np.asarray(seg_traj["tsurf"]), tseg, cc)
+        F_c, c_c = lethality_cut(np.asarray(seg_traj["tcore"]), tseg, cc)
         state.leth_f += float(F_s)
-        state.danger_h += float(d_s)
+        state.cut_h += float(c_s)
         state.leth_f_core += float(F_c)
-        state.danger_h_core += float(d_c)
+        state.cut_h_core += float(c_c)
         traj["t"].extend((t_seg_start + tseg).tolist())
         for k in ("tpit", "tcore", "tsurf"):
             traj[k].extend(seg_traj[k].tolist())

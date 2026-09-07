@@ -175,7 +175,7 @@ def main():
                     "ring_mm": [r["ring_mm"] for r in records],
                     "safety_ok": [bool(r["safety_ok"]) for r in records],
                     "F_core": [r["F_core"] for r in records],
-                    "danger_h_core": [r["danger_h_core"] for r in records],
+                    "cut_h_core": [r["cut_h_core"] for r in records],
                     "best_t_f_h": best["t_f_h"],
                     "best_t_wrap_h": best["t_wrap_h"],
                     "best_t_pull_h": best["t_pull_h"],
@@ -245,9 +245,10 @@ def main():
     sr = safety_report(sim["tsurf"], sim["tcore"], best["grids"].tknots, CC)
     print(
         f"safety (soft penalties, not a certification): surface F={sr['F_s']:.3g}s "
-        f"dwell={sr['danger_h']:.2f}h; core F={sr['F_core']:.3g}s "
-        f"dwell={sr['danger_h_core']:.2f}h; ok={sr['ok']}"
+        f"come-up={sr['cut_h']:.2f}h; core F={sr['F_core']:.3g}s "
+        f"come-up={sr['cut_h_core']:.2f}h; ok={sr['ok']}"
     )
+    print("  " + sr["assumption"])
     th = np.asarray(best["grids"].tknots) / HR
 
     import matplotlib
