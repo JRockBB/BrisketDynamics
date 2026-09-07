@@ -480,6 +480,50 @@ implicit Robin term inside the sweeps, and face moisture by
 backward-Euler on the W-linearized flux, with the SAME applied flux
 feeding the heat sink — after which both limits are refinement-stable.
 
+## 2-D productionization (2026-09-04, M1 complete)
+
+The four remaining code pieces of the 2-D line, closing the roadmap's
+last modeling goal:
+
+- **Shrink on the grid.** The 1-D material-coordinate metrics mirrored
+  per direction: st = (v/v0)^n_shrink stretches both spacings (the
+  default 1/3 is the isotropic split, where the 2-D per-direction
+  exponent coincides with each 1-D limit's resolved direction), heat
+  flux/f_face with st in the capacity, moisture flux/f² dry-basis, and
+  the exposed-area factor on the moisture flux only — for heat it
+  cancels between current-area intake and current-volume capacity. The
+  limit tests now run with shrink ON at the defaults (cylinder and slab
+  limits still < 1.5 K); `R_eff`/`Hz_eff` report the shrunk dimensions
+  and n_shrink = 0 is exactly inert.
+- **Salt + spritz on the faces.** The erfc dry-brine profile from every
+  rubbed face as a smooth union (corners saltiest), diffusing with the
+  same metrics, driving the WHC purge coupling and the per-face water
+  activity; spritz arrives on every face gated by the wrap, f_abs soaks
+  in, the rest flashes off with its latent heat (the 1-D q_net terms).
+- **Tesseract endpoint + shadow scoring.** `tesseracts/slab2d` wraps
+  `coupled_solve_2d` with forward-mode jacobian/jvp/vjp over [θ2; φ;
+  u_knots; t_wrap; t_salt; t_spritz; dt_spritz] (t_wrap column vs FD
+  2e-4; jvp/vjp consistent). The planners stay 1-D;
+  `brisket_app.shadow2d.shadow_report` + `scripts/run_shadow2d.py`
+  re-simulate a planned cook in 2-D and report what only the grid can
+  see. On the committed robust plan: TRUE-cold-spot lethality passes
+  with margin (F_cold 3.8e11 vs 720 required, dwell 1.40 h vs the 4 h
+  cap), retention 0.189, c_min 0.99997 — the 11 h plan leaves the
+  surrogate uniformly done, the cold gap closed by serve — and the
+  shrunk dimensions (R 10 → 7.7 cm) are reported per cook.
+- **Reverse-mode performance.** `adjoint/slab2d_port.jl` — the
+  transport core as explicit-argument top-level functions (the
+  full_port pattern, no closures): gradient exact to 8.7e-15 and
+  reverse now **13.7x primal** (blackbox through the closure engine:
+  46x), with the primal itself 11x faster than the engine's. Absolute
+  reverse cost fell 38x; crossover vs chunked forward sits near ~26
+  parameters, so forward mode remains the calibration endpoint at
+  today's parameter counts and the port is the template if the 2-D
+  parameter space ever grows past that.
+
+What remains of the 2-D line is calibration, not code: bark-distribution
+constants against thermal-camera surface fields (folded into C2).
+
 ## 2-D slab: layers, pit coupling, reverse gradient (2026-09-04, M2 code complete)
 
 Three commits finish the code half of M2 on top of the limit-verified

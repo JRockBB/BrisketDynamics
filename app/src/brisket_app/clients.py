@@ -82,3 +82,22 @@ def monolith_client() -> Tesseract:
             )
         )
     return _cache["monolith"]
+
+
+def slab2d_client() -> Tesseract:
+    """Return the process-wide 2-D (r-z) Tesseract client (created on first call).
+
+    Returns
+    -------
+    Tesseract
+        In-process client for the 2-D coupled cook — the fidelity rung that
+        shadow-scores 1-D plans (true cold spot, bark distribution) —
+        call-serialized like the monolith.
+    """
+    if "slab2d" not in _cache:
+        _cache["slab2d"] = _serialize_calls(
+            Tesseract.from_tesseract_api(
+                REPO_ROOT / "tesseracts" / "slab2d" / "tesseract_api.py"
+            )
+        )
+    return _cache["slab2d"]
