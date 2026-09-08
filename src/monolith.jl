@@ -618,7 +618,9 @@ integration runs over s ∈ [0, 1] with the RHS scaled by `t_f`, so
 is one ForwardDiff direction like any other parameter.
 
 Physical time constants (blend widths, lid-open decay, chimney taper) stay
-in seconds: a longer cook does not smear its events.
+in seconds: a longer cook does not smear its events. `A_meat` is the
+runtime exposed area of [`monolith_solve`](@ref) (the config's constant
+when absent), so the estimator's area latent enters the duration solve.
 """
 function monolith_solve_tf(
     θ::AbstractVector,
@@ -647,6 +649,7 @@ function monolith_solve_tf(
     Ssalt0f::AbstractVector=Float64[],
     T_wrap_trigger::Real=Inf,
     frac_dt_add::Real=NaN,
+    A_meat::Real=NaN,
     abstol=1e-6,
     reltol=1e-6,
 )
@@ -675,6 +678,7 @@ function monolith_solve_tf(
     any(x -> isnan(value_of(x)), p) && throw(
         ArgumentError("monolith_solve_tf got NaN inputs in p"),
     )
+    isnan(value_of(A_meat)) || (p = vcat(p, A_meat))     # the runtime exposed area, as in monolith_solve
     nu = length(u_knots)
     u_tk = float.(s_u) .* t_f
     tsave = float.(s_save) .* t_f

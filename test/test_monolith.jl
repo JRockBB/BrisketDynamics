@@ -380,3 +380,31 @@ end
     @info "FD gate A_meat: relative error $(round(err; sigdigits=3))"
     @test all(isfinite, da) && err < 2e-2
 end
+
+@testset "monolith_solve_tf: runtime exposed area (the estimator's latent)" begin
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    t_f = MONO_T_F
+    s_u = MONO_UTK ./ t_f
+    s_save = MONO_TSAVE ./ t_f
+    base = monolith_solve_tf(θ, φ, MONO_U, t_f, s_u, s_save; pit=MONO_PIT, frac_pull=0.8)
+    same = monolith_solve_tf(θ, φ, MONO_U, t_f, s_u, s_save; pit=MONO_PIT, frac_pull=0.8,
+                             A_meat=MeatConfig().A_meat)
+    @test same.Tpit == base.Tpit && same.Tcore == base.Tcore && same.pv_pit == base.pv_pit
+    big = monolith_solve_tf(θ, φ, MONO_U, t_f, s_u, s_save; pit=MONO_PIT, frac_pull=0.8, A_meat=0.24)
+    mid = div(length(s_save), 2)
+    @test big.Tpit[mid] < base.Tpit[mid]
+    @test big.pv_pit[mid] > base.pv_pit[mid]
+    # the area and the duration are two forward-mode directions of one solve
+    function g(v)
+        o = monolith_solve_tf(θ, φ, MONO_U, v[2], s_u, s_save; pit=MONO_PIT, frac_pull=0.8, A_meat=v[1])
+        return vcat(o.Tpit[mid], o.Tcore[end], o.w_retained)
+    end
+    v0 = [0.12, t_f]
+    Jv = ForwardDiff.jacobian(g, v0)
+    h = [1e-3 * 0.12, 1e-3 * t_f]
+    for k in 1:2
+        e = zeros(2); e[k] = h[k]
+        fd = (g(v0 .+ e) .- g(v0 .- e)) ./ (2h[k])
+        @test maximum(abs.(Jv[:, k] .- fd)) / (maximum(abs.(fd)) + 1e-12) < 2e-2   # the FD-vs-forward gate of the area test above: the adaptive solve carries last-bit noise (docs/verification.md)
+    end
+end
