@@ -30,7 +30,8 @@ end
 restrict(ch::PitProbe, keep) = PitProbe(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
 restrict(ch::SurfaceIR, keep) = SurfaceIR(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
 restrict(ch::HumiditySensor, keep) = HumiditySensor(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
-restrict(ch::MassScale, keep) = MassScale(ch.σ, ch.ρ, ch.mask .& keep, ch.A_meat, ch.area_latent, ch.data)
+restrict(ch::MassScale, keep) = MassScale(ch.σ, ch.ρ, ch.mask .& keep, ch.A_meat, ch.area_latent,
+                                          ch.shape_latent, ch.data)
 restrict(ch::MeatProbe, keep) = MeatProbe(ch.s_fixed, ch.depth_fixed, ch.depth_latent, ch.σ, ch.ρ,
                                           ch.mask .& keep, ch.data)
 restrict(ch::StaticReading, keep) = ch

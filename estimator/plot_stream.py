@@ -23,8 +23,11 @@ import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 SETS_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]  # categorical slots 1-3 (dataviz palette)
+# color follows the channel set, not its position in a run
+SET_COLOR = {"pit + core": SETS_COLORS[0], "pit + core + humidity + scale": SETS_COLORS[1],
+             "+ rulers (thickness, footprint)": SETS_COLORS[2]}
 INK, INK2, SURFACE = "#0b0b0b", "#52514e", "#fcfcfb"
-SHOW = ["L", "h_c", "k_m", "a0", "A_meat", "core_depth", "r_max", "a_myosin"]
+SHOW = ["L", "h_c", "k_m", "a0", "A_meat", "shape", "core_depth", "r_max", "a_myosin"]
 
 
 def plot(path: Path):
@@ -52,8 +55,9 @@ def plot(path: Path):
             th = np.array([b["t_h"] for b in s["batches"]])
             sd = np.array([b["sd"][j] for b in s["batches"]])
             err = np.array([b["err_sd"][j] for b in s["batches"]])
-            ax_sd.plot(th, sd, color=SETS_COLORS[k], lw=2, label=s["label"])
-            ax_err.plot(th, err, color=SETS_COLORS[k], lw=2)
+            col = SET_COLOR.get(s["label"], SETS_COLORS[k])
+            ax_sd.plot(th, sd, color=col, lw=2, label=s["label"])
+            ax_err.plot(th, err, color=col, lw=2)
         ax_sd.set_yscale("log")
         ax_sd.set_title(n, color=INK, fontsize=10)
         ax_err.axhspan(-2, 2, color="#f0efec", zorder=0)

@@ -193,7 +193,11 @@ Meat mass on a scale [kg] at the log times in `mask`:
 m = ρ_d A_meat L (1 + W̄ + F̄), the model's own bookkeeping (purge and
 rendered fat leave). The exposed area is the latent `area_latent` when
 given (its column in J then carries the pit coupling as well), else the
-constant `A_meat`; L is the thickness latent.
+constant `A_meat`; L is the thickness latent. `shape_latent`, when given,
+is the log of a shape factor s on the volume per exposed area and
+thickness: m = s ρ_d A_meat L (1 + W̄ + F̄), s = 1 for a slab, so a plant
+that is not a slab (a cylinder: s = πR²H / (A L)) can keep its mass
+bookkeeping honest without bending the physics.
 """
 struct MassScale <: Channel
     σ::Float64
@@ -201,10 +205,11 @@ struct MassScale <: Channel
     mask::Vector{Bool}
     A_meat::Float64
     area_latent::Int
+    shape_latent::Int
     data::Union{Nothing,Vector{Float64}}
 end
-MassScale(σ, ρ, mask; A_meat=0.12, area_latent=0, data=nothing) =
-    MassScale(σ, ρ, collect(Bool, mask), A_meat, area_latent, data)
+MassScale(σ, ρ, mask; A_meat=0.12, area_latent=0, shape_latent=0, data=nothing) =
+    MassScale(σ, ρ, collect(Bool, mask), A_meat, area_latent, shape_latent, data)
 
 "A direct reading of one latent's constrained value (a ruler on L, an inserted depth, ...)."
 struct StaticReading <: Channel
@@ -267,10 +272,11 @@ function predict(ch::MassScale, S, J, z, prior, lay)
     nx, nt = lay.nx, lay.nt
     L = exp(z[L_INDEX])
     A = ch.area_latent > 0 ? exp(z[ch.area_latent]) : ch.A_meat
+    s = ch.shape_latent > 0 ? exp(z[ch.shape_latent]) : 1.0
     w = fv_weights(nx)
     r = zeros(nt)
     Jr = zeros(nt, length(z))
-    base = RHO_DRY_EST * A * L
+    base = RHO_DRY_EST * A * L * s
     for k in 1:nt
         cW = _col(lay, lay.oW, k)
         cF = _col(lay, lay.oF, k)
@@ -279,6 +285,7 @@ function predict(ch::MassScale, S, J, z, prior, lay)
         Jr[k, :] = base .* (permutedims(w) * J[cW, :] .+ permutedims(w) * J[cF, :])[1, :]
         Jr[k, L_INDEX] += base * (1 + Wm + Fm)          # d/d log L of the explicit factor
         ch.area_latent > 0 && (Jr[k, ch.area_latent] += base * (1 + Wm + Fm))  # d/d log A, explicit
+        ch.shape_latent > 0 && (Jr[k, ch.shape_latent] += base * (1 + Wm + Fm)) # d/d log s
     end
     return r, Jr
 end
