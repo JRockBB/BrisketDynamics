@@ -52,6 +52,7 @@ sets = Dict(
     "+ rulers (thickness, footprint)" => [pit_ch, core_ch, hum_ch, scale_ch, ruler_L, ruler_A],
 )
 
+_fmt(x) = x === nothing ? "-" : @sprintf("%.1f", x)     # a one-row channel has no autocorrelation
 println("plant: ", m["plant"])
 out_sets = []
 for st in S["sets"]
@@ -74,7 +75,7 @@ for st in S["sets"]
         @printf("  t = %5.1f h  rows %4d  2F/row %.3f  z_chi2 %6.2f  z_rho1 %6.2f   per channel:",
                 te / 3600, tot.n, tot.ss / tot.n, tot.z_chi2, tot.z_rho1)
         for c in mis.channels
-            @printf("  %s %.1f/%.1f", c.name, c.z_chi2, c.z_rho1)
+            @printf("  %s %s/%s", c.name, _fmt(c.z_chi2), _fmt(c.z_rho1))
         end
         @printf("   (%.0f s)\n", time() - t0)
         flush(stdout)
