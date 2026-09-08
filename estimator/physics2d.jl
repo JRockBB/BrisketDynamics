@@ -18,11 +18,20 @@ export Physics, Physics1D, Physics2D, geometry_latents
 
 abstract type Physics end
 
-"The monolith slab; `area_latent` > 0 makes the exposed area a latent (runtime `A_meat`)."
+"""
+    Physics1D(; area_latent=0, events=NamedTuple())
+
+The monolith slab; `area_latent` > 0 makes the exposed area a latent
+(runtime `A_meat`); `events` are the executed cook events as
+`monolith_solve` keywords (`t_wrap`, `t_pull`, `t_add`, `t_spritz`,
+`dt_spritz`, `m_spritz`), inputs of the physics like the damper log.
+"""
 struct Physics1D <: Physics
     area_latent::Int
+    events::NamedTuple
 end
-Physics1D(; area_latent::Int=0) = Physics1D(area_latent)
+Physics1D(area_latent::Int) = Physics1D(area_latent, NamedTuple())
+Physics1D(; area_latent::Int=0, events::NamedTuple=NamedTuple()) = Physics1D(area_latent, events)
 
 """
     Physics2D(; radius_latent, nr=16, nz=14, h=30.0, n_meat=1.0, nx_line=nz)
@@ -64,7 +73,7 @@ _stack_1d(o, A, L) = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o
 function physics_outputs(z, d::GateData, ph::Physics1D)
     zp = z[1:N_PHYS]
     x = from_z(zp, d.prior[1:N_PHYS])
-    kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol)
+    kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol, ph.events...)
     Jz = zeros(0, 0)
     if ph.area_latent > 0
         A = exp(z[ph.area_latent])
@@ -96,7 +105,7 @@ end
 function physics_stack(z, d::GateData, ph::Physics1D)
     zp = z[1:N_PHYS]
     x = from_z(zp, d.prior[1:N_PHYS])
-    kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol)
+    kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol, ph.events...)
     A = ph.area_latent > 0 ? exp(z[ph.area_latent]) : d.cfg.A_meat
     o = ph.area_latent > 0 ?
         monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw..., A_meat=A) :

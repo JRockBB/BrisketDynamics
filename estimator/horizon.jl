@@ -1,0 +1,281 @@
+# The receding horizon on the graph: the plan replanned from the current
+# state with the executed schedule fixed, the events committed when due
+# and irreversible after, a one-sided floor at serve in place of a
+# Gaussian goal. Included by BrisketEstimator after iterated.jl.
+#
+# The past is data. Every replan solves the whole cook from the start
+# with the executed damper log and the executed events as inputs, and
+# only the future carries decisions; the decisions live in seconds on
+# one long grid, and the duration is the serve time at which the
+# outcomes are read (interpolated on the grid). The free set shrinks as
+# events commit: after the pull only the serve time is free.
+
+export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper,
+       schedule_events, plan_outputs_rh, replan_on_graph, commit!, execute_damper!, PlanGoals
+
+"A smooth one-sided penalty: softplus with width `s`, ≈ max(x, 0) — zero above the floor, linear below."
+function hinge(x, s=1.0)
+    y = x / s
+    return s * (y > 30 ? y : log1p(exp(y)))
+end
+
+"""
+    Schedule(t; ...)
+
+The executed and committed cook schedule on the grid `t` [s]: the
+damper `u` (NaN beyond `t_now`), the single events (`NaN` = not
+executed), the spritz train once started, and the current planned
+serve time.
+"""
+mutable struct Schedule
+    t::Vector{Float64}
+    u::Vector{Float64}
+    t_now::Float64
+    t_wrap::Float64
+    t_pull::Float64
+    t_add::Float64
+    spritz::Union{Nothing,NamedTuple{(:t, :dt, :m),NTuple{3,Float64}}}
+    t_serve::Float64
+end
+Schedule(t; u0::Float64=0.15, t_serve::Float64=14 * 3600.0) =
+    Schedule(collect(Float64, t), [k == 1 ? u0 : NaN for k in eachindex(t)], 0.0, NaN, NaN, NaN, nothing, t_serve)
+
+"Which decisions are free at the schedule's current time."
+struct FreeSet
+    damper::Bool
+    wrap::Bool
+    pull::Bool
+    serve::Bool
+    spritz::Bool
+    add::Bool
+end
+function free_set(s::Schedule)
+    pulled = !isnan(s.t_pull)
+    return FreeSet(!pulled, isnan(s.t_wrap) && !pulled, !pulled, true, s.spritz === nothing && !pulled,
+                   isnan(s.t_add) && !pulled)
+end
+Base.length(f::FreeSet) = 3 * f.damper + f.wrap + f.pull + f.serve + 3 * f.spritz + f.add
+
+"The executed events as `monolith_solve` keywords (`NEVER` where not executed)."
+function schedule_events(s::Schedule)
+    sp = s.spritz
+    return (t_wrap=isnan(s.t_wrap) ? BrisketDynamics.WRAP_NEVER : s.t_wrap,
+            t_pull=isnan(s.t_pull) ? BrisketDynamics.PULL_NEVER : s.t_pull,
+            t_add=isnan(s.t_add) ? BrisketDynamics.ADD_NEVER : s.t_add,
+            t_spritz=sp === nothing ? BrisketDynamics.SPRITZ_NEVER : sp.t,
+            dt_spritz=sp === nothing ? 3600.0 : sp.dt,
+            m_spritz=sp === nothing ? 0.05 : sp.m)
+end
+
+# --- the plan block ------------------------------------------------------------------------
+# ζ, in the free set's order: damper 3 logits | wrap logit f (of now→pull) | pull log h from now |
+#   serve log h after the pull | spritz logit f (of now→pull), log dt h, log m kg | add logit f
+const KNOT_F = [0.0, 1 / 3, 2 / 3]
+lgt(x) = log(x / (1 - x))
+lgs(x) = 1 / (1 + exp(-x))
+
+"The prior on the free decisions: means and precisions in ζ's order."
+function plan_prior(f::FreeSet, s::Schedule)
+    m = Float64[]; sd = Float64[]
+    if f.damper; append!(m, fill(lgt(0.15), 3)); append!(sd, fill(0.5, 3)); end
+    if f.wrap;   push!(m, lgt(0.7));  push!(sd, 1.0); end
+    if f.pull;   push!(m, log(max((12 * 3600 - s.t_now) / 3600, 1.0))); push!(sd, 1.0); end
+    if f.serve;  push!(m, log(1.5));  push!(sd, 0.5); end
+    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [1.0, 0.5, 0.5]); end
+    if f.add;    push!(m, lgt(0.5));  push!(sd, 1.0); end
+    return m, Diagonal(1 ./ sd .^ 2)
+end
+
+"The decisions in seconds (executed ones from the schedule) from ζ."
+function decode_plan(ζ, f::FreeSet, s::Schedule)
+    k = 0
+    take() = (k += 1; ζ[k])
+    u = f.damper ? [lgs(take()) for _ in 1:3] : fill(isnan(s.u[findlast(!isnan, s.u)]) ? 0.15 : s.u[findlast(!isnan, s.u)], 3)
+    fw = f.wrap ? lgs(take()) : NaN
+    t_pull = f.pull ? s.t_now + 3600 * exp(take()) : s.t_pull
+    t_serve = f.serve ? t_pull + 3600 * exp(take()) : s.t_serve
+    if f.spritz
+        fs = lgs(take()); dts = 3600 * exp(take()); ms = exp(take())
+        spritz = (t=s.t_now + fs * (t_pull - s.t_now), dt=dts, m=ms)
+    else
+        spritz = s.spritz === nothing ? nothing : (t=s.spritz.t, dt=s.spritz.dt, m=s.spritz.m)
+    end
+    fa = f.add ? lgs(take()) : NaN
+    t_wrap = f.wrap ? s.t_now + fw * (t_pull - s.t_now) : s.t_wrap
+    t_add = f.add ? s.t_now + fa * (t_pull - s.t_now) : s.t_add
+    return (u=u, t_wrap=t_wrap, t_pull=t_pull, t_serve=t_serve, spritz=spritz, t_add=t_add)
+end
+
+"ζ from decisions in seconds (the warm start of a replan from the previous plan); values outside the free set are ignored."
+function encode_plan(plan, f::FreeSet, s::Schedule)
+    clampf(x) = clamp(x, 0.02, 0.98)
+    ζ = Float64[]
+    f.damper && append!(ζ, lgt.(clamp.(plan.u, 0.02, 0.98)))
+    rem = max(plan.t_pull - s.t_now, 600.0)
+    f.wrap && push!(ζ, lgt(clampf((plan.t_wrap - s.t_now) / rem)))
+    f.pull && push!(ζ, log(rem / 3600))
+    f.serve && push!(ζ, log(max(plan.t_serve - plan.t_pull, 600.0) / 3600))
+    if f.spritz
+        sp = plan.spritz === nothing ? (t=s.t_now + 0.3 * rem, dt=3600.0, m=0.05) : plan.spritz
+        append!(ζ, [lgt(clampf((sp.t - s.t_now) / rem)), log(sp.dt / 3600), log(sp.m)])
+    end
+    f.add && push!(ζ, lgt(clampf((plan.t_add - s.t_now) / rem)))
+    return ζ
+end
+
+"The damper on the grid: executed where it is, the plan's knots (piecewise linear, held after the last) beyond now."
+function plan_damper(plan, s::Schedule)
+    Tel = promote_type(eltype(plan.u), typeof(plan.t_pull), Float64)
+    u = Vector{Tel}(undef, length(s.t))
+    tk = s.t_now .+ KNOT_F .* (plan.t_pull - s.t_now)
+    for (i, ti) in enumerate(s.t)
+        if ti <= s.t_now && !isnan(s.u[i])
+            u[i] = s.u[i]
+        elseif ti <= tk[1]
+            u[i] = plan.u[1]
+        elseif ti >= tk[end]
+            u[i] = plan.u[end]
+        else
+            j = ti <= tk[2] ? 1 : 2
+            w = (ti - tk[j]) / (tk[j + 1] - tk[j])
+            u[i] = (1 - w) * plan.u[j] + w * plan.u[j + 1]
+        end
+    end
+    return u
+end
+
+function _interp_t(y, tt, tq)
+    k = clamp(searchsortedlast(tt, ForwardDiff.value(tq)), 1, length(tt) - 1)
+    w = (tq - tt[k]) / (tt[k + 1] - tt[k])
+    return (1 - w) * y[k] + w * y[k + 1]
+end
+
+"""
+    plan_outputs_rh(z, ζ, f, s, d) -> [core at the pull, retained water at serve, bark L* at serve, core at serve]
+
+The plan's outcomes at latents `z` (physics, area) and plan `ζ`, the
+whole cook solved from the start with the executed schedule and the
+plan's future.
+"""
+function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData)
+    x = from_z(z[1:N_PHYS], d.prior[1:N_PHYS])
+    A = length(z) >= 16 ? exp(z[16]) : d.cfg.A_meat
+    p = decode_plan(ζ, f, s)
+    u = plan_damper(p, s)
+    sp = p.spritz
+    o = monolith_solve(x[1:N_THETA], x[(N_THETA + 1):N_PHYS], u, s.t, s.t; pit=d.pit, cfg=d.cfg,
+                       abstol=d.abstol, reltol=d.reltol, A_meat=A,
+                       t_wrap=isnan(p.t_wrap) ? BrisketDynamics.WRAP_NEVER : p.t_wrap, t_pull=p.t_pull,
+                       t_add=isnan(p.t_add) ? BrisketDynamics.ADD_NEVER : p.t_add,
+                       t_spritz=sp === nothing ? BrisketDynamics.SPRITZ_NEVER : sp.t,
+                       dt_spritz=sp === nothing ? 3600.0 : sp.dt, m_spritz=sp === nothing ? 0.05 : sp.m)
+    wfv = fv_weights(size(o.W_field, 1))
+    wret = [dot(wfv, view(o.W_field, :, k)) / d.cfg.W0 for k in axes(o.W_field, 2)]
+    return [_interp_t(o.Tcore, s.t, p.t_pull), _interp_t(wret, s.t, p.t_serve),
+            _interp_t(o.l_star, s.t, p.t_serve), _interp_t(o.Tcore, s.t, p.t_serve)]
+end
+
+"The goals: Gaussian targets on the pull temperature, the water and the bark; a one-sided floor at serve."
+Base.@kwdef struct PlanGoals
+    T_pull::Float64 = 273.15 + 93.0
+    sd_pull::Float64 = 2.0
+    W::Float64 = 0.35
+    sd_W::Float64 = 0.05
+    L::Float64 = 32.0
+    sd_L::Float64 = 4.0
+    T_serve_floor::Float64 = 273.15 + 65.0
+    sd_serve::Float64 = 1.0          # the hinge's scale [K]: a draw ΔT under the floor costs ½ (ΔT/sd)²
+end
+
+"The goal residuals of one draw's outputs; the fourth is the tail: zero above the floor."
+goal_residuals(y, g::PlanGoals) = [(y[1] - g.T_pull) / g.sd_pull, (y[2] - g.W) / g.sd_W, (y[3] - g.L) / g.sd_L,
+                                   hinge(g.T_serve_floor - y[4]) / g.sd_serve]
+
+# the graph: per-draw affine nodes of the four outputs, the LM node, the plan prior
+const RH_AFFS = Ref{Vector{Tuple{Vector{Float64},Matrix{Float64}}}}(Tuple{Vector{Float64},Matrix{Float64}}[])
+const RH_CENTER = Ref{Vector{Float64}}(Float64[])
+rh_node(ζ, i) = RH_AFFS[][i][1] .+ RH_AFFS[][i][2] * (ζ .- RH_CENTER[])
+
+@model function rh_graph(g, lm_obs, Λ_lm, mζ, Λζ, N, Σg)
+    ζ ~ MvNormalMeanPrecision(mζ, Λζ)
+    for i in 1:N
+        y[i] := rh_node(ζ, i)
+        g[i] ~ MvNormalMeanCovariance(y[i], Σg)
+    end
+    lm := lm_node(ζ)
+    lm_obs ~ MvNormalMeanPrecision(lm, Λ_lm)
+end
+const RH_META = @meta begin
+    rh_node() -> Linearization()
+    lm_node() -> Linearization()
+end
+@initialization function rh_init(mζ, Λζ)
+    μ(ζ) = MvNormalMeanPrecision(mζ, Λζ)
+end
+
+"""
+    replan_on_graph(zs, s, d; goals, ζ_init, verbose) -> (plan, ζ, F, cov, hist, converged, free)
+
+The plan from the current state on the graph: the expected loss over the
+draws `zs` (the goal residuals through the physics, one affine node per
+draw of the four outputs, the tail as a residual like any other), the
+plan prior, the graph iterator; warm-started at `ζ_init` when given.
+"""
+function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), ζ_init=nothing,
+                         verbose::Bool=false, iters::Int=30)
+    f = free_set(s)
+    n = length(f)
+    mζ, Λζ = plan_prior(f, s)
+    c0 = ζ_init === nothing ? copy(mζ) : copy(ζ_init)
+    # the residual vector of a plan: goals per draw, then the prior
+    resid(ζ) = vcat([goal_residuals(plan_outputs_rh(z, ζ, f, s, d), goals) for z in zs]..., sqrt(Λζ) * (ζ .- mζ))
+    objective(c) = 0.5 * sum(abs2, resid(c))
+    # the per-draw affine model of the GOAL RESIDUALS (the hinge included) at c: goal ~ N(res, 1)
+    function rebuild!(c)
+        RH_AFFS[] = [(goal_residuals(plan_outputs_rh(z, c, f, s, d), goals),
+                      ForwardDiff.jacobian(v -> goal_residuals(plan_outputs_rh(z, v, f, s, d), goals), c)) for z in zs]
+        RH_CENTER[] = copy(c)
+    end
+    prob = IteratedProblem(:ζ, objective, rebuild!, n)
+    g = [zeros(4) for _ in 1:length(zs)]
+    Σg = Matrix(1.0 * I, 4, 4)
+    run_infer(Λ_lm, callbacks, its) = infer(model = rh_graph(mζ = mζ, Λζ = Matrix(Λζ), N = length(zs), Σg = Σg),
+                                            data = (g = g, lm_obs = zeros(n), Λ_lm = Λ_lm), meta = RH_META,
+                                            initialization = rh_init(RH_CENTER[], Matrix(Λζ)), iterations = its,
+                                            callbacks = callbacks, returnvars = (ζ = KeepLast(),))
+    r = iterated_solve(prob, run_infer; c0, iters, verbose)
+    return (plan=decode_plan(r.z, f, s), ζ=r.z, F=r.F, cov=r.cov, hist=r.hist, converged=r.converged, free=f)
+end
+
+"""
+    commit!(s, plan, Δ) -> committed::Vector{Symbol}
+
+The candidate events of `plan` that fall inside the next interval
+(now, now + Δ] are executed at their planned times and fixed forever;
+the spritz train starts when its first spritz is due; the serve time is
+carried as the current plan.
+"""
+function commit!(s::Schedule, plan, Δ)
+    done = Symbol[]
+    due(t) = !isnan(t) && s.t_now < t <= s.t_now + Δ
+    if isnan(s.t_wrap) && due(plan.t_wrap); s.t_wrap = plan.t_wrap; push!(done, :wrap); end
+    if isnan(s.t_add) && due(plan.t_add); s.t_add = plan.t_add; push!(done, :add); end
+    if s.spritz === nothing && plan.spritz !== nothing && due(plan.spritz.t)
+        s.spritz = (t=plan.spritz.t, dt=plan.spritz.dt, m=plan.spritz.m); push!(done, :spritz)
+    end
+    if isnan(s.t_pull) && due(plan.t_pull); s.t_pull = plan.t_pull; push!(done, :pull); end
+    s.t_serve = plan.t_serve
+    return done
+end
+
+"Execute the plan's damper over the next interval and advance the clock."
+function execute_damper!(s::Schedule, plan, Δ)
+    u = plan_damper(plan, s)
+    for (i, ti) in enumerate(s.t)
+        if s.t_now < ti <= s.t_now + Δ + 1e-9
+            s.u[i] = Float64(u[i])
+        end
+    end
+    s.t_now += Δ
+    return s
+end

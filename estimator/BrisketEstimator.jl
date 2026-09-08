@@ -291,5 +291,6 @@ include(joinpath(@__DIR__, "misfit.jl"))
 # --- streaming: full-history refits per batch over the registry ---------------
 include(joinpath(@__DIR__, "stream.jl"))
 include(joinpath(@__DIR__, "iterated.jl"))
+include(joinpath(@__DIR__, "horizon.jl"))
 
 end # module
