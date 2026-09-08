@@ -25,6 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter, NullLocator
 
 REPO = Path(__file__).resolve().parents[1]
 PLANT_COLORS = {"mock_1d": "#2a78d6", "mock_2d": "#eb6834"}  # categorical slots 1-2
@@ -79,6 +80,11 @@ def main(out="estimator_misfit", files=None, labels=None):
                     th, v = series(d, lab, name, key)
                     if th.size:
                         ax.plot(th, v, color=PLANT_COLORS[p], lw=2, ls=ls)
+            if lim > 20:                      # one channel off the chart must not flatten the rest
+                ax.set_yscale("symlog", linthresh=5, linscale=1.5)
+                ax.set_yticks([-50, -20, -5, 0, 5, 20, 50] if lim > 50 else [-20, -5, 0, 5, 20])
+                ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+                ax.yaxis.set_minor_locator(NullLocator())
             ax.set_ylim(-lim, lim)
             if r == 0:
                 ax.set_title(name, color=INK, fontsize=10)

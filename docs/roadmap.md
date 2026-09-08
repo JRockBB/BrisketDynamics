@@ -94,28 +94,20 @@ guarantee.
 The estimator lives in Julia next to the physics as an RxInfer factor
 graph (`estimator/`, its own project). The acceptance gate against the
 real cook's Gauss–Newton MAP is passed, the channel registry ranks
-sensors before they exist, and the hourly streaming refits run on mock
-plants: on a matched plant, humidity plus a scale put all 17 latents
-within 1.4 sd of truth; on a mismatched cylinder the same sensors make
-the posterior confident and wrong by up to 17 sd, and the misfit check
-that every refit now reports (residual power against its expectation,
-lag-1 autocorrelation, per channel) flags it from hour 6, before the
-posterior looks wrong (`docs/results.md`, the 2026-09-07 and 2026-09-08
-estimator entries).
+sensors before they exist and takes its physics as an argument (the
+slab, or the 2-D cylinder engine), and the hourly streaming refits run
+on mock plants: with the right physics, humidity plus a scale put every
+latent within 1.5 sd of truth on either plant; with the wrong one the
+posterior is confident and wrong by up to 17 sd, and the misfit check
+that every refit reports (residual power against its expectation, lag-1
+autocorrelation, per channel) flags it, from hour 6 with temperature
+probes and from hour 1 through the humidity sensor (`docs/results.md`,
+the 2026-09-07 and 2026-09-08 estimator entries). The physics is the
+operator's choice; the check says within an hour whether it was right.
 Its structure is fixed by three measured RxInfer behaviours
 (per-residual nodes, one latent block, affine relinearization;
 `estimator/test_rules.jl` guards them). What remains, in order:
 
-- **The 2-D physics as the estimator's forward model for non-slab
-  cuts.** A shape factor on the scale's mass bookkeeping is a real
-  latent (identified by the meat's dry-out, or by rulers) and fixes only
-  the mass: on the cylinder plant the fire stays 17 sd off and the
-  misfit check flags the pit, humidity and meat-probe channels exactly
-  as before, because what they see is the cylinder's heat and vapor
-  exchange history (`docs/results.md`, the shape-factor entry). The
-  slab2d Tesseract with its Jacobian as the physics behind the same
-  channel registry is the fix; the cylinder's aspect ratio then becomes
-  a latent of that model.
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.

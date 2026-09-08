@@ -4,6 +4,91 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The 2-D physics behind the registry: the cylinder read by its own engine (2026-09-08)
+
+The channel registry now takes its physics as an argument
+(`estimator/physics2d.jl`): `Physics1D` is the monolith slab with the
+exposed area as a latent, `Physics2D` the axisymmetric engine, a
+cylinder of radius exp(z_R) and height 2 L on the engine's grid with
+its fixed convective coefficient. Both build ONE stacked output, so
+every channel works unchanged. The cylinder is mapped onto the slab's
+conventions: its axis sampled at uniform depths from the top face to
+the mid-plane is the probe line (index 1 the center, the slab's order),
+the top face's center is the surface temperature, the volume integral
+is the mass, and the bark lightness is not available (the 2-D bark is a
+distribution at the end of the cook, not a series). The mass block
+belongs to the physics now and the scale reads it, times the shape
+factor; the area and thickness columns come through the physics'
+Jacobian rather than an explicit factor, which the sensor table
+confirms to 4.5e-6. The latents are the fifteen physics with L as the
+half-height and m_conv unused (the engine has no draft exponent; its
+column is zero and it keeps its prior), plus the radius (LogNormal,
+30 %, a 10 cm median) and the probe depth. `estimator/test_physics2d.jl`
+holds the stacks to their plants: at the true latents the 1-D stack
+reproduces the monolith mock's clean readings through every channel to
+the adaptive solver's tolerance (2e-6 to 6e-5) and the 2-D stack the
+cylinder mock's to machine precision (1e-15), the radius column of the
+2-D Jacobian matches a directional ForwardDiff derivative, and the mass
+block's area column its derivative. Cost at the mock's 16 by 14 grid: a
+2-D solve 1.1 s, its 15-column Jacobian 1.6 s (cheaper than the
+monolith's), an hourly batch 15 to 50 s.
+
+Found on the way: the cylinder engine blows up on an overshooting
+Gauss–Newton step from a cold start against a 20 g scale (a 10 cm
+prior radius against 13.5 cm true is a 45 % mass error at 180 σ), and a
+NaN objective compared as "not worse" and was accepted. The line search
+treats a non-finite objective as a worse step now, and the axis
+sampling propagates a blown-up solve instead of throwing.
+
+`estimator/mock_stream_2d.jl` streams both plants through the cylinder
+engine; with the slab-physics runs of the earlier entries this closes
+the square (records `data/mock/mock_2d_phys2d_stream.json` and
+`mock_1d_phys2d_stream.json`, figures
+`figures/estimator_stream_mock_2d_phys2d.png`,
+`figures/estimator_stream_mock_1d_phys2d.png` and the misfit check of
+both in `figures/estimator_misfit_phys2d.png`). At 19 h, m_conv aside:
+
+| plant → engine | channel set | max err/sd (latent) | median | radius (truth) | residual power per row | z χ² total (worst channel) |
+|---|---|---|---|---|---|---|
+| cylinder → cylinder | pit + core | 2.2 (a0) | 0.55 | 0.121 ± 22 % (0.135) | 1.22 | 2.9 (meat probe 2.5) |
+| cylinder → cylinder | + humidity + scale | 1.5 (a0) | 0.83 | 0.133 ± 5.5 % (0.135) | 1.03 | 0.9 (meat probe 2.4) |
+| cylinder → cylinder | + rulers (thickness, radius) | 2.4 (h_c) | 1.07 | 0.132 ± 1.8 % (0.135) | 1.03 | 0.9 |
+| cylinder → slab (earlier entry) | + humidity + scale | 17.2 (a0) | 3.2 | | 1.58 | 9.4 (pit 9.0) |
+| slab → cylinder | pit + core | 4.0 (a0) | 0.67 | 0.135 ± 24 % (equivalent 0.135) | 1.06 | 1.1 |
+| slab → cylinder | + humidity + scale | 15.9 (a0) | 2.65 | 0.173 ± 5 % (equivalent 0.135) | 1.83 | 13.2 (humidity 18; 75 at 1 h) |
+
+Reading it:
+
+- **The right physics lands, and the check goes quiet.** The cylinder
+  read by its own engine with humidity and a scale has every latent
+  within 1.5 sd, the radius at 13.3 cm ± 5.5 % against 13.5, residual
+  power 1.03 and a total z of 0.9, where the slab physics on the same
+  readings was 17 sd wrong at a z of 9.4. Rulers on the thickness and
+  the radius take the radius to 1.8 %. The surviving 2 sd on the fire
+  base rate is the pit ridge from a cold start (−5 sd at 1 h,
+  recovering), as on the matched slab.
+- **The meat-probe channel's z of 4 at hours 6 to 12 is the mock's own
+  noise draw**, not the fit: at the true latents it scores 4.2 there
+  and the fit's objective is below the truth's, as a MAP's should be;
+  whitened at the clean values, the cylinder mock's core noise carries
+  1.9 times the expected power in its first six hours (every other
+  channel of both mocks sits near unit power with no autocorrelation).
+  The check reports what is in the data, at the truth as well as at
+  the fit.
+- **The mismatch the other way is flagged from the first hour, by the
+  humidity sensor.** The slab plant read by the cylinder engine looks
+  fine on temperatures alone (residual power 1.06, z 1.1, the fire on
+  its ridge). With humidity and a scale the humidity channel scores
+  z 75 at hour 1 and 18 at 19 h, the radius is pushed 5 sd from the
+  equivalent cylinder's and the fire base rate lands 16 sd off. What the
+  two engines disagree about most is the vapor they put in the pit,
+  which is what the humidity sensor reads, so it is the channel that
+  tells a slab from a cylinder, in either direction and immediately.
+- **Choosing the physics is the check's job, not the estimator's.** The
+  registry does not pick between slab and cylinder; a cook's operator
+  does, and the misfit check on the humidity channel says within an
+  hour whether the choice was right.
+
 ## A shape factor on the scale: what a geometry latent fixes, and what it does not (2026-09-08)
 
 The misfit check's first ask on the cylinder plant was a geometry latent.
