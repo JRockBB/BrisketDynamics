@@ -34,9 +34,11 @@ sheet matches the 210-state vector; the water-budget sensitivity map and
 the two-route collagen structure are in (`docs/results.md`, 2026-09-07
 entries). Item 8 was started the same night as an RxInfer factor graph
 in Julia (`estimator/`); its acceptance gate against the Gauss–Newton
-MAP and Fisher covariance of the real cook is passed, and the sensor
-registry, streaming and mock-pit runs are the remaining work
-(`docs/roadmap.md`, online estimator). Seven details of this review did
+MAP and Fisher covariance of the real cook is passed; the sensor
+registry, the hourly streaming refits and the mock-plant runs (matched
+and mismatched) followed on 2026-09-08; a misfit check, noise as graph
+structure and the pilot hookup remain (`docs/roadmap.md`, online
+estimator). Seven details of this review did
 not survive verification: only `scratchpad/` is untracked (figures are tracked); the
 Aug 30 equation review already carried a Historical banner; the shadow
 scored the *robust* schedule, which pulls at 9.66 h, so the excess pit

@@ -24,8 +24,10 @@ guarantee.
   calibrated cook: a humidity sensor first (it measures the burn rate
   through the combustion water and breaks the pit ridge in closed loop),
   then a scale (the only observer of the water-holding latents), then a
-  second probe at known depth, then IR, then the ruler. In value order as
-  planned before that table:
+  second probe at known depth, then IR, then the ruler; the mock-plant
+  streaming run confirms the first pair in a fit (all 17 latents within
+  1.4 sd at 19 h with humidity and a scale). In value order as planned
+  before that table:
   a two-hour open-loop *characterization burn* (step the fan 10→30→15%,
   no meat, no controller — free, and the only way to identify the pit's
   fast fan-response dynamics and the draft exponent
@@ -89,14 +91,24 @@ guarantee.
 ## Online estimator (review item 8)
 
 The estimator lives in Julia next to the physics as an RxInfer factor
-graph (`estimator/`, its own project). The acceptance gate is passed:
-on the real 19 h cook the graph reproduces the Gauss–Newton MAP within a
-third of a standard deviation and the Fisher widths within 3 %
-(`docs/results.md`, RxInfer estimator). Its structure is fixed by three
-measured RxInfer behaviours (per-residual nodes, one latent block,
-affine relinearization; `estimator/test_rules.jl` guards them). What
-remains, in order:
+graph (`estimator/`, its own project). The acceptance gate against the
+real cook's Gauss–Newton MAP is passed, the channel registry ranks
+sensors before they exist, and the hourly streaming refits run on mock
+plants: on a matched plant, humidity plus a scale put all 17 latents
+within 1.4 sd of truth; on a mismatched cylinder the same sensors make
+the posterior confident and wrong by up to 17 sd, with the whitened
+objective per reading (1.8 against 1.2) as the only tell
+(`docs/results.md`, the 2026-09-07 and 2026-09-08 estimator entries).
+Its structure is fixed by three measured RxInfer behaviours
+(per-residual nodes, one latent block, affine relinearization;
+`estimator/test_rules.jl` guards them). What remains, in order:
 
+- **Misfit check.** The cylinder plant's failure is visible only in the
+  objective, and from the second hour: make it a reported statistic of
+  every refit, per channel, against its χ² expectation, so a confident
+  posterior arrives with its own warning; then the thing the check would
+  ask for, a geometry latent (a shape factor on the slab, or the
+  cylinder's aspect ratio through the slab2d Tesseract).
 - **More channels.** The registry (`estimator/channels.jl`) carries
   pit and meat probes at any depth, surface IR, humidity, a scale and
   static readings; still to add: fuel mass, bark color, the wet-bulb as
@@ -107,11 +119,9 @@ remains, in order:
 - **Noise as graph structure.** The AR(1) discrepancy and its scale as
   nodes (RxInfer's AR node) instead of a fixed whitening; the pooled
   posterior as the prior in data form (one source for priors).
-- **Streaming.** Hourly batches through `autoupdates`, the previous
-  posterior as the next linearization point (the iterated EKF per
-  batch), the pilot consuming mean and draws through juliacall.
-- **Mock-pit runs.** Matched and mismatched plants, two channel sets,
-  the posterior-width-versus-hour figure and the decision drift.
+- **Pilot integration.** The hourly posterior (mean and draws) consumed
+  by the pilot through juliacall, the refit on the Julia thread the
+  pilot already holds.
 - **Upstream.** File the two RxInfer findings: the silent prior on a
   singular forward output covariance; iterations not moving the
   linearization point.

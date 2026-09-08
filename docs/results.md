@@ -4,6 +4,113 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Streaming estimator on mock plants: watch it work, watch it fail (2026-09-08)
+
+`estimator/stream.jl` is the streaming form of the gate's graph: at every
+hour of the cook a FULL-HISTORY refit of the 17 latents (15 physics, the
+exposed area, the core probe's depth) on every reading so far, with the
+original prior, warm-started at the previous hour's posterior mean. Not a
+filter: there is no process noise to invent, and the posterior at hour k
+is exactly the batch posterior on the readings to hour k. The outer loop
+is the gate's (one solve and one forward-mode Jacobian of the stacked
+output per accepted step, the graph's mean as the step, halved on the
+objective evaluated with solves alone, a step-or-objective-floor stop).
+Three to fourteen outer steps and 20 to 110 s per hourly batch on a
+10-minute reading grid; a 19-batch cook with three channel sets takes
+about 35 minutes.
+
+`estimator/mock_plant.jl` builds the plants and `estimator/mock_stream.jl`
+runs the sets. The truth is the calibrated MAP with a deliberate cut
+into the water-budget map's retention corner (h_c times 0.6, L times 2),
+an exposed area of 0.18 m² against a prior median of 0.12, the core probe
+at 0.8 L. Two plants: the monolith itself (same solver, same tolerances:
+matched), and the 2-D axisymmetric cylinder (R 0.135 m, height 0.078 m,
+16 by 14 cells) whose volume-to-area ratio the slab cannot represent
+(structural mismatch). Readings carry AR(1) noise at the calibrated pit
+and core σ, ρ; the humidity sensor 100 Pa (ρ 0.8), the scale 20 g
+(ρ 0.5), the rulers 3 mm on L and 0.01 m² on the footprint. Three
+channel sets, cumulative: pit + core; + humidity + scale; + the two
+rulers. The figures (`figures/estimator_stream_mock_1d.png`,
+`figures/estimator_stream_mock_2d.png`) show, per latent, the posterior
+width against the cook hour and the standardized error
+(estimate − truth) / sd with its ±2 band; the records are
+`data/mock/mock_1d_stream.json` and `mock_2d_stream.json`.
+
+At the end of the cook (19 h), the largest and the median standardized
+error over the 17 latents, the objective and the objective per reading
+(2F over the number of whitened residuals; about 1.0 to 1.1 is what a
+right model with right noise gives, the prior term included):
+
+| plant | channel set | max err/sd (latent) | median | F | 2F / reading |
+|---|---|---|---|---|---|
+| monolith (matched) | pit + core | 3.8 (a0) | 0.55 | 144.6 | 1.26 |
+| | + humidity + scale | 1.4 (k_m, m_conv) | 1.05 | 267.1 | 1.16 |
+| | + rulers | 1.7 (k_m) | 1.25 | 267.2 | 1.16 |
+| 2-D cylinder (mismatched) | pit + core | 2.5 (u_leak) | 0.52 | 164.4 | 1.43 |
+| | + humidity + scale | 17.2 (a0) | 3.2 | 416.5 | 1.81 |
+| | + rulers | 17.1 (a0) | 4.1 | 430.0 | 1.86 |
+
+Reading it:
+
+- **Watch it work.** On the matched plant with humidity and a scale,
+  every one of the 17 latents is within 1.4 sd of its truth at 19 h
+  (median 1.05): the widths are honest. The widths shrink where the
+  sensor table said they would, and when the physics lets them: the
+  water-holding latent a_myosin from 0.40 to 0.11 only once the drip
+  starts (0.40 at 1 h, 0.18 at 6 h), k_e from 0.50 to 0.35, h_c from
+  0.38 to 0.20 (0.12 with the rulers). The exposed area stays at its
+  prior width (0.30) under temperature probes, goes to 0.09 with
+  humidity and the scale, 0.04 with the footprint ruler. With a scale
+  the errors on L and A_meat are mirror images (+0.7 and −0.7 sd; +1.4
+  and −1.4 with the rulers, the rulers' own noise draw): the scale pins
+  their product, the footprint ruler splits it.
+- **The pit ridge, in a fit.** With temperature probes alone the fire's
+  base rate a0 sits 4 to 5 sd from its truth for the whole cook, with
+  u_leak, r_max and dH_eff co-moving along the ridge, while the reported
+  width halves (0.62 to 0.32). The Fisher width is the local curvature
+  at a point a closed-loop pit log cannot pin; along the ridge it is not
+  the posterior's width (the NUTS chain of the calibration is the
+  reference there). The humidity sensor moves the point off the ridge:
+  a0 lands at −1.3 sd, wider (0.42) and right. That is the sensor
+  table's first row confirmed by a fit rather than a Fisher matrix.
+- **Watch it fail.** On the cylinder with temperature probes alone
+  nothing looks wrong: all latents within 2.5 sd, median 0.5. The slab
+  absorbs the cylinder's temperature history into small moves of h_c,
+  L and k_m, and the widths stay prior-wide wherever the probes do not
+  reach. Add humidity and the scale and the estimator becomes confident
+  and wrong: a0 at −17 sd, k_spread −11, r_max −8, u_leak −5, UA −4.5,
+  h_c +5, A_meat −5. The scale's operator is the slab's mass
+  bookkeeping and the humidity sensor sees the slab's evaporation; the
+  cylinder's mass and vapor history is not a slab's at any area and
+  thickness, so the fire model is bent to reproduce it, and the widths
+  shrink as if the model were right. The errors grow through the cook
+  (a0 −12 sd at 1 h, −17 at 19 h) instead of averaging out: bias, not
+  noise. What the scale measures directly stays right (a_myosin −0.02
+  sd, the probe depth −0.05); what has to pass through the geometry goes
+  wrong.
+- **The tell.** The whitened objective is the diagnostic nobody has to
+  invent. For the same readings the cylinder's objective per reading is
+  1.81 against the matched plant's 1.16, and the two separate from the
+  second hour:
+
+  | hour | F, matched | F, cylinder |
+  |---|---|---|
+  | 1 | 34.1 | 33.6 |
+  | 6 | 97.7 | 132.9 |
+  | 12 | 175.2 | 218.8 |
+  | 19 | 267.1 | 416.5 |
+
+  A posterior this confident has to come with that number next to it.
+
+Decisions: full-history refits rather than `autoupdates` filtering (an
+hourly exact refit is cheap against a 10-minute reading interval and has
+no process noise to make up); the noise held at its calibrated values
+(the AR node is a separate step); the channel sets are the C2 order.
+What this buys the pilot: the humidity-plus-scale set is the one to
+fly, every refit must report its misfit against expectation, and the
+cylinder plant makes the case for a geometry latent before a bigger
+sensor suite.
+
 ## Sensor value on the calibrated cook: the channel registry (2026-09-08)
 
 `estimator/channels.jl` is the sensor registry the estimator design
@@ -83,7 +190,8 @@ Reading it:
 
 Linearized information at the MAP with assumed noise, not a posterior;
 the registry's fitting path (the same affine nodes as the gate) is what
-turns readings into one, and the streaming runs below exercise it.
+turns readings into one; the streaming runs on mock plants (the entry
+above) exercise it.
 
 ## RxInfer estimator: the calibration as a factor graph, gate passed (2026-09-07)
 
