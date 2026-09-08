@@ -4,6 +4,80 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Planning as inference in RxInfer: the experiment, and the decision (2026-09-08)
+
+The question was whether the pilot's uncertainty-aware planner should be
+a factor graph. The bounded experiment (`estimator/plan_experiment.jl`
+and `plan_experiment_outer.jl`, record `data/mock/plan_experiment.json`):
+a plan ζ of two damper knots (before and after 6 h) and the pull time,
+the monolith solved from the start of the matched mock cook per
+parameter draw, Gaussian goals on the core temperature at the pull
+(93 °C ± 2) and the retained water (0.35 ± 0.05), a prior on ζ that
+prefers a low damper and a 12 h pull, and the estimator's posterior at
+6 h of that cook (pit + core + humidity + scale, its full covariance
+recomputed) as the parameter uncertainty. Three solvers of the same
+problem: **R**, the expected loss over eight posterior draws minimized
+by damped Gauss–Newton with ForwardDiff through the physics (the
+reference optimum); **B**, the graph with the posterior held fixed as
+the same eight draws inside per-draw Unscented delta nodes (two outputs,
+three inputs each), so message passing minimizes the same expected
+loss; **A**, the naive graph with the physics latents in one block with
+the controls and one Unscented node, where the goal is free to update
+the belief about the world. Then the certainty-equivalence test: R and
+B again with the posterior's width shrunk tenfold (the same standard
+normals, scaled).
+
+| solver | plan: damper before 6 h, after, pull | expected loss | pull-time core temperature over the draws | retained water |
+|---|---|---|---|---|
+| prior plan | 0.15, 0.15, 12.0 h | 645 | 69.2 ± 2.2 °C | 0.566 ± 0.012 |
+| R, posterior width | 0.097, 0.572, 11.75 h | 101.3 | 89.6 ± 9.3 °C | 0.402 ± 0.025 |
+| B, 12 inner iterations | 0.137, 0.439, 12.85 h | 141.0 | 83.7 ± 7.1 °C | 0.402 ± 0.026 |
+| B inside the estimator's outer loop | 0.116, 0.513, 12.94 h | 103.8 | 89.9 ± 9.9 °C | 0.374 ± 0.026 |
+| A, the naive graph | 0.193, 0.189, 20.1 h | | | |
+| R, width shrunk tenfold | 0.155, 0.560, 12.50 h | 9.6 | 92.7 ± 1.2 °C | 0.334 ± 0.003 |
+| B, width shrunk tenfold | 0.152, 0.528, 12.81 h | 15.5 | 90.3 ± 1.1 °C | 0.335 ± 0.003 |
+
+Reading it:
+
+- **Certainty equivalence does not hold, and the mechanism is plain.**
+  The expected-loss optimum moves with the posterior width: at the
+  posterior's width the plan runs the early pit at 0.10 and pulls at
+  11.75 h, at a tenth of the width 0.155 and 12.5 h. The pull-time
+  temperature's spread across the draws (9.3 K against 1.2 K) enters the
+  quadratic loss as a variance term that the plan can reduce, and it
+  does, holding the mean temperature 3 K below the target rather than
+  widening the spread. That is a cautious plan; a serve-time chance
+  constraint would need the tail, i.e. draws, which both R and B
+  already use.
+- **The naive graph is unusable.** With the physics latents in the
+  block, one Unscented node at a 20-dimensional input took one step at
+  the prior plan (the evaluation point of a single node never moves,
+  the measured behaviour) and pushed the pull to 20 h, past the end of
+  the cook, because at the prior plan the local model says a later
+  pull is hotter; the belief about the world moved by 0.16 sd.
+- **The per-draw graph computes the right objective and is cheap, but
+  it is a step generator, not an optimizer.** Its inner iterations
+  oscillate and stop 3 sd from the optimum (141 against 101); the
+  evaluation point does follow the initialization once several nodes
+  share the block (a step from a point near the optimum is [0.27,
+  −0.04, 0.08] with the graph initialized there and [0.95, −0.66,
+  0.47] with it initialized at the prior mean); inside the estimator's
+  outer loop with a line search it reaches 103.8 in 624 solves and
+  stalls, the sigma-point local model being a worse step near the
+  optimum than the exact Jacobian, which takes R to 101.3 in about 260
+  solve-equivalents. A monolith solve costs 60 ms; it is the Jacobian
+  that costs, and R needs only three columns of it.
+- **Decision.** The planner stays on the gradient side: the app's
+  expected-objective optimizer over posterior draws (`control.py`,
+  Adam over draws with the wrap and pull shared) and the time planner's
+  chance layer, fed by the estimator's hourly posterior instead of the
+  offline calibration draws, with the serve-time and safety
+  constraints on a posterior quantile and an information term from the
+  Jacobian the estimator already computes. RxInfer stays the estimator
+  and its misfit check. The graph would only have reproduced the
+  planner's objective with a worse optimizer; the elegance of one graph
+  does not survive the outer loop it needs.
+
 ## Noise as graph structure: the AR node, and what it taught about priors (2026-09-08)
 
 `estimator/noise.jl`: a channel's AR(1) discrepancy is RxInfer's AR

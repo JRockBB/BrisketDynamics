@@ -114,9 +114,16 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **Pilot integration.** The hourly posterior (mean and draws) consumed
-  by the pilot through juliacall, the refit on the Julia thread the
-  pilot already holds.
+- **Pilot integration, the uncertainty-aware planner.** The hourly
+  posterior (mean and draws) consumed by the pilot through juliacall,
+  the refit on the Julia thread the pilot already holds; the app's
+  expected-objective optimizer over posterior draws and the time
+  planner's chance layer fed by that posterior in a receding-horizon
+  loop, with the serve-time and safety constraints on a posterior
+  quantile and an information term from the estimator's Jacobian. Not a
+  factor graph: the planning experiment (`docs/results.md`, planning as
+  inference) showed the graph reproducing the planner's objective with a
+  worse optimizer, and its naive form unusable.
 - **Upstream.** File the three RxInfer findings: the silent prior on a
   singular forward output covariance; iterations not moving the
   linearization point; ConjugateAR's marginal rule failing at order 1
