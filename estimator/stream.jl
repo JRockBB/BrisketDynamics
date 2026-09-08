@@ -42,13 +42,17 @@ restrict(ch::StaticReading, keep) = ch
     graph_posterior_affine(c, a, B, w, prior; bp_iters) -> (mean, cov)
 
 One message-passing solve of the graph linearized at `c` from the affine
-node data `(a, B)` and the whitened observations `w`.
+node data `(a, B)` and the whitened observations `w`; `damping` adds a
+Levenberg-Marquardt penalty to the prior node's precision (the
+local-quadratic prior goes flat where a Beta site sits at an extreme
+logit, and an undamped step then runs to infinity).
 """
-function graph_posterior_affine(c, a, B, w, prior; bp_iters::Int=20)
+function graph_posterior_affine(c, a, B, w, prior; bp_iters::Int=20, damping::Float64=0.0)
     AFF[] = Affine(a, B, copy(c))
     _, g, h = prior_terms(c, prior)
-    mp = c .- g ./ h
-    Λp = Matrix(Diagonal(h))
+    hd = h .+ damping            # Levenberg-Marquardt: a quadratic penalty around c on the prior node
+    mp = c .- g ./ hd
+    Λp = Matrix(Diagonal(hd))
     r = infer(model = cook_graph(mp = mp, Λp = Λp), data = (w = w,), meta = GRAPH_META,
               initialization = init_z(mp, Λp), iterations = bp_iters,
               returnvars = (z = KeepLast(),))
@@ -57,6 +61,20 @@ function graph_posterior_affine(c, a, B, w, prior; bp_iters::Int=20)
 end
 
 _objective(a, w, z, prior) = 0.5 * sum(abs2, w .- a) + prior_terms(z, prior)[1]
+
+# the objective at a trial point from solves alone; a solve that fails (the
+# adaptive monolith raises on an unstable step, the 2-D engine returns NaN)
+# is an infinite objective, which the line search treats as a worse step
+function _trial_objective(channels, c_new, d, ph, J0, prior, lay, w)
+    Sn = try
+        physics_stack(c_new, d, ph)[1]
+    catch err
+        err isa InterruptException && rethrow()
+        return Inf
+    end
+    an, _, _ = assemble(channels, c_new, Sn, J0, prior, lay)
+    return _objective(an, w, c_new, prior)
+end
 
 """
     solve_map_channels(channels, prior, d; c0, area_latent, iters, tol, verbose)
@@ -83,6 +101,10 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
         res = _solve_fixed_noise(chs, prior, d, ph; c0=c, iters, tol, ftol, bp_iters, verbose)
         c = res.z
         noise === nothing && break
+        if !res.converged
+            verbose && println("    noise round $round skipped: the physics fit did not converge")
+            break
+        end
         S, J, lay = physics_outputs(c, d, ph)
         moved = 0.0
         for (i, np) in noise
@@ -109,37 +131,53 @@ function _solve_fixed_noise(channels, prior, d::GateData, ph::Physics; c0, iters
     hist = NamedTuple[]
     m, V = c, zeros(length(c), length(c))
     J0 = zeros(size(J))          # a zero Jacobian: predictions only, in the line search
+    λ = 0.0                      # Levenberg-Marquardt damping: zero (pure Gauss-Newton) until a step is rejected
+    λ0 = 0.1
+    converged = false
     for k in 1:iters
         t0 = time()
-        m, V = graph_posterior_affine(c, a, B, w, prior; bp_iters)
-        step = m - c
-        α = 1.0
-        c_new = c + step
-        Sn, _ = physics_stack(c_new, d, ph)
-        an, _, _ = assemble(channels, c_new, Sn, J0, prior, lay)
-        Fn = _objective(an, w, c_new, prior)
-        worse(F) = !isfinite(F) || F > Fc          # a solve that blew up is a worse step, not a NaN to compare
-        while worse(Fn) && α > 1e-3
-            α /= 2
-            c_new = c + α * step
-            Sn, _ = physics_stack(c_new, d, ph)
-            an, _, _ = assemble(channels, c_new, Sn, J0, prior, lay)
-            Fn = _objective(an, w, c_new, prior)
+        # a step rejected at the line search's floor, or absurd in size, raises the damping and retries
+        # on the same Jacobian; a full step accepted lowers it
+        local step, α, Fn, c_new
+        accepted = false
+        for attempt in 1:8
+            m, V = graph_posterior_affine(c, a, B, w, prior; bp_iters, damping=λ)
+            step = m - c
+            α = 1.0
+            c_new = c + step
+            Fn = norm(step) > 20 ? Inf : _trial_objective(channels, c_new, d, ph, J0, prior, lay, w)
+            worse(F) = !isfinite(F) || F > Fc          # a solve that blew up is a worse step, not a NaN to compare
+            while worse(Fn) && α > 1e-3
+                α /= 2
+                c_new = c + α * step
+                Fn = _trial_objective(channels, c_new, d, ph, J0, prior, lay, w)
+            end
+            if !worse(Fn)
+                accepted = true
+                α == 1.0 && (λ = λ / 3 < λ0 / 10 ? 0.0 : λ / 3)
+                break
+            end
+            if norm(step) < 10 * tol     # no decrease from a negligible step: at the jitter floor, converged
+                converged = true
+                break
+            end
+            λ = λ == 0.0 ? λ0 : 10λ
+            verbose && @printf("    it %2d  rejected (|step|=%.3g); damping -> %.3g\n", k, norm(step), λ)
         end
-        push!(hist, (it=k, F=Fc, step=norm(step), alpha=α, wall=time() - t0))
-        verbose && @printf("    it %2d  F=%10.4f -> %10.4f  |step|=%.3g  alpha=%.3g  (%.1f s)\n",
-                           k, Fc, Fn, norm(step), α, time() - t0)
+        push!(hist, (it=k, F=Fc, step=norm(step), alpha=α, wall=time() - t0, damping=λ))
+        verbose && @printf("    it %2d  F=%10.4f -> %10.4f  |step|=%.3g  alpha=%.3g  damping=%.2g  (%.1f s)\n",
+                           k, Fc, Fn, norm(step), α, λ, time() - t0)
         verbose && flush(stdout)
-        worse(Fn) && break
+        accepted || break                      # converged at the floor, or stuck: either way the point stands
         converged = (α * norm(step) < tol) || (Fc - Fn < ftol)   # step or objective floor
         c, Fc = c_new, Fn
         S, J, _ = physics_outputs(c, d, ph)     # the Jacobian once per accepted step
         a, B, _ = assemble(channels, c, S, J, prior, lay)
         converged && break
     end
-    m, V = graph_posterior_affine(c, a, B, w, prior; bp_iters)
+    m, V = graph_posterior_affine(c, a, B, w, prior; bp_iters)     # the reported posterior is undamped
     mis = misfit(channels, a, B, w, V)
-    return (z=c, mean=m, cov=V, F=Fc, hist=hist, misfit=mis)
+    return (z=c, mean=m, cov=V, F=Fc, hist=hist, misfit=mis, converged=converged)
 end
 
 """

@@ -35,6 +35,7 @@ function run(label, σp, ρp, σc, ρc, priors)
     @printf("  MAP vs calibration: max |dz|/sd %.3f (%s), median %.3f; F %.4f (calibration %.4f); %.0f s\n",
             maximum(abs.(dz)), d.names[argmax(abs.(dz))], sort(abs.(dz))[8], res.F, d.F_map, time() - t0)
     for (i, nm) in ((1, "pit"), (2, "core"))
+        haskey(res.noise, i) || continue
         np = res.noise[i]
         ref_σ, ref_ρ = nz["sigma_$(nm)_eff"], nz["rho_$(nm)"]
         @printf("  %-4s σ %.3f ± %.3f (calibration %.3f)   ρ %.4f ± %.4f (calibration %.4f)\n",
