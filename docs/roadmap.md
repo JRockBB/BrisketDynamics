@@ -106,12 +106,16 @@ Its structure is fixed by three measured RxInfer behaviours
 (per-residual nodes, one latent block, affine relinearization;
 `estimator/test_rules.jl` guards them). What remains, in order:
 
-- **Misfit check.** The cylinder plant's failure is visible only in the
-  objective, and from the second hour: make it a reported statistic of
-  every refit, per channel, against its χ² expectation, so a confident
-  posterior arrives with its own warning; then the thing the check would
-  ask for, a geometry latent (a shape factor on the slab, or the
-  cylinder's aspect ratio through the slab2d Tesseract).
+- **The 2-D physics as the estimator's forward model for non-slab
+  cuts.** A shape factor on the scale's mass bookkeeping is a real
+  latent (identified by the meat's dry-out, or by rulers) and fixes only
+  the mass: on the cylinder plant the fire stays 17 sd off and the
+  misfit check flags the pit, humidity and meat-probe channels exactly
+  as before, because what they see is the cylinder's heat and vapor
+  exchange history (`docs/results.md`, the shape-factor entry). The
+  slab2d Tesseract with its Jacobian as the physics behind the same
+  channel registry is the fix; the cylinder's aspect ratio then becomes
+  a latent of that model.
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.

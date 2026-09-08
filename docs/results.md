@@ -4,6 +4,55 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## A shape factor on the scale: what a geometry latent fixes, and what it does not (2026-09-08)
+
+The misfit check's first ask on the cylinder plant was a geometry latent.
+The cheapest one is a shape factor on the scale's mass bookkeeping,
+m = s ρ_d A L (1 + W̄ + F̄) with s = 1 for a slab and πR²H / (A L) for a
+cylinder (`MassScale(...; shape_latent=)`, prior LogNormal(0, 0.3)).
+`estimator/mock_stream_shape.jl` streams the two scale-bearing channel
+sets on both plants with that eighteenth latent and the misfit check
+recorded per batch; the figures are `figures/estimator_stream_mock_1d_shape.png`
+and `figures/estimator_stream_mock_2d_shape.png`, the records
+`data/mock/mock_1d_shape_stream.json` and `mock_2d_shape_stream.json`.
+
+| plant | channel set | shape factor at 19 h (truth) | max err/sd (latent) | median | residual power per row | rulers' misfit z |
+|---|---|---|---|---|---|---|
+| matched | + humidity + scale | 1.003 ± 0.017 (1.000) | 1.4 (k_spread) | 0.96 | 1.04 | |
+| matched | + rulers | 1.002 ± 0.017 (1.000) | 1.7 (k_m) | 1.20 | 1.04 | −0.5, −0.5 |
+| cylinder | + humidity + scale | 0.81 ± 0.18 (0.637) | 17.2 (a0) | 2.25 | 1.58 | |
+| cylinder | + rulers | 0.649 ± 0.078 (0.637) | 17.3 (a0) | 1.9 | 1.57 | −0.2, 0.2 |
+
+Reading it:
+
+- **The shape factor is a real latent, and the water's running out is
+  what identifies it.** On the matched plant its width sits at 0.19
+  (the scale's product with the area and the thickness, split only by
+  the humidity sensor's hold on the area) for seventeen hours, then
+  collapses to 0.017 in the batch that reaches the meat's dry-out: the
+  scale reading flattens at 18.5 h with 41 % of the mass gone, and a
+  dry-out time is a volume-per-area quantity, which is what a shape
+  factor is. With the rulers pinning the area and the thickness the
+  scale gives s directly from the first hour (0.08, then 0.017 at the
+  dry-out). On the cylinder the meat does not dry out and s stays at
+  the scale's precision (0.18) until the rulers split the product:
+  0.649 ± 0.078 against a truth of 0.637.
+- **It fixes the mass and only the mass.** With s free the rulers'
+  readings agree with the fit (their misfit z from 6.3 and 13.9 to −0.2
+  and 0.2): the scale's product constraint no longer contradicts a
+  measured footprint and thickness. Nothing else moves. The fire base
+  rate stays 17 sd off, k_spread −11, h_c +5 (+8 with the rulers),
+  u_leak −5; the residual power per row is 1.58 against 1.58 without
+  the latent, the misfit total z 9.4 against 9.4, the pit, humidity and
+  meat-probe channels flagged exactly as before. What those channels see
+  is the cylinder's heat and vapor exchange history (edges that heat
+  and dry faster than any slab at any area), not its mass.
+- **So the next geometry latent is the geometry.** The estimator's
+  forward model for a cut that is not a slab has to be the 2-D physics
+  (the slab2d Tesseract, with its Jacobian), not a factor on the slab;
+  the shape factor stays in the registry as the honest mass bookkeeping
+  for the scale channel.
+
 ## The misfit check: a confident posterior arrives with its own warning (2026-09-08)
 
 `estimator/misfit.jl`: every refit reports, per channel and in total,
