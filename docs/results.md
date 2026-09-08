@@ -25,12 +25,13 @@ loss; **A**, the naive graph with the physics latents in one block with
 the controls and one Unscented node, where the goal is free to update
 the belief about the world. Then the certainty-equivalence test: R and
 B again with the posterior's width shrunk tenfold (the same standard
-normals, scaled). A second pass (`plan_experiment_damped.jl`,
-`plan_experiment_cvi.jl`) put the graph inside the estimator's damped
-outer loop, and tried the sample-based CVI node; CVIProjection, the
-method upstream recommends in its place, cannot be installed here
+normals, scaled). A second pass (`plan_experiment_damped.jl`) put the
+graph inside the estimator's damped outer loop. The sample-based node
+was not run: CVIProjection cannot be installed here
 (ExponentialFamilyProjection pins RecursiveArrayTools at or below 3.54,
-the physics' BDF solver needs 4.2 or later). The Unscented node ran at
+the physics' BDF solver needs 4.2 or later), and the older CVI is
+deprecated in this RxInfer (5.5.2, ReactiveMP 6.5.0). The Unscented
+node ran at
 its default spread, alpha = 1e-3, which makes it a numerical
 linearization at its evaluation point, not a moment match over the
 uncertainty; the uncertainty was carried by the draws.
@@ -42,7 +43,6 @@ uncertainty; the uncertainty was carried by the draws.
 | B, 12 inner iterations | 0.137, 0.439, 12.85 h | 141.0 | 83.7 ± 7.1 °C | 0.402 ± 0.026 |
 | B inside the outer loop, line search only | 0.116, 0.513, 12.94 h | 103.8 | 89.9 ± 9.9 °C | 0.374 ± 0.026 |
 | B inside the damped outer loop | 0.143, 0.504, 13.11 h | 107.6 | 90.0 ± 10.2 °C | 0.366 ± 0.026 |
-| B with CVI nodes (20 samples), damped outer loop | 0.150, 0.150, 12.00 h (the prior plan) | 645 | 69.2 ± 2.2 °C | 0.566 ± 0.012 |
 | A, the naive graph | 0.193, 0.189, 20.1 h | | | |
 | R, width shrunk tenfold | 0.155, 0.560, 12.50 h | 9.6 | 92.7 ± 1.2 °C | 0.334 ± 0.003 |
 | B, width shrunk tenfold | 0.152, 0.528, 12.81 h | 15.5 | 90.3 ± 1.1 °C | 0.335 ± 0.003 |
@@ -84,8 +84,9 @@ Reading it:
   solves against the reference's few hundred. The estimator never met
   this because its affine node is built at the current point outside
   the graph, which is also why it converges: the graph then solves a
-  linear-Gaussian problem. The sample-based CVI node, as configured here (20 samples per message and a plain natural-gradient step on the natural parameters, the optimizer package it expects not being installed; the method is deprecated upstream in favour of the projection that cannot be installed), returned a step that raised the loss at every length down to a hundredth, and the loop stopped at the prior plan after 2312 solves and 28 minutes: a verdict on this configuration of sample-based messages, not on them. A monolith solve costs 60 ms; it
-  is the Jacobian that costs, and R needs only three columns of it.
+  linear-Gaussian problem. A monolith solve costs 60 ms; it is the
+  Jacobian that costs, and R needs only three columns of it. Whether a
+  sample-based message does better is untested.
 - **Decision.** The planner stays on the gradient side: the app's
   expected-objective optimizer over posterior draws (`control.py`,
   Adam over draws with the wrap and pull shared) and the time planner's
