@@ -25,17 +25,28 @@ loss; **A**, the naive graph with the physics latents in one block with
 the controls and one Unscented node, where the goal is free to update
 the belief about the world. Then the certainty-equivalence test: R and
 B again with the posterior's width shrunk tenfold (the same standard
-normals, scaled).
+normals, scaled). A second pass (`plan_experiment_damped.jl`,
+`plan_experiment_cvi.jl`) put the graph inside the estimator's damped
+outer loop, and tried the sample-based CVI node; CVIProjection, the
+method upstream recommends in its place, cannot be installed here
+(ExponentialFamilyProjection pins RecursiveArrayTools at or below 3.54,
+the physics' BDF solver needs 4.2 or later). The Unscented node ran at
+its default spread, alpha = 1e-3, which makes it a numerical
+linearization at its evaluation point, not a moment match over the
+uncertainty; the uncertainty was carried by the draws.
 
 | solver | plan: damper before 6 h, after, pull | expected loss | pull-time core temperature over the draws | retained water |
 |---|---|---|---|---|
 | prior plan | 0.15, 0.15, 12.0 h | 645 | 69.2 ± 2.2 °C | 0.566 ± 0.012 |
 | R, posterior width | 0.097, 0.572, 11.75 h | 101.3 | 89.6 ± 9.3 °C | 0.402 ± 0.025 |
 | B, 12 inner iterations | 0.137, 0.439, 12.85 h | 141.0 | 83.7 ± 7.1 °C | 0.402 ± 0.026 |
-| B inside the estimator's outer loop | 0.116, 0.513, 12.94 h | 103.8 | 89.9 ± 9.9 °C | 0.374 ± 0.026 |
+| B inside the outer loop, line search only | 0.116, 0.513, 12.94 h | 103.8 | 89.9 ± 9.9 °C | 0.374 ± 0.026 |
+| B inside the damped outer loop | 0.143, 0.504, 13.11 h | 107.6 | 90.0 ± 10.2 °C | 0.366 ± 0.026 |
+| B with CVI nodes (20 samples), damped outer loop | 0.150, 0.150, 12.00 h (the prior plan) | 645 | 69.2 ± 2.2 °C | 0.566 ± 0.012 |
 | A, the naive graph | 0.193, 0.189, 20.1 h | | | |
 | R, width shrunk tenfold | 0.155, 0.560, 12.50 h | 9.6 | 92.7 ± 1.2 °C | 0.334 ± 0.003 |
 | B, width shrunk tenfold | 0.152, 0.528, 12.81 h | 15.5 | 90.3 ± 1.1 °C | 0.335 ± 0.003 |
+| B in the damped outer loop, width shrunk tenfold | 0.161, 0.547, 12.75 h | 9.7 | 92.6 ± 1.2 °C | 0.328 ± 0.003 |
 
 Reading it:
 
@@ -56,17 +67,25 @@ Reading it:
   the cook, because at the prior plan the local model says a later
   pull is hotter; the belief about the world moved by 0.16 sd.
 - **The per-draw graph computes the right objective and is cheap, but
-  it is a step generator, not an optimizer.** Its inner iterations
-  oscillate and stop 3 sd from the optimum (141 against 101); the
-  evaluation point does follow the initialization once several nodes
-  share the block (a step from a point near the optimum is [0.27,
-  −0.04, 0.08] with the graph initialized there and [0.95, −0.66,
-  0.47] with it initialized at the prior mean); inside the estimator's
-  outer loop with a line search it reaches 103.8 in 624 solves and
-  stalls, the sigma-point local model being a worse step near the
-  optimum than the exact Jacobian, which takes R to 101.3 in about 260
-  solve-equivalents. A monolith solve costs 60 ms; it is the Jacobian
-  that costs, and R needs only three columns of it.
+  it is a local-model provider, not an optimizer, and its evaluation
+  point is not under the caller's control.** Its inner iterations
+  oscillate and stop 3 sd from the optimum (141 against 101). A
+  nonlinear delta node linearizes at its inbound message's mean, and
+  with a Gaussian prior the local quadratic at the current plan is the
+  prior itself, so that mean is the prior mean until the damping is
+  large, and by then the step is negligible (the evaluation point does
+  move with the initialization once several nodes share the block: a
+  step from a point near the optimum is [0.27, −0.04, 0.08] with the
+  graph initialized there and [0.95, −0.66, 0.47] with it initialized
+  at the prior mean). Inside the estimator's damped outer loop the
+  graph converges at the small width (9.72 against 9.63, within 0.6 sd
+  of the reference plan) and stops six units short at the posterior's
+  width (107.6 against 101.3, within 1.9 sd), in about two thousand
+  solves against the reference's few hundred. The estimator never met
+  this because its affine node is built at the current point outside
+  the graph, which is also why it converges: the graph then solves a
+  linear-Gaussian problem. The sample-based CVI node, as configured here (20 samples per message and a plain natural-gradient step on the natural parameters, the optimizer package it expects not being installed; the method is deprecated upstream in favour of the projection that cannot be installed), returned a step that raised the loss at every length down to a hundredth, and the loop stopped at the prior plan after 2312 solves and 28 minutes: a verdict on this configuration of sample-based messages, not on them. A monolith solve costs 60 ms; it
+  is the Jacobian that costs, and R needs only three columns of it.
 - **Decision.** The planner stays on the gradient side: the app's
   expected-objective optimizer over posterior draws (`control.py`,
   Adam over draws with the wrap and pull shared) and the time planner's
@@ -74,9 +93,10 @@ Reading it:
   offline calibration draws, with the serve-time and safety
   constraints on a posterior quantile and an information term from the
   Jacobian the estimator already computes. RxInfer stays the estimator
-  and its misfit check. The graph would only have reproduced the
-  planner's objective with a worse optimizer; the elegance of one graph
-  does not survive the outer loop it needs.
+  and its misfit check. To plan with the graph one rebuilds the
+  estimator's affine machinery around it, at which point the graph is
+  solving a linear-Gaussian problem the reference solves directly; the
+  elegance of one graph does not survive the outer loop it needs.
 
 ## Noise as graph structure: the AR node, and what it taught about priors (2026-09-08)
 
