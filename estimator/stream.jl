@@ -104,7 +104,8 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
         converged && break
     end
     m, V = graph_posterior_affine(c, a, B, w, prior; bp_iters)
-    return (z=c, mean=m, cov=V, F=Fc, hist=hist)
+    mis = misfit(channels, a, B, w, V)
+    return (z=c, mean=m, cov=V, F=Fc, hist=hist, misfit=mis)
 end
 
 """
@@ -128,7 +129,7 @@ function stream_fit(channels, prior, d::GateData, batch_edges; area_latent::Int=
         c = res.z
         sd = sqrt.(diag(res.cov))
         push!(out, (batch=b, t=te, z=res.z, sd=sd, cov=res.cov, F=res.F,
-                    iters=length(res.hist), wall=time() - t0))
+                    iters=length(res.hist), wall=time() - t0, misfit=res.misfit))
         verbose && @printf("  batch %2d  t = %5.1f h  F = %9.3f  outer %2d  (%.0f s)\n",
                            b, te / 3600, res.F, length(res.hist), time() - t0)
         verbose && flush(stdout)

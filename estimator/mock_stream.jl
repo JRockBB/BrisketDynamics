@@ -65,7 +65,7 @@ for (label, chs) in sets
     recs = stream_fit(chs, prior, d, edges; area_latent=AREA, verbose=true)
     batches = [Dict("t_h" => r.t / 3600, "z" => r.z, "sd" => r.sd,
                     "err_sd" => (r.z .- z_true) ./ r.sd, "F" => r.F, "iters" => r.iters,
-                    "wall_s" => r.wall) for r in recs]
+                    "wall_s" => r.wall, "misfit" => r.misfit) for r in recs]
     last = recs[end]
     @printf("  final |err|/sd: max %.2f, median %.2f; wall %.0f s\n",
             maximum(abs.((last.z .- z_true) ./ last.sd)), sort(abs.((last.z .- z_true) ./ last.sd))[div(end + 1, 2)],
