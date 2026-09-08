@@ -34,74 +34,39 @@ struct OutputLayout
     opv::Int
     oM::Int      # fuel mass [kg]
     oL::Int      # bark lightness L*
+    oMass::Int   # meat mass on a scale [kg], the physics' own bookkeeping
 end
 function OutputLayout(nx::Int, nt::Int)
     b = nx * nt
-    return OutputLayout(nx, nt, 0, nt, 2nt, 2nt + b, 2nt + 2b, 2nt + 3b, 3nt + 3b, 4nt + 3b)
+    return OutputLayout(nx, nt, 0, nt, 2nt, 2nt + b, 2nt + 2b, 2nt + 3b, 3nt + 3b, 4nt + 3b,
+                        5nt + 3b)
 end
-Base.length(lay::OutputLayout) = 5 * lay.nt + 3 * lay.nx * lay.nt
+Base.length(lay::OutputLayout) = 6 * lay.nt + 3 * lay.nx * lay.nt
 
-# ONE stacked output for every channel: pit and surface temperature, the
-# temperature, water and fat fields, the pit vapor pressure, the fuel mass,
-# the bark lightness — in the order OutputLayout indexes them.
-_stack(o) = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o.F_field), o.pv_pit,
-                 o.m_fuel, o.l_star)
-
-"""
-    physics_outputs(z, d; area_latent=0) -> (S, J_S, lay)
-
-The stacked monolith outputs on the log grid at the latents `z` (the
-first 15 entries are the physics latents), and their Jacobian w.r.t. the
-FULL latent vector. With `area_latent > 0` the exposed area is the
-LogNormal latent at that index and enters the solve as the monolith's
-runtime `A_meat` (one more ForwardDiff column); other estimator-only
-latents get zero columns here and the chain rule in their channels.
-"""
-function physics_outputs(z, d::GateData; area_latent::Int=0)
-    zp = z[1:N_PHYS]
-    x = from_z(zp, d.prior[1:N_PHYS])
-    kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol)
-    stack = _stack
-    Jz = nothing
-    if area_latent > 0
-        A = exp(z[area_latent])
-        v = vcat(x, A)
-        g(v) = stack(monolith_solve(v[1:N_THETA], v[(N_THETA + 1):N_PHYS], d.u, d.t, d.t;
-                                    kw..., A_meat=v[end]))
-        o = monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw..., A_meat=A)
-        S = stack(o)
-        cfgj = ForwardDiff.JacobianConfig(g, v, ForwardDiff.Chunk{length(v)}())
-        Jv = ForwardDiff.jacobian(g, v, cfgj)
-        Jz = zeros(length(S), length(z))
-        Jz[:, 1:N_PHYS] = Jv[:, 1:N_PHYS] .* permutedims(dx_dz(zp, d.prior[1:N_PHYS]))
-        Jz[:, area_latent] = Jv[:, end] .* A
-    else
-        θ, φ = x[1:N_THETA], x[(N_THETA + 1):end]
-        o = monolith_solve(θ, φ, d.u, d.t, d.t; kw...)
-        S = stack(o)
-        Jx = monolith_jacobian(stack, θ, φ, d.u, d.t, d.t; kw...)
-        Jz = zeros(length(S), length(z))
-        Jz[:, 1:N_PHYS] = Jx .* permutedims(dx_dz(zp, d.prior[1:N_PHYS]))
-    end
-    lay = OutputLayout(size(o.T_field, 1), length(d.t))
-    return S, Jz, lay
-end
+# ONE stacked output for every channel, in the order OutputLayout indexes
+# it: pit and surface temperature, the temperature, water and fat lines
+# (center to surface), the pit vapor pressure, the fuel mass, the bark
+# lightness, the meat mass. physics2d.jl builds it for the slab and for
+# the cylinder.
 
 """
-    physics_stack(z, d; area_latent=0) -> (S, lay)
+    physics_outputs(z, d, physics) -> (S, J_S, lay)
+    physics_outputs(z, d; area_latent=0)
 
-The stacked outputs alone (one solve, no Jacobian) — for objective
+The stacked outputs on the log grid at the latents `z` (the first 15
+entries are the physics latents) and their Jacobian w.r.t. the FULL
+latent vector, for the slab (`Physics1D`, the keyword form) or the
+cylinder (`Physics2D`); physics2d.jl. Estimator-only latents that the
+physics does not see get zero columns here and the chain rule in their
+channels.
+
+    physics_stack(z, d, physics) -> (S, lay)
+
+The stacked outputs alone (one solve, no Jacobian), for objective
 evaluations in a line search.
 """
-function physics_stack(z, d::GateData; area_latent::Int=0)
-    zp = z[1:N_PHYS]
-    x = from_z(zp, d.prior[1:N_PHYS])
-    kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol)
-    o = area_latent > 0 ?
-        monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw..., A_meat=exp(z[area_latent])) :
-        monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw...)
-    return _stack(o), OutputLayout(size(o.T_field, 1), length(d.t))
-end
+function physics_outputs end
+function physics_stack end
 
 # --- whitening -----------------------------------------------------------------
 
@@ -197,27 +162,24 @@ end
 HumiditySensor(σ, ρ, mask; data=nothing) = HumiditySensor(σ, ρ, collect(Bool, mask), data)
 
 """
-Meat mass on a scale [kg] at the log times in `mask`:
-m = ρ_d A_meat L (1 + W̄ + F̄), the model's own bookkeeping (purge and
-rendered fat leave). The exposed area is the latent `area_latent` when
-given (its column in J then carries the pit coupling as well), else the
-constant `A_meat`; L is the thickness latent. `shape_latent`, when given,
-is the log of a shape factor s on the volume per exposed area and
-thickness: m = s ρ_d A_meat L (1 + W̄ + F̄), s = 1 for a slab, so a plant
-that is not a slab (a cylinder: s = πR²H / (A L)) can keep its mass
-bookkeeping honest without bending the physics.
+Meat mass on a scale [kg] at the log times in `mask`: the physics' own
+mass bookkeeping (the stack's mass block: ρ_d A L (1 + W̄ + F̄) for the
+slab, the volume integral for the cylinder; purge and rendered fat
+leave), times a shape factor s = exp(z[shape_latent]) when
+`shape_latent` is given (s = 1 for a slab; for a cylinder read with the
+slab physics s = πR²H / (A L)), so a plant that is not a slab can keep
+its mass bookkeeping honest without bending the physics. The area and
+thickness columns come through the physics' Jacobian.
 """
 struct MassScale <: Channel
     σ::Float64
     ρ::Float64
     mask::Vector{Bool}
-    A_meat::Float64
-    area_latent::Int
     shape_latent::Int
     data::Union{Nothing,Vector{Float64}}
 end
-MassScale(σ, ρ, mask; A_meat=0.12, area_latent=0, shape_latent=0, data=nothing) =
-    MassScale(σ, ρ, collect(Bool, mask), A_meat, area_latent, shape_latent, data)
+MassScale(σ, ρ, mask; shape_latent=0, data=nothing, area_latent=0, A_meat=0.12) =   # area_latent, A_meat: accepted for call compatibility, the area column comes through the physics
+    MassScale(σ, ρ, collect(Bool, mask), shape_latent, data)
 
 "Fuel mass on a scale under the firebox [kg]: the pit model's fuel state."
 struct FuelScale <: Channel
@@ -316,24 +278,11 @@ function predict(ch::MeatProbe, S, J, z, prior, lay)
     return r, Jr
 end
 function predict(ch::MassScale, S, J, z, prior, lay)
-    nx, nt = lay.nx, lay.nt
-    L = exp(z[L_INDEX])
-    A = ch.area_latent > 0 ? exp(z[ch.area_latent]) : ch.A_meat
+    idx = (lay.oMass + 1):(lay.oMass + lay.nt)
     s = ch.shape_latent > 0 ? exp(z[ch.shape_latent]) : 1.0
-    w = fv_weights(nx)
-    r = zeros(nt)
-    Jr = zeros(nt, length(z))
-    base = RHO_DRY_EST * A * L * s
-    for k in 1:nt
-        cW = _col(lay, lay.oW, k)
-        cF = _col(lay, lay.oF, k)
-        Wm = dot(w, S[cW]); Fm = dot(w, S[cF])
-        r[k] = base * (1 + Wm + Fm)
-        Jr[k, :] = base .* (permutedims(w) * J[cW, :] .+ permutedims(w) * J[cF, :])[1, :]
-        Jr[k, L_INDEX] += base * (1 + Wm + Fm)          # d/d log L of the explicit factor
-        ch.area_latent > 0 && (Jr[k, ch.area_latent] += base * (1 + Wm + Fm))  # d/d log A, explicit
-        ch.shape_latent > 0 && (Jr[k, ch.shape_latent] += base * (1 + Wm + Fm)) # d/d log s
-    end
+    r = s .* S[idx]
+    Jr = s .* J[idx, :]
+    ch.shape_latent > 0 && (Jr[:, ch.shape_latent] .+= r)      # d/d log s
     return r, Jr
 end
 function predict(ch::FuelScale, S, J, z, prior, lay)

@@ -30,8 +30,7 @@ end
 restrict(ch::PitProbe, keep) = PitProbe(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
 restrict(ch::SurfaceIR, keep) = SurfaceIR(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
 restrict(ch::HumiditySensor, keep) = HumiditySensor(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
-restrict(ch::MassScale, keep) = MassScale(ch.σ, ch.ρ, ch.mask .& keep, ch.A_meat, ch.area_latent,
-                                          ch.shape_latent, ch.data)
+restrict(ch::MassScale, keep) = MassScale(ch.σ, ch.ρ, ch.mask .& keep, ch.shape_latent, ch.data)
 restrict(ch::MeatProbe, keep) = MeatProbe(ch.s_fixed, ch.depth_fixed, ch.depth_latent, ch.σ, ch.ρ,
                                           ch.mask .& keep, ch.data)
 restrict(ch::FuelScale, keep) = FuelScale(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
@@ -70,10 +69,12 @@ on an objective decrease below `ftol` (the adaptive solve's jitter floor
 is ~1e-3 in whitened units, so chasing it buys nothing).
 """
 function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0,
+                            physics::Union{Nothing,Physics}=nothing,
                             iters::Int=30, tol::Float64=1e-4, ftol::Float64=1e-3,
                             bp_iters::Int=20, verbose::Bool=false)
+    ph = physics === nothing ? Physics1D(area_latent) : physics
     c = copy(c0)
-    S, J, lay = physics_outputs(c, d; area_latent)
+    S, J, lay = physics_outputs(c, d, ph)
     a, B, w = assemble(channels, c, S, J, prior, lay)
     any(isnan, w) && throw(ArgumentError("every channel in a fit must carry data"))
     Fc = _objective(a, w, c, prior)
@@ -86,13 +87,13 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
         step = m - c
         α = 1.0
         c_new = c + step
-        Sn, _ = physics_stack(c_new, d; area_latent)
+        Sn, _ = physics_stack(c_new, d, ph)
         an, _, _ = assemble(channels, c_new, Sn, J0, prior, lay)
         Fn = _objective(an, w, c_new, prior)
         while Fn > Fc && α > 1e-3
             α /= 2
             c_new = c + α * step
-            Sn, _ = physics_stack(c_new, d; area_latent)
+            Sn, _ = physics_stack(c_new, d, ph)
             an, _, _ = assemble(channels, c_new, Sn, J0, prior, lay)
             Fn = _objective(an, w, c_new, prior)
         end
@@ -103,7 +104,7 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
         Fn > Fc && break
         converged = (α * norm(step) < tol) || (Fc - Fn < ftol)   # step or objective floor
         c, Fc = c_new, Fn
-        S, J, _ = physics_outputs(c, d; area_latent)     # the Jacobian once per accepted step
+        S, J, _ = physics_outputs(c, d, ph)     # the Jacobian once per accepted step
         a, B, _ = assemble(channels, c, S, J, prior, lay)
         converged && break
     end
@@ -121,7 +122,7 @@ Returns one record per batch: time, posterior mean, sd, covariance,
 objective, outer iterations, wall.
 """
 function stream_fit(channels, prior, d::GateData, batch_edges; area_latent::Int=0,
-                    c0=nothing, verbose::Bool=true, kw...)
+                    physics::Union{Nothing,Physics}=nothing, c0=nothing, verbose::Bool=true, kw...)
     c = c0 === nothing ? vcat(d.z0, [isbeta(p) ? log(p.p1 / p.p2) : p.p1 for p in prior[(N_PHYS + 1):end]]) :
         copy(c0)
     out = NamedTuple[]
@@ -129,7 +130,7 @@ function stream_fit(channels, prior, d::GateData, batch_edges; area_latent::Int=
         keep = d.t .<= te + 1e-9
         chs = [restrict(ch, keep) for ch in channels]
         t0 = time()
-        res = solve_map_channels(chs, prior, d; c0=c, area_latent, verbose=verbose, kw...)
+        res = solve_map_channels(chs, prior, d; c0=c, area_latent, physics, verbose=verbose, kw...)
         c = res.z
         sd = sqrt.(diag(res.cov))
         push!(out, (batch=b, t=te, z=res.z, sd=sd, cov=res.cov, F=res.F,
