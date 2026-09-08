@@ -70,8 +70,43 @@ function physics_stack end
 
 # --- whitening -----------------------------------------------------------------
 
-"Index runs of contiguous `true` in a mask (lid events break the AR(1) chain)."
-function contiguous_runs(mask::AbstractVector{Bool})
+"""
+    contiguous_runs(mask; maxgap=1) -> Vector{Vector{Int}}
+
+Index runs of the sampled points of a mask: consecutive samples closer
+than or equal to `maxgap` grid steps belong to one run, a longer gap
+(a lid lift, a dropout) breaks it. `maxgap = 1` is the old contiguous
+rule; [`channel_gap`](@ref) gives a channel's own spacing.
+"""
+function contiguous_runs(mask::AbstractVector{Bool}; maxgap::Int=1)
+    idx = findall(mask)
+    runs = Vector{Vector{Int}}()
+    isempty(idx) && return runs
+    cur = [idx[1]]
+    for k in 2:length(idx)
+        if idx[k] - idx[k - 1] <= maxgap
+            push!(cur, idx[k])
+        else
+            push!(runs, cur)
+            cur = [idx[k]]
+        end
+    end
+    push!(runs, cur)
+    return runs
+end
+
+"A channel's typical spacing in grid steps (the median gap between its samples; 1 for a full mask)."
+function channel_gap(mask::AbstractVector{Bool})
+    idx = findall(mask)
+    length(idx) < 2 && return 1
+    gaps = diff(idx)
+    return max(1, Int(round(sort(gaps)[div(length(gaps) + 1, 2)])))
+end
+
+"A run breaks at a gap longer than three times the channel's own spacing; a full-rate channel keeps the calibration's rule that any gap is an event."
+run_maxgap(mask::AbstractVector{Bool}) = (g = channel_gap(mask); g == 1 ? 1 : 3g)
+
+function _contiguous_runs_old(mask::AbstractVector{Bool})
     runs = Vector{UnitRange{Int}}()
     i = 1
     n = length(mask)
@@ -93,6 +128,12 @@ end
 """
     whitening_rows(mask, σ, ρ) -> L (n_w × n)
 
+An Ornstein–Uhlenbeck discrepancy on the physics grid: `ρ` is the
+correlation over ONE grid step, and two samples `g` steps apart are
+correlated `ρ^g`, so a channel at any rate carries the same physical
+correlation time; a run starts fresh (row 1/σ) and breaks only at a
+gap longer than three times the channel's own spacing.
+
 The masked AR(1) whitening of a series of length `n`: the first point of
 each run carries the marginal scale σ, the rest the innovations
 σ√(1 − ρ²) with the lag-1 term — `Whitened.build` of the Python stack.
@@ -100,12 +141,14 @@ each run carries the marginal scale σ, the rest the innovations
 """
 function whitening_rows(mask::AbstractVector{Bool}, σ::Real, ρ::Real)
     n = length(mask)
-    innov = σ * sqrt(max(1 - ρ * ρ, 1e-8))
     rows = Vector{Vector{Float64}}()
-    for run in contiguous_runs(mask)
-        r = zeros(n); r[first(run)] = 1 / σ; push!(rows, r)
-        for k in (first(run) + 1):last(run)
-            r = zeros(n); r[k] = 1 / innov; r[k - 1] = -ρ / innov; push!(rows, r)
+    for run in contiguous_runs(mask; maxgap=run_maxgap(mask))
+        r = zeros(n); r[run[1]] = 1 / σ; push!(rows, r)
+        for j in 2:length(run)
+            k, kprev = run[j], run[j - 1]
+            ρg = ρ^(k - kprev)                       # the correlation over this gap
+            innov = σ * sqrt(max(1 - ρg * ρg, 1e-8))
+            r = zeros(n); r[k] = 1 / innov; r[kprev] = -ρg / innov; push!(rows, r)
         end
     end
     return isempty(rows) ? zeros(0, n) : reduce(vcat, permutedims.(rows))

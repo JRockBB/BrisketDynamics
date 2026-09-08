@@ -292,5 +292,6 @@ include(joinpath(@__DIR__, "misfit.jl"))
 include(joinpath(@__DIR__, "stream.jl"))
 include(joinpath(@__DIR__, "iterated.jl"))
 include(joinpath(@__DIR__, "horizon.jl"))
+include(joinpath(@__DIR__, "realcook.jl"))
 
 end # module
