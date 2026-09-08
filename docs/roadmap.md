@@ -96,9 +96,11 @@ real cook's Gauss–Newton MAP is passed, the channel registry ranks
 sensors before they exist, and the hourly streaming refits run on mock
 plants: on a matched plant, humidity plus a scale put all 17 latents
 within 1.4 sd of truth; on a mismatched cylinder the same sensors make
-the posterior confident and wrong by up to 17 sd, with the whitened
-objective per reading (1.8 against 1.2) as the only tell
-(`docs/results.md`, the 2026-09-07 and 2026-09-08 estimator entries).
+the posterior confident and wrong by up to 17 sd, and the misfit check
+that every refit now reports (residual power against its expectation,
+lag-1 autocorrelation, per channel) flags it from hour 6, before the
+posterior looks wrong (`docs/results.md`, the 2026-09-07 and 2026-09-08
+estimator entries).
 Its structure is fixed by three measured RxInfer behaviours
 (per-residual nodes, one latent block, affine relinearization;
 `estimator/test_rules.jl` guards them). What remains, in order:

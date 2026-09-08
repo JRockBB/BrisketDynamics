@@ -4,6 +4,64 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The misfit check: a confident posterior arrives with its own warning (2026-09-08)
+
+`estimator/misfit.jl`: every refit reports, per channel and in total,
+two statistics of its whitened residuals r = w − a(ẑ). The residual
+power Σr² against its expectation n − tr(H), with H = B V Bᵀ from the
+graph's posterior covariance so the fit's own absorption is charged to
+each channel, as a χ² z-score; and the lag-1 autocorrelation as a
+z-score (sd 1/√n for white residuals). Both are approximate (a fixed
+truth under a proper prior leaves a small shrinkage bias, and the
+autocorrelation ignores the hat matrix), which is the right precision
+for a warning light. `estimator/test_misfit.jl` checks them where the
+answer is known: white least-squares residuals over 400 draws sit in
+the band with the exact degrees of freedom, and a slow structured error
+lights both statistics on its own channel only. The check is attached
+to every solve and stream record; `estimator/misfit_stream.jl` scores a
+stored run, and `figures/estimator_misfit.png` draws it against the
+cook hour for the two mock plants (matched against cylinder, the
+humidity-plus-scale set solid, pit + core dashed).
+
+Scored on the streaming runs of the entry below (the total over all
+rows, and the channel that stands out):
+
+| plant | channel set | hour | residual power per row | z χ² total | z ρ₁ total | worst channel: z χ² / z ρ₁ |
+|---|---|---|---|---|---|---|
+| matched | pit + core | 6 | 1.01 | 0.6 | −0.9 | meat probe 0.8 / −1.2 |
+| matched | pit + core | 19 | 1.06 | 1.0 | −0.7 | pit 1.0 / −0.5 |
+| matched | + humidity + scale | 19 | 1.04 | 1.1 | −1.8 | scale −0.2 / −1.6 |
+| matched | + rulers | 19 | 1.04 | 1.1 | −1.8 | rulers −0.5, −0.5 |
+| cylinder | pit + core | 6 | 1.39 | 3.0 | −1.4 | meat probe 3.7 / −1.0 |
+| cylinder | pit + core | 19 | 1.22 | 2.8 | −0.9 | meat probe 2.4 / −0.9 |
+| cylinder | + humidity + scale | 6 | 1.33 | 3.7 | 1.0 | meat probe 4.8 / −0.2 |
+| cylinder | + humidity + scale | 19 | 1.58 | 9.4 | 5.6 | pit 9.0 / 3.7 |
+| cylinder | + rulers | 1 | 1.28 | 2.9 | 0.9 | rulers 9.0, 9.6 |
+| cylinder | + rulers | 19 | 1.63 | 10.2 | 5.9 | footprint ruler 13.9 |
+
+Reading it:
+
+- **The matched plant is inside the band at every hour, every set and
+  every channel** (no z beyond 1.8 across the 57 refits). The z-score
+  is the statistic, not the raw power: at 1 h, 14 rows against 17
+  latents leave a residual power of 0.30 per row that the degrees of
+  freedom account for (z −1.3).
+- **The cylinder is flagged from hour 6 with temperature probes alone**,
+  by the meat probe (z χ² 3.7 at 6 h and 12 h): the posterior looked
+  fine there (every latent within 2.5 sd) and the residual said
+  otherwise. With humidity and the scale the total climbs to 9.4 by
+  19 h with autocorrelated residuals on the pit, the humidity sensor and
+  the scale (z ρ₁ 3.3 to 3.7): the confident-and-wrong posterior of the
+  entry below carries a warning from hour 6. With the rulers it carries
+  one from hour 1: the rulers' readings sit 9 sd from the thickness and
+  footprint the fit needs, because a slab's product constraint from the
+  scale cannot agree with a cylinder's measured dimensions.
+- The entry below quoted the objective per reading as the tell; that
+  number carried the prior term (23 nats on this deliberately off-prior
+  truth). The residual power per row is the clean version: 1.04 to 1.06
+  on the matched plant, 1.22 to 1.63 on the cylinder, and its table is
+  corrected accordingly.
+
 ## Streaming estimator on mock plants: watch it work, watch it fail (2026-09-08)
 
 `estimator/stream.jl` is the streaming form of the gate's graph: at every
@@ -37,18 +95,18 @@ width against the cook hour and the standardized error
 `data/mock/mock_1d_stream.json` and `mock_2d_stream.json`.
 
 At the end of the cook (19 h), the largest and the median standardized
-error over the 17 latents, the objective and the objective per reading
-(2F over the number of whitened residuals; about 1.0 to 1.1 is what a
-right model with right noise gives, the prior term included):
+error over the 17 latents, the objective, and the whitened residual
+power per row from the misfit check (the entry above; 1.0 is a right
+model with right noise):
 
-| plant | channel set | max err/sd (latent) | median | F | 2F / reading |
+| plant | channel set | max err/sd (latent) | median | F | residual power per row |
 |---|---|---|---|---|---|
-| monolith (matched) | pit + core | 3.8 (a0) | 0.55 | 144.6 | 1.26 |
-| | + humidity + scale | 1.4 (k_m, m_conv) | 1.05 | 267.1 | 1.16 |
-| | + rulers | 1.7 (k_m) | 1.25 | 267.2 | 1.16 |
-| 2-D cylinder (mismatched) | pit + core | 2.5 (u_leak) | 0.52 | 164.4 | 1.43 |
-| | + humidity + scale | 17.2 (a0) | 3.2 | 416.5 | 1.81 |
-| | + rulers | 17.1 (a0) | 4.1 | 430.0 | 1.86 |
+| monolith (matched) | pit + core | 3.8 (a0) | 0.55 | 144.6 | 1.06 |
+| | + humidity + scale | 1.4 (k_m, m_conv) | 1.05 | 267.1 | 1.04 |
+| | + rulers | 1.7 (k_m) | 1.25 | 267.2 | 1.04 |
+| 2-D cylinder (mismatched) | pit + core | 2.5 (u_leak) | 0.52 | 164.4 | 1.22 |
+| | + humidity + scale | 17.2 (a0) | 3.2 | 416.5 | 1.58 |
+| | + rulers | 17.1 (a0) | 4.1 | 430.0 | 1.63 |
 
 Reading it:
 
@@ -88,10 +146,11 @@ Reading it:
   noise. What the scale measures directly stays right (a_myosin −0.02
   sd, the probe depth −0.05); what has to pass through the geometry goes
   wrong.
-- **The tell.** The whitened objective is the diagnostic nobody has to
-  invent. For the same readings the cylinder's objective per reading is
-  1.81 against the matched plant's 1.16, and the two separate from the
-  second hour:
+- **The tell.** The whitened residual is the diagnostic nobody has to
+  invent. For the same readings the cylinder's residual power per row
+  is 1.58 against the matched plant's 1.04 (the misfit check's total χ²
+  z-score 9.4 against 1.1), and the objectives separate from the second
+  hour:
 
   | hour | F, matched | F, cylinder |
   |---|---|---|
