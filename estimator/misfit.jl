@@ -30,9 +30,10 @@ function _block_stats(r::AbstractVector, h::AbstractVector)
     n = length(r)
     ss = sum(abs2, r)
     dof = n - sum(h)
-    z_chi2 = dof > 0 ? (ss - dof) / sqrt(2 * dof) : NaN
-    rho1 = n > 1 && ss > 0 ? sum(r[i] * r[i + 1] for i in 1:(n - 1)) / ss : NaN
-    z_rho1 = n > 1 ? rho1 * sqrt(n) : NaN
+    # undefined statistics (one row, no freedom) are `nothing`, which serializes as null
+    z_chi2 = dof > 0 ? (ss - dof) / sqrt(2 * dof) : nothing
+    rho1 = n > 1 && ss > 0 ? sum(r[i] * r[i + 1] for i in 1:(n - 1)) / ss : nothing
+    z_rho1 = rho1 === nothing ? nothing : rho1 * sqrt(n)
     return (n=n, ss=ss, dof=dof, z_chi2=z_chi2, rho1=rho1, z_rho1=z_rho1)
 end
 

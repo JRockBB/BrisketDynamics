@@ -39,7 +39,7 @@ def series(d, label, name, key):
         if rec is None:
             continue
         th.append(b["t_h"])
-        val.append(rec[key])
+        val.append(np.nan if rec[key] is None else rec[key])
     return np.array(th), np.array(val, dtype=float)
 
 
