@@ -10,6 +10,7 @@
 # outcomes are read (interpolated on the grid). The free set shrinks as
 # events commit: after the pull only the serve time is free.
 
+export plan_loss, ReplanPolicy, replan_due
 export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper,
        schedule_events, plan_outputs_rh, replan_on_graph, commit!, execute_damper!, PlanGoals
 
@@ -245,6 +246,69 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
                                             callbacks = callbacks, returnvars = (ζ = KeepLast(),))
     r = iterated_solve(prob, run_infer; c0, iters, verbose)
     return (plan=decode_plan(r.z, f, s), ζ=r.z, F=r.F, cov=r.cov, hist=r.hist, converged=r.converged, free=f)
+end
+
+# --- when to replan ------------------------------------------------------------------------
+# A replan is a decision, not a cadence. After each posterior update the
+# standing plan is re-evaluated under the new draws (a plant run per
+# draw, no optimisation): its expected loss is what a replan would start
+# from. The replan fires when that loss has risen since the plan was
+# made (the new information changed the plan's value), when a planned
+# event falls due within the lead (it is about to commit and become
+# irreversible: decide it on the freshest posterior), when the misfit
+# check fires (the model is wrong somewhere: the plan's outlook is
+# unreliable), or when a floor interval has passed without one.
+
+"""
+    plan_loss(zs, plan, s, d; goals) -> (mean, draws)
+
+The expected loss of a standing `plan` under the posterior draws `zs`:
+the mean over draws of half the squared goal residuals, the objective a
+replan minimises without the plan prior. The plan is re-encoded in the
+current free set (its committed events are fixed in `s`).
+"""
+function plan_loss(zs, plan, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals())
+    f = free_set(s)
+    ζ = encode_plan(plan, f, s)
+    ls = [0.5 * sum(abs2, goal_residuals(plan_outputs_rh(z, ζ, f, s, d), goals)) for z in zs]
+    return (mean=sum(ls) / length(ls), draws=ls)
+end
+
+"""
+    ReplanPolicy(; loss_rise=1.0, misfit_z=3.0, lead=3600.0, floor=4*3600.0)
+
+When a replan is due: the standing plan's expected loss has risen by
+`loss_rise` (half-squared-sd units) since it was made; a planned,
+uncommitted event falls due within `lead` seconds; the misfit z-score
+exceeds `misfit_z`; or `floor` seconds have passed since the last replan.
+"""
+Base.@kwdef struct ReplanPolicy
+    loss_rise::Float64 = 1.0
+    misfit_z::Float64 = 3.0
+    lead::Float64 = 3600.0
+    floor::Float64 = 4 * 3600.0
+end
+
+"""
+    replan_due(pol, s, plan, L_now, L_plan, t_last, misfit_z) -> (due::Bool, reason::Symbol)
+
+Whether to replan now: `plan` is the standing plan (`nothing` before the
+first), `L_now` its expected loss under the current posterior, `L_plan`
+its loss when it was made, `t_last` the time of the last replan,
+`misfit_z` the latest misfit z-score (or `nothing`). The reason is one of
+`:first`, `:event_due`, `:misfit`, `:loss_rise`, `:floor`, `:hold`.
+"""
+function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::Real, t_last::Real, misfit_z)
+    plan === nothing && return (true, :first)
+    events = [plan.t_wrap, plan.t_pull, plan.t_add, plan.spritz === nothing ? NaN : plan.spritz.t, plan.t_serve]
+    fixed = [!isnan(s.t_wrap), !isnan(s.t_pull), !isnan(s.t_add), s.spritz !== nothing, false]
+    for (t, fx) in zip(events, fixed)
+        !isnan(t) && !fx && s.t_now < t <= s.t_now + pol.lead && return (true, :event_due)
+    end
+    misfit_z !== nothing && abs(misfit_z) > pol.misfit_z && return (true, :misfit)
+    L_now - L_plan > pol.loss_rise && return (true, :loss_rise)
+    s.t_now - t_last >= pol.floor - 1e-9 && return (true, :floor)
+    return (false, :hold)
 end
 
 """

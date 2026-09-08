@@ -82,6 +82,9 @@ function iterated_solve(p::IteratedProblem, run_infer; c0, iters::Int=40, tol::F
                 converged[] = true
                 event.stop_iteration = true
             end
+        elseif norm(step) < 10 * tol      # no decrease from a negligible step: at the jitter floor, converged
+            converged[] = true
+            event.stop_iteration = true
         else
             λ = λ == 0.0 ? λ0 : 10λ
             λ > 1e9 && (event.stop_iteration = true)

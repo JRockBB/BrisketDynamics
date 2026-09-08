@@ -117,16 +117,15 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **Pilot integration, the uncertainty-aware planner.** The full
-  decision set (damper knots, wrap, pull, duration, spritz, fuel add)
-  plans on the graph from the estimator's posterior draws and reproduces
-  the gradient reference (`docs/results.md`, the full decision set on
-  the graph). What remains: the receding-horizon layer (the
-  candidate-commit-irreversible logic for the wrap and pull, the replan
-  from the current state with executed events fixed), a tail objective
-  at serve in place of the Gaussian goal, the hourly posterior and the
-  plan consumed by the pilot through juliacall on the Julia thread it
-  already holds, and an information term from the estimator's Jacobian.
+- **Pilot integration, the hookup.** The pilot exists without hardware:
+  the full decision set replans on the graph from the estimator's
+  posterior every two hours, commits events when due, and closes the
+  loop on the mock plant (`docs/results.md`, the receding horizon on the
+  graph). What remains: the readings from the pit instead of the mock
+  plant, the executed damper and events from the pilot's journal, the
+  plan back to it, through juliacall on the Julia thread the pilot
+  already holds; and an information term from the estimator's Jacobian
+  if the pilot is to pay for learning the fire.
 - **Upstream.** File the four RxInfer findings: the silent prior on a
   singular forward output covariance; the delta node expanding at the
   inbound messages' means with no marginal-based expansion and no hook

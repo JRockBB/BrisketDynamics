@@ -124,7 +124,8 @@ function residual_runs(ch::Channel, S, J, z, prior, lay)
     y = rawdata(ch)
     y === nothing && throw(ArgumentError("the channel carries no data"))
     e = y .- r
-    return [e[run] for run in contiguous_runs(ch.mask; maxgap=run_maxgap(ch.mask))]
+    nm = noise_mask(ch)
+    return [e[run] for run in contiguous_runs(nm; maxgap=run_maxgap(nm))]
 end
 
 """
@@ -134,10 +135,10 @@ The channel's AR(1) noise from its residuals at `z`, with the prior;
 the applied sd respects the prior's floor.
 """
 function estimate_noise(ch::Channel, S, J, z, prior, lay, np::NoisePrior; kw...)
-    g = channel_gap(ch.mask)
+    g = channel_gap(noise_mask(ch))
     # the AR node sees the channel's own spacing; its prior and posterior on ρ are per grid step
     np_g = NoisePrior(np.σ_mean, np.σ_sd, clamp(np.ρ_mean, 0.0, 0.999)^g, np.ρ_sd * g * max(np.ρ_mean, 1e-3)^(g - 1); floor=np.floor)
-    post = ar1_posterior(residual_runs(ch, S, J, z, prior, lay), np_g; kw...)
+    post = ar1_posterior(residual_runs(ch, S, J, z, prior, lay), np_g; kw...)     # de-levelled for a Levelled channel
     ρ_step = clamp(post.ρ, 0.0, 0.999)^(1 / g)      # back to the grid step
     return (σ=max(post.σ, np.floor), ρ=ρ_step, post=post)
 end

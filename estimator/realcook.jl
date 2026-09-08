@@ -142,7 +142,19 @@ function predict(ch::CensoredHumidity, S, J, z, prior, lay)
     end
     return r, Jr
 end
-whitening(ch::CensoredHumidity) = whitening_rows(ch.mask, ch.σ, ch.ρ)
+noise_mask(ch::CensoredHumidity) = ch.data === nothing ? ch.mask : ch.mask .& (ch.data .< ch.cap - 1e-9)
+function extra_rows(ch::CensoredHumidity, level)
+    censored = findall(ch.mask .& .!noise_mask(ch))
+    rows = zeros(length(censored), length(ch.mask))
+    for (i, k) in enumerate(censored)
+        rows[i, k] = 1 / (ch.σ * level[k])
+    end
+    return rows
+end
+# the AR rows over the uncensored samples (the chain hops over a censored stretch as over a gap), then one
+# independent row per censored sample: "the true value was at least the cap", weighted like a reading
+whitening(ch::CensoredHumidity) = vcat(whitening_rows(noise_mask(ch), ch.σ, ch.ρ), extra_rows(ch, ones(length(ch.mask))))
+misfit_rows(ch::CensoredHumidity) = size(whitening_rows(noise_mask(ch), ch.σ, ch.ρ), 1)
 channel_label(::CensoredHumidity) = "humidity (censored)"
 restrict(ch::CensoredHumidity, keep) = CensoredHumidity(ch.σ, ch.ρ, ch.mask .& keep, ch.cap, ch.s, ch.data)
 with_noise(ch::CensoredHumidity, σ, ρ) = CensoredHumidity(σ, ρ, ch.mask, ch.cap, ch.s, ch.data)

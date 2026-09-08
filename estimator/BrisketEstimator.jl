@@ -287,6 +287,7 @@ end
 include(joinpath(@__DIR__, "channels.jl"))
 include(joinpath(@__DIR__, "physics2d.jl"))
 include(joinpath(@__DIR__, "noise.jl"))
+include(joinpath(@__DIR__, "volatility.jl"))
 include(joinpath(@__DIR__, "misfit.jl"))
 # --- streaming: full-history refits per batch over the registry ---------------
 include(joinpath(@__DIR__, "stream.jl"))

@@ -53,6 +53,7 @@ NOISE = Dict(ch => ar1_noise(rng_noise, length(GRID), Float64(nz[ch]["sigma"]), 
              for ch in ("pit", "core", "humidity", "mass"))
 interp1(v, pos) = (k = clamp(floor(Int, pos), 1, length(v) - 1); f = pos - k; (1 - f) * v[k] + f * v[k + 1])
 fill_future(u) = (last = u[findlast(!isnan, u)]; [isnan(x) ? last : x for x in u])
+nn(x) = isnan(x) ? nothing : x                     # an event never planned is null in the record, not NaN
 
 "The plant's readings on the grid under the executed schedule (only those up to now are used)."
 function plant_readings(s::Schedule)
@@ -118,9 +119,9 @@ while s.t_now < 28 * 3600
     flush(stdout)
     push!(record, Dict("t_h" => s.t_now / 3600, "committed" => string.(done), "free" => length(r.free), "F" => r.F,
                        "iterations" => length(r.hist), "converged" => r.converged, "wall_s" => time() - t0,
-                       "plan" => Dict("u" => p.u, "t_wrap_h" => p.t_wrap / 3600, "t_pull_h" => p.t_pull / 3600, "t_serve_h" => p.t_serve / 3600,
+                       "plan" => Dict("u" => p.u, "t_wrap_h" => nn(p.t_wrap / 3600), "t_pull_h" => p.t_pull / 3600, "t_serve_h" => p.t_serve / 3600,
                                       "spritz" => p.spritz === nothing ? nothing : Dict("t_h" => p.spritz.t / 3600, "dt_h" => p.spritz.dt / 3600, "m" => p.spritz.m),
-                                      "t_add_h" => p.t_add / 3600),
+                                      "t_add_h" => nn(p.t_add / 3600)),
                        "predicted" => Dict("mean" => pred.mean, "sd" => pred.sd),
                        "posterior_z" => z, "posterior_sd" => sdz, "err_sd" => (z .- z_true) ./ sdz,
                        "misfit_z" => mis === nothing ? nothing : mis.z_chi2))
@@ -143,9 +144,9 @@ actual = (T_pull=at(o.Tcore, s.t_pull) - 273.15, W=at(wret, s.t_serve), L=at(o.l
         actual.T_pull, goals.T_pull - 273.15, goals.sd_pull, actual.W, goals.W, actual.L, goals.L, actual.T_serve, goals.T_serve_floor - 273.15)
 open(joinpath(REPO, "data", "mock", "closed_loop.json"), "w") do io
     JSON.print(io, Dict("replans" => record, "delta_h" => Δ / 3600, "n_draws" => N_DRAWS,
-                        "executed" => Dict("u" => s.u, "t_wrap_h" => s.t_wrap / 3600, "t_pull_h" => s.t_pull / 3600, "t_serve_h" => s.t_serve / 3600,
+                        "executed" => Dict("u" => [isnan(x) ? nothing : x for x in s.u], "t_wrap_h" => nn(s.t_wrap / 3600), "t_pull_h" => nn(s.t_pull / 3600), "t_serve_h" => s.t_serve / 3600,
                                            "spritz" => s.spritz === nothing ? nothing : Dict("t_h" => s.spritz.t / 3600, "dt_h" => s.spritz.dt / 3600, "m" => s.spritz.m),
-                                           "t_add_h" => s.t_add / 3600),
-                        "actual" => Dict(pairs(actual)), "goals" => Dict(pairs(goals)), "z_true" => z_true, "names" => vcat(names, ["A_meat", "core_depth"])))
+                                           "t_add_h" => nn(s.t_add / 3600)),
+                        "actual" => Dict(pairs(actual)), "goals" => Dict(String(k) => getfield(goals, k) for k in fieldnames(PlanGoals)), "z_true" => z_true, "names" => vcat(names, ["A_meat", "core_depth"])))
 end
 println("wrote data/mock/closed_loop.json")

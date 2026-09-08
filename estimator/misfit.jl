@@ -58,7 +58,7 @@ function misfit(channels, a, B, w, V)
     for ch in channels
         nr = size(whitening(ch), 1)
         nr == 0 && continue
-        idx = (row + 1):(row + nr)
+        idx = (row + 1):(row + misfit_rows(ch))        # the AR rows; a channel's extra rows are not scored
         push!(out, (name=channel_label(ch), _block_stats(view(r, idx), view(h, idx))...))
         row += nr
     end

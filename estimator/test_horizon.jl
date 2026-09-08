@@ -108,4 +108,46 @@ end
     @test size(Jr) == (4, 10) && all(isfinite, Jr)
     @test any(abs.(Jr[1, :]) .> 0)          # the pull temperature answers to the plan
 end
+@testset "the replan trigger: first, event due, misfit, loss rise, floor, hold" begin
+    s = Schedule(GRID; u0=0.15)
+    s.t_now = 4 * 3600.0
+    pol = ReplanPolicy()
+    plan = (u=[0.2, 0.3, 0.25], t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.8 * 3600, dt=3600.0, m=0.04), t_add=8.0 * 3600)
+    @test replan_due(pol, s, nothing, 0.0, 0.0, 0.0, nothing) == (true, :first)
+    @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 0.5) == (true, :event_due)          # the spritz at 4.8 h is due within the hour
+    s.spritz = plan.spritz                                                                   # once committed it no longer triggers
+    @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 0.5) == (false, :hold)
+    @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 3.5) == (true, :misfit)
+    @test replan_due(pol, s, plan, 2.5, 1.0, 2 * 3600.0, 0.5) == (true, :loss_rise)
+    @test replan_due(pol, s, plan, 1.5, 1.0, 2 * 3600.0, 0.5) == (false, :hold)             # a rise under the threshold holds
+    @test replan_due(pol, s, plan, 1.0, 1.0, 0.0, 0.5) == (true, :floor)                     # four hours since the last replan
+    s.t_now = 5.2 * 3600.0
+    @test replan_due(pol, s, plan, 1.0, 1.0, 4 * 3600.0, 0.5) == (true, :event_due)          # the wrap at 6 h comes due
+end
+
+@testset "the standing plan's expected loss under posterior draws" begin
+    REPO = normpath(joinpath(@__DIR__, ".."))
+    m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_1d.json"))
+    gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "estimator_gate_real.json"))
+    meta = m["meta"]
+    pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
+    cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
+    prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+    s = Schedule(GRID; u0=0.15)
+    d = estimator_setup(GRID, fill(0.15, length(GRID)), pit, cfg, prior_phys, String.(gate["names"]))
+    x = Float64.(m["truth"]["x"])
+    z = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x[1:15], prior_phys)], log(x[16]))
+    f = free_set(s)
+    mζ, _ = plan_prior(f, s)
+    plan = decode_plan(mζ, f, s)
+    l1 = plan_loss([z], plan, s, d)
+    @test length(l1.draws) == 1 && isfinite(l1.mean) && l1.mean >= 0
+    @test abs(l1.mean - 0.5 * sum(abs2, E.goal_residuals(plan_outputs_rh(z, mζ, f, s, d), PlanGoals()))) < 1e-9
+    zs = [z, z .+ 0.3 .* randn(rng, length(z))]
+    l2 = plan_loss(zs, plan, s, d)
+    @test length(l2.draws) == 2 && abs(l2.mean - sum(l2.draws) / 2) < 1e-12
+    # a later clock with the same plan: re-encoded in the shrunken window, the loss is still finite
+    s.t_now = 2 * 3600.0
+    @test isfinite(plan_loss([z], plan, s, d).mean)
+end
 println("test_horizon.jl: done")

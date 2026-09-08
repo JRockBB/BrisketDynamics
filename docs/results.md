@@ -4,6 +4,87 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The receding horizon on the graph: the pilot without hardware (2026-09-08)
+
+`estimator/horizon.jl` closes the plan block into a pilot. The past is
+data: every replan solves the whole cook from the start with the
+executed damper log and the executed events as inputs, and only the
+future carries decisions, in seconds on one long grid, with the
+duration as the serve time at which the outcomes are read. Events are
+candidates until they fall due: one whose planned time lands inside the
+next interval is executed at that time and fixed in every later replan,
+so the free set shrinks (the spritz train starts when its first spritz
+is due; after the pull only the serve time is free). The Gaussian goal
+at serve became a one-sided floor, a softplus hinge per posterior draw
+that costs nothing above 65 °C and half the squared shortfall below it,
+the expected shortfall over the draws. The estimator's slab physics
+takes the executed events as inputs like the damper log. Unit tests
+(`estimator/test_horizon.jl`) hold the hinge, the free set, the
+encode/decode round trip with the ordering wrap < pull < serve and
+spritz, fuel add before the pull, the commit rule, the executed damper
+preserved, and the plan physics at the truth with every event on.
+
+`estimator/mock_closed_loop.jl` then runs the pilot on the matched mock
+plant with nothing but readings: every two hours the plant has run the
+executed schedule and produced pit, core, humidity and scale readings
+(its AR(1) noise pre-drawn on the grid), the estimator refits on the
+graph engine, the posterior's six draws feed the replan on the graph
+(warm-started from the previous plan), the due events commit, the
+damper executes (record `data/mock/closed_loop.json`, figure
+`figures/estimator_closed_loop.png`):
+
+| replan at | committed | wrap | pull | serve | spritz from | fuel add | predicted core at the pull | water | bark L* | posterior sd of L | misfit z |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 h, the prior | | 5.6 h | 8.8 h | 9.2 h | 6.3 h | 2.8 h | 77 ± 30 °C | 0.63 ± 0.33 | 40 ± 11 | 0.250 | |
+| 2 h | | 8.6 | 16.0 | 18.3 | 8.8 | 8.5 | 90 ± 9 | 0.43 ± 0.07 | 32 ± 4 | 0.122 | −0.4 |
+| 6 h | | 14.1 | 17.6 | 19.3 | 11.6 | 10.7 | 92.4 ± 2.9 | 0.41 ± 0.02 | 31 ± 5 | 0.105 | 0.1 |
+| 12 h | | 15.7 | 19.3 | 21.2 | 16.1 | 14.3 | 92.5 ± 1.2 | 0.39 ± 0.01 | 35.1 ± 0.5 | 0.098 | 0.8 |
+| 14 h | wrap at 15.8 h, fuel at 15.8 h | | 20.0 | 21.7 | 16.3 | | 91.8 ± 1.9 | 0.386 | 34.3 | 0.096 | 1.2 |
+| 16 h | spritz from 17.3 h, hourly, 50 g | | 20.3 | 21.8 | | | 90.2 ± 1.6 | 0.387 | 30.5 | 0.094 | 1.1 |
+| 20 h | pull at 20.5 h | | | 22.1 | | | 90.0 ± 1.3 | 0.388 | 31.7 | 0.075 | 0.7 |
+| 22 h | serve at 22.0 h | | | | | | 89.4 ± 1.2 | 0.387 | 31.3 | 0.065 | 0.8 |
+
+The plant's actual outcome under the executed schedule: core at the
+pull 89.7 °C (goal 93 ± 2), retained water 0.387 (goal 0.35), bark
+L* 32.4 (goal 32), core at serve 83.0 °C (floor 65). Twelve replans,
+estimator and plan together, in 33 minutes: under three minutes per
+replan on a two-hour cadence.
+
+Reading it:
+
+- **The plan settles within one interval of readings.** From the prior
+  alone the pilot would run the last knot nearly open and pull at 8.8 h,
+  with a predicted pull temperature spread of 30 K across the draws;
+  two hours of readings take the spread to 9 K and the plan to a
+  recognizable cook, and by hour 6 to 3 K. The posterior's width on the
+  thickness halves in the first interval and reaches a quarter by the
+  end.
+- **The commits are the plan's own, not surprises.** The wrap sat at
+  15 to 16 h from hour 8 on and committed at 15.8; the pull drifted
+  later as the cook went (16 h at the first replan with data, 20.5 h at
+  the commit) while the predicted pull temperature stayed within a
+  degree of its final value; the serve time followed the pull by 1.5
+  to 2 h throughout.
+- **The pull lands 1.6 sd under its goal, and that is the compromise,
+  not an error.** The plan holds the water above its goal and the bark
+  on it; the pull temperature is what it trades. The prediction at the
+  commit (90.0 ± 1.3) matched the plant (89.7).
+- **The floor at serve never binds.** With a 1.5 h rest from a 90 °C
+  pull the core is 83 °C at serve, eighteen degrees above the floor, so
+  the tail term is zero throughout: a floor, unlike a target, does not
+  pull the plan toward itself. That is the behaviour wanted; on a
+  plant or a goal where the tail is live the same term carries the
+  shortfall over the draws.
+- **The estimator's misfit check stays inside ±1.8 for the whole cook**,
+  as it should on the matched plant, with the executed events inside
+  its physics.
+
+What remains of pilot integration is the hookup: the readings from the
+pit instead of the mock plant, the executed damper and events from the
+pilot's journal, the plan back to it, through juliacall on the Julia
+thread the pilot already holds, and an information term from the
+estimator's Jacobian if the pilot is to pay for learning the fire.
+
 ## The full decision set on the graph (2026-09-08)
 
 The planning experiment's block had three decisions. `estimator/plan_block.jl`

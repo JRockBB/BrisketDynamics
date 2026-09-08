@@ -382,6 +382,12 @@ function predict(ch::StaticReading, S, J, z, prior, lay)
     return [x], Jr
 end
 
+# the samples whose residuals are the channel's noise process (a censored reading is not one)
+noise_mask(ch::Channel) = ch.mask
+# independent rows a channel appends after its AR rows (none by default); level[k] scales the sd at k
+extra_rows(ch::Channel, level) = zeros(0, length(level))
+# the leading rows the misfit check scores (the AR rows; the extra rows are not unit-power residuals)
+misfit_rows(ch::Channel) = size(whitening(ch), 1)
 whitening(ch::PitProbe) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::SurfaceIR) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::HumiditySensor) = whitening_rows(ch.mask, ch.σ, ch.ρ)

@@ -90,6 +90,7 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
                             physics::Union{Nothing,Physics}=nothing,
                             noise::Union{Nothing,AbstractDict{Int,NoisePrior}}=nothing,
                             noise_rounds::Int=3, noise_tol::Float64=0.02,
+                            levelled::Bool=false, level_w::Float64=0.05,
                             engine::Symbol=:graph,
                             iters::Int=30, tol::Float64=1e-4, ftol::Float64=1e-3,
                             bp_iters::Int=20, verbose::Bool=false)
@@ -116,7 +117,12 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
             est = estimate_noise(chs[i], S, J, c, prior, lay, np)
             old_σ, old_ρ = chs[i].σ, chs[i].ρ
             moved = max(moved, abs(est.σ / old_σ - 1), abs(est.ρ - old_ρ))
-            chs[i] = with_noise(chs[i], est.σ, est.ρ)
+            chs[i] = with_noise(unlevelled(chs[i]), est.σ, est.ρ)
+            if levelled     # the noise level as a process along each run, at the channel's own spacing
+                runs = residual_runs(chs[i], S, J, c, prior, lay)
+                levels = [volatility_level(e, est.post.ρ, est.σ; w=level_w).level for e in runs]
+                chs[i] = Levelled(chs[i], level_on_grid(noise_mask(chs[i]), levels))
+            end
             noise_post[i] = (σ=est.σ, ρ=est.ρ, σ_sd=est.post.σ_sd, ρ_sd=est.post.ρ_sd)
             verbose && @printf("    noise round %d, channel %d (%s): σ %.3f -> %.3f (± %.3f), ρ %.3f -> %.3f (± %.3f)\n",
                                round, i, channel_label(chs[i]), old_σ, est.σ, est.post.σ_sd, old_ρ, est.ρ, est.post.ρ_sd)
@@ -206,10 +212,11 @@ function stream_fit(channels, prior, d::GateData, batch_edges; area_latent::Int=
         res = solve_map_channels(chs, prior, d; c0=c, area_latent, physics, verbose=verbose, kw...)
         c = res.z
         for (i, np) in res.noise
-            channels[i] = with_noise(channels[i], np.σ, np.ρ)
+            channels[i] = with_noise(unlevelled(channels[i]), np.σ, np.ρ)
+            res.channels[i] isa Levelled && (channels[i] = Levelled(channels[i], res.channels[i].level))
         end
         sd = sqrt.(diag(res.cov))
-        push!(out, (batch=b, t=te, z=res.z, sd=sd, cov=res.cov, F=res.F,
+        push!(out, (batch=b, t=te, z=res.z, sd=sd, cov=res.cov, F=res.F, channels=res.channels,
                     iters=length(res.hist), wall=time() - t0, misfit=res.misfit, noise=res.noise))
         verbose && @printf("  batch %2d  t = %5.1f h  F = %9.3f  outer %2d  (%.0f s)\n",
                            b, te / 3600, res.F, length(res.hist), time() - t0)
