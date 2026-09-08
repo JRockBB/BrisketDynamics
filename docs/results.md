@@ -183,7 +183,14 @@ interpolation in the material coordinate, the chain rule to the depth
 and to the thickness analytic); surface IR; humidity (pit vapor
 pressure); a scale reading \(\rho_d A_{\mathrm{meat}} L\,(1 + \bar W + \bar F)\),
 the model's own bookkeeping; a static reading of any latent (a ruler on
-the thickness or the footprint, a measured insertion depth). The exposed
+the thickness or the footprint, a measured insertion depth); and, added
+later the same day, a fuel scale under the firebox (the pit's fuel
+state), a bark colorimeter on L* (the model's lightness map of its bark
+states) and a wet-bulb probe (the psychrometer equation solved on the
+pit temperature and vapor pressure, its Jacobian by implicit
+differentiation; `estimator/test_channels.jl` checks the map against
+ForwardDiff). Ambient and rest-environment readings are inputs of the
+physics, not measurement operators, and enter through the configs. The exposed
 area became a runtime parameter of the monolith for this (an optional
 last entry of its parameter vector, `A_meat=` on `monolith_solve`,
 dual-capable; the config's constant when absent, bitwise; FD-checked),
@@ -209,16 +216,21 @@ Posterior width ratios against that baseline, and the information gained
 | second probe, 1 cm, known depth | 2.1 | 0.71 | 0.68 | 0.64 | 0.58 | 0.99 | 1.00 | 0.99 | 0.98 | 0.95 | 0.95 | 0.96 | 0.95 |
 | humidity sensor | 6.2 | 0.84 | 0.75 | 0.80 | 0.86 | 0.39 | 0.99 | 0.95 | 0.64 | 0.62 | 0.63 | 0.65 | 0.99 |
 | surface IR | 2.0 | 0.81 | 0.84 | 0.81 | 0.90 | 0.99 | 1.00 | 0.94 | 0.96 | 0.97 | 0.97 | 0.97 | 0.98 |
+| fuel scale (load cell under the firebox) | 2.0 | 0.99 | 0.93 | 0.97 | 0.99 | 0.95 | 1.00 | 1.00 | 1.00 | 0.66 | 0.68 | 0.85 | 1.00 |
+| bark colorimeter, hourly | 0.3 | 0.91 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| wet-bulb probe | 1.8 | 0.96 | 0.90 | 0.93 | 0.93 | 0.50 | 1.00 | 0.99 | 0.94 | 0.92 | 0.93 | 0.87 | 1.00 |
 | scale, before/after | 4.0 | 0.85 | 0.93 | 0.96 | 0.93 | 0.39 | 1.00 | 0.99 | 1.00 | 1.00 | 1.00 | 0.91 | 1.00 |
 | scale, continuous | 8.9 | 0.72 | 0.85 | 0.91 | 0.92 | 0.38 | 0.73 | 0.40 | 1.00 | 0.97 | 0.97 | 0.91 | 0.99 |
 | scale, continuous + footprint ruler | 9.3 | 0.53 | 0.68 | 0.63 | 0.57 | 0.24 | 0.72 | 0.40 | 1.00 | 0.97 | 0.96 | 0.91 | 0.98 |
 | rulers + scale + second probe | 10.9 | 0.43 | 0.54 | 0.49 | 0.42 | 0.17 | 0.71 | 0.35 | 0.97 | 0.91 | 0.91 | 0.87 | 0.95 |
-| everything | 14.9 | 0.37 | 0.39 | 0.37 | 0.39 | 0.16 | 0.68 | 0.29 | 0.56 | 0.53 | 0.54 | 0.61 | 0.65 |
+| everything | 16.3 | 0.37 | 0.37 | 0.36 | 0.39 | 0.16 | 0.68 | 0.28 | 0.52 | 0.42 | 0.43 | 0.56 | 0.65 |
 
 Baseline widths (sd of the unconstrained latents): D_eff 0.346, k_m 0.156, h_c 0.231, L 0.117, A_meat 0.279, k_e 0.499, a_myosin 0.386, m_conv 0.628, r_max 0.136, u_leak 0.273, a0 0.834, core_depth 0.213. Assumed
 noise: humidity 100 Pa, IR 2 K, scale 20 g, rulers 3 mm and 0.01 m²,
-second probe as the core probe, AR(1) correlation 0.8 on the
-hypothetical temperature and humidity channels, 0.5 on the scale.
+second probe as the core probe, fuel load cell 50 g, bark colorimeter
+3 L* once an hour, wet-bulb probe 1 K, AR(1) correlation 0.8 on the
+hypothetical temperature, humidity and color channels, 0.5 on the
+scales.
 
 Reading it:
 
@@ -239,13 +251,23 @@ Reading it:
   A 0.24). The scale cook needs both rulers.
 - **A second probe at a known 1 cm depth** buys 2.1 nats, on thickness
   and transport (L 0.58, h_c 0.64, k_m 0.68).
+- **A fuel scale reads the burn rate directly** (2.0 nats: r_max 0.66,
+  u_leak 0.68, a0 0.85) and nothing on the meat: a third of the
+  humidity sensor's effect on the pit ridge for a load cell under the
+  firebox. **The wet-bulb probe is a humidity sensor at 600 Pa instead
+  of 100** (1 K at a 50 °C wet bulb) and still halves the area's width
+  (0.50, 1.8 nats); its worth is what it validates, the vapor balance's
+  constants, more than its nats. **A bark colorimeter** at 3 L* once an
+  hour buys 0.3 nats: the bark's color rides on the surface temperature
+  and water the probes already fix.
 - A ruler alone buys 0.2 nats; measuring the insertion depth constrains
   only itself, because a probe near 0.8 L is weakly coupled to the
   physics. Assuming the probe sits exactly at the center, as the
   calibration does, overstates the information by 0.3 nats.
 - The value ordering for C2 is therefore humidity, scale, second probe,
-  IR, ruler; rulers plus scale plus the second probe give 11 nats,
-  everything 15.
+  then the fuel scale, IR and the wet-bulb probe at about 2 nats each,
+  ruler, colorimeter; rulers plus scale plus the second probe give 11
+  nats, everything 16.
 
 Linearized information at the MAP with assumed noise, not a posterior;
 the registry's fitting path (the same affine nodes as the gate) is what

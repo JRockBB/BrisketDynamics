@@ -24,10 +24,11 @@ guarantee.
   calibrated cook: a humidity sensor first (it measures the burn rate
   through the combustion water and breaks the pit ridge in closed loop),
   then a scale (the only observer of the water-holding latents), then a
-  second probe at known depth, then IR, then the ruler; the mock-plant
-  streaming run confirms the first pair in a fit (all 17 latents within
-  1.4 sd at 19 h with humidity and a scale). In value order as planned
-  before that table:
+  second probe at known depth, then a fuel scale, IR and a wet-bulb probe
+  at about 2 nats each, then the ruler and a bark colorimeter; the
+  mock-plant streaming run confirms the first pair in a fit (all 17
+  latents within 1.4 sd at 19 h with humidity and a scale). In value
+  order as planned before that table:
   a two-hour open-loop *characterization burn* (step the fan 10→30→15%,
   no meat, no controller — free, and the only way to identify the pit's
   fast fan-response dynamics and the draft exponent
@@ -111,13 +112,9 @@ Its structure is fixed by three measured RxInfer behaviours
   posterior arrives with its own warning; then the thing the check would
   ask for, a geometry latent (a shape factor on the slab, or the
   cylinder's aspect ratio through the slab2d Tesseract).
-- **More channels.** The registry (`estimator/channels.jl`) carries
-  pit and meat probes at any depth, surface IR, humidity, a scale and
-  static readings; still to add: fuel mass, bark color, the wet-bulb as
-  a psychrometric map of the vapor pressure, ambient and rest-environment
-  readings. (The exposed area is a runtime parameter of the monolith
-  now, `A_meat=`, and a latent of the estimator; the Tesseract and the
-  calibration artifacts still carry it as the config constant.)
+- **The exposed area elsewhere.** It is a runtime parameter of the
+  monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
+  and the calibration artifacts still carry it as the config constant.
 - **Noise as graph structure.** The AR(1) discrepancy and its scale as
   nodes (RxInfer's AR node) instead of a fixed whitening; the pooled
   posterior as the prior in data form (one source for priors).

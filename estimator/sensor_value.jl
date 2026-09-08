@@ -67,6 +67,10 @@ scale_ends = MassScale(0.02, 0.0, ends; area_latent=AREA)      # before / after 
 ruler = StaticReading(4, 0.003)                                # 3 mm on the half-thickness
 footprint = StaticReading(AREA, 0.01)                          # 0.01 m² (~8 %) on the exposed area
 depth_ruler = StaticReading(DEPTH, 0.003)                      # the insertion depth measured
+fuel = FuelScale(0.05, 0.5, full)                              # a load cell under the firebox, 50 g
+hourly = falses(nt); hourly[1:6:end] .= true
+bark = BarkLightness(3.0, 0.8, hourly)                         # a colorimeter on the bark, 3 L*, hourly
+wetbulb = WetBulb(1.0, 0.8, full)                              # a wetted thermocouple, 1 K
 
 sets = [
     ("pit + core at center (as calibrated)", [pit, core_center]),
@@ -76,13 +80,16 @@ sets = [
     ("+ second probe, 1 cm, known depth", [pit, core_unknown, second_probe]),
     ("+ humidity sensor", [pit, core_unknown, humidity]),
     ("+ surface IR", [pit, core_unknown, surface_ir]),
+    ("+ fuel scale", [pit, core_unknown, fuel]),
+    ("+ bark colorimeter, hourly", [pit, core_unknown, bark]),
+    ("+ wet-bulb probe", [pit, core_unknown, wetbulb]),
     ("+ scale, before/after", [pit, core_unknown, scale_ends]),
     ("+ scale, continuous", [pit, core_unknown, scale_cont]),
     ("+ scale, continuous + footprint ruler", [pit, core_unknown, scale_cont, footprint]),
     ("+ rulers (thickness, footprint) + scale + second probe",
      [pit, core_unknown, ruler, footprint, second_probe, scale_cont]),
     ("+ everything", [pit, core_unknown, ruler, footprint, depth_ruler, second_probe, humidity,
-                      surface_ir, scale_cont]),
+                      surface_ir, scale_cont, fuel, bark, wetbulb]),
 ]
 results = []
 covs = Dict{String,Matrix{Float64}}()
