@@ -17,7 +17,7 @@
 # call is the whole solve; its last marginal is the posterior at the
 # converged center once the damping is released.
 
-export iterated_solve, IteratedProblem, lm_node
+export iterated_solve, IteratedProblem, lm_node, solve_channels_graph
 
 """
     IteratedProblem(varname; objective, rebuild!, n)
@@ -99,4 +99,61 @@ function iterated_solve(p::IteratedProblem, run_infer; c0, iters::Int=40, tol::F
     res = run_infer(Λ_lm, (on_marginal_update=on_update,), 1)
     q = last[]
     return (z=c, F=Fc, mean=collect(mean(q)), cov=Matrix(cov(q)), hist=hist, converged=converged[])
+end
+
+# --- the production solve on the graph -------------------------------------------------
+
+@model function cook_graph_lm(w, mp, Λp, lm_obs, Λ_lm)
+    z ~ MvNormalMeanPrecision(mp, Λp)
+    for i in 1:length(w)
+        pred[i] := reading(z, i)
+        w[i] ~ Normal(mean = pred[i], var = 1.0)
+    end
+    lm := lm_node(z)
+    lm_obs ~ MvNormalMeanPrecision(lm, Λ_lm)
+end
+const GRAPH_META_LM = @meta begin
+    reading() -> Linearization()
+    lm_node() -> Linearization()
+end
+
+"""
+    solve_channels_graph(channels, prior, d, ph; c0, iters, tol, ftol, bp_iters, verbose)
+
+The fixed-noise solve of `solve_map_channels` with the graph owning the
+loop (`iterated_solve`): the same affine node per whitened residual, the
+prior's local quadratic and the LM precision as data the loop re-feeds,
+the objective and the line search in the callback. Returns what
+`_solve_fixed_noise` returns.
+"""
+function solve_channels_graph(channels, prior, d::GateData, ph::Physics; c0, iters::Int=40, tol::Float64=1e-4,
+                              ftol::Float64=1e-3, bp_iters::Int=20, verbose::Bool=false)
+    n = length(prior)
+    mp = zeros(n); Λp = zeros(n, n)
+    w_ref = Ref{Vector{Float64}}(Float64[])
+    lay_ref = Ref{Any}(nothing)
+    function objective(c)
+        S, lay = physics_stack(c, d, ph)
+        a, _, w = assemble(channels, c, S, zeros(length(S), n), prior, lay)
+        return _objective(a, w, c, prior)
+    end
+    function rebuild!(c)
+        S, J, lay = physics_outputs(c, d, ph)
+        a, B, w = assemble(channels, c, S, J, prior, lay)
+        any(isnan, w) && throw(ArgumentError("every channel in a fit must carry data"))
+        AFF[] = Affine(a, B, copy(c))
+        w_ref[] = w
+        lay_ref[] = lay
+        _, g, h = prior_terms(c, prior)
+        mp .= c .- g ./ h
+        Λp .= Matrix(Diagonal(h))
+    end
+    prob = IteratedProblem(:z, objective, rebuild!, n)
+    run_infer(Λ_lm, callbacks, its) = infer(model = cook_graph_lm(), data = (w = w_ref[], mp = mp, Λp = Λp, lm_obs = zeros(n), Λ_lm = Λ_lm),
+                                            meta = GRAPH_META_LM, initialization = init_z(mp, Λp), iterations = its,
+                                            callbacks = callbacks, returnvars = (z = KeepLast(),))
+    r = iterated_solve(prob, run_infer; c0, iters, tol, ftol, verbose)
+    a, B = AFF[].a, AFF[].B
+    mis = misfit(channels, a, B, w_ref[], r.cov)
+    return (z=r.z, mean=r.mean, cov=r.cov, F=r.F, hist=r.hist, misfit=mis, converged=r.converged)
 end

@@ -90,15 +90,20 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
                             physics::Union{Nothing,Physics}=nothing,
                             noise::Union{Nothing,AbstractDict{Int,NoisePrior}}=nothing,
                             noise_rounds::Int=3, noise_tol::Float64=0.02,
+                            engine::Symbol=:graph,
                             iters::Int=30, tol::Float64=1e-4, ftol::Float64=1e-3,
                             bp_iters::Int=20, verbose::Bool=false)
     ph = physics === nothing ? Physics1D(area_latent) : physics
+    engine in (:graph, :outer) || throw(ArgumentError("engine must be :graph (the loop inside infer) or :outer (the loop around it)"))
+    solve_fixed = engine === :graph ?
+        (chs, c) -> solve_channels_graph(chs, prior, d, ph; c0=c, iters, tol, ftol, bp_iters, verbose) :
+        (chs, c) -> _solve_fixed_noise(chs, prior, d, ph; c0=c, iters, tol, ftol, bp_iters, verbose)
     chs = collect(Channel, channels)
     noise_post = Dict{Int,NamedTuple}()
     c = copy(c0)
     res = nothing
     for round in 1:(noise === nothing ? 1 : noise_rounds)
-        res = _solve_fixed_noise(chs, prior, d, ph; c0=c, iters, tol, ftol, bp_iters, verbose)
+        res = solve_fixed(chs, c)
         c = res.z
         noise === nothing && break
         if !res.converged
