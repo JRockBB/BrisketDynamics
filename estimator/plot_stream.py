@@ -24,7 +24,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[1]
 SETS_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]  # categorical slots 1-3 (dataviz palette)
 INK, INK2, SURFACE = "#0b0b0b", "#52514e", "#fcfcfb"
-SHOW = ["L", "h_c", "k_m", "D_eff", "A_meat", "core_depth", "r_max", "a_myosin"]
+SHOW = ["L", "h_c", "k_m", "a0", "A_meat", "core_depth", "r_max", "a_myosin"]
 
 
 def plot(path: Path):
@@ -33,6 +33,9 @@ def plot(path: Path):
     idx = {n: i for i, n in enumerate(names)}
     sets = d["sets"]
     cols = [n for n in SHOW if n in idx]
+    # one error scale for the whole row: the panels are read against each other
+    lim = max(3.0, 1.1 * float(np.nanmax(np.abs(np.array(
+        [b["err_sd"][idx[n]] for n in cols for s in sets for b in s["batches"]])))))
     fig, axes = plt.subplots(2, len(cols), figsize=(2.3 * len(cols) + 1.0, 5.6), sharex=True,
                              layout="constrained")
     fig.patch.set_facecolor(SURFACE)
@@ -56,8 +59,6 @@ def plot(path: Path):
         ax_err.axhspan(-2, 2, color="#f0efec", zorder=0)
         ax_err.axhline(0, color=INK2, lw=0.8)
         ax_err.set_xlabel("cook hour", color=INK2, fontsize=9)
-        lim = max(3.0, float(np.nanmax(np.abs(np.array(
-            [b["err_sd"][j] for s in sets for b in s["batches"]])))) * 1.1)
         ax_err.set_ylim(-lim, lim)
     axes[0, 0].set_ylabel("posterior sd (unconstrained)", color=INK2, fontsize=9)
     axes[1, 0].set_ylabel("(estimate − truth) / sd", color=INK2, fontsize=9)

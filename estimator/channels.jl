@@ -19,8 +19,8 @@
 using LinearAlgebra
 
 export Channel, PitProbe, MeatProbe, SurfaceIR, HumiditySensor, MassScale, StaticReading,
-       LatentSpec, physics_outputs, assemble, fisher_cov, contiguous_runs, whitening_rows,
-       OutputLayout
+       LatentSpec, physics_outputs, physics_stack, assemble, fisher_cov, contiguous_runs,
+       whitening_rows, OutputLayout
 
 struct OutputLayout
     nx::Int
@@ -76,6 +76,23 @@ function physics_outputs(z, d::GateData; area_latent::Int=0)
     end
     lay = OutputLayout(size(o.T_field, 1), length(d.t))
     return S, Jz, lay
+end
+
+"""
+    physics_stack(z, d; area_latent=0) -> (S, lay)
+
+The stacked outputs alone (one solve, no Jacobian) — for objective
+evaluations in a line search.
+"""
+function physics_stack(z, d::GateData; area_latent::Int=0)
+    zp = z[1:N_PHYS]
+    x = from_z(zp, d.prior[1:N_PHYS])
+    kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol)
+    o = area_latent > 0 ?
+        monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw..., A_meat=exp(z[area_latent])) :
+        monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw...)
+    S = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o.F_field), o.pv_pit)
+    return S, OutputLayout(size(o.T_field, 1), length(d.t))
 end
 
 # --- whitening -----------------------------------------------------------------
