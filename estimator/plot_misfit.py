@@ -8,10 +8,15 @@ a right model with right noise lives.
 
 Run from app/:  uv run python ../estimator/plot_misfit.py
 Reads data/mock/mock_1d_misfit.json and mock_2d_misfit.json,
-writes figures/estimator_misfit.png.
+writes figures/estimator_misfit.png. With arguments,
+  plot_misfit.py OUT A.json "label A" B.json "label B"
+draws the same figure from two records that may be post-hoc misfit
+files or stream records with the check embedded per batch, to
+figures/OUT.png.
 """
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -34,7 +39,8 @@ def series(d, label, name, key):
     st = next(s for s in d["sets"] if s["label"] == label)
     th, val = [], []
     for b in st["batches"]:
-        recs = b["channels"] + [b["total"]]
+        mis = b["misfit"] if "misfit" in b else b       # a stream record, or a post-hoc misfit file
+        recs = mis["channels"] + [mis["total"]]
         rec = next((c for c in recs if c["name"] == name), None)
         if rec is None:
             continue
@@ -43,13 +49,18 @@ def series(d, label, name, key):
     return np.array(th), np.array(val, dtype=float)
 
 
-def main():
-    data = {p: json.loads((REPO / "data" / "mock" / f"{p}_misfit.json").read_text()) for p in PLANT_COLORS}
+def main(out="estimator_misfit", files=None, labels=None):
+    global PLANT_LABELS
+    if files is None:
+        data = {p: json.loads((REPO / "data" / "mock" / f"{p}_misfit.json").read_text()) for p in PLANT_COLORS}
+    else:
+        data = {p: json.loads(Path(f).read_text()) for p, f in zip(PLANT_COLORS, files)}
+        PLANT_LABELS = dict(zip(PLANT_COLORS, labels))
     fig, axes = plt.subplots(2, len(COLS), figsize=(2.6 * len(COLS) + 0.8, 5.4), sharex=True,
                              layout="constrained")
     fig.patch.set_facecolor(SURFACE)
-    allv = [np.abs(series(d, lab, n, k)[1]) for d in data.values() for lab in SETS for n in COLS
-            for k, _ in STATS]
+    allv = [np.abs(series(d, lab, n, k)[1]) for d in data.values() for lab in SETS
+            if any(s["label"] == lab for s in d["sets"]) for n in COLS for k, _ in STATS]
     lim = max(6.0, 1.1 * float(np.nanmax(np.concatenate([v for v in allv if v.size]))))
     for c, name in enumerate(COLS):
         for r, (key, ylabel) in enumerate(STATS):
@@ -63,6 +74,8 @@ def main():
             ax.axhline(0, color=INK2, lw=0.8)
             for p, d in data.items():
                 for lab, ls in SETS.items():
+                    if not any(s["label"] == lab for s in d["sets"]):
+                        continue
                     th, v = series(d, lab, name, key)
                     if th.size:
                         ax.plot(th, v, color=PLANT_COLORS[p], lw=2, ls=ls)
@@ -79,11 +92,14 @@ def main():
                labelcolor=INK2)
     fig.suptitle("The misfit check at every hourly refit: what a refit reports next to its posterior",
                  color=INK, fontsize=10.5)
-    out = REPO / "figures" / "estimator_misfit.png"
+    out = REPO / "figures" / (out + ".png")
     fig.savefig(out, dpi=150, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     print("wrote", out)
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) >= 6:
+        main(sys.argv[1], [sys.argv[2], sys.argv[4]], [sys.argv[3], sys.argv[5]])
+    else:
+        main()
