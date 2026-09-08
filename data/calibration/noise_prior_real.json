@@ -1,0 +1,24 @@
+{
+ "source": "nuts_mono_samples_real.npz (the real 19 h cook), sigma_eff = sigma + floor",
+ "sigma_floor_K": 1.2,
+ "channels": {
+  "pit": {
+   "sigma_mean": 1.4243918541096208,
+   "sigma_sd": 0.22822358027483822,
+   "rho_mean": 0.7825618473101954,
+   "rho_sd": 0.061205469502598184,
+   "n_draws": 1200,
+   "sigma_eff_map": 1.5399555169442842,
+   "rho_map": 0.831353097633576
+  },
+  "core": {
+   "sigma_mean": 1.653484577988371,
+   "sigma_sd": 0.12769694282368857,
+   "rho_mean": 0.9431993551778123,
+   "rho_sd": 0.00528861153332092,
+   "n_draws": 1200,
+   "sigma_eff_map": 1.69601696817803,
+   "rho_map": 0.9467363743876916
+  }
+ }
+}

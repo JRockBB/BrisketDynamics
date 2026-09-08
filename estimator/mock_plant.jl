@@ -37,6 +37,15 @@ W0, F0 = d.cfg.W0, d.cfg.F0
 noise = Dict("pit" => (nz["sigma_pit_eff"], nz["rho_pit"]),
              "core" => (nz["sigma_core_eff"], nz["rho_core"]),
              "humidity" => (100.0, 0.8), "ir" => (2.0, 0.8), "mass" => (0.02, 0.5))
+# `--altnoise`: the same plants with a different true noise (a noisier pit probe, a quieter
+# and less correlated core probe, a worse humidity sensor, a better scale), for the noise
+# identification runs; files get the suffix _alt
+ALT = "--altnoise" in ARGS
+if ALT
+    noise = Dict("pit" => (3.0, 0.6), "core" => (1.0, 0.85),
+                 "humidity" => (200.0, 0.5), "ir" => (2.0, 0.8), "mass" => (0.01, 0.2))
+end
+SUFFIX = ALT ? "_alt" : ""
 
 function ar1_noise(rng, n, σ, ρ)
     e = zeros(n)
@@ -114,7 +123,7 @@ mock2 = merge(base, Dict("plant" => "2-D axisymmetric (structural mismatch)", "c
 
 dir = joinpath(REPO, "data", "mock")
 mkpath(dir)
-for (name, m) in (("mock_1d.json", mock1), ("mock_2d.json", mock2))
+for (name, m) in (("mock_1d" * SUFFIX * ".json", mock1), ("mock_2d" * SUFFIX * ".json", mock2))
     open(joinpath(dir, name), "w") do io
         JSON.print(io, m)
     end

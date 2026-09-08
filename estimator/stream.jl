@@ -70,9 +70,37 @@ is ~1e-3 in whitened units, so chasing it buys nothing).
 """
 function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0,
                             physics::Union{Nothing,Physics}=nothing,
+                            noise::Union{Nothing,AbstractDict{Int,NoisePrior}}=nothing,
+                            noise_rounds::Int=3, noise_tol::Float64=0.02,
                             iters::Int=30, tol::Float64=1e-4, ftol::Float64=1e-3,
                             bp_iters::Int=20, verbose::Bool=false)
     ph = physics === nothing ? Physics1D(area_latent) : physics
+    chs = collect(Channel, channels)
+    noise_post = Dict{Int,NamedTuple}()
+    c = copy(c0)
+    res = nothing
+    for round in 1:(noise === nothing ? 1 : noise_rounds)
+        res = _solve_fixed_noise(chs, prior, d, ph; c0=c, iters, tol, ftol, bp_iters, verbose)
+        c = res.z
+        noise === nothing && break
+        S, J, lay = physics_outputs(c, d, ph)
+        moved = 0.0
+        for (i, np) in noise
+            est = estimate_noise(chs[i], S, J, c, prior, lay, np)
+            old_σ, old_ρ = chs[i].σ, chs[i].ρ
+            moved = max(moved, abs(est.σ / old_σ - 1), abs(est.ρ - old_ρ))
+            chs[i] = with_noise(chs[i], est.σ, est.ρ)
+            noise_post[i] = (σ=est.σ, ρ=est.ρ, σ_sd=est.post.σ_sd, ρ_sd=est.post.ρ_sd)
+            verbose && @printf("    noise round %d, channel %d (%s): σ %.3f -> %.3f (± %.3f), ρ %.3f -> %.3f (± %.3f)\n",
+                               round, i, channel_label(chs[i]), old_σ, est.σ, est.post.σ_sd, old_ρ, est.ρ, est.post.ρ_sd)
+        end
+        verbose && flush(stdout)
+        moved < noise_tol && break
+    end
+    return (; res..., channels=chs, noise=noise_post)
+end
+
+function _solve_fixed_noise(channels, prior, d::GateData, ph::Physics; c0, iters, tol, ftol, bp_iters, verbose)
     c = copy(c0)
     S, J, lay = physics_outputs(c, d, ph)
     a, B, w = assemble(channels, c, S, J, prior, lay)
@@ -127,15 +155,19 @@ function stream_fit(channels, prior, d::GateData, batch_edges; area_latent::Int=
     c = c0 === nothing ? vcat(d.z0, [isbeta(p) ? log(p.p1 / p.p2) : p.p1 for p in prior[(N_PHYS + 1):end]]) :
         copy(c0)
     out = NamedTuple[]
+    channels = collect(Channel, channels)        # the noise estimate of one batch carries to the next
     for (b, te) in enumerate(batch_edges)
         keep = d.t .<= te + 1e-9
         chs = [restrict(ch, keep) for ch in channels]
         t0 = time()
         res = solve_map_channels(chs, prior, d; c0=c, area_latent, physics, verbose=verbose, kw...)
         c = res.z
+        for (i, np) in res.noise
+            channels[i] = with_noise(channels[i], np.σ, np.ρ)
+        end
         sd = sqrt.(diag(res.cov))
         push!(out, (batch=b, t=te, z=res.z, sd=sd, cov=res.cov, F=res.F,
-                    iters=length(res.hist), wall=time() - t0, misfit=res.misfit))
+                    iters=length(res.hist), wall=time() - t0, misfit=res.misfit, noise=res.noise))
         verbose && @printf("  batch %2d  t = %5.1f h  F = %9.3f  outer %2d  (%.0f s)\n",
                            b, te / 3600, res.F, length(res.hist), time() - t0)
         verbose && flush(stdout)
