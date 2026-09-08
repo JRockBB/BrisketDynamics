@@ -4,6 +4,109 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Noise as graph structure: the AR node, and what it taught about priors (2026-09-08)
+
+`estimator/noise.jl`: a channel's AR(1) discrepancy is RxInfer's AR
+node now, not a fixed whitening. The residual process of a channel,
+r_k = y_k − pred_k(ẑ), is one AR chain per contiguous run of the mask
+(a lid lift breaks the chain) with the coefficient θ and the innovation
+precision γ shared across runs, q(x) q(θ) q(γ) as in RxInfer's own AR
+tests, and the whitening's parameters read off as the marginal sd
+σ = 1/√(γ(1−ρ²)) and ρ. The physics block does not change: it sees the
+noise through the whitening, and the two alternate (fit the physics at
+the current whitening, the AR node on the residuals at the mode, refit)
+until the noise stops moving; the stream carries one batch's estimate
+into the next. The prior is the calibration's posterior in data form
+(`estimator/export_noise_prior.py` writes the real cook's NUTS moments,
+σ_eff = σ + floor, to `data/calibration/noise_prior_real.json`; the
+loader turns them into the AR node's Normal on θ and moment-matched
+Gamma on γ). `estimator/test_noise.jl`: a synthetic AR(1) at the cook's
+length is recovered within its posterior width, a run split by a lid
+lift agrees with the unsplit series, a strong wrong prior is overridden
+by 115 points, the posterior narrows with the series. The node's
+mean-field split between θ and γ costs a bias on the marginal sd that
+grows with the correlation (σ/truth 1.00 at ρ 0.6, 0.95 at 0.83 and at
+0.95 over twelve draws each, half a posterior width); the conjugate
+variant that keeps (θ, γ) joint fails in its marginal rule at order 1
+(a scalar added to a 1 × 1 matrix), the third upstream finding.
+
+Two things had to be fixed in the solver before the alternation could
+work, both found by it. The graph's local-quadratic prior node goes flat
+where a Beta site (the draft exponent, the leak fraction, the fire base
+rate: the pit ridge) sits at an extreme logit, and an undamped
+Gauss–Newton step then runs to infinity (1e5 in z); the line search
+failed at its floor, the fit stopped unconverged, and the AR node read
+the unconverged residuals as a huge near-unit-root noise (a pit sd of
+90 K, ρ 0.999) that switched the channel off and locked the fit. A
+rejected or absurd step now raises a Levenberg–Marquardt damping on the
+prior node's precision and retries on the same Jacobian, a solve that
+fails is an infinite objective, a rejected negligible step is
+convergence at the jitter floor, and the noise is estimated only on a
+converged fit. The gate's reference run reproduces the calibration's MAP
+unchanged (0.33 sd, F 133.12).
+
+`estimator/gate_noise_real.jl`, the real cook (record
+`data/calibration/estimator_gate_noise_result.json`):
+
+| start and prior | pit σ (calibration 1.54) | pit ρ (0.831) | core σ (1.70) | core ρ (0.947) | MAP vs calibration, max / median sd | residual power |
+|---|---|---|---|---|---|---|
+| wrong start (3.0 K, 0.5), weak prior | 1.20 ± 0.14 (the floor) | 0.729 ± 0.065 | 1.27 ± 0.18 | 0.917 ± 0.021 | 1.10 / 0.31 | 1.11 |
+| the calibration's prior, started at its means | 1.26 ± 0.13 | 0.758 ± 0.045 | 1.27 ± 0.16 | 0.934 ± 0.015 | 0.87 / 0.22 | 1.20 |
+| fixed calibration noise (reference, no AR node) | | | | | 0.33 / 0.05 | 0.93 |
+
+`estimator/mock_stream_noise.jl` streams `mock_plant.jl --altnoise`,
+the slab plant with a noisier pit probe, a quieter and less correlated
+core probe, a worse humidity sensor and a better scale, every channel
+starting at its prior's means (records
+`data/mock/mock_1d_alt_tightprior_noise_stream.json` and
+`mock_1d_alt_noise_stream.json`, figures
+`figures/estimator_noise_mock_1d_alt_tightprior.png` and
+`figures/estimator_noise_mock_1d_alt.png`). At 19 h, the full set:
+
+| channel | truth σ, ρ | prior σ, ρ | the calibration's widths as the prior | with the between-cook floor |
+|---|---|---|---|---|
+| pit | 3.0 K, 0.60 | 1.42, 0.78 | 3.27 ± 0.28, 0.686 ± 0.047 | 3.36 ± 0.30, 0.689 ± 0.048 |
+| core | 1.0 K, 0.85 | 1.65, 0.94 | 1.62 ± 0.11, 0.942 ± 0.005 | 1.20 (the floor) ± 0.18, 0.880 ± 0.038 |
+| humidity | 200 Pa, 0.5 | 100, 0.8 | 204 ± 16, 0.454 ± 0.080 | 204 ± 16, 0.456 ± 0.080 |
+| scale | 10 g, 0.2 | 20, 0.5 | 9.4 ± 0.6, 0.067 ± 0.090 | 9.4 ± 0.6, 0.066 ± 0.090 |
+| physics at 19 h, max / median err/sd | | | 2.09 / 0.59 | 2.05 / 0.57 |
+| residual power per row, misfit z | | | 1.04, 1.1 | 1.00, 0.4 |
+
+Reading it:
+
+- **The noise is identified as the cook goes.** The pit's sd climbs from
+  the prior's 1.4 K to 3.3 K within four hours, the humidity sensor's
+  from 100 Pa to 200 and its correlation from 0.8 to 0.5, the scale's
+  from 20 g to 9, each with a width that narrows through the cook; the
+  physics lands (every latent within 2.1 sd) and the whitened residual
+  power ends at 1.00. What every channel identifies well is the
+  innovation variance; the decomposition into a marginal sd and a
+  correlation is a ridge (σ²(1−ρ²) constant) on which 115 points say
+  little, so it follows the prior's correlation: the pit's ρ stops at
+  0.69 between the prior's 0.78 and the truth's 0.60, with the sd 10 %
+  high to match.
+- **A within-cook posterior is the wrong prior across cooks.** The core
+  probe's correlation is 0.943 ± 0.005 on the real cook, a hundred times
+  more precise than 115 points of another cook can be, and another
+  probe or thermal contact has another ρ; as the prior it pinned the
+  mock's core at 0.942 against a truth of 0.85 and its sd at 1.62
+  against 1.0, and the misfit check could not object (the innovation
+  variance was right). A between-cook floor on the prior widths (0.05
+  on ρ, 20 % on σ, `noise_priors_from_file`) lets the core move: ρ 0.88
+  ± 0.04, the sd to the 1.2 K floor with the truth inside the width.
+  "The pooled posterior as the prior in data form" therefore means the
+  single-cook posterior with that floor until C3's pool across cooks
+  gives the between-cook spread itself.
+- **On the real cook the AR node's sd sits 15 to 20 % below the
+  calibration's on both channels**, from either start, with ρ within 1.6
+  sd and the physics MAP within 0.9 sd; the whitened core residual then
+  reads a power of 1.2 (z 2.5), i.e. the estimate is somewhat tight.
+  Part is the node's bias (5 % at these correlations), part the
+  calibration's additive-floor parameterization with its own prior on
+  the excess and a joint posterior rather than residuals at the mode.
+  The NUTS posterior stays the reference; the AR node is what a cook can
+  run in an hour.
+
 ## The 2-D physics behind the registry: the cylinder read by its own engine (2026-09-08)
 
 The channel registry now takes its physics as an argument

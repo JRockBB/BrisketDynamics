@@ -38,12 +38,22 @@ struct NoisePrior
 end
 NoisePrior(σ_mean, σ_sd, ρ_mean, ρ_sd; floor=0.0) = NoisePrior(σ_mean, σ_sd, ρ_mean, ρ_sd, floor)
 
-"The calibration's noise posterior (export_noise_prior.py) as priors, keyed by channel name."
-function noise_priors_from_file(path)
+"""
+    noise_priors_from_file(path; ρ_sd_min=0.05, σ_rel_min=0.2) -> Dict
+
+The calibration's noise posterior (export_noise_prior.py) as priors,
+keyed by channel name, with a between-cook floor on the widths: a
+single cook's posterior on ρ (0.005 on the core probe) is a within-cook
+precision, a hundred times what 115 points of another cook can say, and
+another probe or thermal contact has another ρ; as a prior across cooks
+it must be at least as wide as cooks differ.
+"""
+function noise_priors_from_file(path; ρ_sd_min::Float64=0.05, σ_rel_min::Float64=0.2)
     j = JSON.parsefile(path)
     fl = Float64(j["sigma_floor_K"])
-    return Dict(String(k) => NoisePrior(Float64(v["sigma_mean"]), Float64(v["sigma_sd"]),
-                                        Float64(v["rho_mean"]), Float64(v["rho_sd"]); floor=fl)
+    return Dict(String(k) => NoisePrior(Float64(v["sigma_mean"]),
+                                        max(Float64(v["sigma_sd"]), σ_rel_min * Float64(v["sigma_mean"])),
+                                        Float64(v["rho_mean"]), max(Float64(v["rho_sd"]), ρ_sd_min); floor=fl)
                 for (k, v) in j["channels"])
 end
 

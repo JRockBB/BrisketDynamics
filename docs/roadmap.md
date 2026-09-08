@@ -95,15 +95,18 @@ The estimator lives in Julia next to the physics as an RxInfer factor
 graph (`estimator/`, its own project). The acceptance gate against the
 real cook's Gauss–Newton MAP is passed, the channel registry ranks
 sensors before they exist and takes its physics as an argument (the
-slab, or the 2-D cylinder engine), and the hourly streaming refits run
-on mock plants: with the right physics, humidity plus a scale put every
-latent within 1.5 sd of truth on either plant; with the wrong one the
-posterior is confident and wrong by up to 17 sd, and the misfit check
-that every refit reports (residual power against its expectation, lag-1
-autocorrelation, per channel) flags it, from hour 6 with temperature
-probes and from hour 1 through the humidity sensor (`docs/results.md`,
-the 2026-09-07 and 2026-09-08 estimator entries). The physics is the
-operator's choice; the check says within an hour whether it was right.
+slab, or the 2-D cylinder engine), the noise of every channel is
+identified as the cook goes (RxInfer's AR node on the residuals, the
+calibration's posterior with a between-cook floor as the prior), and
+the hourly streaming refits run on mock plants: with the right physics,
+humidity plus a scale put every latent within 1.5 sd of truth on either
+plant; with the wrong one the posterior is confident and wrong by up to
+17 sd, and the misfit check that every refit reports (residual power
+against its expectation, lag-1 autocorrelation, per channel) flags it,
+from hour 6 with temperature probes and from hour 1 through the humidity
+sensor (`docs/results.md`, the 2026-09-07 and 2026-09-08 estimator
+entries). The physics is the operator's choice; the check says within an
+hour whether it was right.
 Its structure is fixed by three measured RxInfer behaviours
 (per-residual nodes, one latent block, affine relinearization;
 `estimator/test_rules.jl` guards them). What remains, in order:
@@ -111,15 +114,16 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **Noise as graph structure.** The AR(1) discrepancy and its scale as
-  nodes (RxInfer's AR node) instead of a fixed whitening; the pooled
-  posterior as the prior in data form (one source for priors).
 - **Pilot integration.** The hourly posterior (mean and draws) consumed
   by the pilot through juliacall, the refit on the Julia thread the
   pilot already holds.
-- **Upstream.** File the two RxInfer findings: the silent prior on a
+- **Upstream.** File the three RxInfer findings: the silent prior on a
   singular forward output covariance; iterations not moving the
-  linearization point.
+  linearization point; ConjugateAR's marginal rule failing at order 1
+  in the univariate form (a scalar added to a 1 × 1 matrix).
+- **The noise prior across cooks.** The between-cook floor on the
+  calibration's noise posterior (0.05 on ρ, 20 % on σ) stands in for a
+  pool across cooks; C3's pool should supply the spread itself.
 
 ## Product
 
