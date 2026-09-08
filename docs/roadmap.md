@@ -92,8 +92,11 @@ guarantee.
 ## Online estimator (review item 8)
 
 The estimator lives in Julia next to the physics as an RxInfer factor
-graph (`estimator/`, its own project). The acceptance gate against the
-real cook's Gauss–Newton MAP is passed, the channel registry ranks
+graph (`estimator/`, its own project), and since 2026-09-08 the graph
+owns its iteration (the affine model re-centered and the damping scaled
+from inside `infer`; `docs/results.md`, the iterator on the graph). The
+acceptance gate against the real cook's Gauss–Newton MAP is passed, the
+channel registry ranks
 sensors before they exist and takes its physics as an argument (the
 slab, or the 2-D cylinder engine), the noise of every channel is
 identified as the cook goes (RxInfer's AR node on the residuals, the

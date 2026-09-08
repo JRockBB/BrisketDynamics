@@ -4,6 +4,50 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The iterator on the graph (2026-09-08)
+
+The planning experiment's diagnosis was that RxInfer's delta node
+expands at the inbound messages' means and offers no expansion point,
+so iterated linearization has to be supplied from outside. It can be
+supplied from inside `infer`, and now is (`estimator/iterated.jl`). The
+model stays exactly affine (the estimator's Affine object, which the
+built-in Linearization rule handles exactly wherever it expands), and
+two facts of the batch loop carry the iteration: the data are re-fed
+from the passed arrays every iteration, and an `after_iteration`
+callback can read the current marginal (through `on_marginal_update`)
+and stop the loop. The callback evaluates the true objective at the
+marginal's mean, halves the move until the objective drops (the
+estimator's line search), moves the center, rebuilds the affine model
+there (one physics Jacobian) and re-centers the prior's local
+quadratic, whose mean and precision are data arrays. Damping is a
+Levenberg–Marquardt node on the graph: an identity delta node anchored
+at the current center with a data precision the callback scales, raised
+on a rejected move, lowered on an accepted full one. One `infer` call is
+the whole solve; a final pass with the damping released gives the
+posterior at the converged center.
+
+Two gates (`estimator/test_iterated.jl`) and a regression
+(`estimator/test_engine.jl`):
+
+| problem | reference | on the graph |
+|---|---|---|
+| the planner, posterior width | expected loss 101.2894 | 101.2897, the plan within 0.001 sd, 10 iterations, 56 s |
+| the planner, width shrunk tenfold | 9.6263 | 9.6263, the plan within 0.000 sd, 11 iterations |
+| the real cook (the estimator's gate) | MAP within 0.33 sd, F 133.1206 (the outer loop's fixed point) | MAP within 0.324 sd (u_leak), median 0.046, widths within 2.8 % of the Fisher, F 133.1118, 17 iterations, 180 s |
+| three hourly batches of the matched mock, humidity + scale | the outer loop's record | 1e-4 sd, identical objectives and iteration counts |
+
+`solve_map_channels` and `stream_fit` take `engine=:graph` (the default)
+or `:outer` (the loop around `infer`, kept as the reference). The
+graph's own cost is 40 ms per iteration against a 3.5 s physics
+Jacobian, so the streaming refits, the noise alternation and the misfit
+check run unchanged on the graph engine. What the graph does is still
+the linear-Gaussian solve at the current center; what it now also does
+is own the loop, which is the difference between a solver that uses a
+factor graph and a factor graph that solves. The upstream item stands:
+an expansion-point hook on the delta node would let the nonlinear
+function itself sit in the graph, and the affine rebuild in the callback
+is what that hook would do.
+
 ## Planning as inference in RxInfer: the experiment, and the decision (2026-09-08)
 
 The question was whether the pilot's uncertainty-aware planner should be
