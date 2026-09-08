@@ -90,7 +90,8 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
         Sn, _ = physics_stack(c_new, d, ph)
         an, _, _ = assemble(channels, c_new, Sn, J0, prior, lay)
         Fn = _objective(an, w, c_new, prior)
-        while Fn > Fc && α > 1e-3
+        worse(F) = !isfinite(F) || F > Fc          # a solve that blew up is a worse step, not a NaN to compare
+        while worse(Fn) && α > 1e-3
             α /= 2
             c_new = c + α * step
             Sn, _ = physics_stack(c_new, d, ph)
@@ -101,7 +102,7 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
         verbose && @printf("    it %2d  F=%10.4f -> %10.4f  |step|=%.3g  alpha=%.3g  (%.1f s)\n",
                            k, Fc, Fn, norm(step), α, time() - t0)
         verbose && flush(stdout)
-        Fn > Fc && break
+        worse(Fn) && break
         converged = (α * norm(step) < tol) || (Fc - Fn < ftol)   # step or objective floor
         c, Fc = c_new, Fn
         S, J, _ = physics_outputs(c, d, ph)     # the Jacobian once per accepted step

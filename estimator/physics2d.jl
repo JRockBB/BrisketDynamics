@@ -120,7 +120,8 @@ function _axis_line(F3, Hz, nx)
     for i in 1:nx
         depth = L * (1 - (i - 1) / (nx - 1))
         pos = 1 + (Hz - depth) / Δz                 # fractional z index, 1-based
-        j = clamp(floor(Int, ForwardDiff.value(pos)), 1, nz - 1)
+        pv = ForwardDiff.value(pos)
+        j = isfinite(pv) ? clamp(floor(Int, pv), 1, nz - 1) : 1   # a blown-up solve propagates NaN, no throw
         f = pos - j
         for k in 1:nt
             out[i, k] = (1 - f) * F3[1, j, k] + f * F3[1, j + 1, k]
