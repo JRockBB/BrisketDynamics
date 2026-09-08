@@ -4,6 +4,69 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The full decision set on the graph (2026-09-08)
+
+The planning experiment's block had three decisions. `estimator/plan_block.jl`
+puts the full set on the graph: three damper knots in fractional time,
+the wrap, the pull, the duration, the spritz (start, interval, dose)
+and a fuel addition, ten unconstrained latents of one plan block with
+the ordering built into the parameterization (the wrap and the spritz
+start as fractions of the pull, the pull and the fuel add as fractions
+of the duration, so wrap < pull < serve and spritz and fuel before the
+pull hold by construction). The physics is the duration-scaled solve
+`monolith_solve_tf`, which now takes the runtime exposed area like the
+plain solve (one physics patch, the suite 368/368), at the estimator's
+eight posterior draws from 6 h of the matched mock cook. The goals are
+Gaussian: the core at the pull 93 ± 2 °C, the retained water 0.35 ±
+0.05, the bark lightness 32 ± 4 L*, the core at serve 65 ± 3 °C; the
+priors prefer a low damper and a 14 h cook. The same expected loss is
+minimized by the gradient reference (damped Gauss–Newton, ForwardDiff
+through the physics, ten columns per draw) and by the graph (per-draw
+affine nodes inside the graph iterator), each writing its own record
+(`data/mock/plan_block_reference.json`, `plan_block_graph.json`; the
+summary and gate in `plan_block.json`).
+
+| decision | prior | reference | graph |
+|---|---|---|---|
+| damper, three knots | 0.15, 0.15, 0.15 | 0.230, 0.395, 0.270 | 0.234, 0.396, 0.268 |
+| wrap | 6.7 h | 10.96 h | 10.92 h |
+| pull | 11.2 h | 15.66 h | 15.63 h |
+| duration | 14.0 h | 22.28 h | 22.27 h |
+| spritz start, interval, dose | 3.4 h, 0.98 h, 50 g | 8.48 h, 1.56 h, 46 g | 8.47 h, 1.57 h, 46 g |
+| fuel add | 5.6 h | 12.08 h | 12.12 h |
+| expected loss | 337.5 | 36.485 (423 s) | 36.476 (26 iterations, 492 s) |
+
+| outcome over the draws | prior plan | the optimum | goal |
+|---|---|---|---|
+| core at the pull | 79.8 ± 1.7 °C | 92.1 ± 4.2 °C | 93 ± 2 |
+| retained water | 0.61 ± 0.01 | 0.41 ± 0.03 | 0.35 ± 0.05 |
+| bark L* | 42.3 ± 0.4 | 31.6 ± 3.3 | 32 ± 4 |
+| core at serve | 72.1 ± 1.6 °C | 64.9 ± 2.6 °C | 65 ± 3 |
+
+Reading it:
+
+- **The graph and the reference find the same plan.** The objectives
+  are 36.485 and 36.476, the graph's the lower; the plans sit 0.07 sd
+  apart on a valley that flat, and every ordering holds. The first gate
+  I wrote (0.05 sd) was tighter than two independently converged
+  optimizers can be held to on such a valley; it is 0.2 now, with the
+  objective within half a percent and the ordering as the other
+  conditions.
+- **The plan reads like a pitmaster's.** From a low damper everywhere
+  and no events, the optimum runs the pit harder in the middle of the
+  cook, wraps at 11 h (seventy percent of the way to the pull, the
+  crutch's usual place), pulls at 15.7 h, spritzes from 8.5 h every
+  hour and a half, adds fuel at 12 h, and lengthens the cook to 22 h so
+  a 92 °C pull rests down to 65 °C at serve. The duration prior (14 h,
+  30 % in log) is overridden by 1.5 of its widths: the serve-temperature
+  goal decides the cook's length, as the time planner's framing says it
+  should.
+- **What the plan does not yet have** is the receding-horizon layer:
+  the candidate-commit-irreversible logic for the wrap and pull, the
+  replan from the current state with executed events fixed, and a tail
+  objective in place of the Gaussian goal at serve. Those are the
+  pilot-integration item, and the block now exists for them to act on.
+
 ## The iterator on the graph (2026-09-08)
 
 The planning experiment's diagnosis was that RxInfer's delta node

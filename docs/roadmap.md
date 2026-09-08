@@ -117,16 +117,16 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **Pilot integration, the uncertainty-aware planner.** The hourly
-  posterior (mean and draws) consumed by the pilot through juliacall,
-  the refit on the Julia thread the pilot already holds; the app's
-  expected-objective optimizer over posterior draws and the time
-  planner's chance layer fed by that posterior in a receding-horizon
-  loop, with the serve-time and safety constraints on a posterior
-  quantile and an information term from the estimator's Jacobian. Not a
-  factor graph: the planning experiment (`docs/results.md`, planning as
-  inference) showed the graph reproducing the planner's objective with a
-  worse optimizer, and its naive form unusable.
+- **Pilot integration, the uncertainty-aware planner.** The full
+  decision set (damper knots, wrap, pull, duration, spritz, fuel add)
+  plans on the graph from the estimator's posterior draws and reproduces
+  the gradient reference (`docs/results.md`, the full decision set on
+  the graph). What remains: the receding-horizon layer (the
+  candidate-commit-irreversible logic for the wrap and pull, the replan
+  from the current state with executed events fixed), a tail objective
+  at serve in place of the Gaussian goal, the hourly posterior and the
+  plan consumed by the pilot through juliacall on the Julia thread it
+  already holds, and an information term from the estimator's Jacobian.
 - **Upstream.** File the four RxInfer findings: the silent prior on a
   singular forward output covariance; the delta node expanding at the
   inbound messages' means with no marginal-based expansion and no hook
