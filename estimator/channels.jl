@@ -19,6 +19,7 @@
 using LinearAlgebra
 
 export Channel, PitProbe, MeatProbe, SurfaceIR, HumiditySensor, MassScale, StaticReading,
+       FuelScale, BarkLightness, WetBulb,
        LatentSpec, physics_outputs, physics_stack, assemble, fisher_cov, contiguous_runs,
        whitening_rows, OutputLayout
 
@@ -31,12 +32,20 @@ struct OutputLayout
     oW::Int
     oF::Int
     opv::Int
+    oM::Int      # fuel mass [kg]
+    oL::Int      # bark lightness L*
 end
 function OutputLayout(nx::Int, nt::Int)
     b = nx * nt
-    return OutputLayout(nx, nt, 0, nt, 2nt, 2nt + b, 2nt + 2b, 2nt + 3b)
+    return OutputLayout(nx, nt, 0, nt, 2nt, 2nt + b, 2nt + 2b, 2nt + 3b, 3nt + 3b, 4nt + 3b)
 end
-Base.length(lay::OutputLayout) = 3 * lay.nt + 3 * lay.nx * lay.nt
+Base.length(lay::OutputLayout) = 5 * lay.nt + 3 * lay.nx * lay.nt
+
+# ONE stacked output for every channel: pit and surface temperature, the
+# temperature, water and fat fields, the pit vapor pressure, the fuel mass,
+# the bark lightness — in the order OutputLayout indexes them.
+_stack(o) = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o.F_field), o.pv_pit,
+                 o.m_fuel, o.l_star)
 
 """
     physics_outputs(z, d; area_latent=0) -> (S, J_S, lay)
@@ -52,7 +61,7 @@ function physics_outputs(z, d::GateData; area_latent::Int=0)
     zp = z[1:N_PHYS]
     x = from_z(zp, d.prior[1:N_PHYS])
     kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol)
-    stack(o) = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o.F_field), o.pv_pit)
+    stack = _stack
     Jz = nothing
     if area_latent > 0
         A = exp(z[area_latent])
@@ -91,8 +100,7 @@ function physics_stack(z, d::GateData; area_latent::Int=0)
     o = area_latent > 0 ?
         monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw..., A_meat=exp(z[area_latent])) :
         monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw...)
-    S = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o.F_field), o.pv_pit)
-    return S, OutputLayout(size(o.T_field, 1), length(d.t))
+    return _stack(o), OutputLayout(size(o.T_field, 1), length(d.t))
 end
 
 # --- whitening -----------------------------------------------------------------
@@ -211,6 +219,45 @@ end
 MassScale(σ, ρ, mask; A_meat=0.12, area_latent=0, shape_latent=0, data=nothing) =
     MassScale(σ, ρ, collect(Bool, mask), A_meat, area_latent, shape_latent, data)
 
+"Fuel mass on a scale under the firebox [kg]: the pit model's fuel state."
+struct FuelScale <: Channel
+    σ::Float64
+    ρ::Float64
+    mask::Vector{Bool}
+    data::Union{Nothing,Vector{Float64}}
+end
+FuelScale(σ, ρ, mask; data=nothing) = FuelScale(σ, ρ, collect(Bool, mask), data)
+
+"Bark lightness L* from a colorimeter or a calibrated camera: the model's L* map of its bark states."
+struct BarkLightness <: Channel
+    σ::Float64
+    ρ::Float64
+    mask::Vector{Bool}
+    data::Union{Nothing,Vector{Float64}}
+end
+BarkLightness(σ, ρ, mask; data=nothing) = BarkLightness(σ, ρ, collect(Bool, mask), data)
+
+"""
+    WetBulb(σ, ρ, mask; p_atm=101325, a_psy=6.62e-4, data=nothing)
+
+A wetted thermocouple in the pit (smokehouse practice): the wet-bulb
+temperature T_wb solving the psychrometer equation
+p_sat(T_wb) − a_psy p_atm (T_pit − T_wb) = p_v,pit for a ventilated wick,
+an analytic map of two stacked outputs with its Jacobian by implicit
+differentiation. It reads the vapor pressure through the vapor balance's
+own constants, which is what makes it the C2 validation of that balance.
+"""
+struct WetBulb <: Channel
+    σ::Float64
+    ρ::Float64
+    mask::Vector{Bool}
+    p_atm::Float64
+    a_psy::Float64
+    data::Union{Nothing,Vector{Float64}}
+end
+WetBulb(σ, ρ, mask; p_atm=BrisketDynamics.P_ATM, a_psy=6.62e-4, data=nothing) =
+    WetBulb(σ, ρ, collect(Bool, mask), p_atm, a_psy, data)
+
 "A direct reading of one latent's constrained value (a ruler on L, an inserted depth, ...)."
 struct StaticReading <: Channel
     latent::Int
@@ -289,6 +336,52 @@ function predict(ch::MassScale, S, J, z, prior, lay)
     end
     return r, Jr
 end
+function predict(ch::FuelScale, S, J, z, prior, lay)
+    idx = (lay.oM + 1):(lay.oM + lay.nt)
+    return S[idx], J[idx, :]
+end
+function predict(ch::BarkLightness, S, J, z, prior, lay)
+    idx = (lay.oL + 1):(lay.oL + lay.nt)
+    return S[idx], J[idx, :]
+end
+
+# d p_sat / dT of the Magnus form in thermophysics.jl
+_dpsat(T) = BrisketDynamics.p_sat(T) * 17.625 * (273.15 - 30.11) / (T - 30.11)^2
+
+"""
+    wet_bulb(T, pv, γ) -> (T_wb, dF/dT_wb)
+
+The root of F(T_wb) = p_sat(T_wb) + γ (T_wb − T) − pv by Newton from T
+(F is increasing and convex in T_wb, so the iteration from the right
+converges monotonically); returns the root and F' there, the
+denominator of the implicit derivatives dT_wb/dT = γ/F', dT_wb/dpv = 1/F'.
+"""
+function wet_bulb(T, pv, γ)
+    Tw = T
+    fp = _dpsat(Tw) + γ
+    for _ in 1:60
+        f = BrisketDynamics.p_sat(Tw) + γ * (Tw - T) - pv
+        fp = _dpsat(Tw) + γ
+        step = f / fp
+        Tw -= step
+        abs(step) < 1e-10 && break
+    end
+    return Tw, _dpsat(Tw) + γ
+end
+function predict(ch::WetBulb, S, J, z, prior, lay)
+    nt = lay.nt
+    γ = ch.a_psy * ch.p_atm
+    Tel = promote_type(eltype(S), eltype(J))      # dual-capable, for tests through the map
+    r = zeros(Tel, nt)
+    Jr = zeros(Tel, nt, length(z))
+    for k in 1:nt
+        iT, ip = lay.oTpit + k, lay.opv + k
+        Tw, fp = wet_bulb(S[iT], S[ip], γ)
+        r[k] = Tw
+        Jr[k, :] = (γ / fp) .* J[iT, :] .+ (1 / fp) .* J[ip, :]
+    end
+    return r, Jr
+end
 function predict(ch::StaticReading, S, J, z, prior, lay)
     p = prior[ch.latent]
     x = isbeta(p) ? logistic(z[ch.latent]) : exp(z[ch.latent])
@@ -302,6 +395,9 @@ whitening(ch::SurfaceIR) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::HumiditySensor) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::MeatProbe) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::MassScale) = whitening_rows(ch.mask, ch.σ, ch.ρ)
+whitening(ch::FuelScale) = whitening_rows(ch.mask, ch.σ, ch.ρ)
+whitening(ch::BarkLightness) = whitening_rows(ch.mask, ch.σ, ch.ρ)
+whitening(ch::WetBulb) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::StaticReading) = fill(1 / ch.σ, 1, 1)
 
 rawdata(ch::StaticReading) = ch.data === nothing ? nothing : [ch.data]

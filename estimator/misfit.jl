@@ -23,6 +23,9 @@ channel_label(::MeatProbe) = "meat probe"
 channel_label(::SurfaceIR) = "surface IR"
 channel_label(::HumiditySensor) = "humidity"
 channel_label(::MassScale) = "scale"
+channel_label(::FuelScale) = "fuel scale"
+channel_label(::BarkLightness) = "bark L*"
+channel_label(::WetBulb) = "wet bulb"
 channel_label(ch::StaticReading) = "static " * string(ch.latent)
 
 # the per-block statistics on a residual vector and its hat-matrix diagonal
