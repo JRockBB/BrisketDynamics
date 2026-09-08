@@ -118,6 +118,7 @@ end
     s.spritz = plan.spritz                                                                   # once committed it no longer triggers
     @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 0.5) == (false, :hold)
     @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 3.5) == (true, :misfit)
+    @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, -3.5) == (false, :hold)           # too little power is conservative, not wrong
     @test replan_due(pol, s, plan, 2.5, 1.0, 2 * 3600.0, 0.5) == (true, :loss_rise)
     @test replan_due(pol, s, plan, 1.5, 1.0, 2 * 3600.0, 0.5) == (false, :hold)             # a rise under the threshold holds
     @test replan_due(pol, s, plan, 1.0, 1.0, 0.0, 0.5) == (true, :floor)                     # four hours since the last replan

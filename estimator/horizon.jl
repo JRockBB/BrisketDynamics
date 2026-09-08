@@ -280,7 +280,9 @@ end
 When a replan is due: the standing plan's expected loss has risen by
 `loss_rise` (half-squared-sd units) since it was made; a planned,
 uncommitted event falls due within `lead` seconds; the misfit z-score
-exceeds `misfit_z`; or `floor` seconds have passed since the last replan.
+exceeds `misfit_z` (excess residual power only: too little power means
+the noise model is conservative, which does not threaten the plan); or
+`floor` seconds have passed since the last replan.
 """
 Base.@kwdef struct ReplanPolicy
     loss_rise::Float64 = 1.0
@@ -305,7 +307,8 @@ function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::R
     for (t, fx) in zip(events, fixed)
         !isnan(t) && !fx && s.t_now < t <= s.t_now + pol.lead && return (true, :event_due)
     end
-    misfit_z !== nothing && abs(misfit_z) > pol.misfit_z && return (true, :misfit)
+    # one-sided: excess residual power says the model is wrong somewhere; too little says it is conservative
+    misfit_z !== nothing && misfit_z > pol.misfit_z && return (true, :misfit)
     L_now - L_plan > pol.loss_rise && return (true, :loss_rise)
     s.t_now - t_last >= pol.floor - 1e-9 && return (true, :floor)
     return (false, :hold)
