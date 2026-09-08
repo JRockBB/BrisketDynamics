@@ -26,7 +26,10 @@ the controls and one Unscented node, where the goal is free to update
 the belief about the world. Then the certainty-equivalence test: R and
 B again with the posterior's width shrunk tenfold (the same standard
 normals, scaled). A second pass (`plan_experiment_damped.jl`) put the
-graph inside the estimator's damped outer loop. The sample-based node
+graph inside the estimator's damped outer loop, and a third
+(`plan_experiment_affine.jl`) built the graph the estimator's way, with
+per-draw affine nodes at the current plan from a three-column Jacobian,
+inside the same loop. The sample-based node
 was not run: CVIProjection cannot be installed here
 (ExponentialFamilyProjection pins RecursiveArrayTools at or below 3.54,
 the physics' BDF solver needs 4.2 or later), and the older CVI is
@@ -47,6 +50,8 @@ uncertainty; the uncertainty was carried by the draws.
 | R, width shrunk tenfold | 0.155, 0.560, 12.50 h | 9.6 | 92.7 ± 1.2 °C | 0.334 ± 0.003 |
 | B, width shrunk tenfold | 0.152, 0.528, 12.81 h | 15.5 | 90.3 ± 1.1 °C | 0.335 ± 0.003 |
 | B in the damped outer loop, width shrunk tenfold | 0.161, 0.547, 12.75 h | 9.7 | 92.6 ± 1.2 °C | 0.328 ± 0.003 |
+| B with affine nodes at the current plan, posterior width | 0.098, 0.573, 11.74 h | 101.289 | 89.6 ± 9.3 °C | 0.402 ± 0.025 |
+| B with affine nodes at the current plan, width shrunk tenfold | 0.155, 0.560, 12.50 h | 9.626 | 92.7 ± 1.2 °C | 0.334 ± 0.003 |
 
 Reading it:
 
@@ -84,9 +89,23 @@ Reading it:
   solves against the reference's few hundred. The estimator never met
   this because its affine node is built at the current point outside
   the graph, which is also why it converges: the graph then solves a
-  linear-Gaussian problem. A monolith solve costs 60 ms; it is the
-  Jacobian that costs, and R needs only three columns of it. Whether a
-  sample-based message does better is untested.
+  linear-Gaussian problem. The proof is the third pass: with the
+  per-draw nodes made affine at the current plan, the graph reproduces
+  the reference to the last digit at both widths (101.289 and 9.626,
+  the plan within 0.01 sd), and its iteration trace is the reference's
+  own, in 392 solve-equivalents and 50 s. The whole shortfall was the
+  expansion point. The reason it cannot be fixed inside the graph is in
+  the rules: the delta node's marginal rule (ported from ForneyLab)
+  expands at the inbound messages' means, smooths against the output's
+  message, and the input rule divides that local marginal by the
+  inbound; no rule expands at the current marginal and there is no hook
+  to set the point, for Linearization, Unscented or CVI alike. The
+  iterated extended Kalman fix of the literature is not implemented,
+  and "iterative" in RxInfer 5.5.2 means supplying the linearization
+  from outside, which is the estimator's design and why it converges.
+  A monolith solve costs 60 ms; it is the Jacobian that costs, and R
+  needs only three columns of it. Whether a sample-based message does
+  better is untested, and it would expand at the same point.
 - **Decision.** The planner stays on the gradient side: the app's
   expected-objective optimizer over posterior draws (`control.py`,
   Adam over draws with the wrap and pull shared) and the time planner's

@@ -124,10 +124,14 @@ Its structure is fixed by three measured RxInfer behaviours
   factor graph: the planning experiment (`docs/results.md`, planning as
   inference) showed the graph reproducing the planner's objective with a
   worse optimizer, and its naive form unusable.
-- **Upstream.** File the three RxInfer findings: the silent prior on a
-  singular forward output covariance; iterations not moving the
-  linearization point; ConjugateAR's marginal rule failing at order 1
-  in the univariate form (a scalar added to a 1 × 1 matrix).
+- **Upstream.** File the four RxInfer findings: the silent prior on a
+  singular forward output covariance; the delta node expanding at the
+  inbound messages' means with no marginal-based expansion and no hook
+  to set the point (the iterated extended Kalman fix; the planning
+  experiment's whole shortfall); ConjugateAR's marginal rule failing at
+  order 1 in the univariate form (a scalar added to a 1 × 1 matrix);
+  ExponentialFamilyProjection's RecursiveArrayTools bound (at or below
+  3.54) excluding it from any environment with a current ODE stack.
 - **The noise prior across cooks.** The between-cook floor on the
   calibration's noise posterior (0.05 on ρ, 20 % on σ) stands in for a
   pool across cooks; C3's pool should supply the spread itself.
