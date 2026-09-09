@@ -83,10 +83,10 @@ def main():
     fmt_h = lambda v: "—" if v is None else f"{v:.1f} h"
     rows = [
         ("the pilot's goals", None, None, None),
-        ("probe-tender at the pull (collagen at the center)", f"{g.get('C_pull', 0.92):.2f} ± {g.get('sd_C', 0.02):.2f}", f"{mr['doneness_pull']:.3f}  (core {mr['T_pull_C']:.0f} °C)", f"{mm['doneness_pull']:.3f}  (core {mm['T_pull_C']:.0f} °C)"),
-        ("retained water W/W0 at serve", f"{g['W']:.2f} ± {g['sd_W']:.2f}", f"{mr['W_serve']:.3f}  ({100 * mr['wet_basis_water_serve']:.0f} % wet basis)",
+        ("probe-tender at the pull (collagen at the center)", f"{g['C_lo']:.2f} to {g['C_hi']:.2f}", f"{mr['doneness_pull']:.3f}  (core {mr['T_pull_C']:.0f} °C)", f"{mm['doneness_pull']:.3f}  (core {mm['T_pull_C']:.0f} °C)"),
+        ("retained water W/W0 at serve", f"at least {g['W_lo']:.2f}", f"{mr['W_serve']:.3f}  ({100 * mr['wet_basis_water_serve']:.0f} % wet basis)",
          f"{mm['W_serve']:.3f}  ({100 * mm['wet_basis_water_serve']:.0f} % wet basis)"),
-        ("bark L* at serve", f"{g['L']:.0f} ± {g['sd_L']:.0f}", f"{mr['L_serve']:.1f}", f"{mm['L_serve']:.1f}"),
+        ("bark L* at serve", f"{g['L_lo']:.0f} to {g['L_hi']:.0f}", f"{mr['L_serve']:.1f}", f"{mm['L_serve']:.1f}"),
         ("core at serve", f"floor {g['T_serve_floor'] - 273.15:.0f} °C", f"{mr['T_serve_C']:.1f} °C", f"{mm['T_serve_C']:.1f} °C"),
         ("the MPC's quality terms", None, None, None),
         ("collagen conversion at the center at serve (tenderness)", "0.90 to 0.95", f"{mr['doneness_serve']:.3f}", f"{mm['doneness_serve']:.3f}"),

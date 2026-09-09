@@ -103,7 +103,15 @@ end
     @test length(y) == 4 && all(isfinite, y)
     @test 0 <= y[1] <= 1 && 0 < y[2] < 1 && 0 < y[3] < 100 && 273.15 < y[4] < 373.15
     r = E.goal_residuals(y, PlanGoals())
-    @test all(isfinite, r) && r[4] >= 0
+    @test all(isfinite, r) && all(r .>= 0)
+    # the bands: nothing inside, the distance outside in sd, a smooth corner
+    g = PlanGoals()
+    @test E.goal_residuals([0.925, 0.60, 31.0, 273.15 + 80], g)[1:3] ≈ zeros(3) atol=0.02        # the corners' tails, a hundredth of a sd
+    @test abs(E.goal_residuals([0.99, 0.60, 31.0, 273.15 + 80], g)[1] - 2.0) < 0.05        # 0.04 past the top of the band: 2 sd
+    @test abs(E.goal_residuals([0.925, 0.37, 31.0, 273.15 + 80], g)[2] - 2.0) < 0.05        # 0.08 under the water floor: 2 sd
+    @test abs(E.goal_residuals([0.925, 0.60, 22.0, 273.15 + 80], g)[3] - 2.0) < 0.05        # 6 under the bark band: 2 sd
+    @test E.goal_residuals([0.925, 0.60, 40.0, 273.15 + 80], g)[3] > 1.9                     # 6 over it
+    @test all(isfinite, ForwardDiff.gradient(v -> sum(abs2, E.goal_residuals(v, g)), [0.95, 0.45, 34.0, 273.15 + 65]))   # at the corners
     Jr = ForwardDiff.jacobian(v -> E.goal_residuals(plan_outputs_rh(z, v, f, s, d), PlanGoals()), mζ)
     @test size(Jr) == (4, 10) && all(isfinite, Jr)
     @test any(abs.(Jr[1, :]) .> 0)          # the collagen conversion at the pull answers to the plan
@@ -115,6 +123,14 @@ end
     plan = (u=[0.2, 0.3, 0.25], t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.8 * 3600, dt=3600.0, m=0.04), t_add=8.0 * 3600)
     @test replan_due(pol, s, nothing, 0.0, 0.0, 0.0, nothing) == (true, :first)
     @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 0.5) == (true, :event_due)          # the spritz at 4.8 h is due within the hour
+    # the commit rule: an event a replan left within the tolerance commits now, however far ahead
+    prev = (u=plan.u, t_wrap=6.2 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.75 * 3600, dt=3600.0, m=0.04), t_add=9.0 * 3600)
+    st = stable_events(plan, prev, pol.stable)
+    @test Set(st) == Set([:wrap, :spritz, :pull])                  # the add moved an hour, the others under half an hour
+    @test stable_events(plan, nothing, pol.stable) == Symbol[]
+    s3 = Schedule(GRID; u0=0.15); s3.t_now = 4 * 3600.0
+    done3 = commit!(s3, plan, 3600.0; force=st)
+    @test Set(done3) == Set([:wrap, :spritz, :pull]) && s3.t_wrap == plan.t_wrap && s3.t_pull == plan.t_pull && isnan(s3.t_add)
     s.spritz = plan.spritz                                                                   # once committed it no longer triggers
     @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 0.5) == (false, :hold)
     @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 3.5) == (true, :misfit)
@@ -131,6 +147,12 @@ end
     @test replan_due(pol, s, plan, 1.0, 1.0, 0.0, 0.5) == (true, :floor)                     # four hours since the last replan
     s.t_now = 5.2 * 3600.0
     @test replan_due(pol, s, plan, 1.0, 1.0, 4 * 3600.0, 0.5) == (true, :event_due)          # the wrap at 6 h comes due
+    # once the pull has committed, a standing plan's spritz or wrap is no longer a decision and cannot come due
+    s4 = Schedule(GRID; u0=0.15); s4.t_now = 11.5 * 3600.0; s4.t_pull = 12.0 * 3600.0; s4.t_wrap = 6.0 * 3600.0
+    plan4 = (u=plan.u, t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=16.0 * 3600, spritz=(t=11.8 * 3600, dt=3600.0, m=0.04), t_add=11.9 * 3600)
+    @test replan_due(pol, s4, plan4, 1.0, 1.0, 11.0 * 3600.0, 0.5) == (false, :hold)
+    plan5 = (plan4..., t_serve=12.4 * 3600)
+    @test replan_due(pol, s4, plan5, 1.0, 1.0, 11.0 * 3600.0, 0.5) == (true, :event_due)      # the serve is still free
 end
 
 @testset "the standing plan's expected loss under posterior draws" begin

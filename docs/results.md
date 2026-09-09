@@ -230,6 +230,94 @@ Reading it:
   planner on this physics will find the long cook, whichever objective
   it is given.
 
+**Band-shaped goals and the commit rule** (the same day, later). Two of
+the three items above are built; the third, the bark on a hot offset,
+needs hourly color-card photos from such a cook and there are none.
+`PlanGoals` are bands now: a goal costs nothing inside its band and half
+the squared distance outside it in its sd, with a softplus corner a
+quarter-sd wide so the graph's affine nodes see a gradient
+(`band_residual`, `floor_residual`): collagen at the center 0.90 to
+0.95 (sd 0.02), water at serve at least 0.45 (sd 0.04), bark L* 28 to
+34 (sd 3), the serve floor as before. And an event a replan leaves
+within half an hour of where it stood commits at once, however far
+ahead (`stable_events`, `commit!(...; force=)`; `ReplanPolicy.stable`).
+The closed loop rerun under them (the same plant, the same six
+conditions), the figures overwritten with this run:
+
+| check | reason | committed | loss: standing → new | KL [nats] | wrap / pull / serve [h] | spritz / add [h] | collagen at the pull | water | bark L* |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 h | the first plan |  | 87.29 |  | 1.3 / 16.9 / 17.0 | 5.1 / 15.3 | 0.782 ± 0.181 | 0.575 ± 0.324 | 42.0 ± 9.5 |
+| 1 h | event due |  | 13.50 → 2.46 | 25.2 | 6.1 / 10.7 / 12.2 | 3.7 / 5.2 | 0.959 ± 0.050 | 0.454 ± 0.084 | 33.6 ± 4.0 |
+| 2 h | posterior moved |  | 2.73 → 2.32 | 14.6 | 10.7 / 15.3 / 16.9 | 5.9 / 8.2 | 0.976 ± 0.044 | 0.478 ± 0.015 | 32.5 ± 3.6 |
+| 3 h | posterior moved |  | 2.21 → 0.70 | 20.9 | 13.8 / 17.9 / 19.6 | 6.8 / 10.9 | 0.942 ± 0.039 | 0.459 ± 0.024 | 33.9 ± 2.8 |
+| 4 h | loss rose |  | 2.81 → 0.32 | 14.4 | 13.8 / 25.1 / 26.7 | 9.3 / 13.8 | 0.934 ± 0.031 | 0.499 ± 0.016 | 34.3 ± 2.9 |
+| 5 h | loss high |  | 3.82 → 0.14 | 9.3 | 11.6 / 15.2 / 16.8 | 7.9 / 11.5 | 0.932 ± 0.023 | 0.457 ± 0.007 | 34.4 ± 1.1 |
+| 6 h | posterior moved |  | 0.07 → 0.02 | 9.0 | 12.7 / 15.9 / 17.4 | 8.9 / 10.9 | 0.932 ± 0.016 | 0.461 ± 0.005 | 33.2 ± 1.3 |
+| 7 h | loss high |  | 7.45 → 0.10 | 20.2 | 12.5 / 15.6 / 17.2 | 9.6 / 11.2 | 0.933 ± 0.028 | 0.455 ± 0.007 | 33.6 ± 1.2 |
+| 8 h | loss high |  | 3.72 → 0.34 | 24.5 | 14.0 / 18.1 / 19.8 | 11.1 / 12.7 | 0.942 ± 0.032 | 0.453 ± 0.009 | 34.8 ± 0.7 |
+| 9 h | loss high |  | 6.14 → 0.25 | 5.5 | 12.3 / 15.8 / 17.4 | 11.0 / 13.0 | 0.935 ± 0.028 | 0.447 ± 0.003 | 34.5 ± 0.8 |
+| 10 h | event due | add (3.3 h ahead, stable) | 0.13 → 0.12 | 41.6 | 12.8 / 16.7 / 18.2 | 12.1 / 13.3 | 0.923 ± 0.028 | 0.443 ± 0.003 | 30.1 ± 0.8 |
+| 11 h | loss high |  | 4.74 → 0.21 | 3.2 | 13.2 / 18.3 / 19.8 | 13.4 / 13.3 | 0.924 ± 0.031 | 0.447 ± 0.007 | 31.6 ± 1.4 |
+| 12 h | posterior moved |  | 0.52 → 0.10 | 4.2 | 13.7 / 17.3 / 18.8 | 13.6 / 13.3 | 0.928 ± 0.024 | 0.436 ± 0.001 | 31.0 ± 0.7 |
+| 13 h | event due | wrap (1.2 h ahead, stable) | 15.33 → 0.20 | 47.1 | 14.2 / 17.9 / 19.4 | 14.6 / 13.3 | 0.930 ± 0.026 | 0.430 ± 0.002 | 33.6 ± 0.9 |
+| 14 h | event due |  | 0.34 → 0.19 | 19.5 | 14.2 / 18.6 / 20.1 | 15.4 / 13.3 | 0.926 ± 0.026 | 0.433 ± 0.003 | 33.1 ± 0.7 |
+| 15 h | event due | pull (3.7 h ahead, stable) | 0.18 → 0.11 | 11.7 | 14.2 / 18.7 / 20.2 | 16.1 / 13.3 | 0.930 ± 0.019 | 0.434 ± 0.002 | 32.1 ± 0.6 |
+| 16 h | event due |  | 0.40 → 0.40 | 6.3 | 14.2 / 18.7 / 20.2 | — / 13.3 | 0.962 ± 0.006 | 0.428 ± 0.002 | 31.8 ± 0.4 |
+| 17 h | posterior moved |  | 0.18 → 0.18 | 14.5 | 14.2 / 18.7 / 20.2 | — / 13.3 | 0.954 ± 0.005 | 0.432 ± 0.002 | 32.6 ± 0.3 |
+| 18 h | posterior moved |  | 0.13 → 0.13 | 5.1 | 14.2 / 18.7 / 20.2 | — / 13.3 | 0.948 ± 0.003 | 0.432 ± 0.003 | 32.6 ± 0.3 |
+| 19 h | posterior moved |  | 0.16 → 0.16 | 8.7 | 14.2 / 18.7 / 20.2 | — / 13.3 | 0.946 ± 0.003 | 0.429 ± 0.002 | 32.7 ± 0.8 |
+| 20 h | event due |  | 0.18 → 0.18 | 2.1 | 14.2 / 18.7 / 20.2 | — / 13.3 | 0.949 ± 0.003 | 0.428 ± 0.002 | 32.3 ± 0.6 |
+
+Executed: fuel add 13.27 h, wrap 14.20 h, pull 18.68 h, serve
+20.15 h, no spritz; a 250 °F pit with the damper half open at the
+end. The plant: collagen 0.956 at the pull with the core at 97.5 °C
+(0.3 sd past the band's top), water 0.431 (0.5 sd under its floor),
+bark L* 32.5 inside its band, core at serve 91 °C. Twenty-one replans
+in twenty-one checks, 53 minutes; the latents at a median of 0.9 sd
+from truth, none past 1.7.
+
+| | the pilot's band | RxInfer pilot | MPC |
+|---|---|---|---|
+| collagen at the center at the pull | 0.90 to 0.95 | 0.955 (core 98 °C) | 0.854 (core 89 °C) |
+| water W/W0 at serve | at least 0.45 | 0.431 (50 %) | 0.483 (53 %) |
+| bark L* at serve | 28 to 34 | 32.5 | 34.4 |
+| collagen at serve (the MPC's band) | 0.90 to 0.95 | 0.995 | 0.932 |
+| wrap / pull / serve | | 14.2 / 18.7 / 20.2 h | 8.1 / 11.7 / 16.0 h |
+| pit, mean / max | | 250 °F / 155 °C | 248 °F / 177 °C |
+
+Reading it:
+
+- **The bands shortened the cook by 2.4 hours** (22.5 to 20.2 h) and
+  let the damper open (the pit 250 °F against 236, half open at the
+  end against 0.13); the gap to the MPC's 16 h is 4.2 h now.
+- **Inside the bands the plan is indifferent, so while the posterior
+  is wide its width decides the length.** Hours 2 to 4 went from a
+  15 h pull to 25 h and back to 15 h by hour 5 as the bark's spread
+  fell from ± 3.6 to ± 1.1 L*: a longer, cooler cook keeps more draws
+  inside the mahogany band, and once the draws agree the short cook
+  wins. The first five hours were executed while it hedged.
+- **The commit rule ended the treadmill for three events.** The fuel
+  add committed 3.3 hours ahead, the wrap 1.2 hours, the pull 3.7
+  hours, each because the replan moved it by under half an hour. The
+  spritz moved 48 minutes at 14 h, stayed open, and left the free set
+  when the pull committed, so this cook had none.
+- **Collagen belongs at serve, not at the pull.** The band was met at
+  the pull (0.956) and the rest took it to 0.995: pot roast by the
+  MPC's own band, which it scores at serve. The MPC pulls at 0.85 with
+  the core at 89 °C and lets a 4.3-hour rest finish the center to
+  0.93; that is why it can pull earlier and cooler and keep more
+  water. Two things follow: the pilot's collagen goal should be read at
+  serve, and its rest prior (1.5 h ± 0.5 in the log, so a four-hour
+  rest costs two units) fixes the rest by fiat as the damper prior
+  fixed the pit. Both are next.
+- **The posterior-move condition fires nearly every hour** (seven of
+  twenty-one, at 2 to 47 nats) because a seventeen-latent posterior
+  that sharpens hourly moves several nats routinely; two nats is a
+  threshold for one latent, not seventeen. Scaled with the dimension
+  (n/4, four nats) it would have kept three of the seven. And one
+  replan (16 h) fired on a spritz the pull's commit had already taken
+  out of the free set; `replan_due` now counts only free events.
+
 ## Reading like a real cook: rates, censoring, the noise level as a process, and the replan as a decision (2026-09-09)
 
 Nothing in a cook is stationary and no two instruments agree on a

@@ -10,7 +10,7 @@
 # outcomes are read (interpolated on the grid). The free set shrinks as
 # events commit: after the pull only the serve time is free.
 
-export plan_loss, ReplanPolicy, replan_due, posterior_kl
+export plan_loss, ReplanPolicy, replan_due, posterior_kl, stable_events
 export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper,
        schedule_events, plan_outputs_rh, replan_on_graph, commit!, execute_damper!, PlanGoals
 
@@ -179,31 +179,41 @@ function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData)
 end
 
 """
-The goals, in a pitmaster's terms. The pull is probe-tender: collagen
-conversion at the center node in the band the app's quality objective
-uses (0.90 done to 0.95 pot roast), so 0.92 ± 0.02. The water at serve
-is what this plant's physics retains at doneness on a cook of normal
-length: 0.47 of the initial dry-basis water (52 % moisture wet basis;
-the app's own optimum lands at 0.45 to 0.48, and the model's water
-budget is a roadmap residue, so a served brisket's 57 % is not this
-plant's to give and asking for it buys a cool 22-hour cook). The bark
-is the mahogany band (L* 28 to 34), 31 ± 3. The floor at serve is the
-slicing temperature, one-sided.
+The goals, in a pitmaster's terms, as bands: a goal costs nothing
+inside its band and half the squared distance outside it, in units of
+its sd (a softplus corner a quarter-sd wide keeps the graph's affine
+nodes honest). The pull is probe-tender: collagen conversion at the
+center node in the band the app's quality objective uses, 0.90 (done)
+to 0.95 (pot roast), sd 0.02. The water at serve is a floor at what
+this plant's physics retains at doneness on a cook of normal length,
+0.45 of the initial dry-basis water (the app's own optimum lands at
+0.45 to 0.48; the model's water budget is a roadmap residue), sd 0.04.
+The bark is the mahogany band, L* 28 to 34, sd 3. The floor at serve
+is the slicing temperature. A Gaussian at each band's center made the
+pilot cook six hours longer than the app's MPC on the same brisket
+(`docs/results.md`, the pilot in a pitmaster's terms).
 """
 Base.@kwdef struct PlanGoals
-    C_pull::Float64 = 0.92
+    C_lo::Float64 = 0.90
+    C_hi::Float64 = 0.95
     sd_C::Float64 = 0.02
-    W::Float64 = 0.47
+    W_lo::Float64 = 0.45
     sd_W::Float64 = 0.04
-    L::Float64 = 31.0
+    L_lo::Float64 = 28.0
+    L_hi::Float64 = 34.0
     sd_L::Float64 = 3.0
     T_serve_floor::Float64 = 273.15 + 65.0
     sd_serve::Float64 = 1.0          # the hinge's scale [K]: a draw ΔT under the floor costs ½ (ΔT/sd)²
 end
 
-"The goal residuals of one draw's outputs; the fourth is the tail: zero above the floor."
-goal_residuals(y, g::PlanGoals) = [(y[1] - g.C_pull) / g.sd_C, (y[2] - g.W) / g.sd_W, (y[3] - g.L) / g.sd_L,
-                                   hinge(g.T_serve_floor - y[4]) / g.sd_serve]
+"A two-sided band residual: zero inside, the distance outside in sd; the corners a quarter-sd wide."
+band_residual(y, lo, hi, sd) = (hinge(lo - y, sd / 4) + hinge(y - hi, sd / 4)) / sd
+"A one-sided floor residual: zero above, the shortfall in sd."
+floor_residual(y, lo, sd) = hinge(lo - y, sd / 4) / sd
+
+"The goal residuals of one draw's outputs: the collagen band at the pull, the water floor, the bark band and the serve floor."
+goal_residuals(y, g::PlanGoals) = [band_residual(y[1], g.C_lo, g.C_hi, g.sd_C), floor_residual(y[2], g.W_lo, g.sd_W),
+                                   band_residual(y[3], g.L_lo, g.L_hi, g.sd_L), hinge(g.T_serve_floor - y[4]) / g.sd_serve]
 
 # the graph: per-draw affine nodes of the four outputs, the LM node, the plan prior
 const RH_AFFS = Ref{Vector{Tuple{Vector{Float64},Matrix{Float64}}}}(Tuple{Vector{Float64},Matrix{Float64}}[])
@@ -304,6 +314,27 @@ Base.@kwdef struct ReplanPolicy
     misfit_z::Float64 = 3.0
     lead::Float64 = 3600.0
     floor::Float64 = 4 * 3600.0
+    stable::Float64 = 1800.0         # an event a replan moved by less than this commits now, however far ahead
+end
+
+"""
+    stable_events(plan, prev, tol) -> Vector{Symbol}
+
+The events a replan left where they stood: those of `plan` within `tol`
+seconds of their time in the previous plan `prev` (wrap, add, spritz,
+pull). An event about to commit forces a replan on the freshest
+posterior; when that replan does not move it, deferring it another hour
+buys nothing, and it should commit.
+"""
+function stable_events(plan, prev, tol)
+    prev === nothing && return Symbol[]
+    out = Symbol[]
+    same(a, b) = !isnan(a) && !isnan(b) && abs(a - b) <= tol
+    same(plan.t_wrap, prev.t_wrap) && push!(out, :wrap)
+    same(plan.t_add, prev.t_add) && push!(out, :add)
+    plan.spritz !== nothing && prev.spritz !== nothing && same(plan.spritz.t, prev.spritz.t) && push!(out, :spritz)
+    same(plan.t_pull, prev.t_pull) && push!(out, :pull)
+    return out
 end
 
 """
@@ -337,10 +368,12 @@ become available, which `loss_high` and `posterior_moved` catch.
 """
 function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::Real, t_last::Real, misfit_z; kl=nothing)
     plan === nothing && return (true, :first)
+    # only an event still free to move can come due: a standing plan's spritz after the pull has committed is no decision
+    f = free_set(s)
     events = [plan.t_wrap, plan.t_pull, plan.t_add, plan.spritz === nothing ? NaN : plan.spritz.t, plan.t_serve]
-    fixed = [!isnan(s.t_wrap), !isnan(s.t_pull), !isnan(s.t_add), s.spritz !== nothing, false]
-    for (t, fx) in zip(events, fixed)
-        !isnan(t) && !fx && s.t_now < t <= s.t_now + pol.lead && return (true, :event_due)
+    free = [f.wrap, f.pull, f.add, f.spritz, f.serve]
+    for (t, fr) in zip(events, free)
+        !isnan(t) && fr && s.t_now < t <= s.t_now + pol.lead && return (true, :event_due)
     end
     # one-sided: excess residual power says the model is wrong somewhere; too little says it is conservative
     misfit_z !== nothing && misfit_z > pol.misfit_z && return (true, :misfit)
@@ -352,22 +385,23 @@ function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::R
 end
 
 """
-    commit!(s, plan, Δ) -> committed::Vector{Symbol}
+    commit!(s, plan, Δ; force=Symbol[]) -> committed::Vector{Symbol}
 
 The candidate events of `plan` that fall inside the next interval
 (now, now + Δ] are executed at their planned times and fixed forever;
 the spritz train starts when its first spritz is due; the serve time is
-carried as the current plan.
+carried as the current plan. Events named in `force` (see
+`stable_events`) commit at any future time.
 """
-function commit!(s::Schedule, plan, Δ)
+function commit!(s::Schedule, plan, Δ; force=Symbol[])
     done = Symbol[]
-    due(t) = !isnan(t) && s.t_now < t <= s.t_now + Δ
-    if isnan(s.t_wrap) && due(plan.t_wrap); s.t_wrap = plan.t_wrap; push!(done, :wrap); end
-    if isnan(s.t_add) && due(plan.t_add); s.t_add = plan.t_add; push!(done, :add); end
-    if s.spritz === nothing && plan.spritz !== nothing && due(plan.spritz.t)
+    due(t, name) = !isnan(t) && s.t_now < t && (t <= s.t_now + Δ || name in force)
+    if isnan(s.t_wrap) && due(plan.t_wrap, :wrap); s.t_wrap = plan.t_wrap; push!(done, :wrap); end
+    if isnan(s.t_add) && due(plan.t_add, :add); s.t_add = plan.t_add; push!(done, :add); end
+    if s.spritz === nothing && plan.spritz !== nothing && due(plan.spritz.t, :spritz)
         s.spritz = (t=plan.spritz.t, dt=plan.spritz.dt, m=plan.spritz.m); push!(done, :spritz)
     end
-    if isnan(s.t_pull) && due(plan.t_pull); s.t_pull = plan.t_pull; push!(done, :pull); end
+    if isnan(s.t_pull) && due(plan.t_pull, :pull); s.t_pull = plan.t_pull; push!(done, :pull); end
     s.t_serve = plan.t_serve
     return done
 end

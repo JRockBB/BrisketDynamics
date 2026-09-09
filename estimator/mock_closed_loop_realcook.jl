@@ -123,9 +123,11 @@ while s.t_now < 28 * 3600
     L_now = plan === nothing ? NaN : plan_loss(zs, plan, s, d_plan; goals).mean
     kl = plan === nothing ? NaN : posterior_kl(z, V, z_at_plan, V_at_plan)
     due, why = replan_due(pol, s, plan, L_now, L_plan, t_last, mis === nothing ? nothing : mis.z_chi2; kl=isnan(kl) ? nothing : kl)
+    stable = Symbol[]
     if due
         ζ_init = plan === nothing ? nothing : encode_plan(plan, free_set(s), s)
         r = replan_on_graph(zs, s, d_plan; goals, ζ_init, verbose=false)
+        why == :event_due && (stable = stable_events(r.plan, plan, pol.stable))   # left where it stood: commit it
         global plan = r.plan
         global L_plan = plan_loss(zs, plan, s, d_plan; goals).mean
         global t_last = s.t_now
@@ -134,7 +136,7 @@ while s.t_now < 28 * 3600
         ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d_plan) for zz in zs])
         global pred = (mean=vec(mean(ys; dims=2)), sd=vec(std(ys; dims=2)), t_h=s.t_now / 3600)
     end
-    done = commit!(s, plan, CHECK)
+    done = commit!(s, plan, CHECK; force=stable)
     p = plan
     sdz = sqrt.(diag(V))
     @printf("%4.0f  %-15s  %-15s  %5.2f  %5.2f  %5.1f  %5.2f / %5.2f / %5.2f / %s / %5.2f   %5.3f±%5.3f %5.3f±%5.3f %5.1f±%4.1f %6.1f±%4.1f   %s   %.2f %.2f   %3.0f s\n",
@@ -146,7 +148,7 @@ while s.t_now < 28 * 3600
             mis === nothing ? "  -  " : @sprintf("%5.2f", mis.z_chi2), noise[1][1], pit_level_now(s), time() - t0)
     flush(stdout)
     push!(record, Dict("t_h" => s.t_now / 3600, "reason" => string(why), "replanned" => due, "committed" => string.(done),
-                       "L_now" => nn(L_now), "L_plan" => L_plan, "kl" => nn(kl), "converged" => conv, "wall_s" => time() - t0,
+                       "L_now" => nn(L_now), "L_plan" => L_plan, "kl" => nn(kl), "stable" => string.(stable), "converged" => conv, "wall_s" => time() - t0,
                        "plan" => Dict("u" => p.u, "t_wrap_h" => nn(p.t_wrap / 3600), "t_pull_h" => p.t_pull / 3600, "t_serve_h" => p.t_serve / 3600,
                                       "spritz" => p.spritz === nothing ? nothing : Dict("t_h" => p.spritz.t / 3600, "dt_h" => p.spritz.dt / 3600, "m" => p.spritz.m),
                                       "t_add_h" => nn(p.t_add / 3600)),
@@ -170,8 +172,8 @@ reasons = Dict(r => count(rec -> rec["reason"] == r, record) for r in unique(rec
         s.t_wrap / 3600, s.t_pull / 3600, s.t_serve / 3600,
         s.spritz === nothing ? "-" : @sprintf("(%.1f h, every %.2f h, %.3f kg)", s.spritz.t / 3600, s.spritz.dt / 3600, s.spritz.m),
         s.t_add / 3600, length(record), n_replans, join(["$k $v" for (k, v) in sort(collect(reasons))], ", "), time() - t_start)
-@printf("the plant's actual outcome: collagen conversion at the pull %.3f (goal %.2f ± %.2f) with the core at %.1f C, retained water %.3f (goal %.2f), bark L* %.1f (goal %.0f), core at serve %.1f C (floor %.0f)\n",
-        actual.C_pull, goals.C_pull, goals.sd_C, actual.T_pull, actual.W, goals.W, actual.L, goals.L, actual.T_serve, goals.T_serve_floor - 273.15)
+@printf("the plant's actual outcome: collagen conversion at the pull %.3f (band %.2f to %.2f) with the core at %.1f C, retained water %.3f (floor %.2f), bark L* %.1f (band %.0f to %.0f), core at serve %.1f C (floor %.0f)\n",
+        actual.C_pull, goals.C_lo, goals.C_hi, actual.T_pull, actual.W, goals.W_lo, actual.L, goals.L_lo, goals.L_hi, actual.T_serve, goals.T_serve_floor - 273.15)
 open(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"), "w") do io
     JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans,
                         "policy" => Dict(string(k) => getfield(pol, k) for k in fieldnames(ReplanPolicy)),

@@ -140,8 +140,8 @@ actual = (C_pull=at(view(o.C_field, 1, :), s.t_pull), T_pull=at(o.Tcore, s.t_pul
         s.t_wrap / 3600, s.t_pull / 3600, s.t_serve / 3600,
         s.spritz === nothing ? "-" : @sprintf("(%.1f h, every %.2f h, %.3f kg)", s.spritz.t / 3600, s.spritz.dt / 3600, s.spritz.m),
         s.t_add / 3600, time() - t_start)
-@printf("the plant's actual outcome: collagen conversion at the pull %.3f (goal %.2f ± %.2f) with the core at %.1f C, retained water %.3f (goal %.2f), bark L* %.1f (goal %.0f), core at serve %.1f C (floor %.0f)\n",
-        actual.C_pull, goals.C_pull, goals.sd_C, actual.T_pull, actual.W, goals.W, actual.L, goals.L, actual.T_serve, goals.T_serve_floor - 273.15)
+@printf("the plant's actual outcome: collagen conversion at the pull %.3f (band %.2f to %.2f) with the core at %.1f C, retained water %.3f (floor %.2f), bark L* %.1f (band %.0f to %.0f), core at serve %.1f C (floor %.0f)\n",
+        actual.C_pull, goals.C_lo, goals.C_hi, actual.T_pull, actual.W, goals.W_lo, actual.L, goals.L_lo, goals.L_hi, actual.T_serve, goals.T_serve_floor - 273.15)
 open(joinpath(REPO, "data", "mock", "closed_loop.json"), "w") do io
     JSON.print(io, Dict("replans" => record, "delta_h" => Δ / 3600, "n_draws" => N_DRAWS,
                         "executed" => Dict("u" => [isnan(x) ? nothing : x for x in s.u], "t_wrap_h" => nn(s.t_wrap / 3600), "t_pull_h" => nn(s.t_pull / 3600), "t_serve_h" => s.t_serve / 3600,

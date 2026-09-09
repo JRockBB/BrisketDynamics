@@ -131,14 +131,16 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **Band-shaped goals, and a commit rule for a plan that stands.** The
-  pilot's Gaussian goals want the center of each quality band, and on
-  this physics the center of the collagen band with a mahogany bark is
-  reached only by the long cook; the app's flat bands stop six hours
-  earlier on the same brisket. The hinge already used at serve, on both
-  sides of each band, is a two-line change to `goal_residuals`. And an
-  event a replan leaves where it stood should commit rather than
-  trigger the next hour's replan (seven of the last run's twenty-one).
+- **Collagen at serve, a free rest, a trigger scaled to the posterior.**
+  The pilot's goals are bands now and a stable event commits early
+  (`docs/results.md`, the pilot in a pitmaster's terms, the addendum),
+  which took 2.4 h off the cook; what keeps it 4 h behind the MPC is
+  that its collagen band is read at the pull while the rest converts
+  the center further (0.956 became 0.995), and that its rest prior
+  fixes a 1.5 h rest by fiat where the MPC's 4.3 h rest is what lets
+  it pull cooler and keep more water. Read the band at serve, widen
+  the rest prior, and scale the posterior-move threshold with the
+  latent count (two nats fires nearly every hour on seventeen latents).
 - **The bark on a hot offset.** Every planner on this physics finds a
   long cook because the bark, calibrated on a 19-hour 225 °F WSM cook,
   takes ten hours to reach a mahogany 33; an offset at 275 °F does it

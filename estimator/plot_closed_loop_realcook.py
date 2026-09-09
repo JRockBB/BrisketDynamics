@@ -75,7 +75,7 @@ def main():
             if ts < ev["pull"]:
                 ax.axvline(ts, color=EVENT_C["spritz"], lw=0.6, alpha=0.5)
     ax.set_xlim(0, t_end)
-    ax.set_ylim(15, ymax)
+    ax.set_ylim(15, max(ymax, float(np.max(np.array(tr["T_pit_C"])[keep])) + 8))
     ax.set_ylabel("temperature [°C]", color=INK2, fontsize=9)
     core = np.array(tr["T_core_C"])
     pit_mean = float(np.mean(np.array(tr["T_pit_C"])[t <= ev["pull"]]))
@@ -120,18 +120,22 @@ def main():
     style(ax)
     last = next(c for c in reversed(checks) if c["replanned"])
     pm, ps = last["predicted"]["mean"], last["predicted"]["sd"]
-    rows = [("probe-tender at the pull (collagen conversion at the center)", 0, goals["C_pull"], goals["sd_C"], actual["C_pull"], "", lambda v: v, "{:.3f}"),
-            ("retained water W/W0 at serve", 1, goals["W"], goals["sd_W"], actual["W"], "", lambda v: v, "{:.3f}"),
-            ("bark L* at serve", 2, goals["L"], goals["sd_L"], actual["L"], "", lambda v: v, "{:.1f}")]
-    for i, (name, idx, goal, sd, act, unit, conv, fmt) in enumerate(rows):
+    # each goal is a band (or a floor): the row's shaded span is the band in the goal's sd, measured from its center
+    # (for a floor, from the floor upward); the markers are the prediction and the plant on the same scale
+    rows = [("probe-tender at the pull (collagen conversion at the center)", 0, goals["C_lo"], goals["C_hi"], goals["sd_C"], actual["C_pull"], "{:.3f}"),
+            ("retained water W/W0 at serve", 1, goals["W_lo"], None, goals["sd_W"], actual["W"], "{:.3f}"),
+            ("bark L* at serve", 2, goals["L_lo"], goals["L_hi"], goals["sd_L"], actual["L"], "{:.1f}")]
+    for i, (name, idx, lo, hi, sd, act, fmt) in enumerate(rows):
         y = len(rows) - i
+        center = lo if hi is None else 0.5 * (lo + hi)
+        span = (0.0, 5.0) if hi is None else (-(hi - lo) / 2 / sd, (hi - lo) / 2 / sd)
+        ax.fill_between(span, [y - 0.42, y - 0.42], [y + 0.08, y + 0.08], color="#eeeeea", lw=0)
         ax.axhline(y, color=GRID_C, lw=0.8)
-        ax.plot([(pm[idx] - goal) / sd], [y], "o", color=CORE, ms=8, mec=SURFACE, mew=1.2)
-        ax.plot([(act - goal) / sd], [y], "s", color=PIT, ms=8, mec=SURFACE, mew=1.2)
-        # the row's words sit above its line, clear of the markers
-        ax.text(-4.9, y + 0.12, f"{name}: goal {conv(goal):g}{unit} ± {sd:g}", color=INK2, fontsize=8.5, va="bottom")
-        ax.text(4.9, y + 0.12, f"the plant: {fmt.format(conv(act))}{unit}", color=INK2, fontsize=8.5, va="bottom", ha="right")
-    ax.axvspan(-1, 1, color="#eeeeea", lw=0)
+        ax.plot([(pm[idx] - center) / sd], [y], "o", color=CORE, ms=8, mec=SURFACE, mew=1.2)
+        ax.plot([(act - center) / sd], [y], "s", color=PIT, ms=8, mec=SURFACE, mew=1.2)
+        band = f"at least {lo:g}" if hi is None else f"{lo:g} to {hi:g}"
+        ax.text(-4.9, y + 0.12, f"{name}: {band}, sd {sd:g}", color=INK2, fontsize=8.5, va="bottom")
+        ax.text(4.9, y + 0.12, f"the plant: {fmt.format(act)}", color=INK2, fontsize=8.5, va="bottom", ha="right")
     ax.axvline(0, color=INK, lw=1)
     ax.plot([], [], "o", color=CORE, label="predicted at the last replan")
     ax.plot([], [], "s", color=PIT, label="the plant")
@@ -139,7 +143,7 @@ def main():
     ax.set_ylim(0.2, len(rows) + 0.6)
     ax.set_yticks([])
     ax.grid(False)
-    ax.set_xlabel("distance from the goal, in goal standard deviations (band: within one)", color=INK2, fontsize=9)
+    ax.set_xlabel("distance from the band's center (a floor: from the floor), in the goal's sd; shaded: inside the band", color=INK2, fontsize=9)
     wb = actual["W"] * 2.33 / (1 + actual["W"] * 2.33)
     ax.set_title(f"The outcome: collagen {actual['C_pull']:.2f} at the pull with the core at {actual['T_pull']:.0f} °C, {100 * wb:.0f} % moisture, L* {actual['L']:.0f}; "
                  f"core at serve {actual['T_serve']:.0f} °C against a {goals['T_serve_floor'] - 273.15:.0f} °C floor", color=INK, fontsize=10.5)
