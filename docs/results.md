@@ -4,6 +4,232 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Reading like a real cook: rates, censoring, the noise level as a process, and the replan as a decision (2026-09-09)
+
+Nothing in a cook is stationary and no two instruments agree on a
+clock. The pit probe reports every two minutes and its noise doubles
+when fresh fuel goes in; the humidity sensor reports every ten and
+saturates; the scale is read every half hour; every lid lift blanks
+all of them for six minutes. The estimator had been fed one grid, one
+noise level per channel and readings at every point, and replanned on
+a two-hour clock. This entry makes the plant read like a real cook,
+makes the estimator model what it reads, and lets it decide when a
+replan is worth making.
+
+**The plant** (`estimator/realcook.jl`, `mock_realcook.jl`, record
+`data/mock/mock_realcook.json`). The matched mock on a two-minute grid
+over 30 h with the schedule the plan block found (wrap 11 h, spritz
+from 8.5 h every 1.6 h at 46 g, fuel add 12 h, pull 15.7 h). Each
+channel is a unit AR(1) times a level: the pit's level is 1 + 2
+exp(−(t − t_add)/30 min) after the fuel add, the humidity reading is
+min(true, 6500 Pa), and every event including each spritz opens a
+six-minute lid window that all four channels drop. Of 901 grid points
+the pit and core probes have 877, the humidity 176 (34 at the cap), the
+scale 58.
+
+**Channels at their own rates.** A channel's whitening is gap-aware:
+samples g grid steps apart are correlated ρ^g, a run of the AR chain
+breaks only at a gap over three times the channel's spacing (a
+full-rate channel breaks at any gap), and the AR node identifies the
+noise at the channel's own spacing with the prior converted to it (ρ^g,
+its width by the slope of that map). The calibration's ten-minute
+priors convert the same way to the two-minute step.
+
+**Censoring.** `CensoredHumidity` predicts min(model, cap) as a smooth
+corner (cap − s·softplus((cap − model)/s), slope logistic((cap −
+model)/s): one below the cap, zero above), so a reading at the cap says
+"the true value was at least the cap" and penalises a model that dips
+below it. The first stream pass kept the censored samples in the AR
+chain and in the noise identification; their near-zero residuals
+identified the humidity's sd at 27 Pa against the plant's 100, and a
+channel weighted fourteen times too heavily bent the physics: the
+median latent 1.6 sd from truth, one at 4.2. The registry now has three
+hooks: `noise_mask` (the samples whose residuals are the noise
+process), `extra_rows` (independent rows a channel appends after its AR
+rows; a censored sample is one, weighted like a reading) and
+`misfit_rows` (the rows the misfit check scores). With them the
+humidity's sd came out at 94 ± 25 Pa.
+
+**The noise level as a process** (`estimator/volatility.jl`). Given the
+AR node's ρ, the innovations η_k = e_k − ρ e_{k−1} are white with
+variance s_k²(1 − ρ²) when the level s moves slowly, and their
+cumulative sum is a random walk whose increments have that variance:
+RxInfer's GCV node exactly, x_k ~ N(x_{k−1}, exp(z_k)), with the
+log-variance z itself a random walk (the hierarchical Gaussian filter's
+two layers, Gauss–Hermite messages, mean-field between the layers,
+`limit_stack_depth` for a 900-node chain). The smoother's posterior on
+z is the level. A `Levelled` channel wrapper carries it: the whitening
+divides each sample by its level and is exact for the scaled process,
+and the AR node sees the de-levelled residuals so the base sd stays the
+base. On a synthetic unit AR(1) (ρ = 0.9) scaled by 3 for a stretch the
+smoother reads 2.89 inside and 0.95 outside; the flat whitening leaves
+a residual power of 9.8 inside the stretch, the levelled one 0.91
+overall. On the real-cook mock's pit residual at the truth the level
+after the fuel add reads 2.0 against 2.4 in the first quarter hour,
+1.64 against 1.74 in the next half hour, 1.04 against 1.12 after that,
+in one second for 877 samples (`estimator/test_volatility.jl`).
+
+**The stream on the real-cook plant** (`estimator/mock_stream_realcook.jl`,
+record `data/mock/mock_realcook_stream.json`, figure
+`figures/estimator_realcook_stream.png`): two-hourly refits to the pull
+on the graph engine, every channel levelled, the noise carried from
+batch to batch, one AR round each.
+
+| channel (spacing) | the plant's sd | identified at 14 h | ρ per step, identified / the plant's | misfit z at 14 h |
+|---|---|---|---|---|
+| pit (2 min) | 1.5 °C | 1.39 ± 0.19 | 0.963 ± 0.010 / 0.961 | 3.0 |
+| core (2 min) | 0.5 °C | 1.2 (the calibration's floor) | 0.992 ± 0.005 / 0.990 | −3.4 |
+| humidity (10 min, censored) | 100 Pa | 94 ± 25 | 0.971 ± 0.073 / 0.957 | −0.7 |
+| scale (30 min) | 20 g | 10.5 ± 1.5 | 0.881 ± 0.20 / 0.955 | 0.9 |
+
+The final latents sit at a median of 0.97 posterior sd from truth (one
+at 3.9, the spread parameter), the total residual power 0.94 of its
+expectation. Reading it:
+
+- **The pit's level follows the fire.** The inferred level at the 14 h
+  refit tracks the plant's bump at 12 h (the figure's first panel) and
+  the pit's identified sd and ρ land on the plant's within their
+  widths. Without the level the bump would have been read as a rise in
+  the base noise and carried forward, as the first pass did (2.4 °C at
+  10 h).
+- **The core sits at the calibration's floor, and the check says so.**
+  The between-cook floor holds the meat probe's sd at 1.2 °C; this mock
+  generates 0.5. The misfit check reads −3 to −5 for the core all cook:
+  the model claims more noise than the data show, which is the floor's
+  doing, not the identification's. On a real probe the calibration
+  says 1.2 is what one gets; the mock is the optimist here.
+- **The scale's sd reads half.** Twenty-six samples of a process with
+  ρ = 0.5 per sample, and the mass block's own latents absorb part of
+  the residual; its ρ is wide (± 0.2). More samples or a tighter
+  prior; the misfit stays inside the band.
+- **Near the unit root, the marginal is not what is identified.** At a
+  two-minute step the core's ρ is 0.99 and the AR node's marginal sd
+  and ρ trade off along a ridge (the first pass reported 2.05 ± 3.9 at
+  ρ = 0.999) while the innovation sd, the quantity the whitening uses,
+  was within 35 %. The prior's width floor keeps the pair in range.
+- **The iterator's floor.** Two batches of the first pass stalled with
+  every negligible step rejected at the objective's jitter and skipped
+  their noise round; a rejected step under the tolerance is now
+  convergence, as in the outer engine.
+
+**The replan as a decision** (`estimator/horizon.jl`: `plan_loss`,
+`ReplanPolicy`, `replan_due`). The question raised was whether the
+reactive graph could make replanning intelligent rather than periodic.
+Replanning on every posterior update is the wrong reading of that: a
+check is cheap (the standing plan's expected loss under the new draws
+is six plant runs, no optimisation) and a replan is not (a graph solve
+with a Jacobian per draw per iteration), and the standing plan is
+already the best answer to the last posterior. What changes the plan's
+value is new information, and what makes a decision urgent is
+irreversibility. So the policy: after each hourly refit the standing
+plan is re-encoded in the current free set and its expected loss
+computed under the new draws; a replan fires when that loss has risen
+by more than one half-squared-sd unit since the plan was made, when a
+planned event falls due within the next hour (it is about to commit
+and become irreversible: decide it on the freshest posterior), when
+the misfit check reports excess residual power (the model is wrong
+somewhere; the plan's outlook is unreliable; too little power means
+the noise model is conservative, which threatens nothing, and on this
+plant the core's floor keeps that side firing all cook), or when four
+hours have passed without one (`estimator/test_horizon.jl`, seven
+testsets).
+
+**The closed loop on the real-cook plant**
+(`estimator/mock_closed_loop_realcook.jl`, record
+`data/mock/closed_loop_realcook.json`, figure
+`figures/estimator_closed_loop_realcook.png`). The plant above, read
+by its instruments; every hour the estimator refits on the graph
+engine with the channels at their rates, the noise identified and
+levelled; the standing plan is scored under six posterior draws; the
+policy decides. The plan's physics runs on a ten-minute grid, the
+executed damper interpolated onto the plant's two-minute one.
+
+| check | reason | committed | loss: standing → new | wrap / pull / serve [h] | spritz / add [h] | core at the pull [°C] | water | bark L* | core at serve [°C] |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 h | the first plan |  | 192.41 | 5.6 / 8.8 / 9.2 | 6.3 / 2.8 | 76.7 ± 30.2 | 0.625 ± 0.329 | 40.0 ± 11.2 | 75.1 ± 29.4 |
+| 1 h | loss rose |  | 589.02 → 6.63 | 12.8 / 15.0 / 16.4 | 6.0 / 8.5 | 91.7 ± 6.4 | 0.279 ± 0.061 | 28.5 ± 2.7 | 83.4 ± 6.5 |
+| 2 h | loss rose |  | 48.45 → 10.07 | 12.9 / 15.8 / 17.9 | 7.0 / 9.6 | 90.9 ± 8.5 | 0.421 ± 0.039 | 34.7 ± 4.1 | 82.3 ± 10.2 |
+| 3 h | hold | | 8.75 vs 10.07 | | | | | | |
+| 4 h | loss rose |  | 11.88 → 3.34 | 14.5 / 21.2 / 22.9 | 11.2 / 13.6 | 92.5 ± 4.6 | 0.411 ± 0.014 | 32.8 ± 3.2 | 86.6 ± 5.0 |
+| 5 h | hold | | 0.85 vs 3.34 | | | | | | |
+| 6 h | hold | | 1.14 vs 3.34 | | | | | | |
+| 7 h | hold | | 2.75 vs 3.34 | | | | | | |
+| 8 h | floor |  | 1.62 → 0.31 | 15.9 / 20.5 / 22.0 | 12.0 / 13.2 | 92.7 ± 0.8 | 0.367 ± 0.011 | 31.8 ± 2.5 | 86.9 ± 1.0 |
+| 9 h | hold | | 0.70 vs 0.31 | | | | | | |
+| 10 h | loss rose |  | 2.06 → 0.51 | 15.2 / 19.7 / 21.3 | 13.2 / 14.2 | 92.5 ± 0.9 | 0.378 ± 0.007 | 33.6 ± 2.3 | 85.5 ± 1.2 |
+| 11 h | loss rose |  | 3.59 → 1.07 | 14.4 / 18.3 / 20.0 | 13.7 / 13.7 | 92.0 ± 2.0 | 0.393 ± 0.005 | 32.9 ± 2.3 | 86.1 ± 2.7 |
+| 12 h | hold | | 0.87 vs 1.07 | | | | | | |
+| 13 h | event due |  | 2.43 → 0.52 | 15.2 / 19.7 / 21.3 | 15.6 / 15.3 | 92.0 ± 1.3 | 0.375 ± 0.002 | 33.2 ± 1.5 | 85.3 ± 1.9 |
+| 14 h | hold | | 0.42 vs 0.52 | | | | | | |
+| 15 h | event due |  | 0.39 → 0.37 | 16.2 / 20.5 / 21.9 | 16.8 / 16.5 | 92.0 ± 1.0 | 0.360 ± 0.004 | 30.5 ± 1.1 | 86.7 ± 1.2 |
+| 16 h | event due | wrap, add | 1.19 → 0.45 | 16.6 / 20.7 / 22.1 | 17.6 / 16.8 | 91.4 ± 0.8 | 0.350 ± 0.004 | 31.0 ± 0.7 | 85.8 ± 1.2 |
+| 17 h | event due | spritz | 2.16 → 2.23 | 16.6 / 21.0 / 22.4 | 17.7 / 16.8 | 89.0 ± 1.2 | 0.351 ± 0.003 | 31.0 ± 0.6 | 83.2 ± 1.5 |
+| 18 h | loss rose |  | 3.72 → 2.32 | 16.6 / 21.0 / 22.4 | 17.7 / 16.8 | 88.8 ± 0.7 | 0.351 ± 0.003 | 31.2 ± 0.5 | 82.8 ± 0.9 |
+| 19 h | loss rose |  | 6.10 → 5.10 | 16.6 / 21.0 / 22.5 | 17.7 / 16.8 | 86.7 ± 1.0 | 0.350 ± 0.004 | 31.6 ± 0.7 | 80.6 ± 1.4 |
+| 20 h | event due |  | 5.82 → 6.14 | 16.6 / 21.0 / 22.5 | 17.7 / 16.8 | 86.0 ± 0.4 | 0.351 ± 0.002 | 32.0 ± 0.6 | 79.7 ± 0.5 |
+| 21 h | event due | pull | 5.73 → 5.88 | 16.6 / 21.2 / 22.8 | 17.7 / 16.8 | 86.2 ± 0.2 | 0.351 ± 0.001 | 31.9 ± 0.8 | 79.1 ± 0.3 |
+| 22 h | event due |  | 5.58 → 5.58 | 16.6 / 21.2 / 22.7 | 17.7 / 16.8 | 86.3 ± 0.1 | 0.352 ± 0.001 | 32.2 ± 0.5 | 79.6 ± 0.1 |
+
+Executed: wrap 16.59 h, fuel add 16.76 h, spritz from 17.7 h hourly at
+50 g, pull 21.23 h, serve 22.73 h. The plant's actual outcome: core at
+the pull 86.4 °C (goal 93 ± 2), retained water 0.352 (goal 0.35), bark
+L* 31.8 (goal 32), core at serve 79.4 °C (floor 65). Twenty-three
+checks, sixteen replans (seven with an event about to commit, seven on
+a loss rise, one on the floor, the first), seven holds; 66 minutes in
+all, of which the seven holds cost 96 seconds together (9 to 17 s
+each: a warm-started refit and six plant runs) and the replans the
+rest. The final latents sit at a median of 0.5 posterior sd from
+truth, one at 2.8 (the spread parameter); the thickness's posterior sd
+ends at 0.025. Reading it:
+
+- **The prediction at the commit was the plant.** At the last replan
+  the plan predicted 86.3 ± 0.1 °C at the pull, 0.352 ± 0.001 water,
+  32.2 ± 0.5 L*, 79.6 ± 0.1 °C at serve; the plant delivered 86.4,
+  0.352, 31.8, 79.4. The estimator knew this brisket.
+- **The compromise went the other way from the matched run.** There
+  the plan held the water above goal and gave the pull temperature
+  1.6 sd; here it holds the water and the bark on goal and gives the
+  pull temperature 3.3 sd. Both were right about their own outcome;
+  which trade the optimiser picks depends on where the posterior sits
+  (the two runs read different plants through different instruments),
+  and the loss it settles at (5.6) says the goals conflict on this
+  brisket: a hotter pull costs water at one sd per 0.05.
+- **The trigger placed the replans, it did not thin them.** Sixteen
+  replans against the twelve a two-hour clock made on the matched run
+  and the twenty-three an hourly clock would have made here. Seven were
+  spent where the information changed the plan's value (the loss rose
+  from 192 to 589 after the first hour of readings, from 6.6 to 48
+  after the second, by two to four units at 10, 11, 18 and 19 h as the
+  posterior tightened on the thickness and the pull moved), seven
+  where an irreversible decision was about to be taken, and the seven
+  holds were hours in which the standing plan was worth as much or
+  more under the new posterior than when it was made (0.85 against
+  3.34 at 5 h, 0.42 against 0.52 at 14 h).
+- **The event-due rule is a treadmill for a deferring plan.** From
+  13 h the plan kept its wrap, fuel add and spritz just beyond the
+  one-hour lead and the rule replanned every hour until the posterior
+  wanted them (the wrap and fuel add committed at 16 h, the spritz at
+  17 h, the pull at 21 h). The two-hour clock did the same in coarser
+  steps (the matched run's wrap sat at 15 to 16 h for six hours before
+  it committed at 15.8). A rule that commits an event when a replan
+  leaves it where it stood would cut those hours; it is not built.
+- **The misfit trigger never fired, and rightly.** The total z-score
+  ran from −1 to −3.9 all cook: the core probe's floor, as in the
+  stream. The two-sided form fired at the first hour and would have
+  fired every hour after; the one-sided form is what the policy needs.
+- **The pit's base sd and its level share one product.** The base
+  sat at the calibration's floor (1.2 °C) with the level carrying the
+  rest (the product 1.5 to 2.0 °C against the plant's 1.5 base), and
+  the level read 2.6 at the check after the executed fuel add. The
+  whitening uses the product, which is identified; the split is the
+  prior's.
+- **A replan can score above the standing plan by a few tenths** (17 h:
+  2.16 → 2.23; 20 h: 5.82 → 6.14): the replan minimises the goals plus
+  the plan prior and starts from the standing plan re-encoded in the
+  current window (its damper knots move with the window), while the
+  check scores the goals alone.
+
+
 ## The receding horizon on the graph: the pilot without hardware (2026-09-08)
 
 `estimator/horizon.jl` closes the plan block into a pilot. The past is

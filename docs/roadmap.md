@@ -109,7 +109,15 @@ against its expectation, lag-1 autocorrelation, per channel) flags it,
 from hour 6 with temperature probes and from hour 1 through the humidity
 sensor (`docs/results.md`, the 2026-09-07 and 2026-09-08 estimator
 entries). The physics is the operator's choice; the check says within an
-hour whether it was right.
+hour whether it was right. Since 2026-09-09 the estimator reads like a
+real cook: channels at their own rates with gap-aware whitening, a
+censored humidity channel whose readings at the cap are one-sided rows
+outside the AR chain, every channel's noise level a process on the
+graph (RxInfer's GCV node on the innovations; the pit's level follows
+the fire), and the replan a decision rather than a cadence (the standing
+plan's expected loss under the new posterior, an event about to commit,
+the misfit check, a floor interval; `docs/results.md`, reading like a
+real cook).
 Its structure is fixed by three measured RxInfer behaviours
 (per-residual nodes, one latent block, affine relinearization;
 `estimator/test_rules.jl` guards them). What remains, in order:
@@ -119,13 +127,15 @@ Its structure is fixed by three measured RxInfer behaviours
   and the calibration artifacts still carry it as the config constant.
 - **Pilot integration, the hookup.** The pilot exists without hardware:
   the full decision set replans on the graph from the estimator's
-  posterior every two hours, commits events when due, and closes the
-  loop on the mock plant (`docs/results.md`, the receding horizon on the
-  graph). What remains: the readings from the pit instead of the mock
-  plant, the executed damper and events from the pilot's journal, the
-  plan back to it, through juliacall on the Julia thread the pilot
-  already holds; and an information term from the estimator's Jacobian
-  if the pilot is to pay for learning the fire.
+  posterior, commits events when due, decides for itself when a replan
+  is worth making, and closes the loop on the matched mock and on a
+  plant read like a real cook (`docs/results.md`, the receding horizon
+  on the graph; reading like a real cook). What remains: the readings
+  from the pit instead of the mock plant, the executed damper and
+  events from the pilot's journal, the plan back to it, through
+  juliacall on the Julia thread the pilot already holds; and an
+  information term from the estimator's Jacobian if the pilot is to
+  pay for learning the fire.
 - **Upstream.** File the four RxInfer findings: the silent prior on a
   singular forward output covariance; the delta node expanding at the
   inbound messages' means with no marginal-based expansion and no hook
@@ -136,7 +146,9 @@ Its structure is fixed by three measured RxInfer behaviours
   3.54) excluding it from any environment with a current ODE stack.
 - **The noise prior across cooks.** The between-cook floor on the
   calibration's noise posterior (0.05 on ρ, 20 % on σ) stands in for a
-  pool across cooks; C3's pool should supply the spread itself.
+  pool across cooks; C3's pool should supply the spread itself. The
+  floor on the meat probe's sd (1.2 °C) is what the misfit check reads
+  on a plant quieter than the calibration; a real probe is not.
 
 ## Product
 
