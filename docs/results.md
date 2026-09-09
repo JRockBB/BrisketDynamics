@@ -160,6 +160,107 @@ Reading it:
   estimator's honesty on a regime change is the next thing to test.
 
 
+**The rest was never a roadmap item.** The serve time is a decision of
+the plan block from the first day, and calling the rest "inherited from
+the prior" above was wrong twice over: the optimiser had it, and it
+stopped short. J on the final posterior mean from the state at 13 h,
+with the executed pull at 14.25 h:
+
+| rest [h] | 1.0 | 1.5 | 2.5 | 3.5 | 4.5 | 6.0 |
+|---|---|---|---|---|---|---|
+| J | 0.981 | 0.916 | 0.881 | 0.872 | 0.869 | 0.867 |
+
+The long rest is better, by 0.05 over 1.5 to 6 hours, and the gradient
+that small in a log-hours coordinate is what the damped iterator lost
+against its stopping rule from a warm start at 1.5 h. The MPC's shape
+from that same state (a 12 h pull with a 4.5 h rest) scores 1.379,
+undercooked at 0.844: pulling earlier was not available to this cook
+by hour 13, so the larger part of the 0.2 gap to the MPC was made in
+the first eight hours, when the estimator, on a 257 °F cook the
+calibration never saw, believed a faster brisket than it had and the
+plan never pushed the pit. The same disease showed on the wrap once
+the rest was handled: the run with rest starts alone served at 0.94
+collagen but 0.49 juiciness (J 0.99), wrapping at 13.3 h where the
+MPC wraps at 8.1, because the warm start hands the optimiser the
+late-wrap basin every hour and a pale bark with more water scores
+better under J. The fix in the cook is a scan before the solve, as the
+app's full plan scans durations: `replan_on_graph` evaluates J at the
+solve's draws over a coarse grid of the wrap fraction (0.4 to 0.85 of
+now to the pull) and the rest (1.5, 3, 5 h), one cook each, and runs
+the graph solve from the best of those and from the warm start,
+keeping the better (a test holds it never does worse than the warm
+start alone). Two bugs the reruns exposed were fixed in the same
+pass: a committed pull that had not been executed was freezing the
+wrap, spritz and add out of the free set (`free_set` now distinguishes
+a committed pull from an executed one), and the stable rule commits an
+event early only within two hours (`ReplanPolicy.stable_horizon`),
+after a pull it committed seven hours ahead at hour eight met a plant
+that ran cooler and served at 0.87 collagen.
+
+The scan did not move the wrap either (the run with it: J 1.07, the
+driest cook yet, wrapped at 13.2 h), and the landscape said why. J
+across wrap times with a fixed damper (0.35, 0.35, 0.2), the pull at
+15 h and the serve at 16.7 h, from the executed state:
+
+| from | latents | wrap 8.5 h | 10 h | 11.5 h | 13 h |
+|---|---|---|---|---|---|
+| 4 h | the truth | 0.830 | 1.055 | 4.908 | 13.583 |
+| 4 h | the posterior mean | 0.964 | 0.806 | 1.920 | 8.275 |
+| 8 h | the truth | 0.946 | 1.069 | 5.290 | 16.864 |
+| 8 h | the posterior mean | 1.004 | 1.142 | 6.282 | 19.142 |
+
+The early wrap wins under the truth and under the belief alike, by
+units, and the pilot never went there because the plan prior on the
+wrap fraction (0.7 of now to the pull, one logit-sd wide) charged 5.9
+units for a wrap at 8.5 h from hour eight, six times any difference
+in J. The damper prior had done the same to the pit and the rest
+prior to the rest; the wrap prior was the last of them. Every plan
+prior is three sd wide in its coordinate now, a regulariser for the
+graph and nothing else.
+
+**Five runs under J, one plant** (the last is the record and the
+figures; the MPC's cook for reference):
+
+| run | what changed | wrap / pull / serve [h] | J | tenderness / appearance / taste | collagen, juiciness, L* |
+|---|---|---|---|---|---|
+| 1 | J at the posterior mean | 11.5 / 14.25 / 15.75 | 0.879 | 0.083 / 0.012 / 0.674 | 0.917, 0.505, 31.5 |
+| 2 | rest starts; the free set fixed | 12.6 / 15.2 / 17.3 | 1.254 | 0.312 / 0.071 / 0.745 | 0.870, 0.519, 34.1 |
+| 3 | the forced-commit horizon | 13.3 / 17.0 / 18.5 | 0.986 | 0.040 / 0.012 / 0.819 | 0.943, 0.489, 31.4 |
+| 4 | the wrap-and-rest scan | 13.2 / 15.1 / 16.7 | 1.069 | 0.051 / 0.049 / 0.789 | 0.933, 0.467, 28.4 |
+| 5 | every plan prior weak | 12.7 / 20.0 / 21.5 | 0.979 | 0.063 / 0.185 / 0.618 | 0.968, 0.581, 35.5 |
+| MPC | | 8.1 / 11.7 / 16.0 | 0.680 | 0.053 / 0.088 / 0.461 | 0.932, 0.557, 34.4 |
+
+The port check on run 5: the Julia objective 0.979, the app's own
+evaluation of the same cook 0.978, every term within 0.04.
+
+Reading it:
+
+- **The planner is not where the gap is.** Three optimiser changes
+  and every prior weakened moved J between 0.88 and 1.07 with no
+  trend, while the MPC sits at 0.68. Run 5 is the juiciest cook of the
+  five (0.58, above the MPC's 0.56) and tender in band; it pays on the
+  bark (35.5, pale) and on a 21.5-hour day.
+- **The gap is what the pilot believes.** At hour four the belief
+  scored the early wrap at 0.96 where the truth scores it 0.83, because
+  it expected the center to overshoot (0.99 against the truth's 0.96);
+  at hour eight the belief's median latent sat 0.7 sd from truth with
+  one at 2.6; at the end seven of seventeen latents were beyond 2 sd
+  (the moisture diffusivity 2.9, the mass-transfer coefficient 3.3, the
+  surface coupling 2.6, the thickness 2.0, the exposed area 2.0). The
+  posterior's widths are the calibration's, and the calibration is a
+  225 °F cook; on a 236 to 257 °F cook they are too narrow, the plan
+  optimises J on a brisket that is not the one in the pit, and the
+  misfit check, held at −2 to −4 by the core probe's floor, never
+  raised an excess-power alarm. The MPC has none of this: it reads the
+  plant state exactly.
+- **What that makes the next item.** Not the planner: the estimator's
+  honesty on a regime change. Widths that answer to the cook's regime
+  (a discrepancy term, or priors that widen with the distance from the
+  calibration's pit temperature) and a misfit check the core's floor
+  cannot mute. That is the estimator's item, and the closed loop under
+  J is the test bench for it.
+
+
 ## The pilot in a pitmaster's terms, against the MPC on the same brisket (2026-09-09)
 
 Two questions were asked of the real-cook closed loop below: are the

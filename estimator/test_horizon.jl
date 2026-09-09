@@ -47,6 +47,12 @@ rng = MersenneTwister(2)
     s2 = Schedule(GRID; u0=0.15); s2.t_now = 12 * 3600.0; s2.t_pull = 11.5 * 3600.0
     f2 = free_set(s2)
     @test !f2.damper && !f2.wrap && !f2.pull && f2.serve && !f2.spritz && !f2.add && length(f2) == 1
+    # a pull committed ahead fixes its own time only: the damper, wrap, spritz and add before it stay decisions
+    s2b = Schedule(GRID; u0=0.15); s2b.t_now = 8 * 3600.0; s2b.t_pull = 15.0 * 3600.0
+    f2b = free_set(s2b)
+    @test f2b.damper && f2b.wrap && !f2b.pull && f2b.serve && f2b.spritz && f2b.add && length(f2b) == 9
+    p2b = decode_plan(plan_prior(f2b, s2b)[1], f2b, s2b)
+    @test p2b.t_pull == s2b.t_pull && s2b.t_now < p2b.t_wrap < p2b.t_pull && s2b.t_now < p2b.spritz.t < p2b.t_pull
     p2 = decode_plan([log(2.0)], f2, s2)
     @test p2.t_pull == s2.t_pull && abs(p2.t_serve - (s2.t_pull + 2 * 3600)) < 1e-9
 end
@@ -122,6 +128,13 @@ end
     Jr = ForwardDiff.jacobian(v -> E.goal_residuals(plan_outputs_rh(z, v, f, s, d), g), mζ)
     @test size(Jr) == (13, 10) && all(isfinite, Jr)
     @test any(abs.(Jr) .> 0)                # the objective answers to the plan
+    # the replan's rest starts: never worse than the warm start alone, from a state with the pull committed
+    s6 = Schedule(GRID; u0=0.15); s6.t_now = 13 * 3600.0; s6.u[GRID .<= s6.t_now] .= 0.3
+    s6.t_wrap = 11.0 * 3600; s6.t_pull = 14.0 * 3600; s6.t_add = 10.0 * 3600
+    zz = vcat(z, log(0.03))
+    r1 = replan_on_graph([zz], s6, d; iters=6, scan_wrap=(), scan_rest=())
+    r3 = replan_on_graph([zz], s6, d; iters=6)
+    @test r1.n_starts == 1 && r3.n_starts <= 2 && r3.F <= r1.F + 1e-9
     # the executed damper's smoothness term: hourly means to the pull
     @test executed_du(GRID, fill(0.2, length(GRID)), 6 * 3600.0) ≈ zeros(5) atol=1e-12
 end
@@ -140,6 +153,9 @@ end
     s3 = Schedule(GRID; u0=0.15); s3.t_now = 4 * 3600.0
     done3 = commit!(s3, plan, 3600.0; force=st)
     @test Set(done3) == Set([:wrap, :spritz, :pull]) && s3.t_wrap == plan.t_wrap && s3.t_pull == plan.t_pull && isnan(s3.t_add)
+    s5 = Schedule(GRID; u0=0.15); s5.t_now = 4 * 3600.0
+    done5 = commit!(s5, plan, 3600.0; force=st, force_horizon=pol.stable_horizon)
+    @test Set(done5) == Set([:wrap, :spritz]) && isnan(s5.t_pull)                   # the pull at 12 h is eight hours out: not forced
     s.spritz = plan.spritz                                                                   # once committed it no longer triggers
     @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, 0.5) == (false, :hold)
     @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, 3.5) == (true, :misfit)
@@ -158,12 +174,16 @@ end
     @test replan_due(pol, s, plan, 0.5, 0.5, 0.0, 0.5) == (true, :floor)                     # four hours since the last replan
     s.t_now = 5.2 * 3600.0
     @test replan_due(pol, s, plan, 0.5, 0.5, 4 * 3600.0, 0.5) == (true, :event_due)          # the wrap at 6 h comes due
-    # once the pull has committed, a standing plan's spritz or wrap is no longer a decision and cannot come due
-    s4 = Schedule(GRID; u0=0.15); s4.t_now = 11.5 * 3600.0; s4.t_pull = 12.0 * 3600.0; s4.t_wrap = 6.0 * 3600.0
-    plan4 = (u=plan.u, t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=16.0 * 3600, spritz=(t=11.8 * 3600, dt=3600.0, m=0.04), t_add=11.9 * 3600)
+    # once the pull has been executed (the meat is out), a standing plan's spritz or add is no decision and cannot come due
+    s4 = Schedule(GRID; u0=0.15); s4.t_now = 12.5 * 3600.0; s4.t_pull = 12.0 * 3600.0; s4.t_wrap = 6.0 * 3600.0
+    plan4 = (u=plan.u, t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=16.0 * 3600, spritz=(t=12.8 * 3600, dt=3600.0, m=0.04), t_add=12.9 * 3600)
     @test replan_due(pol, s4, plan4, 0.5, 0.5, 11.0 * 3600.0, 0.5) == (false, :hold)
-    plan5 = (plan4..., t_serve=12.4 * 3600)
+    plan5 = (plan4..., t_serve=13.2 * 3600)
     @test replan_due(pol, s4, plan5, 0.5, 0.5, 11.0 * 3600.0, 0.5) == (true, :event_due)      # the serve is still free
+    # a pull committed ahead but not executed leaves the spritz a decision, and it can come due
+    s4b = Schedule(GRID; u0=0.15); s4b.t_now = 11.5 * 3600.0; s4b.t_pull = 12.0 * 3600.0; s4b.t_wrap = 6.0 * 3600.0
+    plan4b = (plan4..., spritz=(t=11.8 * 3600, dt=3600.0, m=0.04), t_add=13.0 * 3600)
+    @test replan_due(pol, s4b, plan4b, 0.5, 0.5, 11.0 * 3600.0, 0.5) == (true, :event_due)
 end
 
 @testset "the standing plan's expected loss under posterior draws" begin

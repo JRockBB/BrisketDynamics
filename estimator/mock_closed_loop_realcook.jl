@@ -136,7 +136,7 @@ while s.t_now < 28 * 3600
         ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d_plan; goals) for zz in zs])
         global pred = (mean=vec(mean(ys; dims=2)), sd=vec(std(ys; dims=2)), t_h=s.t_now / 3600)
     end
-    done = s.t_now > 0 ? commit!(s, plan, CHECK; force=stable) : Symbol[]     # the prior's plan is a warm start, not a decision
+    done = s.t_now > 0 ? commit!(s, plan, CHECK; force=stable, force_horizon=pol.stable_horizon) : Symbol[]     # the prior's plan is a warm start, not a decision
     p = plan
     sdz = sqrt.(diag(V))
     @printf("%4.0f  %-15s  %-15s  %5.2f  %5.2f  %5.1f  %5.2f / %5.2f / %5.2f / %s / %5.2f   %5.3f±%5.3f %5.3f±%5.3f %5.1f±%4.1f %6.1f±%4.1f   %s   %.2f %.2f   %3.0f s\n",

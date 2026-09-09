@@ -41,7 +41,7 @@ end
 Schedule(t; u0::Float64=0.15, t_serve::Float64=14 * 3600.0) =
     Schedule(collect(Float64, t), [k == 1 ? u0 : NaN for k in eachindex(t)], 0.0, NaN, NaN, NaN, nothing, t_serve)
 
-"Which decisions are free at the schedule's current time."
+"Which decisions are free at the schedule's current time: a committed pull fixes its time; an executed pull (the meat out) fixes everything before it."
 struct FreeSet
     damper::Bool
     wrap::Bool
@@ -51,9 +51,10 @@ struct FreeSet
     add::Bool
 end
 function free_set(s::Schedule)
-    pulled = !isnan(s.t_pull)
-    return FreeSet(!pulled, isnan(s.t_wrap) && !pulled, !pulled, true, s.spritz === nothing && !pulled,
-                   isnan(s.t_add) && !pulled)
+    committed = !isnan(s.t_pull)                    # the pull's time is fixed ...
+    executed = committed && s.t_now >= s.t_pull     # ... and the meat is out: nothing before it is a decision any more
+    return FreeSet(!executed, isnan(s.t_wrap) && !executed, !committed, true, s.spritz === nothing && !executed,
+                   isnan(s.t_add) && !executed)
 end
 Base.length(f::FreeSet) = 3 * f.damper + f.wrap + f.pull + f.serve + 3 * f.spritz + f.add
 
@@ -80,12 +81,15 @@ function plan_prior(f::FreeSet, s::Schedule)
     m = Float64[]; sd = Float64[]
     # the damper's prior is a regulariser for the graph, not a fuel preference: three logit-sd wide, so a
     # half-open damper costs a sixth of a unit per knot (at one sd it cost 1.5 per knot, a cool cook by fiat)
+    # every prior is a regulariser for the graph, not a preference: three sd wide in its coordinate. At one
+    # logit-sd the wrap prior charged 5.9 units for a wrap at 8.5 h from hour eight, six times any J difference,
+    # and the pilot wrapped five hours after the MPC in every run; the damper and the rest had the same story.
     if f.damper; append!(m, fill(lgt(0.15), 3)); append!(sd, fill(3.0, 3)); end
-    if f.wrap;   push!(m, lgt(0.7));  push!(sd, 1.0); end
-    if f.pull;   push!(m, log(max((12 * 3600 - s.t_now) / 3600, 1.0))); push!(sd, 1.0); end
-    if f.serve;  push!(m, log(1.5));  push!(sd, 1.5); end     # the rest: a regulariser, not a rule (a 4 h rest costs 0.2)
-    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [1.0, 0.5, 0.5]); end
-    if f.add;    push!(m, lgt(0.5));  push!(sd, 1.0); end
+    if f.wrap;   push!(m, lgt(0.7));  push!(sd, 3.0); end
+    if f.pull;   push!(m, log(max((12 * 3600 - s.t_now) / 3600, 1.0))); push!(sd, 2.0); end
+    if f.serve;  push!(m, log(1.5));  push!(sd, 1.5); end
+    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [3.0, 1.0, 1.0]); end
+    if f.add;    push!(m, lgt(0.5));  push!(sd, 3.0); end
     return m, Diagonal(1 ./ sd .^ 2)
 end
 
@@ -320,7 +324,7 @@ draw of the four outputs, the tail as a residual like any other), the
 plan prior, the graph iterator; warm-started at `ζ_init` when given.
 """
 function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), ζ_init=nothing,
-                         verbose::Bool=false, iters::Int=30)
+                         verbose::Bool=false, iters::Int=30, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0))
     f = free_set(s)
     n = length(f)
     mζ, Λζ = plan_prior(f, s)
@@ -328,6 +332,23 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
     # the residual vector of a plan: goals per draw, then the prior
     resid(ζ) = vcat([goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals), goals) for z in zs]..., sqrt(Λζ) * (ζ .- mζ))
     objective(c) = 0.5 * sum(abs2, resid(c))
+    # the objective is multi-modal in the wrap and nearly flat in the rest, and the warm start sits where the
+    # last plan left it: a coarse scan of the wrap fraction (of now to the pull) and the rest length at the
+    # solve's draws, one cook each, picks a second start; the solve runs from both and keeps the better
+    starts = [c0]
+    k_wrap = f.wrap ? 3 * f.damper + 1 : 0
+    k_serve = f.serve ? 3 * f.damper + f.wrap + f.pull + 1 : 0
+    if k_wrap > 0 || k_serve > 0
+        best = (objective(c0), c0)
+        for fw in (k_wrap > 0 ? scan_wrap : (nothing,)), h in (k_serve > 0 ? scan_rest : (nothing,))
+            c = copy(c0)
+            fw === nothing || (c[k_wrap] = lgt(fw))
+            h === nothing || (c[k_serve] = log(h))
+            Fc = try objective(c) catch err; err isa InterruptException ? rethrow() : Inf end
+            Fc < best[1] && (best = (Fc, c))
+        end
+        maximum(abs.(best[2] .- c0)) > 1e-9 && push!(starts, best[2])
+    end
     # the per-draw affine model of the GOAL RESIDUALS (the hinge included) at c: goal ~ N(res, 1)
     function rebuild!(c)
         RH_AFFS[] = [(goal_residuals(plan_outputs_rh(z, c, f, s, d; goals), goals),
@@ -342,8 +363,12 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
                                             data = (g = g, lm_obs = zeros(n), Λ_lm = Λ_lm), meta = RH_META,
                                             initialization = rh_init(RH_CENTER[], Matrix(Λζ)), iterations = its,
                                             callbacks = callbacks, returnvars = (ζ = KeepLast(),))
-    r = iterated_solve(prob, run_infer; c0, iters, verbose)
-    return (plan=decode_plan(r.z, f, s), ζ=r.z, F=r.F, cov=r.cov, hist=r.hist, converged=r.converged, free=f)
+    r = nothing
+    for c in starts
+        rc = iterated_solve(prob, run_infer; c0=c, iters, verbose)
+        (r === nothing || rc.F < r.F) && (r = rc)
+    end
+    return (plan=decode_plan(r.z, f, s), ζ=r.z, F=r.F, cov=r.cov, hist=r.hist, converged=r.converged, free=f, n_starts=length(starts))
 end
 
 # --- when to replan ------------------------------------------------------------------------
@@ -389,7 +414,8 @@ Base.@kwdef struct ReplanPolicy
     misfit_z::Float64 = 3.0
     lead::Float64 = 3600.0
     floor::Float64 = 4 * 3600.0
-    stable::Float64 = 1800.0         # an event a replan moved by less than this commits now, however far ahead
+    stable::Float64 = 1800.0         # an event a replan moved by less than this commits now ...
+    stable_horizon::Float64 = 2 * 3600.0   # ... when it is within this far ahead (a pull committed 7 h out met a plant that ran cooler)
 end
 
 """
@@ -461,17 +487,17 @@ function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::R
 end
 
 """
-    commit!(s, plan, Δ; force=Symbol[]) -> committed::Vector{Symbol}
+    commit!(s, plan, Δ; force=Symbol[], force_horizon=Inf) -> committed::Vector{Symbol}
 
 The candidate events of `plan` that fall inside the next interval
 (now, now + Δ] are executed at their planned times and fixed forever;
 the spritz train starts when its first spritz is due; the serve time is
 carried as the current plan. Events named in `force` (see
-`stable_events`) commit at any future time.
+`stable_events`) commit when within `force_horizon` of now.
 """
-function commit!(s::Schedule, plan, Δ; force=Symbol[])
+function commit!(s::Schedule, plan, Δ; force=Symbol[], force_horizon=Inf)
     done = Symbol[]
-    due(t, name) = !isnan(t) && s.t_now < t && (t <= s.t_now + Δ || name in force)
+    due(t, name) = !isnan(t) && s.t_now < t && (t <= s.t_now + Δ || (name in force && t <= s.t_now + force_horizon))
     if isnan(s.t_wrap) && due(plan.t_wrap, :wrap); s.t_wrap = plan.t_wrap; push!(done, :wrap); end
     if isnan(s.t_add) && due(plan.t_add, :add); s.t_add = plan.t_add; push!(done, :add); end
     if s.spritz === nothing && plan.spritz !== nothing && due(plan.spritz.t, :spritz)

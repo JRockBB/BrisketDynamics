@@ -131,15 +131,18 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **Planning under the posterior with the app's objective.** The pilot
-  optimises the app's J now (`docs/results.md`, one objective), at the
-  posterior mean, because J's burn and safety terms make its expectation
-  over a wide posterior collapse onto the worst draws (a 4 h cook at
-  0.25 collagen under the first hour's draws). What the posterior should
-  buy the plan is a risk-aware J, not a mean over draws: a
-  certainty-equivalent plan while the belief is wide, then the
-  expectation once the draws agree, or a trimmed expectation; and a
-  serve deadline, since J is flat in the cook's length.
+- **The estimator on a regime change.** Under the app's J on one plant
+  the pilot lands at 0.9 to 1.1 against the MPC's 0.68 whatever the
+  planner does (`docs/results.md`, one objective, five runs); the gap is
+  the belief: on a 236 to 257 °F cook the posterior's widths, which are
+  the calibration's 225 °F cook's, are too narrow (seven of seventeen
+  latents beyond 2 sd at the end) and the misfit check is muted by the
+  core probe's floor. Widths that answer to the regime (a discrepancy
+  term, or priors that widen with the distance from the calibration's
+  pit temperature) and a check the floor cannot mute; the closed loop
+  under J is the bench. Then the posterior back into the plan as a
+  risk-aware J (a certainty-equivalent plan while the belief is wide),
+  not a mean over draws.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it

@@ -57,7 +57,7 @@ def cook_panel(ax, run, title, t_end):
     ax.set_xlim(0, t_end)
     ax.set_ylim(15, 190)
     ax.set_ylabel("temperature [°C]", color=INK2, fontsize=8.5)
-    ax.set_title(title, color=INK, fontsize=10, pad=38, loc="left")
+    ax.text(0.01, 0.97, title, color=INK, fontsize=10, va="top", ha="left", transform=ax.transAxes)   # the top-left is empty
     ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor=INK2)
 
 
