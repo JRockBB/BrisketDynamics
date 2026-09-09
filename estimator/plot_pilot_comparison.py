@@ -81,23 +81,23 @@ def main():
     ax.set_facecolor(SURFACE)
     ax.set_axis_off()
     fmt_h = lambda v: "—" if v is None else f"{v:.1f} h"
+    jr, jm = mr["J_terms"], mm["J_terms"]
     rows = [
-        ("the pilot's goals", None, None, None),
-        ("probe-tender at the pull (collagen at the center)", f"{g['C_lo']:.2f} to {g['C_hi']:.2f}", f"{mr['doneness_pull']:.3f}  (core {mr['T_pull_C']:.0f} °C)", f"{mm['doneness_pull']:.3f}  (core {mm['T_pull_C']:.0f} °C)"),
-        ("retained water W/W0 at serve", f"at least {g['W_lo']:.2f}", f"{mr['W_serve']:.3f}  ({100 * mr['wet_basis_water_serve']:.0f} % wet basis)",
-         f"{mm['W_serve']:.3f}  ({100 * mm['wet_basis_water_serve']:.0f} % wet basis)"),
-        ("bark L* at serve", f"{g['L_lo']:.0f} to {g['L_hi']:.0f}", f"{mr['L_serve']:.1f}", f"{mm['L_serve']:.1f}"),
-        ("core at serve", f"floor {g['T_serve_floor'] - 273.15:.0f} °C", f"{mr['T_serve_C']:.1f} °C", f"{mm['T_serve_C']:.1f} °C"),
-        ("the MPC's quality terms", None, None, None),
-        ("collagen conversion at the center at serve (tenderness)", "0.90 to 0.95", f"{mr['doneness_serve']:.3f}", f"{mm['doneness_serve']:.3f}"),
-        ("bark L* (mahogany band)", "28 to 34", f"{mr['L_serve']:.1f}", f"{mm['L_serve']:.1f}"),
-        ("juiciness (water + retained fat)", "higher is better", f"{mr['juiciness_serve_approx']:.3f}", f"{mm['juiciness_serve_approx']:.3f}"),
+        ("the objective J (the app's, both cooks through one plant)", None, None, None),
+        ("J, lower is better", "", f"{jr['J']:.3f}", f"{jm['J']:.3f}"),
+        ("tenderness (collagen 0.90 to 0.95 at serve)", f"{mr['doneness_serve']:.3f} / {mm['doneness_serve']:.3f}", f"{jr['tenderness']:.3f}", f"{jm['tenderness']:.3f}"),
+        ("appearance (bark L* 28 to 34)", f"{mr['L_serve']:.1f} / {mm['L_serve']:.1f}", f"{jr['appearance']:.3f}", f"{jm['appearance']:.3f}"),
+        ("taste (smoke 0.55 to 0.90; juiciness)", f"{mr['S_serve']:.2f}, {mr['juiciness_serve']:.2f} / {mm['S_serve']:.2f}, {mm['juiciness_serve']:.2f}", f"{jr['taste']:.3f}", f"{jm['taste']:.3f}"),
+        ("bark burn, fuel, smoothness", "", f"{jr['surf']:.3f}, {jr['fuel']:.3f}, {jr['smooth']:.3f}", f"{jm['surf']:.3f}, {jm['fuel']:.3f}, {jm['smooth']:.3f}"),
+        ("safety (lethality on the surface and the core)", "", f"{jr['safety']:.3f}", f"{jm['safety']:.3f}"),
         ("the cook", None, None, None),
         ("wrap / pull / serve", "", f"{fmt_h(mr['wrap_h'])} / {mr['pull_h']:.1f} h / {mr['cook_h']:.1f} h", f"{fmt_h(mm['wrap_h'])} / {mm['pull_h']:.1f} h / {mm['cook_h']:.1f} h"),
+        ("core at the pull / at serve", "", f"{mr['T_pull_C']:.0f} °C / {mr['T_serve_C']:.0f} °C", f"{mm['T_pull_C']:.0f} °C / {mm['T_serve_C']:.0f} °C"),
         ("core reaches 70 / 80 / 90 °C", "", f"{fmt_h(mr['core_70_h'])} / {fmt_h(mr['core_80_h'])} / {fmt_h(mr['core_90_h'])}",
          f"{fmt_h(mm['core_70_h'])} / {fmt_h(mm['core_80_h'])} / {fmt_h(mm['core_90_h'])}"),
         ("pit, mean to the pull / max", "", f"{mr['pit_mean_C']:.0f} °C ({mr['pit_mean_C'] * 9 / 5 + 32:.0f} °F) / {mr['pit_max_C']:.0f} °C",
          f"{mm['pit_mean_C']:.0f} °C ({mm['pit_mean_C'] * 9 / 5 + 32:.0f} °F) / {mm['pit_max_C']:.0f} °C"),
+        ("water W/W0 at serve", "", f"{mr['W_serve']:.3f}  ({100 * mr['wet_basis_water_serve']:.0f} % wet basis)", f"{mm['W_serve']:.3f}  ({100 * mm['wet_basis_water_serve']:.0f} % wet basis)"),
         ("what it knows", "", "a 17-latent posterior, noise per channel", "the plant state, an ambient filter"),
         ("when it replans", "", f"when worth it: {d['rxinfer_replans']} of {d['rxinfer_checks']} hourly checks", "every interval"),
     ]
@@ -105,7 +105,7 @@ def main():
     y = 1.0
     ax.text(x_cols[2], y, "RxInfer pilot", color=INK, fontsize=9.5, fontweight="bold", va="top", transform=ax.transAxes)
     ax.text(x_cols[3], y, "MPC", color=INK, fontsize=9.5, fontweight="bold", va="top", transform=ax.transAxes)
-    ax.text(x_cols[1], y, "goal / band", color=INK, fontsize=9.5, fontweight="bold", va="top", transform=ax.transAxes)
+    ax.text(x_cols[1], y, "read (pilot / MPC)", color=INK, fontsize=9.5, fontweight="bold", va="top", transform=ax.transAxes)
     y -= 0.085
     for name, goal, a, b in rows:
         if goal is None:
@@ -118,7 +118,7 @@ def main():
         ax.text(x_cols[3], y, b, color=INK, fontsize=8.5, va="top", transform=ax.transAxes)
         y -= 0.065
     plant = "the same brisket" if d["same_plant"] else "different briskets: the MPC flew " + d["mpc_params_file"]
-    ax.set_title(f"Each cook under both objectives ({plant}; port check on the MPC's core: {d['port_check_max_core_C']:.1f} °C)",
+    ax.set_title(f"Both cooks under the one objective ({plant}; port check on the MPC's core: {d['port_check_max_core_C']:.1f} °C)",
                  color=INK, fontsize=10, loc="left")
 
     out = REPO / "figures" / "estimator_pilot_comparison.png"

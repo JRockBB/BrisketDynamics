@@ -44,17 +44,22 @@ function cook(x, A, u, ev; label)
     kp = searchsortedlast(GRID, ev.pull); ks = searchsortedlast(GRID, ev.serve)
     Tc = o.Tcore .- 273.15; Tp = o.Tpit .- 273.15
     first_at(v) = (k = findfirst(Tc .>= v); k === nothing ? nothing : th[k])
-    metrics = Dict("T_pull_C" => at(Tc, ev.pull), "T_serve_C" => at(Tc, ev.serve), "W_serve" => at(wret, ev.serve), "L_serve" => at(o.l_star, ev.serve),
+    y = cook_outputs(o, GRID, executed_du(GRID, u, ev.pull), ev.pull, ev.add, ev.serve, cfg, PlanGoals())
+    terms = objective_terms(y, PlanGoals())
+    metrics = Dict("J" => terms.J, "J_terms" => Dict(string(k) => getfield(terms, k) for k in propertynames(terms)),
+                   "S_serve" => y[5], "juiciness_serve" => y[6], "surf_term" => y[7], "fuel_frac" => y[8],
+                   "T_pull_C" => at(Tc, ev.pull), "T_serve_C" => at(Tc, ev.serve), "W_serve" => at(wret, ev.serve), "L_serve" => at(o.l_star, ev.serve),
                    "doneness_serve" => o.C_field[1, ks], "doneness_pull" => o.C_field[1, kp],
                    "juiciness_serve_approx" => at(wret, ev.serve) + (o.juiciness - o.w_retained),   # the fat term at the grid end stands in for serve
                    "pit_mean_C" => mean(Tp[1:kp]), "pit_max_C" => maximum(Tp[1:kp]), "cook_h" => ev.serve / 3600,
                    "wrap_h" => ev.wrap > 1e8 ? nothing : ev.wrap / 3600, "pull_h" => ev.pull / 3600, "rest_h" => (ev.serve - ev.pull) / 3600,
                    "core_70_h" => first_at(70), "core_80_h" => first_at(80), "core_90_h" => first_at(90),
                    "wet_basis_water_serve" => (W = at(wret, ev.serve) * cfg.W0; W / (1 + W)))
-    @printf("%s: pit mean %.0f C (%.0f F) max %.0f; wrap %s, pull %.2f h at %.1f C, serve %.2f h at %.1f C; W/W0 %.3f (%.0f%% wet basis), L* %.1f, collagen at the center %.3f at the pull / %.3f at serve, juiciness %.3f\n",
-            label, metrics["pit_mean_C"], metrics["pit_mean_C"] * 9 / 5 + 32, metrics["pit_max_C"],
+    @printf("%s: J %.3f (tenderness %.3f, appearance %.3f, taste %.3f, surf %.3f, fuel %.3f, smooth %.3f, safety %.3f); pit mean %.0f C (%.0f F) max %.0f; wrap %s, pull %.2f h at %.1f C, serve %.2f h at %.1f C; W/W0 %.3f, juiciness %.3f, L* %.1f, smoke %.2f, collagen %.3f at the pull / %.3f at serve\n",
+            label, terms.J, terms.tenderness, terms.appearance, terms.taste, terms.surf, terms.fuel, terms.smooth, terms.safety,
+            metrics["pit_mean_C"], metrics["pit_mean_C"] * 9 / 5 + 32, metrics["pit_max_C"],
             metrics["wrap_h"] === nothing ? "-" : @sprintf("%.2f h", metrics["wrap_h"]), metrics["pull_h"], metrics["T_pull_C"], metrics["cook_h"], metrics["T_serve_C"],
-            metrics["W_serve"], 100 * metrics["wet_basis_water_serve"], metrics["L_serve"], metrics["doneness_pull"], metrics["doneness_serve"], metrics["juiciness_serve_approx"])
+            metrics["W_serve"], y[6], metrics["L_serve"], y[5], metrics["doneness_pull"], metrics["doneness_serve"])
     keep = GRID .<= ev.serve + 1e-9
     return Dict("t_h" => th[keep], "T_pit_C" => Tp[keep], "T_core_C" => Tc[keep], "W_ret" => wret[keep], "L_star" => collect(o.l_star)[keep],
                 "C_center" => o.C_field[1, keep], "u" => u[keep],

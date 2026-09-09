@@ -100,21 +100,30 @@ end
     f = free_set(s)
     mζ, _ = plan_prior(f, s)
     y = plan_outputs_rh(z, mζ, f, s, d)
-    @test length(y) == 4 && all(isfinite, y)
-    @test 0 <= y[1] <= 1 && 0 < y[2] < 1 && 0 < y[3] < 100 && 273.15 < y[4] < 373.15
-    r = E.goal_residuals(y, PlanGoals())
-    @test all(isfinite, r) && all(r .>= 0)
-    # the bands: nothing inside, the distance outside in sd, a smooth corner
+    @test length(y) == 12 && all(isfinite, y)
+    @test 0 <= y[1] <= 1 && 0 < y[2] < 1 && 0 < y[3] < 100 && 273.15 < y[4] < 373.15 && 0 <= y[5] <= 1 && y[7] >= 0 && y[11] > 0 && y[12] > 0
     g = PlanGoals()
-    @test E.goal_residuals([0.925, 0.60, 31.0, 273.15 + 80], g)[1:3] ≈ zeros(3) atol=0.02        # the corners' tails, a hundredth of a sd
-    @test abs(E.goal_residuals([0.99, 0.60, 31.0, 273.15 + 80], g)[1] - 2.0) < 0.05        # 0.04 past the top of the band: 2 sd
-    @test abs(E.goal_residuals([0.925, 0.37, 31.0, 273.15 + 80], g)[2] - 2.0) < 0.05        # 0.08 under the water floor: 2 sd
-    @test abs(E.goal_residuals([0.925, 0.60, 22.0, 273.15 + 80], g)[3] - 2.0) < 0.05        # 6 under the bark band: 2 sd
-    @test E.goal_residuals([0.925, 0.60, 40.0, 273.15 + 80], g)[3] > 1.9                     # 6 over it
-    @test all(isfinite, ForwardDiff.gradient(v -> sum(abs2, E.goal_residuals(v, g)), [0.95, 0.45, 34.0, 273.15 + 65]))   # at the corners
-    Jr = ForwardDiff.jacobian(v -> E.goal_residuals(plan_outputs_rh(z, v, f, s, d), PlanGoals()), mζ)
-    @test size(Jr) == (4, 10) && all(isfinite, Jr)
-    @test any(abs.(Jr[1, :]) .> 0)          # the collagen conversion at the pull answers to the plan
+    r = E.goal_residuals(y, g)
+    @test all(isfinite, r) && all(r .>= 0) && length(r) == 13
+    # the app's objective, term for term: a good cook scores under one; the terms read as the app's
+    y0 = [0.93, 0.48, 31.0, 273.15 + 75, 0.7, 0.55, 0.0, 0.3, 0.0, 0.0, 1e5, 1e5]
+    T = objective_terms(y0, g)
+    @test T.J < 1.0 && abs(T.J - (T.tenderness + T.appearance + T.taste + T.surf + T.fuel + T.smooth + T.safety)) < 1e-12
+    sp(x) = log1p(exp(x))
+    @test abs(T.taste - 0.57 * (sp(-1.875)^2 + sp(-2.5)^2 + 4.0 * 0.45^2)) < 1e-9        # the smoke band's tails and the dryness
+    @test abs(T.fuel - 0.1 * 0.3) < 1e-9 && T.safety < 1e-6
+    @test abs(T.appearance - 0.14 * 2 * sp(-1.5)^2) < 1e-9                               # L* 31, the band's tails
+    over = objective_terms(vcat(0.99, y0[2:end]), g).tenderness                       # 0.04 past pot roast
+    @test abs(over - 0.29 * ((sp(-1.8) / 20 / 0.05)^2 + (sp(3.2) / 80 / 0.05)^2)) < 1e-9
+    pale = objective_terms(vcat(y0[1:2], 38.0, y0[4:end]), g).appearance                  # L* 38, four past the band
+    @test abs(pale - 0.14 * (sp(2.0)^2 + sp(-5.0)^2)) < 1e-9
+    @test objective_terms(vcat(y0[1:10], 10.0, 10.0), g).safety > 1000                   # ten seconds of lethality: the curve bites
+    @test all(isfinite, ForwardDiff.gradient(v -> sum(abs2, E.goal_residuals(v, g)), y0))
+    Jr = ForwardDiff.jacobian(v -> E.goal_residuals(plan_outputs_rh(z, v, f, s, d), g), mζ)
+    @test size(Jr) == (13, 10) && all(isfinite, Jr)
+    @test any(abs.(Jr) .> 0)                # the objective answers to the plan
+    # the executed damper's smoothness term: hourly means to the pull
+    @test executed_du(GRID, fill(0.2, length(GRID)), 6 * 3600.0) ≈ zeros(5) atol=1e-12
 end
 @testset "the replan trigger: first, event due, misfit, loss rise, floor, hold" begin
     s = Schedule(GRID; u0=0.15)
@@ -122,7 +131,7 @@ end
     pol = ReplanPolicy()
     plan = (u=[0.2, 0.3, 0.25], t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.8 * 3600, dt=3600.0, m=0.04), t_add=8.0 * 3600)
     @test replan_due(pol, s, nothing, 0.0, 0.0, 0.0, nothing) == (true, :first)
-    @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 0.5) == (true, :event_due)          # the spritz at 4.8 h is due within the hour
+    @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, 0.5) == (true, :event_due)          # the spritz at 4.8 h is due within the hour
     # the commit rule: an event a replan left within the tolerance commits now, however far ahead
     prev = (u=plan.u, t_wrap=6.2 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.75 * 3600, dt=3600.0, m=0.04), t_add=9.0 * 3600)
     st = stable_events(plan, prev, pol.stable)
@@ -132,27 +141,29 @@ end
     done3 = commit!(s3, plan, 3600.0; force=st)
     @test Set(done3) == Set([:wrap, :spritz, :pull]) && s3.t_wrap == plan.t_wrap && s3.t_pull == plan.t_pull && isnan(s3.t_add)
     s.spritz = plan.spritz                                                                   # once committed it no longer triggers
-    @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 0.5) == (false, :hold)
-    @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, 3.5) == (true, :misfit)
-    @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, -3.5) == (false, :hold)           # too little power is conservative, not wrong
-    @test replan_due(pol, s, plan, 2.5, 1.0, 2 * 3600.0, 0.5) == (true, :loss_rise)
-    @test replan_due(pol, s, plan, 1.5, 1.0, 2 * 3600.0, 0.5) == (false, :hold)             # a rise under the threshold holds
+    @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, 0.5) == (false, :hold)
+    @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, 3.5) == (true, :misfit)
+    @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, -3.5) == (false, :hold)           # too little power is conservative, not wrong
+    @test replan_due(pol, s, plan, 0.9, 0.5, 2 * 3600.0, 0.5) == (true, :loss_rise)
+    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5) == (false, :hold)             # a rise under the threshold holds
     @test replan_due(pol, s, plan, 27.0, 134.5, 2 * 3600.0, 0.5) == (true, :loss_high)      # the loss fell, and the plan is still bad
-    @test replan_due(pol, s, plan, 1.5, 1.0, 2 * 3600.0, 0.5; kl=5.0) == (true, :posterior_moved)   # the belief moved five nats
-    @test replan_due(pol, s, plan, 1.5, 1.0, 2 * 3600.0, 0.5; kl=0.5) == (false, :hold)
+    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5; kl=5.0) == (true, :posterior_moved)   # the belief moved five nats
+    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5; kl=0.2) == (false, :hold)
+    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5; kl=3.0, n_latent=17) == (false, :hold)             # under a quarter nat per latent
+    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5; kl=5.0, n_latent=17) == (true, :posterior_moved)
     # the KL of a posterior against itself is zero; halving one width and moving one mean by a sd is under a nat
     V0 = Matrix(Diagonal([1.0, 4.0])); m0 = [0.0, 1.0]
     @test abs(posterior_kl(m0, V0, m0, V0)) < 1e-12
     @test 0.3 < posterior_kl([1.0, 1.0], Matrix(Diagonal([0.25, 4.0])), m0, V0) < 1.0
-    @test replan_due(pol, s, plan, 1.0, 1.0, 0.0, 0.5) == (true, :floor)                     # four hours since the last replan
+    @test replan_due(pol, s, plan, 0.5, 0.5, 0.0, 0.5) == (true, :floor)                     # four hours since the last replan
     s.t_now = 5.2 * 3600.0
-    @test replan_due(pol, s, plan, 1.0, 1.0, 4 * 3600.0, 0.5) == (true, :event_due)          # the wrap at 6 h comes due
+    @test replan_due(pol, s, plan, 0.5, 0.5, 4 * 3600.0, 0.5) == (true, :event_due)          # the wrap at 6 h comes due
     # once the pull has committed, a standing plan's spritz or wrap is no longer a decision and cannot come due
     s4 = Schedule(GRID; u0=0.15); s4.t_now = 11.5 * 3600.0; s4.t_pull = 12.0 * 3600.0; s4.t_wrap = 6.0 * 3600.0
     plan4 = (u=plan.u, t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=16.0 * 3600, spritz=(t=11.8 * 3600, dt=3600.0, m=0.04), t_add=11.9 * 3600)
-    @test replan_due(pol, s4, plan4, 1.0, 1.0, 11.0 * 3600.0, 0.5) == (false, :hold)
+    @test replan_due(pol, s4, plan4, 0.5, 0.5, 11.0 * 3600.0, 0.5) == (false, :hold)
     plan5 = (plan4..., t_serve=12.4 * 3600)
-    @test replan_due(pol, s4, plan5, 1.0, 1.0, 11.0 * 3600.0, 0.5) == (true, :event_due)      # the serve is still free
+    @test replan_due(pol, s4, plan5, 0.5, 0.5, 11.0 * 3600.0, 0.5) == (true, :event_due)      # the serve is still free
 end
 
 @testset "the standing plan's expected loss under posterior draws" begin

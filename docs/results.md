@@ -4,6 +4,162 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## One objective: the pilot optimises the app's J (2026-09-09, later)
+
+The question was why there were two objectives. Because I wrote one:
+the app already had its quality objective (`brisket_app/control.py`,
+`ControlConfig` and `score_outputs`, the KCBS-weighted appearance,
+taste and tenderness bands with the operational and food-safety
+terms), and the planning experiment invented Gaussian goals instead of
+using it. The cross-check that exposed it, each pilot's executed cook
+scored under both objectives on one plant, read: under the pilot's
+bands the MPC's cook scored 0.03 and the pilot's 2.66; under the app's
+J the pilot's cook scored 1.79 and the MPC's 0.65. Each pilot won its
+own game, and the comparison meant nothing.
+
+**The port.** The app's J is a sum of weighted squared softplus terms,
+which is the residual form the plan graph's per-draw nodes take, so
+the objective moved to the pilot term for term: `cook_outputs` reads
+from a cook what the app's `score_outputs` reads (collagen at the
+center at serve, the bark L* and the smoke deposition at serve, the
+perceptual juiciness at serve as water plus retained rendered fat, the
+surface-burn excess in the pit, the fuel burned to the pull with a
+chimney priced at the pull, the damper differences, the lethality
+integrals on the surface and the core to serve), every serve-time
+quantity read at the plan's serve on the grid and the integrals with
+a smooth horizon there, so the serve stays a decision;
+`goal_residuals` maps them to residuals r with J = Σ r²;
+`objective_terms` reports the app's named terms; `PlanGoals` carries
+the app's weights and bands with the app's defaults. The graph's
+output dimension follows the residual count (thirteen). The closed
+loops score the plant's cook the same way (`executed_du` for the
+smoothness term, as the app's `executed_objective`). Tests hold the
+terms against the app's formulas at chosen points.
+
+**The port check** (`estimator/objective_crosscheck.py`, record
+`data/mock/objective_crosscheck.json`): each executed schedule run
+open-loop through the app's own cook (the Tesseract) and scored by
+`mpc.executed_objective`, against the Julia objective on the Julia
+plant. On the MPC's cook:
+
+| term | Julia port | the app |
+|---|---|---|
+| tenderness | 0.053 | 0.046 |
+| appearance | 0.088 | 0.048 |
+| taste | 0.461 | 0.474 |
+| burn, fuel, smoothness | 0.001, 0.068, 0.008 | 0.002, 0.068, 0.007 |
+| safety | 0.000 | 0.000 |
+| J | 0.680 | 0.646 |
+
+Fuel and safety agree exactly, taste within 3 %, tenderness within
+the 0.005 the two engines differ on collagen. Appearance is the one
+real gap: the Julia plant's bark comes out 0.9 L* paler than the
+Tesseract's on the same cook (34.4 against 33.5), which the earlier
+core check (1.4 °C) did not show. The objective is one; the two
+engines' bark models are not quite, and that is a port item for the
+2-D shadow work, not the pilot.
+
+**Planning J under the posterior.** The first run under J, with the
+expected loss over six posterior draws as before, answered the first
+hour's readings with a 4.3-hour cook rated 0.25 collagen. J's
+bark-burn cap and its lethality term (weight 500) are softplus-squared
+tails, and under a posterior still wide at hour one the expectation
+over draws is the worst draws' burn and safety: the plan that
+minimises it is the one that ends before anything can go wrong. The
+app never meets this because it plans at its point estimate. So the
+like-for-like pilot plans at the posterior mean (`N_DRAWS = 0` in the
+closed loop) and keeps the uncertainty where it earns its keep, in the
+estimator and the replan trigger; what the posterior should buy the
+plan is a risk-aware J, not a mean over draws, and that is a roadmap
+item. Two more rules came out of the same morning: no event commits
+before the first readings (the prior's plan is a warm start, not a
+decision; under J it had pulled the fuel add and the spritz to hour
+zero), and the checks are written before the outcome is computed.
+
+**The run** (`data/mock/closed_loop_realcook.json`,
+`figures/estimator_closed_loop_realcook.png`; the loss columns are J):
+
+| check | reason | committed | J: standing → new | KL [nats] | wrap / pull / serve [h] | spritz / add [h] | collagen at serve | juiciness | bark L* |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 h | the first plan |  | 2.23 |  | 22.5 / 32.9 / 35.4 | 10.6 / 16.2 | 0.916 | 0.808 | 40.6 |
+| 1 h | loss high |  | 4.91 → 0.88 | 19.5 | 6.9 / 11.0 / 13.3 | 4.0 / 5.8 | 0.947 | 0.485 | 34.9 |
+| 2 h | loss high |  | 17.07 → 1.32 | 19.1 | 7.3 / 10.0 / 12.9 | 4.3 / 5.9 | 0.947 | 0.570 | 37.4 |
+| 3 h | loss rose |  | 1.96 → 1.23 | 49.4 | 8.1 / 11.2 / 13.7 | 4.8 / 6.6 | 0.956 | 0.559 | 36.9 |
+| 4 h | event due |  | 3.02 → 1.04 | 11.0 | 10.8 / 14.0 / 15.7 | 7.0 / 9.0 | 0.925 | 0.554 | 36.0 |
+| 5 h | posterior moved |  | 1.18 → 1.16 | 5.6 | 10.8 / 14.0 / 15.6 | 7.0 / 9.0 | 0.924 | 0.556 | 36.4 |
+| 6 h | posterior moved |  | 1.15 → 1.15 | 9.4 | 11.3 / 14.5 / 16.4 | 8.1 / 9.9 | 0.923 | 0.564 | 36.3 |
+| 7 h | loss rose |  | 2.00 → 1.05 | 29.0 | 11.8 / 15.5 / 17.5 | 8.2 / 10.3 | 0.929 | 0.556 | 35.8 |
+| 8 h | event due | spritz; wrap and add 3.5 and 2.2 h ahead, stable | 1.42 → 1.47 | 18.8 | 11.5 / 12.8 / 14.7 | 8.8 / 10.2 | 0.896 | 0.501 | 32.3 |
+| 9 h | posterior moved |  | 1.58 → 1.36 | 13.8 | 11.5 / 12.6 / 14.5 | 8.8 / 10.2 | 0.882 | 0.498 | 29.7 |
+| 10 h | loss high |  | 3.21 → 1.32 | 3.4 | 11.5 / 13.0 / 14.9 | 8.8 / 10.2 | 0.895 | 0.503 | 32.3 |
+| 11 h | posterior moved |  | 1.21 → 1.06 | 10.6 | 11.5 / 13.3 / 15.2 | 8.8 / 10.2 | 0.891 | 0.502 | 31.2 |
+| 12 h | posterior moved |  | 1.03 → 0.91 | 5.1 | 11.5 / 13.9 / 15.9 | 8.8 / 10.2 | 0.898 | 0.501 | 30.8 |
+| 13 h | event due | pull, 1.25 h ahead, stable | 1.00 → 0.91 | 8.7 | 11.5 / 14.3 / 16.2 | 8.8 / 10.2 | 0.903 | 0.503 | 31.6 |
+| 14 h | hold | | 0.91 vs 0.91 | 3.3 | | | | | |
+| 15 h | posterior moved |  | 0.89 → 0.92 | 29.6 | 11.5 / 14.3 / 15.8 | 8.8 / 10.2 | 0.921 | 0.503 | 32.3 |
+
+Executed: spritz from 8.8 h hourly, fuel add 10.2 h, wrap 11.5 h,
+pull 14.25 h, serve 15.75 h; a 257 °F pit. The plant: J 0.879
+(tenderness 0.083, appearance 0.012, taste 0.674, burn 0.013, fuel
+0.092, smoothness 0.004, safety 0): collagen 0.917 at serve (0.80 at
+the pull with the core at 91.7 °C), juiciness 0.505, L* 31.5, smoke
+0.85, core at serve 85 °C. Fifteen replans in sixteen checks at a
+minute each, 16 minutes in all. The estimator ended further from
+truth than in the slow cooks (median 1.9 posterior sd, the surface
+coupling at 4): a 257 °F cook is outside the 225 °F cook the
+calibration came from, and the posterior's widths did not say so.
+
+**Against the MPC under the one objective, on one plant:**
+
+| | RxInfer pilot | MPC |
+|---|---|---|
+| J | 0.879 | 0.680 |
+| tenderness / appearance / taste | 0.083 / 0.012 / 0.674 | 0.053 / 0.088 / 0.461 |
+| burn / fuel / smoothness / safety | 0.013 / 0.092 / 0.004 / 0 | 0.001 / 0.068 / 0.008 / 0 |
+| collagen at serve (at the pull) | 0.917 (0.80) | 0.932 (0.85) |
+| juiciness, water W/W0 | 0.505, 0.429 | 0.557, 0.483 |
+| bark L*, smoke | 31.5, 0.85 | 34.4, 0.75 |
+| wrap / pull / serve | 11.5 / 14.25 / 15.75 h | 8.1 / 11.7 / 16.0 h |
+| core at the pull / at serve | 92 / 85 °C | 89 / 70 °C |
+| pit, mean / max | 257 °F / 150 °C | 248 °F / 177 °C |
+| replans, compute | 15 of 16 checks, 16 min | every hour, 76 min |
+
+Reading it:
+
+- **One objective, one cook length.** Under J both pilots serve at 16
+  hours. The seven-hour gap of the morning was the objective; with it
+  gone the pilot's plan is a Franklin-shaped day, wrap 11.5 h, pull
+  14.25 h, a 1.5 h rest.
+- **The MPC still scores 0.2 better, and the term says why.** Taste:
+  its cook is juicier (0.557 against 0.505) because it pulls at 89 °C
+  and rests 4.3 hours, letting the center finish from 0.85 to 0.93 on
+  carryover while the water stays; the pilot pulls at 92 °C and rests
+  1.5 h. The pilot pays that back on appearance (a darker bark, 31.5
+  against 34.4) and nowhere else. The rest is where the difference
+  lives, and the pilot's rest sits at its prior's 1.5 h in every
+  replan: the optimiser is local and the warm start never leaves it.
+  A rest that is planned rather than inherited is the next item.
+- **The port check holds on this cook too.** The app's own evaluation
+  of the pilot's cook gives J 0.893 against the Julia port's 0.879; the
+  terms agree except where the two engines differ on the same
+  schedule, collagen 0.917 against 0.956 and L* 31.5 against 29.6,
+  which on a 257 °F cook is a larger engine gap than on the MPC's.
+- **The trigger and the commit rule under J.** Fifteen replans of
+  sixteen checks, at a minute each now that the plan is at the mean:
+  six on the posterior's move (the scaled threshold, 4.25 nats),
+  three on the absolute loss (all with J above 3 while the belief was
+  young), two on a rise, three on due events, one hold. The stable
+  rule committed the wrap and the fuel add at 8 h (3.5 and 2.2 hours
+  ahead) and the pull at 13 h (1.25 hours ahead), and every one was
+  kept by the plan that followed.
+- **What the posterior did not say.** The final latents sit a median
+  of 1.9 sd from truth, the surface coupling 4 sd, and the misfit
+  check ran at −2 to −4 (the core's floor) without an excess-power
+  alarm. A hot fast cook is a regime the calibration's cook never
+  visited, and the posterior's widths are the calibration's; the
+  estimator's honesty on a regime change is the next thing to test.
+
+
 ## The pilot in a pitmaster's terms, against the MPC on the same brisket (2026-09-09)
 
 Two questions were asked of the real-cook closed loop below: are the

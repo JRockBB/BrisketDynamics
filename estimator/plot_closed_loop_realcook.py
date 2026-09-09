@@ -113,7 +113,7 @@ def main():
     ax.set_ylabel("hour of cook", color=INK2, fontsize=9)
     n_re = sum(c["replanned"] for c in checks)
     ax.set_title(f"What the pilot decided at each hourly check: {n_re} replans, {len(checks) - n_re} holds", color=INK, fontsize=10.5)
-    ax.legend(loc="lower right", bbox_to_anchor=(0.99, 0.1), fontsize=8, frameon=False, labelcolor=INK2, ncol=2)
+    ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor=INK2, ncol=2)
 
     # --- 3. the outcome against the goals, in goal units -----------------------------------------
     ax = fig.add_subplot(gs[2])
@@ -122,9 +122,9 @@ def main():
     pm, ps = last["predicted"]["mean"], last["predicted"]["sd"]
     # each goal is a band (or a floor): the row's shaded span is the band in the goal's sd, measured from its center
     # (for a floor, from the floor upward); the markers are the prediction and the plant on the same scale
-    rows = [("probe-tender at the pull (collagen conversion at the center)", 0, goals["C_lo"], goals["C_hi"], goals["sd_C"], actual["C_pull"], "{:.3f}"),
-            ("retained water W/W0 at serve", 1, goals["W_lo"], None, goals["sd_W"], actual["W"], "{:.3f}"),
-            ("bark L* at serve", 2, goals["L_lo"], goals["L_hi"], goals["sd_L"], actual["L"], "{:.1f}")]
+    rows = [("tenderness: collagen at the center at serve", 0, goals["c_target"], goals["c_overdone"], 0.05, actual["C_serve"], "{:.3f}"),
+            ("appearance: bark L* at serve", 2, goals["l_lo"], goals["l_hi"], goals["dl_soft"], actual["L"], "{:.1f}"),
+            ("taste: smoke deposition at serve", 4, goals["s_lo"], goals["s_hi"], goals["ds_soft"], actual["S"], "{:.2f}")]
     for i, (name, idx, lo, hi, sd, act, fmt) in enumerate(rows):
         y = len(rows) - i
         center = lo if hi is None else 0.5 * (lo + hi)
@@ -134,7 +134,7 @@ def main():
         ax.plot([(pm[idx] - center) / sd], [y], "o", color=CORE, ms=8, mec=SURFACE, mew=1.2)
         ax.plot([(act - center) / sd], [y], "s", color=PIT, ms=8, mec=SURFACE, mew=1.2)
         band = f"at least {lo:g}" if hi is None else f"{lo:g} to {hi:g}"
-        ax.text(-4.9, y + 0.12, f"{name}: {band}, sd {sd:g}", color=INK2, fontsize=8.5, va="bottom")
+        ax.text(-4.9, y + 0.12, f"{name}: {band}, softness {sd:g}", color=INK2, fontsize=8.5, va="bottom")
         ax.text(4.9, y + 0.12, f"the plant: {fmt.format(act)}", color=INK2, fontsize=8.5, va="bottom", ha="right")
     ax.axvline(0, color=INK, lw=1)
     ax.plot([], [], "o", color=CORE, label="predicted at the last replan")
@@ -143,10 +143,9 @@ def main():
     ax.set_ylim(0.2, len(rows) + 0.6)
     ax.set_yticks([])
     ax.grid(False)
-    ax.set_xlabel("distance from the band's center (a floor: from the floor), in the goal's sd; shaded: inside the band", color=INK2, fontsize=9)
-    wb = actual["W"] * 2.33 / (1 + actual["W"] * 2.33)
-    ax.set_title(f"The outcome: collagen {actual['C_pull']:.2f} at the pull with the core at {actual['T_pull']:.0f} °C, {100 * wb:.0f} % moisture, L* {actual['L']:.0f}; "
-                 f"core at serve {actual['T_serve']:.0f} °C against a {goals['T_serve_floor'] - 273.15:.0f} °C floor", color=INK, fontsize=10.5)
+    ax.set_xlabel("distance from the band's center, in the band's softness; shaded: inside the band", color=INK2, fontsize=9)
+    ax.set_title(f"The outcome under the app's objective: J {actual['J']:.2f} (tenderness {actual['tenderness']:.2f}, appearance {actual['appearance']:.2f}, taste {actual['taste']:.2f}, "
+                 f"burn {actual['surf']:.2f}, fuel {actual['fuel']:.2f}); collagen {actual['C_serve']:.2f}, juiciness {actual['juiciness']:.2f}, L* {actual['L']:.0f}", color=INK, fontsize=9.5)
     ax.legend(loc="lower left", fontsize=8, frameon=False, labelcolor=INK2, ncol=2)
 
     out = REPO / "figures" / "estimator_closed_loop_realcook.png"

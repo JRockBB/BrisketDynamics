@@ -39,7 +39,7 @@ AREA, DEPTH = 16, 17
 GRID = collect(0.0:120.0:30 * 3600.0)          # the plant and the estimator
 PLAN_GRID = collect(0.0:600.0:30 * 3600.0)     # the plan's physics
 CHECK = 3600.0                                  # the posterior updates hourly; the replan decides for itself
-N_DRAWS = 6
+N_DRAWS = 0          # 0: the plan at the posterior mean, as the MPC plans at its point estimate; n: the expected J over n draws
 goals = PlanGoals()
 pol = ReplanPolicy()
 nc = RealCookNoise()
@@ -91,7 +91,7 @@ function estimate!(s::Schedule, z_prev)
     end
     return res.z, res.cov, res.misfit.total, res.noise, res.converged
 end
-draws(z, V, rng) = (Lc = cholesky(Symmetric(V)).L; [z .+ Lc * randn(rng, length(z)) for _ in 1:N_DRAWS])
+draws(z, V, rng) = N_DRAWS == 0 ? [copy(z)] : (Lc = cholesky(Symmetric(V)).L; [z .+ Lc * randn(rng, length(z)) for _ in 1:N_DRAWS])
 "The pit level at the latest sample (1 when none is inferred)."
 pit_level_now(s) = (lv = levels[1]; lv === nothing ? 1.0 : (k = findlast(GRID .<= s.t_now + 1e-9); lv[k]))
 
@@ -111,7 +111,7 @@ record = []
 n_replans = 0
 rng_draws = MersenneTwister(7)
 t_start = time()
-println("t[h]  reason           committed        L_now  L_plan  KL     plan: wrap / pull / serve / spritz / add   outcomes at the last replan (collagen at the pull, water, L*, serve C)   misfit z   pit σ, level   wall")
+println("t[h]  reason           committed        L_now  L_plan  KL     plan: wrap / pull / serve / spritz / add   outcomes at the last replan (collagen at serve, water, L*, serve C)   misfit z   pit σ, level   wall")
 flush(stdout)
 while s.t_now < 28 * 3600
     t0 = time()
@@ -122,7 +122,7 @@ while s.t_now < 28 * 3600
     zs = draws(z, V, rng_draws)
     L_now = plan === nothing ? NaN : plan_loss(zs, plan, s, d_plan; goals).mean
     kl = plan === nothing ? NaN : posterior_kl(z, V, z_at_plan, V_at_plan)
-    due, why = replan_due(pol, s, plan, L_now, L_plan, t_last, mis === nothing ? nothing : mis.z_chi2; kl=isnan(kl) ? nothing : kl)
+    due, why = replan_due(pol, s, plan, L_now, L_plan, t_last, mis === nothing ? nothing : mis.z_chi2; kl=isnan(kl) ? nothing : kl, n_latent=length(z))
     stable = Symbol[]
     if due
         ζ_init = plan === nothing ? nothing : encode_plan(plan, free_set(s), s)
@@ -133,10 +133,10 @@ while s.t_now < 28 * 3600
         global t_last = s.t_now
         global n_replans += 1
         global z_at_plan, V_at_plan = copy(z), copy(V)
-        ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d_plan) for zz in zs])
+        ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d_plan; goals) for zz in zs])
         global pred = (mean=vec(mean(ys; dims=2)), sd=vec(std(ys; dims=2)), t_h=s.t_now / 3600)
     end
-    done = commit!(s, plan, CHECK; force=stable)
+    done = s.t_now > 0 ? commit!(s, plan, CHECK; force=stable) : Symbol[]     # the prior's plan is a warm start, not a decision
     p = plan
     sdz = sqrt.(diag(V))
     @printf("%4.0f  %-15s  %-15s  %5.2f  %5.2f  %5.1f  %5.2f / %5.2f / %5.2f / %s / %5.2f   %5.3f±%5.3f %5.3f±%5.3f %5.1f±%4.1f %6.1f±%4.1f   %s   %.2f %.2f   %3.0f s\n",
@@ -152,7 +152,7 @@ while s.t_now < 28 * 3600
                        "plan" => Dict("u" => p.u, "t_wrap_h" => nn(p.t_wrap / 3600), "t_pull_h" => p.t_pull / 3600, "t_serve_h" => p.t_serve / 3600,
                                       "spritz" => p.spritz === nothing ? nothing : Dict("t_h" => p.spritz.t / 3600, "dt_h" => p.spritz.dt / 3600, "m" => p.spritz.m),
                                       "t_add_h" => nn(p.t_add / 3600)),
-                       "predicted" => Dict("mean" => pred.mean, "sd" => pred.sd, "t_h" => pred.t_h),
+                       "predicted" => Dict("mean" => pred.mean, "sd" => [nn(x) for x in pred.sd], "t_h" => pred.t_h),
                        "posterior_z" => z, "posterior_sd" => sdz, "err_sd" => (z .- z_true) ./ sdz,
                        "misfit_z" => mis === nothing ? nothing : mis.z_chi2,
                        "noise" => Dict(chnames[i] => Dict("sigma" => v.σ, "rho" => v.ρ, "sigma_sd" => v.σ_sd, "rho_sd" => v.ρ_sd) for (i, v) in noise_post),
@@ -162,18 +162,27 @@ while s.t_now < 28 * 3600
 end
 
 # --- the plant's actual outcome under the executed schedule --------------------------------------
+# the checks first, so a failure in the outcome below cannot lose them
+open(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"), "w") do io
+    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "partial" => true))
+end
 _, _, o = plant_readings(s)
 nx = size(o.W_field, 1); w = E.fv_weights(nx)
 wret = [dot(w, o.W_field[:, k]) / cfg.W0 for k in axes(o.W_field, 2)]
 at(y, tq) = (k = clamp(searchsortedlast(GRID, tq), 1, length(GRID) - 1); f = (tq - GRID[k]) / (GRID[k + 1] - GRID[k]); (1 - f) * y[k] + f * y[k + 1])
-actual = (C_pull=at(view(o.C_field, 1, :), s.t_pull), T_pull=at(o.Tcore, s.t_pull) - 273.15, W=at(wret, s.t_serve), L=at(o.l_star, s.t_serve), T_serve=at(o.Tcore, s.t_serve) - 273.15)
+y_act = cook_outputs(o, GRID, executed_du(GRID, damper_on_grid(s), s.t_pull), s.t_pull, isnan(s.t_add) ? BrisketDynamics.ADD_NEVER : s.t_add, s.t_serve, cfg, goals)
+terms = objective_terms(y_act, goals)
+actual = (J=terms.J, tenderness=terms.tenderness, appearance=terms.appearance, taste=terms.taste, surf=terms.surf, fuel=terms.fuel, smooth=terms.smooth, safety=terms.safety,
+          C_serve=y_act[1], C_pull=at(view(o.C_field, 1, :), s.t_pull), T_pull=at(o.Tcore, s.t_pull) - 273.15, W=y_act[2], L=y_act[3], T_serve=y_act[4] - 273.15,
+          S=y_act[5], juiciness=y_act[6])
 reasons = Dict(r => count(rec -> rec["reason"] == r, record) for r in unique(rec["reason"] for rec in record))
 @printf("\nexecuted: wrap %.2f h, pull %.2f h, serve %.2f h, spritz %s, fuel add %.2f h; %d checks, %d replans (%s); %.0f s total\n",
         s.t_wrap / 3600, s.t_pull / 3600, s.t_serve / 3600,
         s.spritz === nothing ? "-" : @sprintf("(%.1f h, every %.2f h, %.3f kg)", s.spritz.t / 3600, s.spritz.dt / 3600, s.spritz.m),
         s.t_add / 3600, length(record), n_replans, join(["$k $v" for (k, v) in sort(collect(reasons))], ", "), time() - t_start)
-@printf("the plant's actual outcome: collagen conversion at the pull %.3f (band %.2f to %.2f) with the core at %.1f C, retained water %.3f (floor %.2f), bark L* %.1f (band %.0f to %.0f), core at serve %.1f C (floor %.0f)\n",
-        actual.C_pull, goals.C_lo, goals.C_hi, actual.T_pull, actual.W, goals.W_lo, actual.L, goals.L_lo, goals.L_hi, actual.T_serve, goals.T_serve_floor - 273.15)
+@printf("the plant's actual outcome: J %.3f (tenderness %.3f, appearance %.3f, taste %.3f, surf %.3f, fuel %.3f, smooth %.3f, safety %.3f); collagen at serve %.3f (%.3f at the pull, core %.1f C), water %.3f, juiciness %.3f, L* %.1f, smoke %.2f, core at serve %.1f C\n",
+        actual.J, actual.tenderness, actual.appearance, actual.taste, actual.surf, actual.fuel, actual.smooth, actual.safety,
+        actual.C_serve, actual.C_pull, actual.T_pull, actual.W, actual.juiciness, actual.L, actual.S, actual.T_serve)
 open(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"), "w") do io
     JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans,
                         "policy" => Dict(string(k) => getfield(pol, k) for k in fieldnames(ReplanPolicy)),

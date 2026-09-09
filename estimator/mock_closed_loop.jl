@@ -92,7 +92,7 @@ plan_prev = nothing
 record = []
 rng_draws = MersenneTwister(7)
 t_start = time()
-println("t[h]  events committed             plan: dampers / wrap / pull / serve / spritz(t,dt,m) / add    outcomes predicted (collagen at the pull, water, L*, serve C)   post sd L,h_c,A   misfit z")
+println("t[h]  events committed             plan: dampers / wrap / pull / serve / spritz(t,dt,m) / add    outcomes predicted (collagen at serve, water, L*, serve C)   post sd L,h_c,A   misfit z")
 flush(stdout)
 while s.t_now < 28 * 3600
     t0 = time()
@@ -104,7 +104,7 @@ while s.t_now < 28 * 3600
     zs = draws(z, V, rng_draws)
     ζ_init = plan_prev === nothing ? nothing : encode_plan(plan_prev, free_set(s), s)
     r = replan_on_graph(zs, s, d0; goals, ζ_init, verbose=false)
-    ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d0) for zz in zs])
+    ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d0; goals) for zz in zs])
     pred = (mean=vec(mean(ys; dims=2)), sd=vec(std(ys; dims=2)))
     done = commit!(s, r.plan, Δ)
     p = r.plan
@@ -135,13 +135,18 @@ _, o = plant_readings(s)
 nx = size(o.W_field, 1); w = E.fv_weights(nx)
 wret = [dot(w, o.W_field[:, k]) / cfg.W0 for k in axes(o.W_field, 2)]
 at(y, tq) = (k = clamp(searchsortedlast(GRID, tq), 1, length(GRID) - 1); f = (tq - GRID[k]) / 600.0; (1 - f) * y[k] + f * y[k + 1])
-actual = (C_pull=at(view(o.C_field, 1, :), s.t_pull), T_pull=at(o.Tcore, s.t_pull) - 273.15, W=at(wret, s.t_serve), L=at(o.l_star, s.t_serve), T_serve=at(o.Tcore, s.t_serve) - 273.15)
+y_act = cook_outputs(o, GRID, executed_du(GRID, fill_future(s.u), s.t_pull), s.t_pull, isnan(s.t_add) ? BrisketDynamics.ADD_NEVER : s.t_add, s.t_serve, cfg, goals)
+terms = objective_terms(y_act, goals)
+actual = (J=terms.J, tenderness=terms.tenderness, appearance=terms.appearance, taste=terms.taste, surf=terms.surf, fuel=terms.fuel, smooth=terms.smooth, safety=terms.safety,
+          C_serve=y_act[1], C_pull=at(view(o.C_field, 1, :), s.t_pull), T_pull=at(o.Tcore, s.t_pull) - 273.15, W=y_act[2], L=y_act[3], T_serve=y_act[4] - 273.15,
+          S=y_act[5], juiciness=y_act[6])
 @printf("\nexecuted: wrap %.2f h, pull %.2f h, serve %.2f h, spritz %s, fuel add %.2f h; %.0f s total\n",
         s.t_wrap / 3600, s.t_pull / 3600, s.t_serve / 3600,
         s.spritz === nothing ? "-" : @sprintf("(%.1f h, every %.2f h, %.3f kg)", s.spritz.t / 3600, s.spritz.dt / 3600, s.spritz.m),
         s.t_add / 3600, time() - t_start)
-@printf("the plant's actual outcome: collagen conversion at the pull %.3f (band %.2f to %.2f) with the core at %.1f C, retained water %.3f (floor %.2f), bark L* %.1f (band %.0f to %.0f), core at serve %.1f C (floor %.0f)\n",
-        actual.C_pull, goals.C_lo, goals.C_hi, actual.T_pull, actual.W, goals.W_lo, actual.L, goals.L_lo, goals.L_hi, actual.T_serve, goals.T_serve_floor - 273.15)
+@printf("the plant's actual outcome: J %.3f (tenderness %.3f, appearance %.3f, taste %.3f, surf %.3f, fuel %.3f, smooth %.3f, safety %.3f); collagen at serve %.3f (%.3f at the pull, core %.1f C), water %.3f, juiciness %.3f, L* %.1f, smoke %.2f, core at serve %.1f C\n",
+        actual.J, actual.tenderness, actual.appearance, actual.taste, actual.surf, actual.fuel, actual.smooth, actual.safety,
+        actual.C_serve, actual.C_pull, actual.T_pull, actual.W, actual.juiciness, actual.L, actual.S, actual.T_serve)
 open(joinpath(REPO, "data", "mock", "closed_loop.json"), "w") do io
     JSON.print(io, Dict("replans" => record, "delta_h" => Δ / 3600, "n_draws" => N_DRAWS,
                         "executed" => Dict("u" => [isnan(x) ? nothing : x for x in s.u], "t_wrap_h" => nn(s.t_wrap / 3600), "t_pull_h" => nn(s.t_pull / 3600), "t_serve_h" => s.t_serve / 3600,

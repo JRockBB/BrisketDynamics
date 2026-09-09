@@ -131,16 +131,20 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **Collagen at serve, a free rest, a trigger scaled to the posterior.**
-  The pilot's goals are bands now and a stable event commits early
-  (`docs/results.md`, the pilot in a pitmaster's terms, the addendum),
-  which took 2.4 h off the cook; what keeps it 4 h behind the MPC is
-  that its collagen band is read at the pull while the rest converts
-  the center further (0.956 became 0.995), and that its rest prior
-  fixes a 1.5 h rest by fiat where the MPC's 4.3 h rest is what lets
-  it pull cooler and keep more water. Read the band at serve, widen
-  the rest prior, and scale the posterior-move threshold with the
-  latent count (two nats fires nearly every hour on seventeen latents).
+- **Planning under the posterior with the app's objective.** The pilot
+  optimises the app's J now (`docs/results.md`, one objective), at the
+  posterior mean, because J's burn and safety terms make its expectation
+  over a wide posterior collapse onto the worst draws (a 4 h cook at
+  0.25 collagen under the first hour's draws). What the posterior should
+  buy the plan is a risk-aware J, not a mean over draws: a
+  certainty-equivalent plan while the belief is wide, then the
+  expectation once the draws agree, or a trimmed expectation; and a
+  serve deadline, since J is flat in the cook's length.
+- **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
+  than the Tesseract's on the same cook (the core agrees within 1.4 °C);
+  the port check on the objective's appearance term shows it. Find it
+  in the bark state's port (the 2-D shadow work) before the pilot flies
+  on the Tesseract's calibration.
 - **The bark on a hot offset.** Every planner on this physics finds a
   long cook because the bark, calibrated on a 19-hour 225 °F WSM cook,
   takes ten hours to reach a mahogany 33; an offset at 275 °F does it
