@@ -261,6 +261,56 @@ Reading it:
   J is the test bench for it.
 
 
+**Where the overconfidence came from** (2026-09-10). Two refits on
+the last run's readings, at the end of the cook, located it. A fit
+started at the truth walks 2 to 6 sd away to the same estimate the run
+found, at the same objective (643.45 against 643.34): not a wrong mode.
+A fit with the plant's true noise per channel halves the median error
+(1.6 to 1.1 sd) and widens the meat latents' posteriors by 10 to 45 %:
+the noise model was most of it, and the largest mismatch was the core
+probe, which the estimator holds at the calibration's 1.2 °C floor
+while the mock generated 0.5 °C. The floor is right for a real probe;
+below it the estimator discards the channel that best constrains the
+thermal latents, and the sparse channels (the scale identified at half
+its noise, the humidity at three quarters) are overcounted in its
+place. Two fixes: the scale and the humidity carry noise floors from
+the instrument's spec (15 g, 60 Pa; `NoisePrior(...; floor)`), as the
+probes carry the calibration's; and the mock's core probe now
+generates 1.2 °C, the calibration's floor, so the bench is honest
+(`RealCookNoise`, `data/mock/mock_realcook.json` regenerated). With
+the floors alone the posterior was no better (median 1.8 sd, seven
+latents beyond 2); with the mock's core at the floor it is:
+
+| | before | the honest bench |
+|---|---|---|
+| final latents, median / beyond 2 sd | 1.8 sd / 7 of 17 | 0.83 sd / 2 of 17 |
+| at 4 h, 8 h, 12 h (median) | | 0.93, 0.75, 0.59 |
+| misfit z through the cook | −2 to −4 | −0.2 to −2.1 after the first hour |
+| noise identified: humidity, scale, pit | 74 Pa, 15 g, 1.2 °C | 94 Pa, 15 g (floor), 1.2 °C (floor) |
+
+**The pilot on the honest bench**: wrap 10.9 h, pull 16.1 h, serve
+17.7 h, spritz from 5.6 h, fuel add 9.3 h; a 249 °F pit, never above
+141 °C. The plant: J 0.941 (tenderness 0.037, appearance 0.174, taste
+0.622, burn 0.008, fuel 0.099), collagen 0.950 at serve, juiciness
+0.550, L* 35.4, smoke 0.87. The last replan predicted 0.939, 0.550,
+36.5, 0.88: the plan knew. Against the MPC's 0.680 on the same plant,
+the gap is appearance (a pale bark, 35.4 against 34.4) and the smoke
+at the top of its band; tenderness and juiciness match (0.950 and
+0.550 against 0.932 and 0.557). The port check: the app's own
+evaluation of the pilot's cook 0.922 against the Julia 0.941.
+
+**What the gap is now.** With the belief honest and the plan's
+prediction on the plant, the pilot chose the pale bark: from where it
+stood every hour, that was J-optimal. The MPC does not get a pale bark
+because it runs a 350 °F push at hours five to eight before an
+eight-hour wrap; the pilot's pit never went above 141 °C and its plan
+cannot make that shape. The plan's damper has three knots across the
+whole remaining cook, piecewise linear at 0, ⅓ and ⅔ of now to the
+pull; the MPC's plan has twenty-one. A three-hour push in the middle
+of a sixteen-hour cook is not in the pilot's decision space. That is
+the next item, and it is a representational one in the plan block, not
+an estimator one.
+
 ## The pilot in a pitmaster's terms, against the MPC on the same brisket (2026-09-09)
 
 Two questions were asked of the real-cook closed loop below: are the

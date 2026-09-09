@@ -131,18 +131,23 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **The estimator on a regime change.** Under the app's J on one plant
-  the pilot lands at 0.9 to 1.1 against the MPC's 0.68 whatever the
-  planner does (`docs/results.md`, one objective, five runs); the gap is
-  the belief: on a 236 to 257 °F cook the posterior's widths, which are
-  the calibration's 225 °F cook's, are too narrow (seven of seventeen
-  latents beyond 2 sd at the end) and the misfit check is muted by the
-  core probe's floor. Widths that answer to the regime (a discrepancy
-  term, or priors that widen with the distance from the calibration's
-  pit temperature) and a check the floor cannot mute; the closed loop
-  under J is the bench. Then the posterior back into the plan as a
-  risk-aware J (a certainty-equivalent plan while the belief is wide),
-  not a mean over draws.
+- **The damper's shape.** On the honest bench (the mock's core probe at
+  the calibration's floor, the sparse channels with instrument floors)
+  the estimator is honest (a median of 0.8 sd from truth, two of
+  seventeen latents beyond 2 sd, the misfit check in band) and the plan
+  predicts its cook to a point of L*; the pilot's J is 0.94 to the
+  MPC's 0.68 on one plant, all of it a pale bark and smoke at the band's
+  top (`docs/results.md`, where the overconfidence came from). The MPC
+  avoids the pale bark with a 350 °F push at hours five to eight before
+  an eight-hour wrap; the pilot's damper has three knots across the
+  remaining cook and cannot make that shape (the MPC's plan has
+  twenty-one). More knots, or a push as a decision (start, height,
+  length) like the spritz train; then the posterior back into the plan
+  as a risk-aware J, not a mean over draws.
+- **The prior across cooks.** The pool shares three cooker parameters
+  across cooks and its per-cook meat fits are not saved; save them, and
+  the next cook's prior becomes the cooker's pooled posterior plus the
+  meat's between-cook population, with the ambient an input.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it

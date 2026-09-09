@@ -47,7 +47,7 @@ cal = noise_priors_from_file(joinpath(REPO, "data", "calibration", "noise_prior_
 # ρ per step from ρ per calibration step: ρ^(dt/Δ), with the width scaled by the slope of that map
 tostep(np, from_dt) = (a = dt / from_dt; NoisePrior(np.σ_mean, np.σ_sd, np.ρ_mean^a, np.ρ_sd * a * np.ρ_mean^(a - 1); floor=np.floor))
 priors = Dict("pit" => tostep(cal["pit"], 600.0), "core" => tostep(cal["core"], 600.0),
-              "humidity" => NoisePrior(100.0, 100.0, 0.8^(dt / 600), 0.3), "mass" => NoisePrior(0.02, 0.02, 0.5^(dt / 1800), 0.3))
+              "humidity" => NoisePrior(100.0, 100.0, 0.8^(dt / 600), 0.3; floor=60.0), "mass" => NoisePrior(0.02, 0.02, 0.5^(dt / 1800), 0.3; floor=0.015))   # floors from the instruments' spec
 nc = m["noise"]
 truth_noise = Dict("pit" => (nc["pit_sd"], exp(-dt / nc["pit_tau"])), "core" => (nc["core_sd"], exp(-dt / nc["core_tau"])),
                    "humidity" => (nc["hum_sd"], exp(-dt / nc["hum_tau"])), "mass" => (nc["mass_sd"], exp(-dt / nc["mass_tau"])))

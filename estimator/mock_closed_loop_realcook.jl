@@ -69,7 +69,7 @@ cal = noise_priors_from_file(joinpath(REPO, "data", "calibration", "noise_prior_
 dt = GRID[2] - GRID[1]
 tostep(np, from_dt) = (a = dt / from_dt; NoisePrior(np.σ_mean, np.σ_sd, np.ρ_mean^a, np.ρ_sd * a * np.ρ_mean^(a - 1); floor=np.floor))
 np = Dict(1 => tostep(cal["pit"], 600.0), 2 => tostep(cal["core"], 600.0),
-          3 => NoisePrior(100.0, 100.0, 0.8^(dt / 600), 0.3), 4 => NoisePrior(0.02, 0.02, 0.5^(dt / 1800), 0.3))
+          3 => NoisePrior(100.0, 100.0, 0.8^(dt / 600), 0.3; floor=60.0), 4 => NoisePrior(0.02, 0.02, 0.5^(dt / 1800), 0.3; floor=0.015))   # floors from the instruments' spec: the sparse channels' sd reads low from a few samples
 chnames = Dict(1 => "pit", 2 => "core", 3 => "humidity", 4 => "mass")
 noise = Dict(i => (v.σ_mean, v.ρ_mean) for (i, v) in np)                  # carried from check to check
 levels = Dict{Int,Union{Nothing,Vector{Float64}}}(i => nothing for i in keys(np))

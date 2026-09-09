@@ -22,7 +22,7 @@ Base.@kwdef struct RealCookNoise
     pit_step::Float64 = 120.0
     pit_add_bump::Float64 = 2.0        # the sd is (1 + bump·exp(−(t − t_add)/add_tau)) times after a fuel add
     add_tau::Float64 = 1800.0
-    core_sd::Float64 = 0.5
+    core_sd::Float64 = 1.2          # the calibration's floor for a meat probe; a mock below it makes the estimator discard the channel
     core_tau::Float64 = 12000.0        # 3.3 h
     core_step::Float64 = 120.0
     hum_sd::Float64 = 100.0

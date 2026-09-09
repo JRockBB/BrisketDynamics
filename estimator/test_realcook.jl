@@ -46,7 +46,7 @@ end
     @test level[findfirst(t .> events.t_add)] > 2.8 && level[end] < 1.01      # two minutes into the bump: 1 + 2 exp(−120/1800)
     @test all(r.humidity .<= nc.hum_cap + 1e-9)
     @test any(r.humidity[masks.humidity] .>= nc.hum_cap - 1e-9)
-    @test all(isfinite, r.mass) && abs(mean(r.core .- clean.core)) < 0.3
+    @test all(isfinite, r.mass) && abs(mean(r.core .- clean.core)) < 0.8
 end
 
 @testset "the censored humidity channel" begin
