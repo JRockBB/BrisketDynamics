@@ -1,11 +1,11 @@
-"""The pilot on the real-cook plant, replanning when it should: what it
-planned at every hourly check and where it committed, the standing
-plan's expected loss against the loss it was made at (the replan
-trigger), the predicted outcomes at each replan against the plant, the
-misfit check, and the pit's effective noise sd as the fire regime
-moves.
+"""The pilot on the real-cook plant, read like a cook: what the pit and
+the core did, when the pilot wrapped, added fuel, spritzed, pulled and
+served, when it chose to replan and why, and how the outcome landed
+against the goals.
 
-Reads data/mock/closed_loop_realcook.json, writes
+Reads data/mock/closed_loop_realcook.json and
+data/mock/closed_loop_realcook_trace.json (the plant's history under the
+executed schedule, from estimator/closed_loop_trace.jl), writes
 figures/estimator_closed_loop_realcook.png.
 
 Run from app/:  uv run python ../estimator/plot_closed_loop_realcook.py
@@ -23,14 +23,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 INK, INK2, GRID_C, SURFACE = "#1f2430", "#5b6472", "#e4e7ec", "#fbfbfa"
-EVENTS = [("t_wrap_h", "wrap", "#2a78d6"), ("spritz", "spritz start", "#1baf7a"), ("t_add_h", "fuel add", "#eb6834"),
-          ("t_pull_h", "pull", "#8d5cd6"), ("t_serve_h", "serve", "#c9a227")]
-# the reasons a replan fired: one fixed hue each
+PIT, CORE = "#eb6834", "#2a78d6"
+EVENT_C = {"wrap": "#2a78d6", "add": "#eb6834", "spritz": "#1baf7a", "pull": "#8d5cd6", "serve": "#c9a227"}
 REASONS = [("first", "the first plan", "#5b6472"), ("event_due", "an event about to commit", "#2a78d6"),
-           ("loss_rise", "the standing plan's loss rose", "#eb6834"), ("misfit", "the misfit check fired", "#d6336c"),
+           ("loss_rise", "the plan's value changed", "#eb6834"), ("misfit", "the misfit check", "#d6336c"),
            ("floor", "the floor interval", "#8d5cd6")]
-OUTCOMES = [("core at the pull [°C]", 0, lambda v: v - 273.15), ("retained water", 1, lambda v: v),
-            ("bark L*", 2, lambda v: v), ("core at serve [°C]", 3, lambda v: v - 273.15)]
 
 
 def style(ax):
@@ -38,129 +35,115 @@ def style(ax):
     for sp in ax.spines.values():
         sp.set_color(GRID_C)
     ax.grid(True, color=GRID_C, lw=0.6)
-    ax.tick_params(colors=INK2, labelsize=8)
+    ax.tick_params(colors=INK2, labelsize=8.5)
 
 
 def main():
     d = json.loads((REPO / "data" / "mock" / "closed_loop_realcook.json").read_text(encoding="utf-8"))
+    tr = json.loads((REPO / "data" / "mock" / "closed_loop_realcook_trace.json").read_text(encoding="utf-8"))
     checks = d["checks"]
+    goals, actual = d["goals"], d["actual"]
+    ev = tr["events_h"]
+    t = np.array(tr["t_h"])
+    t_end = ev["serve"] + 0.5
+    keep = t <= t_end
+
+    fig = plt.figure(figsize=(12.5, 11), facecolor=SURFACE)
+    gs = fig.add_gridspec(3, 1, height_ratios=[1.5, 1.0, 0.9], hspace=0.42, left=0.08, right=0.98, top=0.895, bottom=0.06)
+
+    # --- 1. the cook as it happened ----------------------------------------------------------
+    ax = fig.add_subplot(gs[0])
+    style(ax)
+    ax.plot(t[keep], np.array(tr["T_pit_C"])[keep], color=PIT, lw=1.6, label="pit")
+    ax.plot(t[keep], np.array(tr["T_core_C"])[keep], color=CORE, lw=2.2, label="core")
+    labels = [("wrap", ev["wrap"], "wrapped"), ("add", ev["add"], "fuel added"), ("spritz", ev["spritz"], "spritz begins"),
+              ("pull", ev["pull"], "pulled"), ("serve", ev["serve"], "served")]
+    ymax = 140
+    import matplotlib.transforms as mtransforms
+    above = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)   # x in hours, y in axes units
+    for i, (key, th, text) in enumerate(labels):
+        if th is None:
+            continue
+        ax.axvline(th, color=EVENT_C[key], lw=1.2)
+        right = key == "serve"        # the serve line is at the edge: its label sits to the left
+        # the event labels sit above the axes in two rows, where no curve can reach them
+        ax.text(th + (-0.15 if right else 0.15), 1.02 + 0.07 * (i % 3), f"{text} {th:.1f} h", color=EVENT_C[key], fontsize=8.5,
+                va="bottom", ha="right" if right else "left", transform=above)
+    if ev["spritz"] is not None:
+        for k in range(1, 12):
+            ts = ev["spritz"] + k * ev["spritz_dt"]
+            if ts < ev["pull"]:
+                ax.axvline(ts, color=EVENT_C["spritz"], lw=0.6, alpha=0.5)
+    ax.set_xlim(0, t_end)
+    ax.set_ylim(15, ymax)
+    ax.set_ylabel("temperature [°C]", color=INK2, fontsize=9)
+    core = np.array(tr["T_core_C"])
+    pit_mean = float(np.mean(np.array(tr["T_pit_C"])[t <= ev["pull"]]))
+    t70 = t[np.argmax(core >= 70)] if (core >= 70).any() else float("nan")
+    ax.set_title(f"The cook as it happened: a {pit_mean * 9 / 5 + 32:.0f} °F pit, the core at 70 °C by {t70:.1f} h, "
+                 f"wrapped at {ev['wrap']:.1f} h, pulled at {ev['pull']:.1f} h at {actual['T_pull']:.0f} °C, served at {ev['serve']:.1f} h",
+                 color=INK, fontsize=10.5, pad=60)
+    ax.legend(loc="lower right", fontsize=8.5, frameon=False, labelcolor=INK2)
+
+    # --- 2. what the pilot decided, hour by hour -------------------------------------------------
+    ax = fig.add_subplot(gs[1], sharex=ax)
+    style(ax)
     th = np.array([c["t_h"] for c in checks])
-    replans = [c for c in checks if c["replanned"]]
-    goals, actual, pol = d["goals"], d["actual"], d["policy"]
-
-    fig = plt.figure(figsize=(13, 12.5), facecolor=SURFACE)
-    gs = fig.add_gridspec(3, 4, height_ratios=[1.35, 1.0, 1.0], hspace=0.5, wspace=0.34, left=0.06, right=0.985, top=0.95, bottom=0.05)
-
-    # --- what it planned at every check, where it committed, and when it replanned -------------
-    ax = fig.add_subplot(gs[0, :])
-    style(ax)
+    pull = np.array([c["plan"]["t_pull_h"] for c in checks])
+    wrap = np.array([np.nan if c["plan"]["t_wrap_h"] is None else c["plan"]["t_wrap_h"] for c in checks])
     ax.plot(th, th, color=INK2, lw=0.8, ls=(0, (2, 2)))
-    ax.text(th[len(th) // 2] + 0.4, th[len(th) // 2] - 0.6, "now", color=INK2, fontsize=8, ha="left", va="top")
-    committed = []
-    for key, label, col in EVENTS:
-        vals = np.array([(c["plan"]["spritz"]["t_h"] if c["plan"]["spritz"] else np.nan) if key == "spritz"
-                         else (np.nan if c["plan"].get(key) is None else c["plan"][key]) for c in checks], dtype=float)
-        ax.plot(th, vals, color=col, lw=2, label=label)
-        name = {"t_wrap_h": "wrap", "spritz": "spritz", "t_add_h": "add", "t_pull_h": "pull"}.get(key)
-        if name:
-            k = next((i for i, c in enumerate(checks) if name in c["committed"]), None)
-            if k is not None:
-                ax.plot([th[k]], [vals[k]], "o", color=col, ms=8, mec=SURFACE, mew=1.5)
-                committed.append((vals[k], f"{label} committed at {vals[k]:.2f} h"))
-    # the labels at the end of the held lines, dodged apart where the lines are close, a leader to each
-    committed.sort()
-    ys = []
-    for v, _ in committed:
-        ys.append(v if not ys else max(v, ys[-1] + 0.8))
-    for (v, text), y in zip(committed, ys):
-        ax.annotate(text, (th[-1], v), xytext=(th[-1] + 0.9, y), textcoords="data", fontsize=8, color=INK2,
-                    ha="left", va="center", arrowprops=dict(arrowstyle="-", color=INK2, lw=0.6, shrinkA=0, shrinkB=2))
-    # a tick at the bottom for every replan, coloured by its reason
-    y0 = -1.2
+    ax.text(th[-1] + 0.2, th[-1] - 1.5, "now", color=INK2, fontsize=8, ha="left")
+    ax.plot(th, pull, color=EVENT_C["pull"], lw=2, label="the planned pull time")
+    ax.plot(th, wrap, color=EVENT_C["wrap"], lw=2, label="the planned wrap time")
+    k_pull = next(i for i, c in enumerate(checks) if "pull" in c["committed"])
+    k_wrap = next(i for i, c in enumerate(checks) if "wrap" in c["committed"])
+    ax.plot([th[k_pull]], [pull[k_pull]], "o", color=EVENT_C["pull"], ms=8, mec=SURFACE, mew=1.5)
+    ax.plot([th[k_wrap]], [wrap[k_wrap]], "o", color=EVENT_C["wrap"], ms=8, mec=SURFACE, mew=1.5)
+    ax.text(th[k_pull] - 0.3, pull[k_pull] + 0.8, "pull committed", color=EVENT_C["pull"], fontsize=8, ha="right")
+    ax.text(th[k_wrap] - 0.3, wrap[k_wrap] + 0.8, "wrap committed", color=EVENT_C["wrap"], fontsize=8, ha="right")
+    # one marker per hourly check: hollow for a hold, filled and coloured for a replan
+    y0 = 1.5
+    holds = [c["t_h"] for c in checks if not c["replanned"]]
+    ax.plot(holds, [y0] * len(holds), "o", ms=7, mfc=SURFACE, mec=INK2, mew=1.2, ls="none", label="checked, kept the plan")
     for key, label, col in REASONS:
-        hs = [c["t_h"] for c in replans if c["reason"] == key]
+        hs = [c["t_h"] for c in checks if c["replanned"] and c["reason"] == key]
         if hs:
-            ax.plot(hs, [y0] * len(hs), "^", color=col, ms=7, mec=SURFACE, mew=0.8, ls="none", label=label)
-    ax.set_xlim(th[0] - 0.5, th[-1] + 6.5)
-    ax.set_ylim(y0 - 1.0, max(c["plan"]["t_serve_h"] for c in checks) + 1.5)
-    ax.set_ylabel("planned event time [h of cook]", color=INK2, fontsize=9)
-    ax.set_xlabel("check at hour (triangles: the replans, by reason)", color=INK2, fontsize=9)
-    ax.legend(loc="lower right", bbox_to_anchor=(0.99, 0.09), fontsize=8, frameon=False, labelcolor=INK2, ncol=2)
-    ax.set_title(f"What the pilot planned at every hourly check, where it committed, and the {len(replans)} replans it chose to make",
-                 color=INK, fontsize=10.5)
+            ax.plot(hs, [y0] * len(hs), "o", ms=7, color=col, mec=SURFACE, mew=1.0, ls="none", label=f"replanned: {label}")
+    ax.set_ylim(-0.5, max(26.0, float(np.nanmax(pull)) + 1.5))
+    ax.set_ylabel("hour of cook", color=INK2, fontsize=9)
+    n_re = sum(c["replanned"] for c in checks)
+    ax.set_title(f"What the pilot decided at each hourly check: {n_re} replans, {len(checks) - n_re} holds", color=INK, fontsize=10.5)
+    ax.legend(loc="lower right", bbox_to_anchor=(0.99, 0.1), fontsize=8, frameon=False, labelcolor=INK2, ncol=2)
 
-    # --- the predicted outcomes at each replan against the plant --------------------------------
-    for j, (title, idx, conv) in enumerate(OUTCOMES):
-        ax = fig.add_subplot(gs[1, j])
-        style(ax)
-        rh = np.array([c["t_h"] for c in replans])
-        mean = np.array([conv(c["predicted"]["mean"][idx]) for c in replans])
-        sd = np.array([c["predicted"]["sd"][idx] for c in replans])
-        if idx == 3:
-            floor = goals["T_serve_floor"] - 273.15
-            ax.axhline(floor, color=INK, lw=1)
-            ax.text(rh[0], floor, "  floor", color=INK2, fontsize=8, va="bottom")
-        else:
-            goal = [goals["T_pull"] - 273.15, goals["W"], goals["L"]][idx]
-            gsd = [goals["sd_pull"], goals["sd_W"], goals["sd_L"]][idx]
-            ax.axhspan(goal - gsd, goal + gsd, color="#eeeeea", lw=0)
-            ax.axhline(goal, color=INK, lw=1)
-        ax.fill_between(rh, mean - sd, mean + sd, color="#2a78d6", alpha=0.18, lw=0)
-        ax.plot(rh, mean, color="#2a78d6", lw=2)
-        act = conv(actual[["T_pull", "W", "L", "T_serve"][idx]] + (273.15 if idx in (0, 3) else 0))
-        ax.plot([th[-1]], [act], "s", color="#eb6834", ms=7, mec=SURFACE, mew=1)
-        ax.set_title(title, color=INK, fontsize=9.5)
-        ax.set_xlabel("replan at hour", color=INK2, fontsize=8)
-        if j == 0:
-            ax.set_ylabel("predicted over draws (band ± sd); square: the plant", color=INK2, fontsize=8)
-
-    # --- the trigger: the standing plan's loss against the loss it was made at ------------------
-    ax = fig.add_subplot(gs[2, :2])
+    # --- 3. the outcome against the goals, in goal units -----------------------------------------
+    ax = fig.add_subplot(gs[2])
     style(ax)
-    L_now = np.array([np.nan if c["L_now"] is None else c["L_now"] for c in checks])
-    L_plan = np.array([c["L_plan"] for c in checks])
-    ax.step(th, L_plan + pol["loss_rise"], where="post", color="#eb6834", lw=1.2, ls=(0, (3, 2)), label="the standing plan's loss when made, plus the threshold")
-    ax.step(th, L_plan, where="post", color=INK2, lw=1.4, label="the standing plan's loss when made")
-    ax.plot(th, L_now, color="#2a78d6", lw=2, label="the standing plan's loss under the current posterior")
-    y_tri = np.nanmin(np.r_[L_now[1:], L_plan]) * 0.45          # the replan markers along the bottom, clear of the legend
-    for key, label, col in REASONS:
-        hs = [c["t_h"] for c in replans if c["reason"] == key]
-        if hs:
-            ax.plot(hs, [y_tri] * len(hs), "^", color=col, ms=7, mec=SURFACE, mew=0.8, ls="none")
-    ax.set_yscale("log")
-    ax.set_ylim(y_tri * 0.6, np.nanmax(np.r_[L_now[1:], L_plan]) * 8)
-    ax.set_xlabel("check at hour", color=INK2, fontsize=8)
-    ax.set_ylabel("expected loss (half-squared-sd units)", color=INK2, fontsize=8)
-    ax.set_title("The replan trigger: the standing plan's expected loss, then and now", color=INK, fontsize=9.5)
-    ax.legend(fontsize=7.5, frameon=False, labelcolor=INK2, loc="upper right")
-
-    # --- the misfit check ------------------------------------------------------------------------
-    ax = fig.add_subplot(gs[2, 2])
-    style(ax)
-    ax.axhspan(-pol["misfit_z"], pol["misfit_z"], color="#eeeeea", lw=0)
-    ax.axhline(0, color=INK2, lw=0.9)
-    mz = [(c["t_h"], c["misfit_z"]) for c in checks if c["misfit_z"] is not None]
-    ax.plot([m[0] for m in mz], [m[1] for m in mz], color="#2a78d6", lw=2)
-    ax.set_xlabel("check at hour", color=INK2, fontsize=8)
-    ax.set_ylabel("misfit check, total χ² z", color=INK2, fontsize=8)
-    ax.set_title("The misfit check (band: the policy's ±3)", color=INK, fontsize=9.5)
-
-    # --- the pit's effective noise sd -------------------------------------------------------------
-    ax = fig.add_subplot(gs[2, 3])
-    style(ax)
-    eff = [(c["t_h"], c["noise"]["pit"]["sigma"] * c["pit_level_now"]) for c in checks if "pit" in c["noise"]]
-    base = [(c["t_h"], c["noise"]["pit"]["sigma"]) for c in checks if "pit" in c["noise"]]
-    ax.plot([b[0] for b in base], [b[1] for b in base], color=INK2, lw=1.4, ls=(0, (3, 2)), label="base sd, identified")
-    ax.plot([e[0] for e in eff], [e[1] for e in eff], color="#2a78d6", lw=2, label="base sd × level now")
-    ax.axhline(d["noise_truth"]["pit_sd"], color=INK, lw=0.9)
-    ax.text(7.3, d["noise_truth"]["pit_sd"] - 0.02, "the plant's base sd", color=INK2, fontsize=7.5, va="top")
-    if d["executed"]["t_add_h"] is not None:
-        ax.axvline(d["executed"]["t_add_h"], color="#eb6834", lw=1)
-        ax.text(d["executed"]["t_add_h"], ax.get_ylim()[1], "fuel add ", color="#eb6834", fontsize=7.5, va="top", ha="right")
-    ax.set_xlabel("check at hour", color=INK2, fontsize=8)
-    ax.set_ylabel("pit noise sd [°C]", color=INK2, fontsize=8)
-    ax.set_title("The pit's noise level follows the fire", color=INK, fontsize=9.5)
-    ax.legend(fontsize=7.5, frameon=False, labelcolor=INK2, loc="upper left")
+    last = next(c for c in reversed(checks) if c["replanned"])
+    pm, ps = last["predicted"]["mean"], last["predicted"]["sd"]
+    rows = [("probe-tender at the pull (collagen conversion at the center)", 0, goals["C_pull"], goals["sd_C"], actual["C_pull"], "", lambda v: v, "{:.3f}"),
+            ("retained water W/W0 at serve", 1, goals["W"], goals["sd_W"], actual["W"], "", lambda v: v, "{:.3f}"),
+            ("bark L* at serve", 2, goals["L"], goals["sd_L"], actual["L"], "", lambda v: v, "{:.1f}")]
+    for i, (name, idx, goal, sd, act, unit, conv, fmt) in enumerate(rows):
+        y = len(rows) - i
+        ax.axhline(y, color=GRID_C, lw=0.8)
+        ax.plot([(pm[idx] - goal) / sd], [y], "o", color=CORE, ms=8, mec=SURFACE, mew=1.2)
+        ax.plot([(act - goal) / sd], [y], "s", color=PIT, ms=8, mec=SURFACE, mew=1.2)
+        # the row's words sit above its line, clear of the markers
+        ax.text(-4.9, y + 0.12, f"{name}: goal {conv(goal):g}{unit} ± {sd:g}", color=INK2, fontsize=8.5, va="bottom")
+        ax.text(4.9, y + 0.12, f"the plant: {fmt.format(conv(act))}{unit}", color=INK2, fontsize=8.5, va="bottom", ha="right")
+    ax.axvspan(-1, 1, color="#eeeeea", lw=0)
+    ax.axvline(0, color=INK, lw=1)
+    ax.plot([], [], "o", color=CORE, label="predicted at the last replan")
+    ax.plot([], [], "s", color=PIT, label="the plant")
+    ax.set_xlim(-5, 5)
+    ax.set_ylim(0.2, len(rows) + 0.6)
+    ax.set_yticks([])
+    ax.grid(False)
+    ax.set_xlabel("distance from the goal, in goal standard deviations (band: within one)", color=INK2, fontsize=9)
+    wb = actual["W"] * 2.33 / (1 + actual["W"] * 2.33)
+    ax.set_title(f"The outcome: collagen {actual['C_pull']:.2f} at the pull with the core at {actual['T_pull']:.0f} °C, {100 * wb:.0f} % moisture, L* {actual['L']:.0f}; "
+                 f"core at serve {actual['T_serve']:.0f} °C against a {goals['T_serve_floor'] - 273.15:.0f} °C floor", color=INK, fontsize=10.5)
+    ax.legend(loc="lower left", fontsize=8, frameon=False, labelcolor=INK2, ncol=2)
 
     out = REPO / "figures" / "estimator_closed_loop_realcook.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE)

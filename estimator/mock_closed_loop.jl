@@ -92,7 +92,7 @@ plan_prev = nothing
 record = []
 rng_draws = MersenneTwister(7)
 t_start = time()
-println("t[h]  events committed             plan: dampers / wrap / pull / serve / spritz(t,dt,m) / add    outcomes predicted (pull C, water, L*, serve C)   post sd L,h_c,A   misfit z")
+println("t[h]  events committed             plan: dampers / wrap / pull / serve / spritz(t,dt,m) / add    outcomes predicted (collagen at the pull, water, L*, serve C)   post sd L,h_c,A   misfit z")
 flush(stdout)
 while s.t_now < 28 * 3600
     t0 = time()
@@ -114,7 +114,7 @@ while s.t_now < 28 * 3600
             string(round.(p.u; digits=2)), (isnan(p.t_wrap) ? NaN : p.t_wrap / 3600), p.t_pull / 3600, p.t_serve / 3600,
             p.spritz === nothing ? "-" : @sprintf("(%.1f,%.2f,%.3f)", p.spritz.t / 3600, p.spritz.dt / 3600, p.spritz.m),
             (isnan(p.t_add) ? NaN : p.t_add / 3600),
-            pred.mean[1] - 273.15, pred.sd[1], pred.mean[2], pred.sd[2], pred.mean[3], pred.sd[3], pred.mean[4] - 273.15, pred.sd[4],
+            pred.mean[1], pred.sd[1], pred.mean[2], pred.sd[2], pred.mean[3], pred.sd[3], pred.mean[4] - 273.15, pred.sd[4],
             sdz[4], sdz[3], sdz[AREA], mis === nothing ? "-" : @sprintf("%.2f", mis.z_chi2))
     flush(stdout)
     push!(record, Dict("t_h" => s.t_now / 3600, "committed" => string.(done), "free" => length(r.free), "F" => r.F,
@@ -135,13 +135,13 @@ _, o = plant_readings(s)
 nx = size(o.W_field, 1); w = E.fv_weights(nx)
 wret = [dot(w, o.W_field[:, k]) / cfg.W0 for k in axes(o.W_field, 2)]
 at(y, tq) = (k = clamp(searchsortedlast(GRID, tq), 1, length(GRID) - 1); f = (tq - GRID[k]) / 600.0; (1 - f) * y[k] + f * y[k + 1])
-actual = (T_pull=at(o.Tcore, s.t_pull) - 273.15, W=at(wret, s.t_serve), L=at(o.l_star, s.t_serve), T_serve=at(o.Tcore, s.t_serve) - 273.15)
+actual = (C_pull=at(view(o.C_field, 1, :), s.t_pull), T_pull=at(o.Tcore, s.t_pull) - 273.15, W=at(wret, s.t_serve), L=at(o.l_star, s.t_serve), T_serve=at(o.Tcore, s.t_serve) - 273.15)
 @printf("\nexecuted: wrap %.2f h, pull %.2f h, serve %.2f h, spritz %s, fuel add %.2f h; %.0f s total\n",
         s.t_wrap / 3600, s.t_pull / 3600, s.t_serve / 3600,
         s.spritz === nothing ? "-" : @sprintf("(%.1f h, every %.2f h, %.3f kg)", s.spritz.t / 3600, s.spritz.dt / 3600, s.spritz.m),
         s.t_add / 3600, time() - t_start)
-@printf("the plant's actual outcome: core at the pull %.1f C (goal %.0f ± %.0f), retained water %.3f (goal %.2f), bark L* %.1f (goal %.0f), core at serve %.1f C (floor %.0f)\n",
-        actual.T_pull, goals.T_pull - 273.15, goals.sd_pull, actual.W, goals.W, actual.L, goals.L, actual.T_serve, goals.T_serve_floor - 273.15)
+@printf("the plant's actual outcome: collagen conversion at the pull %.3f (goal %.2f ± %.2f) with the core at %.1f C, retained water %.3f (goal %.2f), bark L* %.1f (goal %.0f), core at serve %.1f C (floor %.0f)\n",
+        actual.C_pull, goals.C_pull, goals.sd_C, actual.T_pull, actual.W, goals.W, actual.L, goals.L, actual.T_serve, goals.T_serve_floor - 273.15)
 open(joinpath(REPO, "data", "mock", "closed_loop.json"), "w") do io
     JSON.print(io, Dict("replans" => record, "delta_h" => Δ / 3600, "n_draws" => N_DRAWS,
                         "executed" => Dict("u" => [isnan(x) ? nothing : x for x in s.u], "t_wrap_h" => nn(s.t_wrap / 3600), "t_pull_h" => nn(s.t_pull / 3600), "t_serve_h" => s.t_serve / 3600,

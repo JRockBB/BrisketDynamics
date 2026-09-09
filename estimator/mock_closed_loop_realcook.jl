@@ -105,12 +105,13 @@ z_true = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x_true[1:
 plan = nothing
 L_plan = Inf
 t_last = -Inf
+z_at_plan, V_at_plan = copy(z), copy(V)          # the belief the standing plan was made on
 pred = nothing
 record = []
 n_replans = 0
 rng_draws = MersenneTwister(7)
 t_start = time()
-println("t[h]  reason      committed        L_now  L_plan   plan: wrap / pull / serve / spritz / add   outcomes at the last replan (pull C, water, L*, serve C)   misfit z   pit σ, level   wall")
+println("t[h]  reason           committed        L_now  L_plan  KL     plan: wrap / pull / serve / spritz / add   outcomes at the last replan (collagen at the pull, water, L*, serve C)   misfit z   pit σ, level   wall")
 flush(stdout)
 while s.t_now < 28 * 3600
     t0 = time()
@@ -120,7 +121,8 @@ while s.t_now < 28 * 3600
     end
     zs = draws(z, V, rng_draws)
     L_now = plan === nothing ? NaN : plan_loss(zs, plan, s, d_plan; goals).mean
-    due, why = replan_due(pol, s, plan, L_now, L_plan, t_last, mis === nothing ? nothing : mis.z_chi2)
+    kl = plan === nothing ? NaN : posterior_kl(z, V, z_at_plan, V_at_plan)
+    due, why = replan_due(pol, s, plan, L_now, L_plan, t_last, mis === nothing ? nothing : mis.z_chi2; kl=isnan(kl) ? nothing : kl)
     if due
         ζ_init = plan === nothing ? nothing : encode_plan(plan, free_set(s), s)
         r = replan_on_graph(zs, s, d_plan; goals, ζ_init, verbose=false)
@@ -128,22 +130,23 @@ while s.t_now < 28 * 3600
         global L_plan = plan_loss(zs, plan, s, d_plan; goals).mean
         global t_last = s.t_now
         global n_replans += 1
+        global z_at_plan, V_at_plan = copy(z), copy(V)
         ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d_plan) for zz in zs])
         global pred = (mean=vec(mean(ys; dims=2)), sd=vec(std(ys; dims=2)), t_h=s.t_now / 3600)
     end
     done = commit!(s, plan, CHECK)
     p = plan
     sdz = sqrt.(diag(V))
-    @printf("%4.0f  %-10s  %-15s  %5.2f  %5.2f   %5.2f / %5.2f / %5.2f / %s / %5.2f   %6.1f±%4.1f %5.3f±%5.3f %5.1f±%4.1f %6.1f±%4.1f   %s   %.2f %.2f   %3.0f s\n",
+    @printf("%4.0f  %-15s  %-15s  %5.2f  %5.2f  %5.1f  %5.2f / %5.2f / %5.2f / %s / %5.2f   %5.3f±%5.3f %5.3f±%5.3f %5.1f±%4.1f %6.1f±%4.1f   %s   %.2f %.2f   %3.0f s\n",
             s.t_now / 3600, string(why), isempty(done) ? "-" : join(string.(done), ","),
-            L_now, L_plan,
+            L_now, L_plan, kl,
             (isnan(p.t_wrap) ? NaN : p.t_wrap / 3600), p.t_pull / 3600, p.t_serve / 3600,
             p.spritz === nothing ? "-" : @sprintf("%.1f", p.spritz.t / 3600), (isnan(p.t_add) ? NaN : p.t_add / 3600),
-            pred.mean[1] - 273.15, pred.sd[1], pred.mean[2], pred.sd[2], pred.mean[3], pred.sd[3], pred.mean[4] - 273.15, pred.sd[4],
+            pred.mean[1], pred.sd[1], pred.mean[2], pred.sd[2], pred.mean[3], pred.sd[3], pred.mean[4] - 273.15, pred.sd[4],
             mis === nothing ? "  -  " : @sprintf("%5.2f", mis.z_chi2), noise[1][1], pit_level_now(s), time() - t0)
     flush(stdout)
     push!(record, Dict("t_h" => s.t_now / 3600, "reason" => string(why), "replanned" => due, "committed" => string.(done),
-                       "L_now" => nn(L_now), "L_plan" => L_plan, "converged" => conv, "wall_s" => time() - t0,
+                       "L_now" => nn(L_now), "L_plan" => L_plan, "kl" => nn(kl), "converged" => conv, "wall_s" => time() - t0,
                        "plan" => Dict("u" => p.u, "t_wrap_h" => nn(p.t_wrap / 3600), "t_pull_h" => p.t_pull / 3600, "t_serve_h" => p.t_serve / 3600,
                                       "spritz" => p.spritz === nothing ? nothing : Dict("t_h" => p.spritz.t / 3600, "dt_h" => p.spritz.dt / 3600, "m" => p.spritz.m),
                                       "t_add_h" => nn(p.t_add / 3600)),
@@ -161,14 +164,14 @@ _, _, o = plant_readings(s)
 nx = size(o.W_field, 1); w = E.fv_weights(nx)
 wret = [dot(w, o.W_field[:, k]) / cfg.W0 for k in axes(o.W_field, 2)]
 at(y, tq) = (k = clamp(searchsortedlast(GRID, tq), 1, length(GRID) - 1); f = (tq - GRID[k]) / (GRID[k + 1] - GRID[k]); (1 - f) * y[k] + f * y[k + 1])
-actual = (T_pull=at(o.Tcore, s.t_pull) - 273.15, W=at(wret, s.t_serve), L=at(o.l_star, s.t_serve), T_serve=at(o.Tcore, s.t_serve) - 273.15)
+actual = (C_pull=at(view(o.C_field, 1, :), s.t_pull), T_pull=at(o.Tcore, s.t_pull) - 273.15, W=at(wret, s.t_serve), L=at(o.l_star, s.t_serve), T_serve=at(o.Tcore, s.t_serve) - 273.15)
 reasons = Dict(r => count(rec -> rec["reason"] == r, record) for r in unique(rec["reason"] for rec in record))
 @printf("\nexecuted: wrap %.2f h, pull %.2f h, serve %.2f h, spritz %s, fuel add %.2f h; %d checks, %d replans (%s); %.0f s total\n",
         s.t_wrap / 3600, s.t_pull / 3600, s.t_serve / 3600,
         s.spritz === nothing ? "-" : @sprintf("(%.1f h, every %.2f h, %.3f kg)", s.spritz.t / 3600, s.spritz.dt / 3600, s.spritz.m),
         s.t_add / 3600, length(record), n_replans, join(["$k $v" for (k, v) in sort(collect(reasons))], ", "), time() - t_start)
-@printf("the plant's actual outcome: core at the pull %.1f C (goal %.0f ± %.0f), retained water %.3f (goal %.2f), bark L* %.1f (goal %.0f), core at serve %.1f C (floor %.0f)\n",
-        actual.T_pull, goals.T_pull - 273.15, goals.sd_pull, actual.W, goals.W, actual.L, goals.L, actual.T_serve, goals.T_serve_floor - 273.15)
+@printf("the plant's actual outcome: collagen conversion at the pull %.3f (goal %.2f ± %.2f) with the core at %.1f C, retained water %.3f (goal %.2f), bark L* %.1f (goal %.0f), core at serve %.1f C (floor %.0f)\n",
+        actual.C_pull, goals.C_pull, goals.sd_C, actual.T_pull, actual.W, goals.W, actual.L, goals.L, actual.T_serve, goals.T_serve_floor - 273.15)
 open(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"), "w") do io
     JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans,
                         "policy" => Dict(string(k) => getfield(pol, k) for k in fieldnames(ReplanPolicy)),

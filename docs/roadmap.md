@@ -115,9 +115,15 @@ censored humidity channel whose readings at the cap are one-sided rows
 outside the AR chain, every channel's noise level a process on the
 graph (RxInfer's GCV node on the innovations; the pit's level follows
 the fire), and the replan a decision rather than a cadence (the standing
-plan's expected loss under the new posterior, an event about to commit,
-the misfit check, a floor interval; `docs/results.md`, reading like a
-real cook).
+plan's expected loss, absolute and against the loss it was made at, the
+posterior's move since the plan in nats, an event about to commit, the
+misfit check's excess-power side, a floor interval; `docs/results.md`,
+reading like a real cook). The goals are stated in a pitmaster's terms
+(probe-tender as collagen conversion at the center, the water this
+plant retains at doneness, a mahogany bark) and the pilot has been flown
+against the app's MPC on one brisket under one start: the same brisket
+at serve, in 22.5 h against the MPC's 16 (`docs/results.md`, the pilot
+in a pitmaster's terms).
 Its structure is fixed by three measured RxInfer behaviours
 (per-residual nodes, one latent block, affine relinearization;
 `estimator/test_rules.jl` guards them). What remains, in order:
@@ -125,12 +131,26 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
+- **Band-shaped goals, and a commit rule for a plan that stands.** The
+  pilot's Gaussian goals want the center of each quality band, and on
+  this physics the center of the collagen band with a mahogany bark is
+  reached only by the long cook; the app's flat bands stop six hours
+  earlier on the same brisket. The hinge already used at serve, on both
+  sides of each band, is a two-line change to `goal_residuals`. And an
+  event a replan leaves where it stood should commit rather than
+  trigger the next hour's replan (seven of the last run's twenty-one).
+- **The bark on a hot offset.** Every planner on this physics finds a
+  long cook because the bark, calibrated on a 19-hour 225 °F WSM cook,
+  takes ten hours to reach a mahogany 33; an offset at 275 °F does it
+  in six. C6's bark calibration on such a cook is what stands between
+  the pilot and a Franklin-length day.
 - **Pilot integration, the hookup.** The pilot exists without hardware:
   the full decision set replans on the graph from the estimator's
   posterior, commits events when due, decides for itself when a replan
   is worth making, and closes the loop on the matched mock and on a
   plant read like a real cook (`docs/results.md`, the receding horizon
-  on the graph; reading like a real cook). What remains: the readings
+  on the graph; reading like a real cook; the pilot in a pitmaster's
+  terms). What remains: the readings
   from the pit instead of the mock plant, the executed damper and
   events from the pilot's journal, the plan back to it, through
   juliacall on the Julia thread the pilot already holds; and an

@@ -377,6 +377,8 @@ def main():
         default=12.0,
         help="dry-brine hours before the cook (overnight rub; 0 = unsalted)",
     )
+    ap.add_argument("--tpit0-K", type=float, default=293.15, help="pit temperature at the start [K]")
+    ap.add_argument("--t0-meat-K", type=float, default=281.15, help="meat temperature at the start [K]")
     ap.add_argument("--figure", default="mpc_demo.png")
     ap.add_argument("--out", default="mpc_result.json")
     ap.add_argument(
@@ -444,6 +446,7 @@ def main():
         else None
     )
     print(f"using plan {plan_path.name}")
+    ics_kw = {"tpit0": args.tpit0_K, "t0_meat": args.t0_meat_K}
     # a chimney after the pull, or a spritz after the wrap or the pull, never fires
     adds = T_ADD is not None and T_ADD < (T_PULL or T_F)
     spritzes = T_SPRITZ is not None and T_SPRITZ < min(t_wrap_star, T_PULL or T_F)
@@ -483,6 +486,7 @@ def main():
         u_openloop_grids=grids0,
         t_wrap_init_abs=t_wrap_star,
         **pull_kw,
+        **ics_kw,
     )
     print("open-loop through the cold front:")
     ol = mpc.run_cook(
@@ -495,6 +499,7 @@ def main():
         u_openloop_grids=grids0,
         t_wrap_init_abs=t_wrap_star,
         **pull_kw,
+        **ics_kw,
     )
     print("MPC, NO disturbance (discriminator: plan-refinement vs weather):")
     mp0 = mpc.run_cook(
@@ -509,6 +514,7 @@ def main():
         u_incumbent=u0_plan,
         u_incumbent_grids=grids0,
         **pull_kw,
+        **ics_kw,
     )
     print("MPC through the cold front:")
     mp = mpc.run_cook(
@@ -523,6 +529,7 @@ def main():
         u_incumbent=u0_plan,
         u_incumbent_grids=grids0,
         **pull_kw,
+        **ics_kw,
     )
     if wrap_mode and mp.get("wrapped"):
         tw_exec = mp.get("t_wrap_exec_abs", mp.get("t_wrap_abs"))

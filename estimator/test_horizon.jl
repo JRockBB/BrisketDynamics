@@ -101,12 +101,12 @@ end
     mζ, _ = plan_prior(f, s)
     y = plan_outputs_rh(z, mζ, f, s, d)
     @test length(y) == 4 && all(isfinite, y)
-    @test 273.15 < y[1] < 373.15 && 0 < y[2] < 1 && 0 < y[3] < 100 && 273.15 < y[4] < 373.15
+    @test 0 <= y[1] <= 1 && 0 < y[2] < 1 && 0 < y[3] < 100 && 273.15 < y[4] < 373.15
     r = E.goal_residuals(y, PlanGoals())
     @test all(isfinite, r) && r[4] >= 0
     Jr = ForwardDiff.jacobian(v -> E.goal_residuals(plan_outputs_rh(z, v, f, s, d), PlanGoals()), mζ)
     @test size(Jr) == (4, 10) && all(isfinite, Jr)
-    @test any(abs.(Jr[1, :]) .> 0)          # the pull temperature answers to the plan
+    @test any(abs.(Jr[1, :]) .> 0)          # the collagen conversion at the pull answers to the plan
 end
 @testset "the replan trigger: first, event due, misfit, loss rise, floor, hold" begin
     s = Schedule(GRID; u0=0.15)
@@ -121,6 +121,13 @@ end
     @test replan_due(pol, s, plan, 1.0, 1.0, 2 * 3600.0, -3.5) == (false, :hold)           # too little power is conservative, not wrong
     @test replan_due(pol, s, plan, 2.5, 1.0, 2 * 3600.0, 0.5) == (true, :loss_rise)
     @test replan_due(pol, s, plan, 1.5, 1.0, 2 * 3600.0, 0.5) == (false, :hold)             # a rise under the threshold holds
+    @test replan_due(pol, s, plan, 27.0, 134.5, 2 * 3600.0, 0.5) == (true, :loss_high)      # the loss fell, and the plan is still bad
+    @test replan_due(pol, s, plan, 1.5, 1.0, 2 * 3600.0, 0.5; kl=5.0) == (true, :posterior_moved)   # the belief moved five nats
+    @test replan_due(pol, s, plan, 1.5, 1.0, 2 * 3600.0, 0.5; kl=0.5) == (false, :hold)
+    # the KL of a posterior against itself is zero; halving one width and moving one mean by a sd is under a nat
+    V0 = Matrix(Diagonal([1.0, 4.0])); m0 = [0.0, 1.0]
+    @test abs(posterior_kl(m0, V0, m0, V0)) < 1e-12
+    @test 0.3 < posterior_kl([1.0, 1.0], Matrix(Diagonal([0.25, 4.0])), m0, V0) < 1.0
     @test replan_due(pol, s, plan, 1.0, 1.0, 0.0, 0.5) == (true, :floor)                     # four hours since the last replan
     s.t_now = 5.2 * 3600.0
     @test replan_due(pol, s, plan, 1.0, 1.0, 4 * 3600.0, 0.5) == (true, :event_due)          # the wrap at 6 h comes due

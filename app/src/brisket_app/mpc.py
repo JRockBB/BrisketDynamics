@@ -441,6 +441,8 @@ def run_cook(
     dt_spritz_init: float | None = None,
     spritz_dose_init: float | None = None,
     t_salt: float = 0.0,
+    tpit0: float = 293.15,
+    t0_meat: float = 281.15,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
@@ -479,7 +481,7 @@ def run_cook(
     """
     cc = cc or ControlConfig()
     phi_model = phi_plant if phi_model is None else phi_model
-    state = CookState.fresh(t0_meat=281.15)
+    state = CookState.fresh(tpit0=tpit0, t0_meat=t0_meat)
     m0_start = state.m0
     traj = {k: [] for k in ("t", "tpit", "tcore", "tsurf", "u")}
     replan_pull = mode == "mpc" and cc.opt_pull

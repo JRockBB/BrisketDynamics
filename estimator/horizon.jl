@@ -10,7 +10,7 @@
 # outcomes are read (interpolated on the grid). The free set shrinks as
 # events commit: after the pull only the serve time is free.
 
-export plan_loss, ReplanPolicy, replan_due
+export plan_loss, ReplanPolicy, replan_due, posterior_kl
 export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper,
        schedule_events, plan_outputs_rh, replan_on_graph, commit!, execute_damper!, PlanGoals
 
@@ -78,7 +78,9 @@ lgs(x) = 1 / (1 + exp(-x))
 "The prior on the free decisions: means and precisions in ζ's order."
 function plan_prior(f::FreeSet, s::Schedule)
     m = Float64[]; sd = Float64[]
-    if f.damper; append!(m, fill(lgt(0.15), 3)); append!(sd, fill(0.5, 3)); end
+    # the damper's prior is a regulariser for the graph, not a fuel preference: three logit-sd wide, so a
+    # half-open damper costs a sixth of a unit per knot (at one sd it cost 1.5 per knot, a cool cook by fiat)
+    if f.damper; append!(m, fill(lgt(0.15), 3)); append!(sd, fill(3.0, 3)); end
     if f.wrap;   push!(m, lgt(0.7));  push!(sd, 1.0); end
     if f.pull;   push!(m, log(max((12 * 3600 - s.t_now) / 3600, 1.0))); push!(sd, 1.0); end
     if f.serve;  push!(m, log(1.5));  push!(sd, 0.5); end
@@ -172,24 +174,35 @@ function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData)
                        dt_spritz=sp === nothing ? 3600.0 : sp.dt, m_spritz=sp === nothing ? 0.05 : sp.m)
     wfv = fv_weights(size(o.W_field, 1))
     wret = [dot(wfv, view(o.W_field, :, k)) / d.cfg.W0 for k in axes(o.W_field, 2)]
-    return [_interp_t(o.Tcore, s.t, p.t_pull), _interp_t(wret, s.t, p.t_serve),
+    return [_interp_t(view(o.C_field, 1, :), s.t, p.t_pull), _interp_t(wret, s.t, p.t_serve),
             _interp_t(o.l_star, s.t, p.t_serve), _interp_t(o.Tcore, s.t, p.t_serve)]
 end
 
-"The goals: Gaussian targets on the pull temperature, the water and the bark; a one-sided floor at serve."
+"""
+The goals, in a pitmaster's terms. The pull is probe-tender: collagen
+conversion at the center node in the band the app's quality objective
+uses (0.90 done to 0.95 pot roast), so 0.92 ± 0.02. The water at serve
+is what this plant's physics retains at doneness on a cook of normal
+length: 0.47 of the initial dry-basis water (52 % moisture wet basis;
+the app's own optimum lands at 0.45 to 0.48, and the model's water
+budget is a roadmap residue, so a served brisket's 57 % is not this
+plant's to give and asking for it buys a cool 22-hour cook). The bark
+is the mahogany band (L* 28 to 34), 31 ± 3. The floor at serve is the
+slicing temperature, one-sided.
+"""
 Base.@kwdef struct PlanGoals
-    T_pull::Float64 = 273.15 + 93.0
-    sd_pull::Float64 = 2.0
-    W::Float64 = 0.35
-    sd_W::Float64 = 0.05
-    L::Float64 = 32.0
-    sd_L::Float64 = 4.0
+    C_pull::Float64 = 0.92
+    sd_C::Float64 = 0.02
+    W::Float64 = 0.47
+    sd_W::Float64 = 0.04
+    L::Float64 = 31.0
+    sd_L::Float64 = 3.0
     T_serve_floor::Float64 = 273.15 + 65.0
     sd_serve::Float64 = 1.0          # the hinge's scale [K]: a draw ΔT under the floor costs ½ (ΔT/sd)²
 end
 
 "The goal residuals of one draw's outputs; the fourth is the tail: zero above the floor."
-goal_residuals(y, g::PlanGoals) = [(y[1] - g.T_pull) / g.sd_pull, (y[2] - g.W) / g.sd_W, (y[3] - g.L) / g.sd_L,
+goal_residuals(y, g::PlanGoals) = [(y[1] - g.C_pull) / g.sd_C, (y[2] - g.W) / g.sd_W, (y[3] - g.L) / g.sd_L,
                                    hinge(g.T_serve_floor - y[4]) / g.sd_serve]
 
 # the graph: per-draw affine nodes of the four outputs, the LM node, the plan prior
@@ -286,21 +299,43 @@ the noise model is conservative, which does not threaten the plan); or
 """
 Base.@kwdef struct ReplanPolicy
     loss_rise::Float64 = 1.0
+    loss_high::Float64 = 3.0
+    kl::Float64 = 2.0
     misfit_z::Float64 = 3.0
     lead::Float64 = 3600.0
     floor::Float64 = 4 * 3600.0
 end
 
 """
-    replan_due(pol, s, plan, L_now, L_plan, t_last, misfit_z) -> (due::Bool, reason::Symbol)
+    posterior_kl(m_new, V_new, m_old, V_old) -> nats
+
+KL(new ‖ old) between two Gaussian posteriors: how much the belief has
+moved since the plan was made, in nats (one full-sd shift of one latent
+is half a nat; halving every width of a 17-latent posterior is five).
+"""
+function posterior_kl(m_new, V_new, m_old, V_old)
+    n = length(m_new)
+    Vo = Symmetric(Matrix(V_old)); Vn = Symmetric(Matrix(V_new))
+    d = m_old .- m_new
+    return 0.5 * (tr(Vo \ Vn) + dot(d, Vo \ d) - n + logdet(Vo) - logdet(Vn))
+end
+
+"""
+    replan_due(pol, s, plan, L_now, L_plan, t_last, misfit_z; kl=nothing) -> (due::Bool, reason::Symbol)
 
 Whether to replan now: `plan` is the standing plan (`nothing` before the
 first), `L_now` its expected loss under the current posterior, `L_plan`
 its loss when it was made, `t_last` the time of the last replan,
-`misfit_z` the latest misfit z-score (or `nothing`). The reason is one of
-`:first`, `:event_due`, `:misfit`, `:loss_rise`, `:floor`, `:hold`.
+`misfit_z` the latest misfit z-score (or `nothing`), `kl` the posterior's
+move since the plan was made (or `nothing`). The reason is one of
+`:first`, `:event_due`, `:misfit`, `:loss_high` (the standing plan is
+bad on its own terms), `:loss_rise` (worse than when made),
+`:posterior_moved` (the belief the plan was made on is gone), `:floor`,
+`:hold`. A standing plan is scored against itself by `loss_rise`; when
+the posterior tightens that score can fall while a far better plan has
+become available, which `loss_high` and `posterior_moved` catch.
 """
-function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::Real, t_last::Real, misfit_z)
+function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::Real, t_last::Real, misfit_z; kl=nothing)
     plan === nothing && return (true, :first)
     events = [plan.t_wrap, plan.t_pull, plan.t_add, plan.spritz === nothing ? NaN : plan.spritz.t, plan.t_serve]
     fixed = [!isnan(s.t_wrap), !isnan(s.t_pull), !isnan(s.t_add), s.spritz !== nothing, false]
@@ -309,7 +344,9 @@ function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::R
     end
     # one-sided: excess residual power says the model is wrong somewhere; too little says it is conservative
     misfit_z !== nothing && misfit_z > pol.misfit_z && return (true, :misfit)
+    L_now > pol.loss_high && return (true, :loss_high)
     L_now - L_plan > pol.loss_rise && return (true, :loss_rise)
+    kl !== nothing && kl > pol.kl && return (true, :posterior_moved)
     s.t_now - t_last >= pol.floor - 1e-9 && return (true, :floor)
     return (false, :hold)
 end

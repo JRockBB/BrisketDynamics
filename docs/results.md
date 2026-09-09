@@ -4,6 +4,232 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The pilot in a pitmaster's terms, against the MPC on the same brisket (2026-09-09)
+
+Two questions were asked of the real-cook closed loop below: are the
+timings real, and how does it compare with the app's MPC. Answering
+the first exposed that the pilot had been asked for the wrong things
+since the planning experiment; fixing that took three more findings;
+the comparison then had to be built on one plant.
+
+**Are the timings real?** Two questions, asked after the run.
+
+*The instruments.* The mock's cadences are on the slow side of real
+hardware and one of them is a placeholder. A pit or meat probe
+(Fireboard, ThermoWorks Signals, a HeaterMeter) samples every second
+and logs every minute; the two-minute grid loses nothing the physics
+can use, since the cook's own time constants are hours, but a real
+feed is thirty times denser and the estimator would simply see
+thirty-times-longer runs at the same ρ per second. A humidity sensor
+also reads every few seconds; the ten-minute spacing stands for a
+cheap sensor polled slowly and is not a property of the instrument.
+The saturation cap is real (a sensor in a smoker reaches its ceiling
+and sits there), the value is a guess. The half-hour scale reading is
+what a load cell under the grate can honestly deliver once draft, lid
+lifts and thermal drift are averaged out. The lid windows are the
+weak point: six minutes is right for a wrap or a pull, three times too
+long for a spritz, and wrong for a fuel add on an offset, whose
+firebox door does not open the cook chamber at all. The fuel-add
+noise bump (three times the base for half an hour) is the right shape
+for a chimney of fresh coals. None of this changes what the estimator
+does; it changes how much data it gets.
+
+*The cook.* The plant is the calibration's real cook: mache_2013, a
+19-hour overnight cook at 225 °F on a WSM whose core reached 70 °C at
+7.7 h, 80 °C at 15.7 h and 85 °C at 16.7 h and never saw 90. So the
+brisket the pilot flew is a slow one by construction, and what the
+pilot did with it was slower still: a 238 °F pit, the core at 70 °C by
+6.3 h, then an unwrapped stall from 6 to 17 h in which the core
+gained two degrees, the wrap at 16.6 h (at 72 °C), 3 °C/h after it,
+the pull at 21.2 h at 86 °C, a 1.5 h rest. Against the reference the
+question named, an Aaron Franklin cook (a 275 °F offset, butcher-paper
+wrap at about 165 °F internal around six hours in, a pull at about
+203 °F when probe-tender near twelve hours, a one-to-three-hour rest),
+this is not a realistic brisket day: it is twice as long, wraps ten
+hours late and pulls nine degrees under. The reason is not the
+estimator or the trigger, both of which did what the plan asked. It is
+the goals the plan was given, which were mine from the planning
+experiment: a retained-water target of 0.35 of the initial dry-basis
+water is 45 % moisture wet basis, drier than any brisket one would
+serve (a cooked brisket sits near 55 to 60 %), and the only way to get
+there is to leave the meat unwrapped through the stall until it has
+dried enough, which is exactly what the plan did, holding the water on
+its goal to the third decimal and giving up the pull temperature. The
+plan's damper prior (a low, 0.15 damper, held with a narrow width) set
+the 238 °F pit.
+
+**The goals, in a pitmaster's terms.** `PlanGoals` now reads as a
+pitmaster would state it. The pull is probe-tender, which in this
+physics is the collagen conversion at the center node, in the band the
+app's quality objective uses (0.90 done, 0.95 pot roast): 0.92 ± 0.02;
+the pull temperature is reported, not targeted. The water at serve is
+what this plant retains at doneness on a cook of normal length, 0.47
+of the initial dry-basis water (52 % wet basis): I first wrote a
+served brisket's 57 %, and the plan under it stretched back toward a
+cool 22-hour cook by the third hour, because on this plant every
+short cook lands at 0.45 to 0.48, where the app's own optimum lands
+too; the model's water budget is a roadmap residue, and a goal the
+plant cannot reach buys nothing but length. The bark is the mahogany
+band, L* 31 ± 3. The floor
+at serve stays at 65 °C. The damper prior was the last and quietest
+culprit: its mean is a nearly closed damper (0.15) and at one logit-sd
+of width a half-open damper cost 1.5 loss units per knot, 4.5 for the
+cook, as much as the three goals together, so every plan in this
+series bought a cool pit by fiat and paid for it in hours. Doubling
+the width was not enough (the run under it drifted to a 25 h pull by
+its fourth check); the prior is a regulariser for the graph, not a
+fuel preference, and is now three logit-sd wide, a sixth of a unit
+per knot at half open. The first run under these goals exposed a
+flaw in the trigger: at the first hour the standing plan's loss FELL
+(134 to 27) because the posterior had tightened, so the loss-rise
+condition held while a far better plan had become available. A
+standing plan scored against itself is blind to that. Two cheap
+conditions catch it: the plan is bad on its own terms (its expected
+loss above 3, one goal 2.4 sd off) and the belief it was made on is
+gone (the KL divergence of the current posterior from the one the
+plan was made under above 2 nats; one full-sd shift of one latent is
+half a nat). The closed loop under these goals and this policy
+follows; the app's MPC on the same brisket after it.
+
+**The closed loop under these goals** (`estimator/mock_closed_loop_realcook.jl`,
+record `data/mock/closed_loop_realcook.json`, figure
+`figures/estimator_closed_loop_realcook.png`; the policy now has six
+conditions and the record carries the posterior's move per check):
+
+| check | reason | committed | loss: standing → new | KL [nats] | wrap / pull / serve [h] | spritz / add [h] | collagen at the pull | water | bark L* |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 h | the first plan |  | 137.94 |  | 5.5 / 19.5 / 19.7 | 6.8 / 17.9 | 0.771 ± 0.199 | 0.575 ± 0.319 | 39.7 ± 10.1 |
+| 1 h | loss high |  | 16.25 → 10.19 | 20.4 | 4.7 / 18.7 / 19.8 | 6.3 / 16.4 | 0.970 ± 0.049 | 0.390 ± 0.076 | 33.1 ± 4.1 |
+| 2 h | loss high |  | 9.55 → 8.85 | 10.0 | 5.8 / 18.4 / 19.9 | 6.9 / 11.8 | 0.985 ± 0.037 | 0.429 ± 0.048 | 33.2 ± 4.0 |
+| 3 h | loss high |  | 10.08 → 5.37 | 50.9 | 13.7 / 18.9 / 20.4 | 9.2 / 14.1 | 0.957 ± 0.046 | 0.478 ± 0.042 | 33.3 ± 3.8 |
+| 4 h | loss high |  | 7.88 → 5.24 | 10.5 | 16.6 / 22.1 / 24.0 | 9.2 / 13.6 | 0.961 ± 0.048 | 0.465 ± 0.011 | 32.8 ± 3.5 |
+| 5 h | loss high |  | 5.77 → 2.99 | 12.9 | 15.0 / 17.6 / 19.0 | 8.0 / 9.1 | 0.941 ± 0.043 | 0.440 ± 0.008 | 30.7 ± 2.2 |
+| 6 h | loss high |  | 6.00 → 0.59 | 19.4 | 16.9 / 22.9 / 24.7 | 11.8 / 14.2 | 0.921 ± 0.007 | 0.459 ± 0.008 | 33.8 ± 0.9 |
+| 7 h | loss high |  | 9.60 → 0.72 | 19.1 | 15.5 / 24.9 / 26.6 | 12.6 / 16.8 | 0.920 ± 0.011 | 0.466 ± 0.011 | 33.5 ± 2.1 |
+| 8 h | loss rose |  | 2.18 → 0.94 | 15.9 | 15.2 / 25.9 / 27.7 | 13.5 / 15.4 | 0.919 ± 0.010 | 0.462 ± 0.007 | 34.5 ± 1.6 |
+| 9 h | loss rose |  | 2.90 → 1.37 | 3.6 | 14.4 / 23.9 / 25.7 | 14.7 / 16.6 | 0.923 ± 0.024 | 0.453 ± 0.005 | 34.4 ± 0.9 |
+| 10 h | hold | | 1.80 vs 1.37 | 1.3 | | | | | |
+| 11 h | loss rose |  | 2.49 → 1.85 | 3.3 | 13.2 / 23.2 / 24.9 | 14.7 / 15.4 | 0.923 ± 0.031 | 0.471 ± 0.014 | 34.4 ± 1.5 |
+| 12 h | posterior moved |  | 2.15 → 0.43 | 13.2 | 13.8 / 19.0 / 20.5 | 14.3 / 16.5 | 0.920 ± 0.017 | 0.454 ± 0.001 | 30.5 ± 0.6 |
+| 13 h | event due |  | 15.65 → 0.92 | 41.8 | 14.6 / 20.1 / 21.7 | 15.3 / 15.8 | 0.921 ± 0.022 | 0.443 ± 0.008 | 32.0 ± 1.6 |
+| 14 h | event due | wrap | 1.37 → 0.66 | 3.4 | 14.9 / 19.3 / 20.8 | 15.6 / 17.1 | 0.920 ± 0.017 | 0.439 ± 0.003 | 31.0 ± 1.0 |
+| 15 h | event due |  | 1.05 → 0.62 | 8.3 | 14.9 / 21.0 / 22.5 | 16.8 / 17.8 | 0.920 ± 0.016 | 0.439 ± 0.003 | 31.7 ± 0.4 |
+| 16 h | event due |  | 1.06 → 0.52 | 11.3 | 14.9 / 19.4 / 21.0 | 17.0 / 17.5 | 0.920 ± 0.014 | 0.442 ± 0.003 | 31.9 ± 0.5 |
+| 17 h | event due | add, spritz | 1.54 → 0.42 | 12.7 | 14.9 / 20.1 / 21.7 | 17.9 / 17.9 | 0.920 ± 0.009 | 0.443 ± 0.003 | 32.4 ± 0.3 |
+| 18 h | loss rose |  | 2.16 → 0.43 | 16.6 | 14.9 / 20.7 / 22.3 | 17.9 / 17.9 | 0.919 ± 0.005 | 0.441 ± 0.003 | 32.6 ± 0.2 |
+| 19 h | posterior moved |  | 0.60 → 0.58 | 7.2 | 14.9 / 20.8 / 22.4 | 17.9 / 17.9 | 0.920 ± 0.010 | 0.439 ± 0.002 | 32.7 ± 0.4 |
+| 20 h | event due | pull | 0.60 → 0.49 | 1.8 | 14.9 / 21.0 / 22.5 | 17.9 / 17.9 | 0.920 ± 0.007 | 0.436 ± 0.002 | 32.2 ± 0.6 |
+| 21 h | hold | | 0.51 vs 0.49 | 0.7 | | | | | |
+| 22 h | event due |  | 0.50 → 0.50 | 3.8 | 14.9 / 21.0 / 22.5 | 17.9 / 17.9 | 0.928 ± 0.003 | 0.440 ± 0.001 | 32.6 ± 0.3 |
+
+Executed: wrap 14.89 h, fuel add and spritz train at 17.9 h, pull
+20.99 h, serve 22.52 h. The plant: collagen conversion 0.937 at the
+pull with the core at 90.0 °C, retained water 0.442 (51 % moisture),
+bark L* 33.1, core at serve 82.9 °C: every goal inside one sd, and the
+last replan's prediction (0.928, 0.440, 32.6) was the plant. Twenty-one
+replans in twenty-three checks, 75 minutes of replans and 47 seconds of
+holds; the final latents at a median of one posterior sd from truth.
+Reading it:
+
+- **The absolute-loss condition carried the first seven hours.** While
+  the posterior was wide the standing plan's expected loss was mostly
+  variance (collagen ± 0.05 across the draws is five units on its own),
+  and a plan scored against itself would have held; the absolute
+  condition replanned every hour until the belief tightened at 6 h,
+  when the loss fell to 0.6.
+- **The plan hedges while it does not know the brisket.** Every early
+  plan was a long cool cook (pull 18 to 26 h): under a wide posterior
+  the schedule whose outcomes vary least across the draws wins, and
+  that is the slow one. Hours 1 to 5 were executed that way, and the
+  cook that followed had to finish from there. A certainty-equivalent
+  plan would have run hotter sooner and been wrong more often; this is
+  the price of planning on the posterior rather than on its mean, and
+  it is a real property, not a bug.
+- **The posterior-move condition found the four-hour-shorter plan.** At
+  12 h the loss rise was under threshold (2.15 against 1.85) but the
+  belief had moved 13 nats; the replan brought the pull from 23.2 h to
+  19.0 h with every goal on target. The loss-rise rule alone would have
+  missed it.
+- **The event-due treadmill is still there** (seven replans from 13 h
+  on, each deferring an event by an hour until the posterior wanted
+  it); the rule that commits an event a replan leaves where it stood is
+  still not built.
+- **The goal form decides the cook's length.** With the posterior tight
+  the plan still chose a 21-hour pull, because a Gaussian at collagen
+  0.92 ± 0.02 asks for a precise landing and in this physics a hot cook
+  overshoots the center before the bark darkens: the slow approach is
+  the only way to arrive at 0.92 with a mahogany bark. The app's flat
+  band (0.90 to 0.95, no cost inside) accepts 0.947 and stops hours
+  earlier. That is the comparison below.
+
+**Against the MPC, on one brisket** (`estimator/run_mpc_mock1d.py`,
+`export_mpc_trace.py`, `pilot_comparison_trace.jl`, record
+`data/mock/pilot_comparison.json`, figure
+`figures/estimator_pilot_comparison.png`). The app's MPC
+(`brisket_app/mpc.py`: state feedback, the plant state read exactly, an
+ambient Kalman filter, a replan every hour, the KCBS quality objective
+of collagen conversion at the center in a 0.90 to 0.95 band, a mahogany
+L* band, juiciness, smoke, fuel and safety terms) had only ever flown
+the calibration's own brisket, a thinner one (half-thickness 1.9 cm
+against the mock's 3.9, a different surface coupling), from a cold pit
+with fridge meat after a twelve-hour brine. `scripts/run_fullplan.py`,
+`scripts/run_mpc.py` and `mpc.run_cook` now take the pit and meat
+starting temperatures as arguments (defaults unchanged), so the full
+plan was scanned on the mock's brisket under the mock's start (pit
+89 °C, meat 27 °C, unsalted) over 12 to 24 h (the app picks 16 h:
+wrap 8.6 h, pull 11.2 h) and one MPC cook flown from it (76 minutes).
+Both executed cooks were then re-run in the Julia monolith at the same
+parameters and scored under both objectives; the Julia core tracks the
+Tesseract's own trace within 1.4 °C over the MPC's cook, so it is one
+plant.
+
+| | the pilot's goal | RxInfer pilot | MPC |
+|---|---|---|---|
+| probe-tender at the pull (collagen at the center) | 0.92 ± 0.02 | 0.936 (core 90 °C) | 0.854 (core 89 °C) |
+| retained water W/W0 at serve | 0.47 ± 0.04 | 0.442 (51 % wet basis) | 0.483 (53 %) |
+| bark L* at serve | 31 ± 3 | 33.1 | 34.4 |
+| core at serve | floor 65 °C | 82.9 °C | 70.4 °C |
+| collagen at the center at serve (the MPC's band) | 0.90 to 0.95 | 0.966 | 0.932 |
+| juiciness (the MPC's term) | higher | 0.526 | 0.563 |
+| wrap / pull / serve | | 14.9 / 21.0 / 22.5 h | 8.1 / 11.7 / 16.0 h |
+| core at 70 / 80 / 90 °C | | 11.9 / 16.1 / 19.7 h | 6.8 / 7.9 / never |
+| pit, mean to the pull / max | | 114 °C (236 °F) / 136 °C | 120 °C (248 °F) / 177 °C |
+| what it knows | | a 17-latent posterior, noise per channel | the plant state, an ambient filter |
+| replans | | 21 of 23 hourly checks, 75 min | every hour, 76 min |
+
+Reading it:
+
+- **The same brisket, two ways.** At serve both cooks are the same
+  brisket: collagen 0.93 to 0.97, water 0.44 to 0.48, bark 33 to 34.
+  The MPC gets there in 16 hours with a 350 °F push around the wrap
+  and a four-hour rest during which the center finishes (0.85 at the
+  pull, 0.93 at serve); the RxInfer pilot takes 22.5 hours at 236 °F
+  with a 1.5 h rest and the center done at the pull. Neither is wrong
+  about the brisket; they were asked different questions.
+- **The question is the goal form.** The MPC's bands cost nothing
+  inside them, so a cook that lands anywhere in 0.90 to 0.95 and 28 to
+  34 is as good as any other and the shortest one wins on fuel. The
+  pilot's Gaussian goals want the center of each band, and in this
+  physics the center of the collagen band with a mahogany bark is
+  reached only slowly. A band-shaped goal (the hinge already used at
+  serve, on both sides) would let the pilot stop where the MPC stops;
+  that is a two-line change to `goal_residuals` and the next thing to
+  try.
+- **Knowing the plant is worth hours.** The MPC reads the plant state
+  exactly and commits to a hot push at 5 h; the pilot, working from
+  readings through a posterior that was still wide at 5 h, hedged. On a
+  real pit only the pilot's position is available, and the hedge is
+  what a posterior buys: the MPC's plan would be as sharp and as
+  wrong if the brisket were not the one it assumed.
+- **Neither is an Aaron Franklin cook.** Franklin wraps at 6 h and
+  pulls at 12 on a 275 °F offset; the MPC's 16 hours is the nearer.
+  What keeps both long is this model's bark: calibrated on a 19-hour
+  225 °F WSM cook, its bark kinetics take ten hours to darken to a
+  mahogany 33, where an offset at 275 °F does it in six. Until the
+  bark model is calibrated on a hot offset cook (roadmap C6), every
+  planner on this physics will find the long cook, whichever objective
+  it is given.
+
 ## Reading like a real cook: rates, censoring, the noise level as a process, and the replan as a decision (2026-09-09)
 
 Nothing in a cook is stationary and no two instruments agree on a

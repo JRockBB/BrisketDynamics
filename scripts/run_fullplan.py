@@ -134,7 +134,10 @@ def main():
         default=12.0,
         help="dry-brine hours before the cook (overnight rub; 0 = unsalted)",
     )
+    ap.add_argument("--tpit0-K", type=float, default=ICS["tpit0"], help="pit temperature at the start [K]")
+    ap.add_argument("--t0-meat-K", type=float, default=ICS["t0_meat"], help="meat temperature at the start [K]")
     args = ap.parse_args()
+    ICS.update(tpit0=args.tpit0_K, t0_meat=args.t0_meat_K)
     cc = replace(CC, n_iter=args.n_iter)
     durations_h = args.durations or [float(h) for h in range(8, 21)]
     result_name = f"fullplan_result{args.tag}.json"
