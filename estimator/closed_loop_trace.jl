@@ -15,7 +15,8 @@ const E = BrisketEstimator
 
 REPO = normpath(joinpath(@__DIR__, ".."))
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_1d.json"))
-rec = JSON.parsefile(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"))
+rec_name = length(ARGS) >= 1 ? ARGS[1] : "closed_loop_realcook.json"     # the loop record to trace; its trace is <stem>_trace.json
+rec = JSON.parsefile(joinpath(REPO, "data", "mock", rec_name))
 meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
@@ -53,7 +54,7 @@ rate = diff(Tc) ./ diff(th)
         wret[kwrap], wret[kpull], wret[searchsortedlast(GRID, Float64(ex["t_serve_h"]) * 3600)], cfg.W0,
         100 * cfg.W0 / (1 + cfg.W0), 100 * (wret[kpull] * cfg.W0) / (1 + wret[kpull] * cfg.W0))
 @printf("bark L*: %.1f at the wrap, %.1f at the pull\n", o.l_star[kwrap], o.l_star[kpull])
-dst = joinpath(REPO, "data", "mock", "closed_loop_realcook_trace.json")
+dst = joinpath(REPO, "data", "mock", replace(rec_name, ".json" => "_trace.json"))
 open(dst, "w") do io
     JSON.print(io, Dict("t_h" => th, "T_pit_C" => Tp, "T_core_C" => Tc, "W_ret" => wret, "L_star" => collect(o.l_star), "u" => u,
                         "events_h" => Dict("wrap" => events.t_wrap / 3600, "pull" => events.t_pull / 3600, "serve" => Float64(ex["t_serve_h"]),

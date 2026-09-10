@@ -14,7 +14,7 @@
 # onto the plant's grid. The record holds every check with its reason,
 # and the plant's actual outcome.
 #
-# Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl [prior.json] [out.json]
+# Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl [prior.json] [out.json] [hedge dirs]
 #   prior.json (data/calibration): the prior the pilot starts from; the gate's literature prior by default,
 #   prior_next_cook.json for the calibration chain's posterior by the pool's roles (export_chain_prior.py)
 # Writes data/mock/<out.json> (closed_loop_realcook.json by default).
@@ -44,9 +44,11 @@ AREA, DEPTH = 16, 17
 GRID = collect(0.0:120.0:30 * 3600.0)          # the plant and the estimator
 PLAN_GRID = collect(0.0:600.0:30 * 3600.0)     # the plan's physics
 CHECK = 3600.0                                  # the posterior updates hourly; the replan decides for itself
-HEDGE_DIRS = 2       # 0: the plan at the posterior mean, as the MPC plans at its point estimate; n: the hedge, the band terms
+HEDGE_DIRS = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 2
+                     # 0: the plan at the posterior mean, as the MPC plans at its point estimate; n: the hedge, the band terms
                      # averaged over sigma points ±1 sd along the n widest posterior directions, the tails at the mean
 N_DRAWS = 2 * HEDGE_DIRS
+println("hedge directions: ", HEDGE_DIRS, " (", N_DRAWS, " sigma points)")
 goals = PlanGoals()
 pol = ReplanPolicy()
 nc = RealCookNoise()

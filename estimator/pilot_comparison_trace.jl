@@ -22,7 +22,8 @@ mpc_file = length(ARGS) >= 1 ? ARGS[1] : "mpc_mock1d_traces_mpc_nominal_trace.js
 out_name = length(ARGS) >= 2 ? ARGS[2] : "pilot_comparison.json"          # one record per MPC variant compared
 mpc_label = length(ARGS) >= 3 ? ARGS[3] : "MPC"
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_1d.json"))
-rec = JSON.parsefile(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"))
+rec_name = length(ARGS) >= 4 ? ARGS[4] : "closed_loop_realcook.json"     # the pilot record compared
+rec = JSON.parsefile(joinpath(REPO, "data", "mock", rec_name))
 mp = JSON.parsefile(joinpath(REPO, "data", "control", mpc_file))
 meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))

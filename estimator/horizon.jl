@@ -385,7 +385,7 @@ plan prior, the graph iterator; warm-started at `ζ_init` when given.
 """
 function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), ζ_init=nothing,
                          verbose::Bool=false, iters::Int=30, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0),
-                         scan_damper::Bool=true, hedge::Bool=true)
+                         scan_damper::Bool=true, hedge::Bool=true, cold_start::Bool=true)
     f = free_set(s)
     n = length(f)
     N = length(zs)
@@ -401,31 +401,43 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
     # sits where the last plan left it. A coarse scan, one cook each, picks a second start: the wrap fraction
     # (of now to the pull) and the rest length first, then damper shapes (flat levels and a push, early, middle
     # or late) with pull horizons a hot cook needs; the solve runs from both starts and keeps the better
-    starts = [c0]
+    # ... and the warm start itself traps the solve: from the loop's own state at hour four a cold start (the prior
+    # mean, scanned) found a plan a quarter of a J better than the warm-started replan. So the scan runs from the
+    # warm start and, when there is one, from the cold start too, and the solve runs from every distinct best.
     k_wrap = f.wrap ? N_KNOTS * f.damper + 1 : 0
     k_pull = f.pull ? N_KNOTS * f.damper + f.wrap + 1 : 0
     k_serve = f.serve ? N_KNOTS * f.damper + f.wrap + f.pull + 1 : 0
-    best = (objective_scan(c0), c0)
     rest_logit(c, h) = lgt(clamp(h * 3600 / max(T_SERVE_MAX - decode_plan(c, f, s).t_pull, 600.0), 0.02, 0.98))
-    try_candidate!(c) = (Fc = try objective_scan(c) catch err; err isa InterruptException ? rethrow() : Inf end; Fc < best[1] && (best = (Fc, c)))
-    if k_wrap > 0 || k_serve > 0
-        for fw in (k_wrap > 0 ? scan_wrap : (nothing,)), h in (k_serve > 0 ? scan_rest : (nothing,))
-            c = copy(c0)
-            fw === nothing || (c[k_wrap] = lgt(fw))
-            h === nothing || (c[k_serve] = rest_logit(c, h))
-            try_candidate!(c)
+    function scan_from(cs)
+        best = (objective_scan(cs), cs)
+        try_candidate!(c) = (Fc = try objective_scan(c) catch err; err isa InterruptException ? rethrow() : Inf end; Fc < best[1] && (best = (Fc, c)))
+        if k_wrap > 0 || k_serve > 0
+            for fw in (k_wrap > 0 ? scan_wrap : (nothing,)), h in (k_serve > 0 ? scan_rest : (nothing,))
+                c = copy(cs)
+                fw === nothing || (c[k_wrap] = lgt(fw))
+                h === nothing || (c[k_serve] = rest_logit(c, h))
+                try_candidate!(c)
+            end
         end
-    end
-    if scan_damper && f.damper
-        shapes = ([0.3], [0.5], [0.15, 0.15, 0.5, 0.9, 0.9, 0.3, 0.15], [0.5, 0.9, 0.9, 0.3, 0.15, 0.15, 0.15], [0.15, 0.15, 0.15, 0.4, 0.9, 0.9, 0.5])
-        for sh in shapes, hp in (k_pull > 0 ? (nothing, 8.0, 12.0) : (nothing,))
-            c = copy(best[2])
-            c[1:N_KNOTS] .= lgt.(resample_knots(sh, N_KNOTS))
-            hp === nothing || (c[k_pull] = lgt(clamp(hp * 3600 / (T_SERVE_MAX - s.t_now), 0.02, 0.98)))
-            try_candidate!(c)
+        if scan_damper && f.damper
+            shapes = ([0.3], [0.5], [0.15, 0.15, 0.5, 0.9, 0.9, 0.3, 0.15], [0.5, 0.9, 0.9, 0.3, 0.15, 0.15, 0.15], [0.15, 0.15, 0.15, 0.4, 0.9, 0.9, 0.5])
+            for sh in shapes, hp in (k_pull > 0 ? (nothing, 8.0, 12.0) : (nothing,))
+                c = copy(best[2])
+                c[1:N_KNOTS] .= lgt.(resample_knots(sh, N_KNOTS))
+                hp === nothing || (c[k_pull] = lgt(clamp(hp * 3600 / (T_SERVE_MAX - s.t_now), 0.02, 0.98)))
+                try_candidate!(c)
+            end
         end
+        return best
     end
-    maximum(abs.(best[2] .- c0)) > 1e-9 && push!(starts, best[2])
+    starts = [c0]
+    distinct(c) = all(maximum(abs.(c .- st)) > 1e-9 for st in starts)
+    b1 = scan_from(c0)
+    distinct(b1[2]) && push!(starts, b1[2])
+    if cold_start && ζ_init !== nothing
+        b2 = scan_from(copy(mζ))
+        distinct(b2[2]) && push!(starts, b2[2])
+    end
     # the per-draw affine model of the GOAL RESIDUALS (the hinge included) at c: goal ~ N(res, 1)
     function rebuild!(c)
         RH_AFFS[] = [(plan_residual(z, c, f, s, d, k, N, hedge; goals),
