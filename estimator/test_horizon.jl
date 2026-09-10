@@ -148,6 +148,10 @@ end
     r1 = replan_on_graph([zz], s6, d; iters=6, scan_wrap=(), scan_rest=(), scan_damper=false)
     r3 = replan_on_graph([zz], s6, d; iters=6)
     @test r1.n_starts == 1 && r3.n_starts <= 2 && r3.F <= r1.F + 1e-9
+    # the hedged replan over sigma points runs and returns a plan inside the decision space
+    zs6 = sigma_draws(zz, Diagonal(fill(0.02, length(zz))); n_dirs=1)
+    rh = replan_on_graph(zs6, s6, d; iters=3, scan_wrap=(), scan_rest=(), scan_damper=false)
+    @test length(zs6) == 3 && isfinite(rh.F) && s6.t_now < rh.plan.t_serve <= T_SERVE_MAX + 1e-9
     # the executed damper's smoothness term: hourly means to the pull
     @test executed_du(GRID, fill(0.2, length(GRID)), 6 * 3600.0) ≈ zeros(5) atol=1e-12
 end
@@ -218,7 +222,18 @@ end
     @test length(l1.draws) == 1 && isfinite(l1.mean) && l1.mean >= 0
     @test abs(l1.mean - 0.5 * sum(abs2, E.goal_residuals(plan_outputs_rh(z, mζ, f, s, d), PlanGoals()))) < 1e-9
     zs = [z, z .+ 0.3 .* randn(rng, length(z))]
-    l2 = plan_loss(zs, plan, s, d)
+    # the hedge: the tails at the mean, the bands averaged over the other draws, one goal length per node
+    r0 = E.goal_residuals(plan_outputs_rh(z, mζ, f, s, d), PlanGoals())
+    @test E.draw_residual(r0, 1, 1, true) === r0 && E.draw_residual(r0, 2, 3, false) === r0
+    rm, r2 = E.draw_residual(r0, 1, 3, true), E.draw_residual(r0, 2, 3, true)
+    @test length(rm) == length(r0) == length(r2) && all(rm[1:N_BAND] .== 0) && all(r2[(N_BAND + 1):end] .== 0)
+    @test rm[(N_BAND + 1):end] == r0[(N_BAND + 1):end] && r2[1:N_BAND] ≈ r0[1:N_BAND] ./ sqrt(2)
+    sd = sigma_draws(z, Diagonal(fill(0.01, length(z))); n_dirs=2)
+    @test length(sd) == 5 && sd[1] == z && sd[2] .+ sd[3] ≈ 2 .* z && sd[4] .+ sd[5] ≈ 2 .* z
+    lh = plan_loss([z, z, z], plan, s, d; hedge=true)
+    @test abs(lh.mean - 0.5 * sum(abs2, r0)) < 1e-9        # identical draws: the hedge is the plain loss
+    @test abs(plan_loss([z, z, z], plan, s, d; hedge=false).mean - 0.5 * sum(abs2, r0)) < 1e-9
+    l2 = plan_loss(zs, plan, s, d; hedge=false)
     @test length(l2.draws) == 2 && abs(l2.mean - sum(l2.draws) / 2) < 1e-12
     # a later clock with the same plan: re-encoded in the shrunken window, the loss is still finite
     s.t_now = 2 * 3600.0

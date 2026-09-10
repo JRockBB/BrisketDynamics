@@ -1,0 +1,134 @@
+{
+ "names": [
+  "D_eff",
+  "k_m",
+  "h_c",
+  "L",
+  "k_mult",
+  "k_e",
+  "a_myosin",
+  "m_conv",
+  "C_th",
+  "UA",
+  "r_max",
+  "dH_eff",
+  "u_leak",
+  "k_spread",
+  "a0"
+ ],
+ "prior": [
+  {
+   "name": "D_eff",
+   "family": "lognormal",
+   "p1": -18.694400064075392,
+   "p2": 0.37627198929337125
+  },
+  {
+   "name": "k_m",
+   "family": "lognormal",
+   "p1": -6.282667444294351,
+   "p2": 0.2582134635765153
+  },
+  {
+   "name": "h_c",
+   "family": "lognormal",
+   "p1": 2.3714682118311754,
+   "p2": 0.31423292340555975
+  },
+  {
+   "name": "L",
+   "family": "lognormal",
+   "p1": -3.2447837105633877,
+   "p2": 0.1
+  },
+  {
+   "name": "k_mult",
+   "family": "lognormal",
+   "p1": -0.06891104254365735,
+   "p2": 0.30059928172802103
+  },
+  {
+   "name": "k_e",
+   "family": "lognormal",
+   "p1": -7.599748404982744,
+   "p2": 0.5775752989068664
+  },
+  {
+   "name": "a_myosin",
+   "family": "lognormal",
+   "p1": -1.9713616149278217,
+   "p2": 0.3843535694157535
+  },
+  {
+   "name": "m_conv",
+   "family": "beta",
+   "p1": 4.785901875204387,
+   "p2": 4.124094998468602
+  },
+  {
+   "name": "C_th",
+   "family": "lognormal",
+   "p1": 10.46138014789837,
+   "p2": 0.26446451779893954
+  },
+  {
+   "name": "UA",
+   "family": "lognormal",
+   "p1": 2.9130468250663597,
+   "p2": 0.2088699558619183
+  },
+  {
+   "name": "r_max",
+   "family": "lognormal",
+   "p1": -8.65983692985062,
+   "p2": 0.1542055564269612
+  },
+  {
+   "name": "dH_eff",
+   "family": "lognormal",
+   "p1": 16.602953953327095,
+   "p2": 0.206444559742018
+  },
+  {
+   "name": "u_leak",
+   "family": "beta",
+   "p1": 17.596727122605316,
+   "p2": 16.719531217766637
+  },
+  {
+   "name": "k_spread",
+   "family": "lognormal",
+   "p1": -7.502707563037676,
+   "p2": 1.1521954900401918
+  },
+  {
+   "name": "a0",
+   "family": "beta",
+   "p1": 17.54458327122569,
+   "p2": 1.0867244232248647
+  }
+ ],
+ "source": "nuts_mono_samples_real.npz",
+ "tau2": 0.04,
+ "measured": {
+  "L": 0.038976993757677963
+ },
+ "measured_sd": 0.1,
+ "roles": {
+  "D_eff": "partial",
+  "k_m": "partial",
+  "h_c": "partial",
+  "L": "measured",
+  "k_mult": "partial",
+  "k_e": "partial",
+  "a_myosin": "partial",
+  "m_conv": "partial",
+  "C_th": "shared",
+  "UA": "shared",
+  "r_max": "shared",
+  "dH_eff": "shared",
+  "u_leak": "shared",
+  "k_spread": "partial",
+  "a0": "partial"
+ }
+}

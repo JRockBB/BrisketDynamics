@@ -11,7 +11,7 @@
 # events commit: after the pull only the serve time is free.
 
 export plan_loss, ReplanPolicy, replan_due, posterior_kl, stable_events, cook_outputs, objective_terms, executed_du
-export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper, N_KNOTS, resample_knots, T_SERVE_MAX,
+export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper, N_KNOTS, resample_knots, T_SERVE_MAX, N_BAND, draw_residual, plan_residual, sigma_draws,
        schedule_events, plan_outputs_rh, replan_on_graph, commit!, execute_damper!, PlanGoals
 
 "A smooth one-sided penalty: softplus with width `s`, ≈ max(x, 0) — zero above the floor, linear below."
@@ -300,6 +300,45 @@ function goal_residuals(y, g::PlanGoals)
                 [sqrt(g.w_lethality) * leth(Fs), sqrt(g.w_lethality) * leth(Fc)])
 end
 
+# the band terms lead the residual vector: tenderness (under, over), appearance (dark, pale), taste (smoke low,
+# smoke high, dryness); then the tails: burn, fuel, the damper differences, lethality on the surface and the core
+const N_BAND = 7
+
+"""
+    draw_residual(r, k, n_draws, hedge) -> residual vector of the goal length
+
+What belief draw `k` of `n_draws` contributes to the plan's objective. One draw, or no hedge: everything. With
+several and the hedge, the first draw is the posterior mean and carries the tail terms (burn, fuel, smoothness,
+lethality: scored at the mean, as the MPC scores its point estimate; averaged over wide draws they collapse onto
+the worst draw, which once cooked a brisket four hours to 0.25 collagen), the others carry the band terms
+(tenderness, appearance, taste) at 1/√(n_draws − 1): the expected band loss over the belief. Zeros where a draw
+does not speak, so the graph's per-draw nodes keep one length.
+"""
+function draw_residual(r, k::Int, n_draws::Int, hedge::Bool)
+    (n_draws == 1 || !hedge) && return r
+    k == 1 && return vcat(zero(r[1:N_BAND]), r[(N_BAND + 1):end])
+    return vcat(r[1:N_BAND] ./ sqrt(n_draws - 1), zero(r[(N_BAND + 1):end]))
+end
+plan_residual(z, ζ, f::FreeSet, s::Schedule, d::GateData, k::Int, n_draws::Int, hedge::Bool; goals::PlanGoals=PlanGoals()) =
+    draw_residual(goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals), goals), k, n_draws, hedge)
+
+"""
+    sigma_draws(z, V; n_dirs=2) -> [mean, ±1 sd along the widest directions...]
+
+The belief as sigma points: the posterior mean first, then ±1 sd along the `n_dirs` widest directions of its
+covariance (2·n_dirs draws), a deterministic stand-in for random draws for the hedge's expected band loss.
+"""
+function sigma_draws(z, V; n_dirs::Int=2)
+    F = eigen(Symmetric(Matrix(V)))
+    idx = sortperm(F.values; rev=true)[1:min(n_dirs, length(z))]
+    out = [copy(z)]
+    for i in idx
+        v = sqrt(max(F.values[i], 0.0)) .* F.vectors[:, i]
+        push!(out, z .+ v); push!(out, z .- v)
+    end
+    return out
+end
+
 "The objective's value and its named terms, as the app reports them (J = Σ r²)."
 function objective_terms(y, g::PlanGoals)
     r = goal_residuals(y, g)
@@ -346,14 +385,17 @@ plan prior, the graph iterator; warm-started at `ζ_init` when given.
 """
 function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), ζ_init=nothing,
                          verbose::Bool=false, iters::Int=30, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0),
-                         scan_damper::Bool=true)
+                         scan_damper::Bool=true, hedge::Bool=true)
     f = free_set(s)
     n = length(f)
+    N = length(zs)
     mζ, Λζ = plan_prior(f, s)
     c0 = ζ_init === nothing ? copy(mζ) : copy(ζ_init)
-    # the residual vector of a plan: goals per draw, then the prior
-    resid(ζ) = vcat([goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals), goals) for z in zs]..., sqrt(Λζ) * (ζ .- mζ))
+    # the residual vector of a plan: goals per draw (the hedge's split when there are several), then the prior
+    resid(ζ) = vcat([plan_residual(z, ζ, f, s, d, k, N, hedge; goals) for (k, z) in enumerate(zs)]..., sqrt(Λζ) * (ζ .- mζ))
     objective(c) = 0.5 * sum(abs2, resid(c))
+    # the scan judges candidates by the full J at the mean (one cook each), the solve by the hedged objective
+    objective_scan(c) = 0.5 * (sum(abs2, goal_residuals(plan_outputs_rh(zs[1], c, f, s, d; goals), goals)) + sum(abs2, sqrt(Λζ) * (c .- mζ)))
     # the objective is multi-modal: in the wrap, in the damper (a low-and-slow cook and a hot-and-fast one are
     # separate basins, and the solve from the low one never crosses), and nearly flat in the rest; the warm start
     # sits where the last plan left it. A coarse scan, one cook each, picks a second start: the wrap fraction
@@ -363,9 +405,9 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
     k_wrap = f.wrap ? N_KNOTS * f.damper + 1 : 0
     k_pull = f.pull ? N_KNOTS * f.damper + f.wrap + 1 : 0
     k_serve = f.serve ? N_KNOTS * f.damper + f.wrap + f.pull + 1 : 0
-    best = (objective(c0), c0)
+    best = (objective_scan(c0), c0)
     rest_logit(c, h) = lgt(clamp(h * 3600 / max(T_SERVE_MAX - decode_plan(c, f, s).t_pull, 600.0), 0.02, 0.98))
-    try_candidate!(c) = (Fc = try objective(c) catch err; err isa InterruptException ? rethrow() : Inf end; Fc < best[1] && (best = (Fc, c)))
+    try_candidate!(c) = (Fc = try objective_scan(c) catch err; err isa InterruptException ? rethrow() : Inf end; Fc < best[1] && (best = (Fc, c)))
     if k_wrap > 0 || k_serve > 0
         for fw in (k_wrap > 0 ? scan_wrap : (nothing,)), h in (k_serve > 0 ? scan_rest : (nothing,))
             c = copy(c0)
@@ -386,8 +428,8 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
     maximum(abs.(best[2] .- c0)) > 1e-9 && push!(starts, best[2])
     # the per-draw affine model of the GOAL RESIDUALS (the hinge included) at c: goal ~ N(res, 1)
     function rebuild!(c)
-        RH_AFFS[] = [(goal_residuals(plan_outputs_rh(z, c, f, s, d; goals), goals),
-                      ForwardDiff.jacobian(v -> goal_residuals(plan_outputs_rh(z, v, f, s, d; goals), goals), c)) for z in zs]
+        RH_AFFS[] = [(plan_residual(z, c, f, s, d, k, N, hedge; goals),
+                      ForwardDiff.jacobian(v -> plan_residual(z, v, f, s, d, k, N, hedge; goals), c)) for (k, z) in enumerate(zs)]
         RH_CENTER[] = copy(c)
     end
     prob = IteratedProblem(:ζ, objective, rebuild!, n)
@@ -418,18 +460,21 @@ end
 # unreliable), or when a floor interval has passed without one.
 
 """
-    plan_loss(zs, plan, s, d; goals) -> (mean, draws)
+    plan_loss(zs, plan, s, d; goals, hedge=true) -> (mean, draws)
 
-The expected loss of a standing `plan` under the posterior draws `zs`:
-the mean over draws of half the squared goal residuals, the objective a
-replan minimises without the plan prior. The plan is re-encoded in the
-current free set (its committed events are fixed in `s`).
+The loss of a standing `plan` under the belief draws `zs`, the objective a
+replan minimises without the plan prior: with the hedge, the tail terms at
+the mean (the first draw) plus the band terms averaged over the others;
+without it, the mean over draws of half the squared goal residuals. The
+plan is re-encoded in the current free set (its committed events are
+fixed in `s`). `draws` holds each draw's contribution.
 """
-function plan_loss(zs, plan, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals())
+function plan_loss(zs, plan, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), hedge::Bool=true)
     f = free_set(s)
     ζ = encode_plan(plan, f, s)
-    ls = [0.5 * sum(abs2, goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals), goals)) for z in zs]
-    return (mean=sum(ls) / length(ls), draws=ls)
+    N = length(zs)
+    ls = [0.5 * sum(abs2, plan_residual(z, ζ, f, s, d, k, N, hedge; goals)) for (k, z) in enumerate(zs)]
+    return (mean=(hedge && N > 1) ? sum(ls) : sum(ls) / N, draws=ls)
 end
 
 """

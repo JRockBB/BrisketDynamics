@@ -14,8 +14,10 @@
 # onto the plant's grid. The record holds every check with its reason,
 # and the plant's actual outcome.
 #
-# Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl
-# Writes data/mock/closed_loop_realcook.json.
+# Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl [prior.json] [out.json]
+#   prior.json (data/calibration): the prior the pilot starts from; the gate's literature prior by default,
+#   prior_next_cook.json for the calibration chain's posterior by the pool's roles (export_chain_prior.py)
+# Writes data/mock/<out.json> (closed_loop_realcook.json by default).
 using Pkg
 Pkg.activate(@__DIR__)
 ENV["JULIA_FASTCHOLESKY_NO_WARN_NON_SYMMETRIC"] = "1"
@@ -27,7 +29,10 @@ const E = BrisketEstimator
 
 REPO = normpath(joinpath(@__DIR__, ".."))
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_1d.json"))
-gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "estimator_gate_real.json"))
+prior_file = length(ARGS) >= 1 ? ARGS[1] : "estimator_gate_real.json"
+out_name = length(ARGS) >= 2 ? ARGS[2] : "closed_loop_realcook.json"
+gate = JSON.parsefile(joinpath(REPO, "data", "calibration", prior_file))
+println("prior: ", prior_file, "; record: ", out_name)
 meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
@@ -39,7 +44,9 @@ AREA, DEPTH = 16, 17
 GRID = collect(0.0:120.0:30 * 3600.0)          # the plant and the estimator
 PLAN_GRID = collect(0.0:600.0:30 * 3600.0)     # the plan's physics
 CHECK = 3600.0                                  # the posterior updates hourly; the replan decides for itself
-N_DRAWS = 0          # 0: the plan at the posterior mean, as the MPC plans at its point estimate; n: the expected J over n draws
+HEDGE_DIRS = 2       # 0: the plan at the posterior mean, as the MPC plans at its point estimate; n: the hedge, the band terms
+                     # averaged over sigma points ±1 sd along the n widest posterior directions, the tails at the mean
+N_DRAWS = 2 * HEDGE_DIRS
 goals = PlanGoals()
 pol = ReplanPolicy()
 nc = RealCookNoise()
@@ -91,7 +98,7 @@ function estimate!(s::Schedule, z_prev)
     end
     return res.z, res.cov, res.misfit.total, res.noise, res.converged
 end
-draws(z, V, rng) = N_DRAWS == 0 ? [copy(z)] : (Lc = cholesky(Symmetric(V)).L; [z .+ Lc * randn(rng, length(z)) for _ in 1:N_DRAWS])
+draws(z, V, rng) = HEDGE_DIRS == 0 ? [copy(z)] : sigma_draws(z, V; n_dirs=HEDGE_DIRS)     # the mean first
 "The pit level at the latest sample (1 when none is inferred)."
 pit_level_now(s) = (lv = levels[1]; lv === nothing ? 1.0 : (k = findlast(GRID .<= s.t_now + 1e-9); lv[k]))
 
@@ -153,7 +160,7 @@ while s.t_now < 28 * 3600
                                       "spritz" => p.spritz === nothing ? nothing : Dict("t_h" => p.spritz.t / 3600, "dt_h" => p.spritz.dt / 3600, "m" => p.spritz.m),
                                       "t_add_h" => nn(p.t_add / 3600)),
                        "predicted" => Dict("mean" => pred.mean, "sd" => [nn(x) for x in pred.sd], "t_h" => pred.t_h),
-                       "posterior_z" => z, "posterior_sd" => sdz, "err_sd" => (z .- z_true) ./ sdz,
+                       "posterior_z" => z, "posterior_sd" => sdz, "posterior_cov" => [V[i, :] for i in axes(V, 1)], "err_sd" => (z .- z_true) ./ sdz,
                        "misfit_z" => mis === nothing ? nothing : mis.z_chi2,
                        "noise" => Dict(chnames[i] => Dict("sigma" => v.σ, "rho" => v.ρ, "sigma_sd" => v.σ_sd, "rho_sd" => v.ρ_sd) for (i, v) in noise_post),
                        "pit_level_now" => pit_level_now(s)))
@@ -163,8 +170,8 @@ end
 
 # --- the plant's actual outcome under the executed schedule --------------------------------------
 # the checks first, so a failure in the outcome below cannot lose them
-open(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"), "w") do io
-    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "partial" => true))
+open(joinpath(REPO, "data", "mock", out_name), "w") do io
+    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file, "partial" => true))
 end
 _, _, o = plant_readings(s)
 nx = size(o.W_field, 1); w = E.fv_weights(nx)
@@ -183,8 +190,8 @@ reasons = Dict(r => count(rec -> rec["reason"] == r, record) for r in unique(rec
 @printf("the plant's actual outcome: J %.3f (tenderness %.3f, appearance %.3f, taste %.3f, surf %.3f, fuel %.3f, smooth %.3f, safety %.3f); collagen at serve %.3f (%.3f at the pull, core %.1f C), water %.3f, juiciness %.3f, L* %.1f, smoke %.2f, core at serve %.1f C\n",
         actual.J, actual.tenderness, actual.appearance, actual.taste, actual.surf, actual.fuel, actual.smooth, actual.safety,
         actual.C_serve, actual.C_pull, actual.T_pull, actual.W, actual.juiciness, actual.L, actual.S, actual.T_serve)
-open(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"), "w") do io
-    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans,
+open(joinpath(REPO, "data", "mock", out_name), "w") do io
+    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file,
                         "policy" => Dict(string(k) => getfield(pol, k) for k in fieldnames(ReplanPolicy)),
                         "goals" => Dict(string(k) => getfield(goals, k) for k in fieldnames(PlanGoals)),
                         "executed" => Dict("t_wrap_h" => s.t_wrap / 3600, "t_pull_h" => s.t_pull / 3600, "t_serve_h" => s.t_serve / 3600,
@@ -196,4 +203,4 @@ open(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"), "w") do io
                         "noise_truth" => Dict(String(k) => getfield(nc, k) for k in fieldnames(RealCookNoise)),
                         "z_true" => z_true, "names" => vcat(names, ["A_meat", "core_depth"])))
 end
-println("wrote data/mock/closed_loop_realcook.json")
+println("wrote data/mock/", out_name)
