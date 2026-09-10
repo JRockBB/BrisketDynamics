@@ -14,7 +14,9 @@
 # onto the plant's grid. The record holds every check with its reason,
 # and the plant's actual outcome.
 #
-# Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl [prior.json] [out.json] [hedge dirs]
+# Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl [prior.json] [out.json] [hedge dirs] [ridge k] [ridge steps]
+#   ridge k > 0: after every refit the belief along the k widest posterior directions is sampled on the exact
+#   posterior (ridge.jl) and the plan, the replan trigger and the record read the corrected belief
 #   prior.json (data/calibration): the prior the pilot starts from; the gate's literature prior by default,
 #   prior_next_cook.json for the calibration chain's posterior by the pool's roles (export_chain_prior.py)
 # Writes data/mock/<out.json> (closed_loop_realcook.json by default).
@@ -48,7 +50,9 @@ HEDGE_DIRS = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 0     # off by default: s
                      # 0: the plan at the posterior mean, as the MPC plans at its point estimate; n: the hedge, the band terms
                      # averaged over sigma points ±1 sd along the n widest posterior directions, the tails at the mean
 N_DRAWS = 2 * HEDGE_DIRS
-println("hedge directions: ", HEDGE_DIRS, " (", N_DRAWS, " sigma points)")
+RIDGE_K = length(ARGS) >= 4 ? parse(Int, ARGS[4]) : 0
+RIDGE_STEPS = length(ARGS) >= 5 ? parse(Int, ARGS[5]) : 300
+println("hedge directions: ", HEDGE_DIRS, " (", N_DRAWS, " sigma points); ridge chain: k ", RIDGE_K, RIDGE_K > 0 ? " with $RIDGE_STEPS steps" : " (off)")
 goals = PlanGoals()
 pol = ReplanPolicy()
 nc = RealCookNoise()
@@ -98,7 +102,15 @@ function estimate!(s::Schedule, z_prev)
         noise[i] = (v.σ, v.ρ)
         levels[i] = res.channels[i] isa Levelled ? res.channels[i].level : nothing
     end
-    return res.z, res.cov, res.misfit.total, res.noise, res.converged
+    ridge = nothing
+    z_b, V_b = res.z, res.cov
+    if RIDGE_K > 0 && res.converged
+        t1 = time()
+        rc = ridge_chain(res.channels, prior, d, ph, res.z, res.cov; k=RIDGE_K, steps=RIDGE_STEPS, rng=MersenneTwister(4000 + round(Int, s.t_now / 3600)))
+        z_b, V_b = rc.z, rc.cov
+        ridge = Dict("accept" => rc.accept, "ess" => rc.ess, "wall_s" => time() - t1, "sd_ratio" => rc.sd ./ res.sd, "mean_shift_sd" => (rc.z .- res.z) ./ res.sd)
+    end
+    return z_b, V_b, res.misfit.total, res.noise, res.converged, res.z, ridge
 end
 draws(z, V, rng) = HEDGE_DIRS == 0 ? [copy(z)] : sigma_draws(z, V; n_dirs=HEDGE_DIRS)     # the mean first
 "The pit level at the latest sample (1 when none is inferred)."
@@ -108,6 +120,8 @@ pit_level_now(s) = (lv = levels[1]; lv === nothing ? 1.0 : (k = findlast(GRID .<
 s = Schedule(PLAN_GRID; u0=0.15, t_serve=14 * 3600.0)
 d_plan = estimator_setup(PLAN_GRID, fill(0.15, length(PLAN_GRID)), pit, cfg, prior_phys, names)   # the plan physics reads its prior, pit, cfg, tolerances
 z = vcat(d_plan.z0, [log(cfg.A_meat), log(0.8 * L_med)])
+z_map = copy(z)          # the refit's warm start: the MAP, not the ridge-corrected belief
+ridge = nothing
 _, _, h0 = E.prior_terms(z, prior)
 V = Matrix(Diagonal(1 ./ h0))
 z_true = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x_true[1:15], prior_phys)], log(A_true), log(depth_true))
@@ -126,7 +140,7 @@ while s.t_now < 28 * 3600
     t0 = time()
     mis = nothing; noise_post = Dict{Int,NamedTuple}(); conv = true
     if s.t_now > 0
-        global z, V, mis, noise_post, conv = estimate!(s, z)
+        global z, V, mis, noise_post, conv, z_map, ridge = estimate!(s, z_map)
     end
     zs = draws(z, V, rng_draws)
     L_now = plan === nothing ? NaN : plan_loss(zs, plan, s, d_plan; goals).mean
@@ -162,7 +176,7 @@ while s.t_now < 28 * 3600
                                       "spritz" => p.spritz === nothing ? nothing : Dict("t_h" => p.spritz.t / 3600, "dt_h" => p.spritz.dt / 3600, "m" => p.spritz.m),
                                       "t_add_h" => nn(p.t_add / 3600)),
                        "predicted" => Dict("mean" => pred.mean, "sd" => [nn(x) for x in pred.sd], "t_h" => pred.t_h),
-                       "posterior_z" => z, "posterior_sd" => sdz, "posterior_cov" => [V[i, :] for i in axes(V, 1)], "err_sd" => (z .- z_true) ./ sdz,
+                       "posterior_z" => z, "posterior_sd" => sdz, "posterior_cov" => [V[i, :] for i in axes(V, 1)], "err_sd" => (z .- z_true) ./ sdz, "ridge" => ridge,
                        "misfit_z" => mis === nothing ? nothing : mis.z_chi2,
                        "noise" => Dict(chnames[i] => Dict("sigma" => v.σ, "rho" => v.ρ, "sigma_sd" => v.σ_sd, "rho_sd" => v.ρ_sd) for (i, v) in noise_post),
                        "pit_level_now" => pit_level_now(s)))
