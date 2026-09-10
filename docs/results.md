@@ -4,6 +4,91 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Coverage: is the posterior calibrated? (2026-09-10, later)
+
+The question was whether the streaming estimator's standardized errors
+are bias or noise. One mock cook cannot say: its truth was chosen off
+the prior's center and its hourly refits share one noise draw, so a
+persistent offset inside the band is what one draw looks like. The test
+that can say is coverage: truths drawn from the prior the pilot flies
+on, each cook with its own noise draw, the standardized errors pooled.
+`estimator/coverage_realcook.jl` does that on the honest bench (the
+monolith on the two-minute grid under the real-cook schedule, read by
+the real-cook instruments at their rates, the noise identified, the
+humidity censored, two-hourly refits to the pull), truths drawn from
+`prior_next_cook.json` (Gaussian in log for the lognormal sites, a beta
+draw in logit for the bounded ones, the probe kept inside the meat);
+`estimator/plot_coverage.py` pools them. Twenty-one cooks, three
+workers, none skipped, eight to thirteen minutes each; records
+`data/mock/coverage_realcook_{1,8,15}.json`, the summary
+`data/mock/coverage_summary.json`, the figure
+`figures/estimator/coverage_realcook.png`. A calibrated posterior has the
+pooled standardized error at mean zero and spread one at every hour,
+68 % inside one sd and 95 % inside two.
+
+**Pooled over every site at 14 h: mean −0.10, spread 1.54, 55 % inside
+one sd, 87 % inside two.** No bias overall; the widths are too narrow by
+half. Site by site:
+
+| site | mean | z of the mean | spread | inside 2 sd |
+|---|---|---|---|---|
+| D_eff, L, k_mult, dH_eff, r_max, A_meat, core_depth | −0.2 to +0.2 | under 1.1 | 0.93 to 1.05 | 95 to 100 % |
+| k_m, h_c, m_conv, UA | +0.1 to +0.35 | under 1.5 | 1.07 to 1.26 | 86 to 95 % |
+| u_leak | −0.51 | −1.6 | 1.45 | 86 % |
+| a_myosin | +0.77 | +2.6 | 1.36 | 81 % |
+| k_e | −0.77 | −1.8 | 1.98 | 76 % |
+| k_spread | −0.03 | −0.1 | 1.92 | 81 % |
+| a0 | −0.98 | −1.7 | 2.68 | 67 % |
+| C_th | −0.84 | −1.4 | 2.70 | 43 % |
+
+Reading it:
+
+- **The identified meat sites are calibrated.** Diffusion, thickness,
+  the conductivity multiplier, the fuel enthalpy, the burn rate, the
+  exposed area and the probe depth have spread within 7 % of one and
+  coverage at or above 95 %, every hour of the cook. The offsets the
+  single-cook figures show on these sites are one noise draw and
+  shrinkage on a truth chosen off-center, as argued; over truths drawn
+  from the prior they are gone.
+- **The pit ridge is where the Gaussian width is wrong.** a0 sits at
+  −1 sd from hour four on with a spread of 2.7; C_th, u_leak and the
+  ignition spread k_spread carry spreads of 1.5 to 2.7. The fit is not
+  wrong there (the whitened residual power is 0.92 to 1.08 in every
+  cook at 14 h; the data are explained), the width is: the Fisher
+  curvature at a point on a ridge is not the posterior's width along
+  it. That was the single-cook figure's reading of a0 and it holds over
+  twenty-one cooks.
+- **C_th fails at the fuel add.** Its spread is 1.05 to 1.24 through
+  hour twelve and 2.70 at fourteen, and the cause is the width, not the
+  location: its reported sd halves across the fuel add at 12 h (0.11 to
+  0.06, the chimney's heat pulse is informative about a thermal mass)
+  while the error does not shrink, and the 14-h errors correlate with
+  UA and dH_eff at 0.53. The pulse tightens the curvature along a ridge
+  the pit block has not left. Nine of twenty-one cooks end more than
+  2.5 sd off on C_th, and the misfit check cannot see it, because
+  nothing in the residuals is wrong.
+- **Two drifting biases, small but real.** a_myosin climbs from 0 at
+  hour six to +0.77 at fourteen (z 2.6 over 21 cooks); k_e falls from 0
+  at hour two to −0.77 by hour ten and stays. Both are water sites that
+  the scale identifies late (the drip, the evaporation); a positive drift
+  on one and a negative on the other with the residuals clean reads as
+  the linearised MAP sitting on the near side of a skewed posterior.
+  The chain's corner shows the same shape on the calibration cook.
+
+**What follows.** The pilot's belief is honest on the sites the plan
+depends on most (thickness, diffusion, the area) and overconfident on
+the fire. Two uses of this record, both in the roadmap: the widths on
+the ridge sites can be calibrated from this test (a per-site factor on
+the reported sd, 2.7 on C_th and a0, 2 on k_e and k_spread, 1.4 on
+u_leak and a_myosin) before the plan's draws and the replan's KL
+trigger read them; and the ridge itself is what the humidity sensor and
+the fuel-scale row of the sensor table are for. The coverage test is
+now the way to earn a calibration claim here, and it is cheap enough
+to rerun on every estimator change: 21 cooks in about 75 minutes on
+three workers.
+
+---
+
 ## The next cook's prior, a cold start, and the hedge (2026-09-10, later)
 
 The previous entry ended with the cook decided in its first hours, flown

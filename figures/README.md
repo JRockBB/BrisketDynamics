@@ -71,6 +71,7 @@ The online estimator and its pilot: the hourly streaming refits on mock plants, 
 | `closed_loop.png` | `estimator/plot_closed_loop.py` from `estimator/mock_closed_loop.jl` | `docs/results.md` |
 | `closed_loop_realcook.png` | `estimator/plot_closed_loop_realcook.py` from `estimator/mock_closed_loop_realcook.jl` and `estimator/closed_loop_trace.jl` | `docs/results.md` |
 | `pilot_comparison.png` | `estimator/plot_pilot_comparison.py` from `estimator/pilot_comparison_trace.jl` (the pilot and each MPC variant through one plant) | `docs/results.md` |
+| `coverage_realcook.png` | `estimator/plot_coverage.py` from `estimator/coverage_realcook.jl` (truths drawn from the pilot's prior, the standardized errors pooled) | `README.md`, `docs/results.md` |
 
 ## slab2d/
 

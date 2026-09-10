@@ -163,6 +163,22 @@ Its structure is fixed by three measured RxInfer behaviours
   them with. Every logged cook tightens both, and the second WSM cook
   (wbegg_2014) is the first test of the cooker block on a brisket the
   chain has not seen.
+- **The widths on the fire.** The coverage test (`docs/results.md`,
+  coverage: 21 cooks with truths drawn from the pilot's prior) finds the
+  posterior calibrated on the identified meat sites and overconfident by
+  a factor of two to three on the pit ridge (a0, C_th, u_leak, the
+  ignition spread) and the late water sites (k_e, a_myosin), with C_th's
+  width collapsing at the fuel add while its error does not; the misfit
+  check cannot see it because the residuals are clean. Two things:
+  calibrate the reported widths per site from the test before the
+  plan's draws and the KL trigger read them (a factor on the sd, rerun
+  on every estimator change); and break the ridge with the sensors the
+  table ranks for it (humidity is in; the fuel scale is next). The
+  drifting biases on a_myosin (+0.8 sd) and k_e (−0.8 sd) by hour
+  fourteen point at the linearised MAP on a skewed posterior, the same
+  shape the chain shows on the calibration cook; a reweighted particle
+  belief for the plan (the belief in the plan, above) is the honest
+  carrier of that shape.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it
