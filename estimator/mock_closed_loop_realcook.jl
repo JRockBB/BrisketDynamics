@@ -44,7 +44,7 @@ AREA, DEPTH = 16, 17
 GRID = collect(0.0:120.0:30 * 3600.0)          # the plant and the estimator
 PLAN_GRID = collect(0.0:600.0:30 * 3600.0)     # the plan's physics
 CHECK = 3600.0                                  # the posterior updates hourly; the replan decides for itself
-HEDGE_DIRS = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 2
+HEDGE_DIRS = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 0     # off by default: side by side it lost to the plan at the mean (docs/results.md)
                      # 0: the plan at the posterior mean, as the MPC plans at its point estimate; n: the hedge, the band terms
                      # averaged over sigma points ±1 sd along the n widest posterior directions, the tails at the mean
 N_DRAWS = 2 * HEDGE_DIRS

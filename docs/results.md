@@ -4,6 +4,124 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The next cook's prior, a cold start, and the hedge (2026-09-10, later)
+
+The previous entry ended with the cook decided in its first hours, flown
+on the literature prior. Three builds followed, each run on the honest
+bench against the same three cooks, and the pilot went from J 0.97 to
+0.84.
+
+**The calibration's chain as the next cook's prior**
+(`estimator/export_chain_prior.py`, `data/calibration/prior_next_cook.json`;
+the loop takes the prior file as its first argument). The chain's
+marginals are not Gaussian (`figures/corner_nuts_real.png`: a0 and
+ρ_core piled at a boundary, m_conv and r_max skewed, the dH_eff to r_max
+pair curved), and the estimator is a Gaussian machine in z, so the prior
+is written site by site in the graph's own families, by the pool's
+roles: the cooker sites (`PHI_SITES`) the chain's marginal, a lognormal
+from the log moments or a beta by moments for the bounded ones; the meat
+sites (`THETA_SITES`) the same widened by the pool's between-cook
+variance in z (0.04, the pool's default, a placeholder), because the
+next brisket is another animal; the ignition sites the same as the meat
+(the pool leaves them per-cook with nothing to pool them with; on one
+cooker lit one way the chain is the better start, `--ignition`); the
+flat's thickness measured with a ruler (`--measured L=`, log-sd 0.1),
+because a pitmaster does. The mock's truth sits a median 0.28 sd from
+this prior against 0.67 from the literature prior, and 1.26 at worst
+against 3.99 (a0, which the literature Beta(2, 4) put at 0.33 while the
+chain says 0.96). The one site the mock perturbs beyond the pool's
+width, h_c at 0.6 times the calibration's, is 1.3 sd out.
+
+The loop on that prior alone landed at J 0.979: a 16.4-h cook (wrap
+11.5 h, pull 14.1 h at 93 °C), the bark in band at 33.1 but a burn
+penalty of 0.11 from a pit that climbed to 150 °C before the pull, and
+the taste term at 0.70. From its own state at hour four
+(`scratchpad/plan_at_state.jl`) the belief's plan now scores 0.73 at
+the truth, against 1.12 under the literature prior: the belief had
+stopped being the limit. But the loop's warm-started replan at that hour
+predicted 0.82 while a cold start from the prior mean, scanned, found
+0.71 on the same belief. The warm start traps the solve.
+
+**The cold start** (`replan_on_graph(...; cold_start=true)`): the scan
+runs from the warm start and from the prior mean, and the solve runs
+from every distinct best. With it, on the same prior, the loop landed at
+**J 0.844** (tenderness 0.042, appearance 0.027, taste 0.671, burn
+0.004, fuel 0.099): a 256 °F pit held between 120 and 140 °C, wrapped
+at 10.8 h at 77 °C, pulled at 15.7 h at 91 °C, served at 18.7 h at
+77 °C; collagen 0.958, bark 32.7, water 0.425, juiciness 0.505, smoke
+0.85; 19 checks, 14 replans, 1600 s. The hour-four replan took the cold
+start's plan (wrap 8.5 h, pull 13.2 h, predicted 0.70); the wrap then
+slid to 10.8 h by hour ten as the readings moved the belief through the
+stall (17 nats at hour nine, 58 at hour ten), and the plan knew the cook
+it ended with (predicted collagen 0.945, water 0.424, bark 34.1, serve
+78 °C against the plant's 0.958, 0.425, 32.7, 77 °C). From its own
+states the belief's plan and the truth's plan now score the same at the
+truth: 0.73 against 0.86 at hour four, 0.84 against 0.88 at hour eight,
+0.87 against 0.88 at hour eleven. What remains against the MPC is the
+taste term, smoke 0.85 and juiciness 0.51 against 0.75 and 0.56: the
+MPC's push to 177 °C through the stall and its 8.1-h wrap put the
+brisket in the smoke and the dry pit for three hours less, and the
+pilot's solve does not find that shape (at the truth from t = 0 it
+finds 0.78 where the app's full plan finds 0.63 on the same physics, the
+port check within 2 %). The app's evaluation of this cook is 0.884 to
+the Julia 0.844, the difference the two engines' bark (31.1 against
+32.7) and doneness (0.973 against 0.958).
+
+**The hedge** (`draw_residual`, `sigma_draws`, `plan_loss(...;
+hedge)`; the loop's third argument, the number of posterior directions):
+with several belief draws the first is the posterior mean and carries
+the tail terms (burn, fuel, smoothness, lethality; averaged over wide
+draws they collapse onto the worst draw, which once cooked a brisket
+four hours to 0.25 collagen), the others carry the band terms at
+1/√n, the expected band loss over the belief; the draws are sigma points
+±1 sd along the widest posterior directions, and the scan judges
+candidates at the mean. From the loop's own early states
+(`scratchpad/hedge_at_state.jl`, the posterior's diagonal) the hedged
+plan scored 5.17 at the truth against the mean plan's 2.10 at hour one
+(both undercooked on a belief an hour old), 0.73 against 0.97 at hour
+two and 0.69 against 0.73 at hour four, the last the oracle MPC's score
+from a plan with the MPC's shape (push at hours five to seven, wrap
+7.5 h, pull 12 h). In the loop it did not carry: run side by side with
+the mean-planning loop on the same prior and the same cold start
+(`data/mock/closed_loop_realcook_hedge.json`), the hedged loop's first
+plan had the MPC's shape (wrap 7.5 h, pull 12 h, water 0.55) and then
+gave it up hour by hour as the belief moved (wrap 9.6 h at hour three,
+10.5 h at five, 12.2 h at nine), and landed at J 0.971 (taste 0.772,
+smoke 0.89) against the mean loop's 0.844. Two reasons it can say for
+itself: the sigma points span the posterior's widest directions, which
+are the least identified sites, not the directions J answers to (the
+band spread they produce is 0.002 of collagen at hour zero); and a
+hedge over the bands pulls every plan toward the band centers, which
+on this brisket means later, when the mean plan's errors were already
+inside the bands. The hedge stays in the code, off by default (the
+loop's third argument 0), with this as its record: a plan that hedges
+over the belief needs draws along the directions the cook depends on,
+the Fisher directions of J rather than of the posterior, and that is a
+different build.
+
+**Spritzing after the wrap.** The figures drew the spritz train through
+to the pull. In the plant a spritz on a wrapped brisket does nothing and
+costs nothing: the water it deposits and the lid lift it opens are both
+multiplied by (1 − wrap), and there is no unwrap in the model, so
+unwrap, spritz and rewrap is not a move the planner has. The figure now
+stops the pulses at the wrap.
+
+**The scoreboard** (`figures/estimator_pilot_comparison.png`, one plant,
+one objective):
+
+| | RxInfer pilot | MPC, oracle | MPC, calibration model |
+|---|---|---|---|
+| J | 0.844 | 0.680 | 0.761 |
+| tenderness (collagen at serve) | 0.042 (0.958) | 0.053 (0.932) | 0.080 (0.918) |
+| appearance (bark L*) | 0.027 (32.7) | 0.088 (34.4) | 0.098 (34.5) |
+| taste (smoke, juiciness) | 0.671 (0.85, 0.51) | 0.461 (0.75, 0.56) | 0.492 (0.78, 0.55) |
+| burn, fuel, smoothness | 0.004, 0.099, 0.001 | 0.001, 0.068, 0.008 | 0.000, 0.082, 0.008 |
+| wrap / pull / serve | 10.8 / 15.7 / 18.7 h | 8.1 / 11.7 / 16.0 h | 9.3 / 14.9 / 16.0 h |
+| pit mean, max | 124, 140 °C | 120, 177 °C | 115, 169 °C |
+| what it knows | the chain's prior, a 17-latent posterior from readings | the plant's parameters and state | the calibration's parameters, the plant's state |
+
+---
+
 ## The planner's basin, and the MPC without its oracle (2026-09-10)
 
 Two builds asked for at once: the seven-knot damper, so the plan could

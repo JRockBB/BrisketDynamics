@@ -131,39 +131,38 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **The first four hours.** The planner is now in the app's decision
-  space (a serve bounded at 24 h, priors that are numerically nothing,
-  a scan across the damper's two basins) and the bark comes out in
-  band; the pilot's J is 0.97 to the oracle MPC's 0.68 and 0.76 for the
-  MPC flown with the calibration's parameters, the gap now a drier
-  brisket (`docs/results.md`, the planner's basin). From the loop's own
-  states, the planner at the truth can still reach J 0.83 at hour four
-  but only 0.94 at hour eight and nothing better than the cook flown by
-  hour eleven: the cook is decided in its first eight hours and mostly
-  in its first four, which are flown on the prior (the
-  first plan's loss went from 0.5 to 13.8 on the first hour's readings)
-  and a push executed before the stall cannot be taken back. Two builds
-  follow from it, in this order:
-  - *the prior across cooks*: the pool shares three cooker parameters
-    across cooks and its per-cook meat fits are not saved; save them,
-    and the next cook's prior becomes the cooker's pooled posterior plus
-    the meat's between-cook population, with the ambient an input, so
-    the first plans are made on this cooker and a typical brisket rather
-    than the calibration's one cook;
-  - *a plan that hedges while the belief is young*: the expectation of J
-    over wide draws degenerates on the burn and safety tails, so the
-    plan is made at the posterior mean; a risk-aware J that does not
-    (a trimmed mean, or the tails scored at the mean and the bands over
-    draws) would keep a push out of the first hours until the readings
-    have earned it.
-- **The solve's depth.** The replan's local solve lands where its start
-  sends it (from the same belief at hour four: 0.82 warm-started from
-  the last plan, 1.08 from the prior mean; at the truth from t = 0:
-  0.78 from the default start, 0.95 from an MPC-like one), thirty
-  iterations of the graph's iterated solve against the app's two
-  hundred. Keep the best few scan candidates as starts rather than one,
-  and more iterations when the wall allows; the scan is what carries
-  the solve between basins today.
+- **The solve's depth.** The pilot is at J 0.84 on the honest bench
+  against 0.68 for the oracle MPC and 0.76 for the MPC flown with the
+  calibration's parameters (`docs/results.md`, the next cook's prior).
+  Its belief is no longer the limit: from the loop's own states the
+  belief's plan and the truth's plan score the same at the truth from
+  hour eight on. What remains is the solve and what it finds: at the
+  truth from t = 0 the replan's scan-and-solve finds 0.78 where the
+  app's full plan finds 0.63 on the same physics, the shape it misses
+  being the push through the stall before an early wrap that keeps the
+  brisket out of the smoke and the dry pit for three hours (the taste
+  term, 0.67 against 0.46, is the whole gap now); and between hours
+  four and ten the wrap slides later with every replan as the readings
+  move the belief through the stall. Keep the best few scan candidates
+  as starts rather than one, more iterations of the graph's iterated
+  solve than thirty (the app runs two hundred), and a start seeded from
+  the app's full plan on the belief's mean.
+- **The belief in the plan.** The hedge over sigma points of the
+  posterior (built, off by default) lost to the plan at the mean in the
+  loop while winning from the loop's recorded states at hours two and
+  four: its draws span the posterior's widest directions, the least
+  identified sites, not the directions J answers to. A hedge that
+  helps needs draws along J's own Fisher directions, and the chain's
+  shape (the skew and the curved pairs the Gaussian posterior cannot
+  hold) carried into the plan as a reweighted particle belief rather
+  than into the graph.
+- **The prior's population.** The next-cook prior widens the meat
+  sites by the pool's between-cook variance, 0.04 in z, a placeholder
+  the pool cannot estimate from two cooks per cooker; and the ignition
+  sites take this cooker's chain because the pool has nothing to pool
+  them with. Every logged cook tightens both, and the second WSM cook
+  (wbegg_2014) is the first test of the cooker block on a brisket the
+  chain has not seen.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it
