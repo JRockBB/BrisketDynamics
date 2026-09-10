@@ -66,16 +66,16 @@ def cook_panel(ax, run, title, t_end):
 def main():
     # the pilot against each MPC variant compared: the oracle (the plant's own parameters and state) and, when it
     # exists, the MPC flown with the calibration's parameters as its model (what runs without an estimator)
-    files = [("pilot_comparison.json", "the MPC, an oracle: the plant's parameters and state"),
-             ("pilot_comparison_calmodel.json", "the MPC with the calibration's parameters, the plant's state")]
+    files = [("pilot_comparison.json", "the MPC, an oracle: the plant's parameters and state", "MPC, oracle", "the plant's parameters and state"),
+             ("pilot_comparison_calmodel.json", "the MPC with the calibration's parameters, the plant's state", "MPC, calibration model", "the calibration's parameters, the plant's state")]
     runs = []
-    for name, label in files:
+    for name, label, col, knows in files:
         f = REPO / "data" / "mock" / name
         if f.exists():
-            runs.append((json.loads(f.read_text(encoding="utf-8")), label))
+            runs.append((json.loads(f.read_text(encoding="utf-8")), label, col, knows))
     d = runs[0][0]
     rx = d["rxinfer"]
-    mpcs = [(r["mpc"], label, r) for r, label in runs]
+    mpcs = [(r["mpc"], label, r) for r, label, _, _ in runs]
     t_end = max([rx["events_h"]["serve"]] + [m["events_h"]["serve"] for m, _, _ in mpcs]) + 0.5
     n_rows = 1 + len(mpcs)
 
@@ -93,7 +93,7 @@ def main():
     ax.set_facecolor(SURFACE)
     ax.set_axis_off()
     fmt_h = lambda v: "—" if v is None else f"{v:.1f} h"
-    cols = [("RxInfer pilot", mr, d["rxinfer_replans"], d["rxinfer_checks"])] + [(lab.split(",")[0].replace("the ", ""), m["metrics"], None, None) for m, lab, _ in mpcs]
+    cols = [("RxInfer pilot", mr, d["rxinfer_replans"], d["rxinfer_checks"])] + [(col, r["mpc"]["metrics"], None, None) for r, _, col, _ in runs]
     def row(name, f):
         return (name, [f(mx, re, ch) for _, mx, re, ch in cols])
     rows = [
@@ -109,11 +109,11 @@ def main():
         row("core at the pull / at serve", lambda m, *_: f"{m['T_pull_C']:.0f} °C / {m['T_serve_C']:.0f} °C"),
         row("pit, mean to the pull / max", lambda m, *_: f"{m['pit_mean_C']:.0f} °C ({m['pit_mean_C'] * 9 / 5 + 32:.0f} °F) / {m['pit_max_C']:.0f} °C"),
         row("water W/W0 at serve", lambda m, *_: f"{m['W_serve']:.3f}  ({100 * m['wet_basis_water_serve']:.0f} %)"),
-        ("what it knows", ["a 17-latent posterior from readings"] + [("the plant's parameters and its state" if "oracle" in lab else "the calibration's parameters, the plant's state") for _, lab, _ in mpcs]),
+        ("what it knows", ["a 17-latent posterior from readings"] + [knows for _, _, _, knows in runs]),
         ("when it replans", [f"when worth it: {d['rxinfer_replans']} of {d['rxinfer_checks']} checks"] + ["every hour"] * len(mpcs)),
     ]
     n_c = len(cols)
-    x0, x1 = 0.0, 0.36
+    x0, x1 = 0.0, 0.30 if n_c > 2 else 0.36
     xs = [x1 + i * (1.0 - x1) / n_c for i in range(n_c)]
     y = 1.0
     for x, (name, _, _, _) in zip(xs, cols):

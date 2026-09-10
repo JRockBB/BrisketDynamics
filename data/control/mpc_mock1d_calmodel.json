@@ -1,0 +1,16 @@
+{
+ "params": "map_mock1d.json",
+ "model_params": "map_real.json",
+ "plan": "fullplan_result_mock1d.json",
+ "cook_h": 16.0,
+ "wall_s": 5787.922240972519,
+ "t_wrap_exec_h": 9.262054796314139,
+ "t_pull_exec_h": 14.902221135160698,
+ "doneness": 0.9303041660119182,
+ "juiciness": 0.5400615055744586,
+ "l_star_end": 33.37274911087729,
+ "n_replans": 15,
+ "tpit0_K": 362.4278,
+ "t0_meat_K": 299.7611,
+ "t_salt_h": 0.0
+}

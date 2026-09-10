@@ -4,6 +4,135 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The planner's basin, and the MPC without its oracle (2026-09-10)
+
+Two builds asked for at once: the seven-knot damper, so the plan could
+make the MPC's pit push; and a fair MPC, because the MPC compared so far
+flies with the plant's own parameters and state, which no controller on
+a real pit has.
+
+**Seven knots changed nothing.** With `N_KNOTS = 7` (knots at k/7 of
+now to the pull, piecewise linear, `resample_knots` for a warm start
+from a plan with another count) the closed loop on the honest bench
+landed at J 0.934 against 0.941 with three: a 23.1 h cook, wrap 12.5 h,
+pull 21.6 h at 87.5 °C, pit 111 °C mean, the bark 35.5 and the smoke
+0.88 as before. The knots ended where they began, 0.15 to 0.20, the
+prior's mean. The decision space had the push in it and the planner did
+not take it, so the representation was not the gap.
+
+**What was: two basins and a prior.** At the truth, everything free at
+t = 0 (`scratchpad/mode_planner.jl`): the planner from its default
+start found J 0.951 with a 27-h cook (pull 25.7 h, collagen 0.996
+overdone, the fuel and the smoke paid for); from a warm start near the
+MPC's cook it found J 0.874, a different local minimum with a knot at
+0.82 and a 15.5-h pull, and would not go further because the plan
+prior charged it 1.63 half-J units for being there (F 2.07 against
+0.71 for the low cook, with J the smaller of the two). Three sd on a
+logit is not a weak prior when the J differences at stake are 0.1 to
+0.3. The pilot's cook as a plan scored 0.941 at the truth, the plant's
+0.934: the belief was not the problem. And the app's own full plan over
+its cook lengths of 12 to 24 h scores 0.689, 0.643, 0.632, 0.626,
+0.626, 0.636, 0.648 on this brisket, every one with a bark of 32.4 to
+32.7: on this physics a dark bark is available at any cook length, and
+the pilot's solver was sitting in the basin where it is not.
+
+**The fix, in the planner.** Three things (`estimator/horizon.jl`):
+- the decision space is the app's: its full plan searches cook lengths
+  of 12 to 24 h, so the serve is bounded at 24 h through the coordinates
+  themselves (the pull a logit fraction of now to the bound, the rest a
+  logit fraction of the pull to the bound; `T_SERVE_MAX`); no plan can
+  leave the app's space or overrun the 30-h plan grid;
+- every timing and damper prior is ten sd wide, numerically a prior and
+  nothing else (the spritz dose and cadence keep one log-sd: the app
+  bounds them, and J alone would pour water on);
+- the replan's scan reaches the other basin: after the wrap fraction and
+  the rest, damper shapes (flat 0.3 and 0.5; a push early, middle or
+  late) at the pull horizons a hot cook needs (the warm start's, 8 h,
+  12 h), fifteen more cooks per replan, the best a second start
+  (`scan_damper`).
+The tests grew to 208 in the encode/decode set (the bound holds for any
+coordinates) and all seven sets pass. At the truth from the default
+start the planner now finds J 0.779 (tenderness 0.060, appearance
+0.111, taste 0.513): an early push (knots 0.78 and 0.81 at hours two
+to four of a 13.1-h pull), wrap 6.3 h, serve 17.6 h, bark 34.7,
+juiciness 0.53. From the MPC-like start it now ends at 0.954 (overdone,
+a touch of burn): the local solve still lands where its start sends
+it, thirty iterations of the graph's iterated solve are not the app's
+two hundred, and the scan is what carries it between basins.
+
+**The closed loop with the new planner** (`data/mock/closed_loop_realcook.json`,
+`figures/estimator_closed_loop_realcook.png`): J 0.971 (tenderness
+0.037, appearance 0.078, taste 0.743, burn 0.005, fuel 0.107). The bark
+is in band for the first time, 34.2 (the push: pit 120 °C mean, 138 max,
+the core at 70 °C by 4.9 h), and the meat paid for it: water 0.435,
+juiciness 0.516, the smoke at the band's top again (0.88). The cook:
+wrap 11.6 h at 69.7 °C, pull 17.6 h at 91.5 °C, serve 20.6 h at 77.8 °C;
+21 checks, 16 replans, 2060 s. The first plan, made on the prior, was a
+12.4-h pull with a 4.8-h rest; the first hour's readings raised its
+loss from 0.47 to 13.8 (the prior's brisket is not this one) and the
+plan was remade twice before hour three. The push was executed in
+hours one to four, before the stall, on those early beliefs; the stall
+then ran at 1.8 °C/h from hour ten to fourteen under a 110 °C pit, and
+the wrap came at 11.6 h. The MPC's push is at hours five to eight,
+through the stall, before an 8.1-h wrap. The plan knew its own cook:
+at the last replan it predicted collagen 0.933, water 0.432, bark 33.3,
+serve 77.8 °C against the plant's 0.951, 0.435, 34.2, 77.8.
+
+**The MPC without its oracle** (`app/src/brisket_app/mpc.py`
+`run_cook(theta_model=...)`, `estimator/run_mpc_mock1d.py --model-params`;
+record `data/control/mpc_mock1d_calmodel.json`, trace
+`mpc_mock1d_calmodel_traces_mpc_nominal_trace.json`): the same MPC with
+the calibration's parameters (`map_real.json`) as its model and the
+plant's state, on the plant with the mock's parameters. J 0.761
+(tenderness 0.080, appearance 0.098, taste 0.492, fuel 0.082): wrap
+9.3 h, pull 14.9 h at 86.8 °C, serve 16.0 h, pit 115 °C mean and 169 max,
+collagen 0.918 at serve, juiciness 0.547, bark 34.5, smoke 0.78; 5788 s
+of wall for a 16-h cook. Against the oracle's 0.680 (wrap 8.1 h, pull
+11.7 h, pit 177 max) the truth was worth 0.08 to the MPC, in tenderness
+(the calibration's meat converts faster than the mock's, so it pulled
+late and undershot the band) and juiciness. Port checks: the Julia core
+within 1.37 °C of the Tesseract's over the cook; the app's own
+evaluation of the executed cooks 0.970 (pilot) and 0.646 (oracle MPC)
+against the Julia 0.971 and 0.680 (`estimator/objective_crosscheck.py`).
+
+**The scoreboard** (`figures/estimator_pilot_comparison.png`, one plant,
+one objective):
+
+| | RxInfer pilot | MPC, oracle | MPC, calibration model |
+|---|---|---|---|
+| J | 0.971 | 0.680 | 0.761 |
+| tenderness (collagen at serve) | 0.037 (0.951) | 0.053 (0.932) | 0.080 (0.918) |
+| appearance (bark L*) | 0.078 (34.2) | 0.088 (34.4) | 0.098 (34.5) |
+| taste (smoke, juiciness) | 0.743 (0.88, 0.52) | 0.461 (0.75, 0.56) | 0.492 (0.78, 0.55) |
+| wrap / pull / serve | 11.6 / 17.6 / 20.6 h | 8.1 / 11.7 / 16.0 h | 9.3 / 14.9 / 16.0 h |
+| pit mean, max | 120, 138 °C | 120, 177 °C | 115, 169 °C |
+| what it knows | a 17-latent posterior from readings | the plant's parameters and state | the calibration's parameters, the plant's state |
+
+**What limits the pilot now** (`scratchpad/plan_at_state.jl`: from the
+loop's own mid-cook states, the executed damper and events to then,
+the planner at the posterior mean and the planner at the truth, each
+plan scored at the truth). At hour four (the posterior a median 0.85 sd
+from truth, 2.27 at worst) the belief's plan scores 1.12 at the truth
+and the truth's plan 0.83: what the belief cannot see at hour four
+costs 0.3 in J, most of it a bark of 37.7 that the belief's plan does
+not know it will get. At hour eight the two are 0.98 and 0.94; at hour
+eleven 1.01 and 1.05 (the truth's cold-started solve landing behind the
+loop's own warm-started 0.97). The cook is decided in its first eight
+hours and mostly in its first four, which are flown on the prior: the
+first plan's loss went from 0.47 to 13.8 on the first hour's readings,
+and the push executed in hours one to four, before the stall, spent
+water no later plan gets back. The same check shows the solve's own
+spread: from the same belief at hour four the loop's warm-started
+replan predicted 0.82 and the cold start 1.08. Two builds follow, in
+the roadmap under the first four hours and the solve's depth: the prior
+across cooks, so the first plans are made on this cooker and a typical
+brisket rather than the calibration's one cook; and a plan that hedges
+while the belief is young, a risk-aware J that the burn and safety
+tails do not degenerate. The fair MPC says what the truth itself is
+worth to a controller with the app's optimiser: 0.08.
+
+---
+
 ## One objective: the pilot optimises the app's J (2026-09-09, later)
 
 The question was why there were two objectives. Because I wrote one:

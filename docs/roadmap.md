@@ -131,23 +131,39 @@ Its structure is fixed by three measured RxInfer behaviours
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
   and the calibration artifacts still carry it as the config constant.
-- **The damper's shape.** On the honest bench (the mock's core probe at
-  the calibration's floor, the sparse channels with instrument floors)
-  the estimator is honest (a median of 0.8 sd from truth, two of
-  seventeen latents beyond 2 sd, the misfit check in band) and the plan
-  predicts its cook to a point of L*; the pilot's J is 0.94 to the
-  MPC's 0.68 on one plant, all of it a pale bark and smoke at the band's
-  top (`docs/results.md`, where the overconfidence came from). The MPC
-  avoids the pale bark with a 350 °F push at hours five to eight before
-  an eight-hour wrap; the pilot's damper has three knots across the
-  remaining cook and cannot make that shape (the MPC's plan has
-  twenty-one). More knots, or a push as a decision (start, height,
-  length) like the spritz train; then the posterior back into the plan
-  as a risk-aware J, not a mean over draws.
-- **The prior across cooks.** The pool shares three cooker parameters
-  across cooks and its per-cook meat fits are not saved; save them, and
-  the next cook's prior becomes the cooker's pooled posterior plus the
-  meat's between-cook population, with the ambient an input.
+- **The first four hours.** The planner is now in the app's decision
+  space (a serve bounded at 24 h, priors that are numerically nothing,
+  a scan across the damper's two basins) and the bark comes out in
+  band; the pilot's J is 0.97 to the oracle MPC's 0.68 and 0.76 for the
+  MPC flown with the calibration's parameters, the gap now a drier
+  brisket (`docs/results.md`, the planner's basin). From the loop's own
+  states, the planner at the truth can still reach J 0.83 at hour four
+  but only 0.94 at hour eight and nothing better than the cook flown by
+  hour eleven: the cook is decided in its first eight hours and mostly
+  in its first four, which are flown on the prior (the
+  first plan's loss went from 0.5 to 13.8 on the first hour's readings)
+  and a push executed before the stall cannot be taken back. Two builds
+  follow from it, in this order:
+  - *the prior across cooks*: the pool shares three cooker parameters
+    across cooks and its per-cook meat fits are not saved; save them,
+    and the next cook's prior becomes the cooker's pooled posterior plus
+    the meat's between-cook population, with the ambient an input, so
+    the first plans are made on this cooker and a typical brisket rather
+    than the calibration's one cook;
+  - *a plan that hedges while the belief is young*: the expectation of J
+    over wide draws degenerates on the burn and safety tails, so the
+    plan is made at the posterior mean; a risk-aware J that does not
+    (a trimmed mean, or the tails scored at the mean and the bands over
+    draws) would keep a push out of the first hours until the readings
+    have earned it.
+- **The solve's depth.** The replan's local solve lands where its start
+  sends it (from the same belief at hour four: 0.82 warm-started from
+  the last plan, 1.08 from the prior mean; at the truth from t = 0:
+  0.78 from the default start, 0.95 from an MPC-like one), thirty
+  iterations of the graph's iterated solve against the app's two
+  hundred. Keep the best few scan candidates as starts rather than one,
+  and more iterations when the wall allows; the scan is what carries
+  the solve between basins today.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it
