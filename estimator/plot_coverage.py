@@ -29,7 +29,11 @@ COOK_C, MEAN_C, BAND = "#9aa5b4", "#2a78d6", "#efefec"
 
 
 def main():
-    files = sorted(glob.glob(str(REPO / "data" / "mock" / "coverage_realcook*.json")))
+    import sys
+    pattern = sys.argv[1] if len(sys.argv) > 1 else "coverage_realcook*.json"     # e.g. coverage_ridge*.json
+    key = sys.argv[2] if len(sys.argv) > 2 else "err_sd"                          # err_sd (the Gaussian) or err_sd_ridge
+    tag = sys.argv[3] if len(sys.argv) > 3 else ""                                # suffix of the figure and summary
+    files = sorted(glob.glob(str(REPO / "data" / "mock" / pattern)))
     cooks, names, prior_file, edges = [], None, None, None
     for f in files:
         d = json.loads(Path(f).read_text(encoding="utf-8"))
@@ -44,7 +48,7 @@ def main():
     err = np.full((n, nb, len(names)), np.nan)
     for i, c in enumerate(cooks):
         for j, b in enumerate(c["batches"][:nb]):
-            err[i, j, :] = b["err_sd"]
+            err[i, j, :] = b[key]
     ok = np.isfinite(err).all(axis=(1, 2))
     err = err[ok]; n_ok = int(ok.sum())
 
@@ -64,7 +68,8 @@ def main():
     summary["pooled_last"] = {"mean": float(np.mean(pooled)), "spread": float(np.std(pooled, ddof=1)),
                               "cover1": float(np.mean(np.abs(pooled) <= 1)), "cover2": float(np.mean(np.abs(pooled) <= 2))}
     print(f"{'all sites':12s} {np.mean(pooled):7.2f} {'':>10s} {np.std(pooled, ddof=1):7.2f} {np.mean(np.abs(pooled) <= 1):9.2f} {np.mean(np.abs(pooled) <= 2):9.2f}   (a calibrated posterior: 0, 1, 0.68, 0.95)")
-    (REPO / "data" / "mock" / "coverage_summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    summary["key"] = key
+    (REPO / "data" / "mock" / f"coverage_summary{tag}.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
 
     ncol = 6; nrow = int(np.ceil(len(names) / ncol))
     fig, axes = plt.subplots(nrow, ncol, figsize=(2.6 * ncol, 2.3 * nrow + 0.9), facecolor=SURFACE, sharex=True, sharey=True)
@@ -89,12 +94,13 @@ def main():
     for ax in axes[:, 0]:
         ax.set_ylabel("(estimate − truth) / sd", color=INK2, fontsize=8)
     axes.flat[0].set_ylim(-5, 5)
-    fig.suptitle(f"Coverage of the streaming estimator on the honest bench: {n_ok} cooks with truths drawn from the pilot's prior, "
+    what = "the Gaussian posterior" if key == "err_sd" else "the belief with the ridge chain"
+    fig.suptitle(f"Coverage of {what} on the honest bench: {n_ok} cooks with truths drawn from the pilot's prior, "
                  f"each cook's standardized error (grey), the pooled mean ± 2 standard errors (blue), the ±2 band; "
                  f"pooled at {hours[last]:.0f} h: mean {np.mean(pooled):+.2f}, spread {np.std(pooled, ddof=1):.2f}, within 2 sd {100 * np.mean(np.abs(pooled) <= 2):.0f} %",
                  fontsize=9.5, color=INK, x=0.01, ha="left", wrap=True)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    out = REPO / "figures" / "estimator" / "coverage_realcook.png"
+    out = REPO / "figures" / "estimator" / f"coverage_realcook{tag}.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE)
     print("wrote", out)
 

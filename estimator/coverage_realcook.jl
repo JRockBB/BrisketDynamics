@@ -12,7 +12,9 @@
 # what plot_coverage.py reads: a calibrated posterior has them at mean
 # zero and spread one everywhere.
 #
-# Run:  julia --project=estimator estimator/coverage_realcook.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h]
+# Run:  julia --project=estimator estimator/coverage_realcook.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [ridge_k] [ridge_steps]
+#   ridge_k > 0: after every batch the belief along the k widest posterior directions is sampled on the exact
+#   posterior (ridge.jl) and the corrected mean and sd are recorded beside the Gaussian's (err_sd_ridge)
 #   several workers with different seed0 write different files; plot_coverage.py pools them all.
 # Writes data/mock/<out.json> (coverage_realcook_<seed0>.json by default), after every cook.
 using Pkg
@@ -48,6 +50,8 @@ ev = m["events"]
 events = (t_wrap=Float64(ev["t_wrap"]), t_pull=Float64(ev["t_pull"]), t_add=Float64(ev["t_add"]),
           t_spritz=Float64(ev["t_spritz"]), dt_spritz=Float64(ev["dt_spritz"]), m_spritz=Float64(ev["m_spritz"]))
 edges_to_h = length(ARGS) >= 5 ? parse(Float64, ARGS[5]) : floor(events.t_pull / 3600)
+ridge_k = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 0
+ridge_steps = length(ARGS) >= 7 ? parse(Int, ARGS[7]) : 500
 ph = Physics1D(area_latent=AREA, events=events)
 nc = RealCookNoise()
 
@@ -84,6 +88,7 @@ dst = joinpath(REPO, "data", "mock", out_name)
 save() = open(dst, "w") do io
     JSON.print(io, Dict("plant" => "monolith (1-D) at a truth drawn from the prior, real-cook instruments (2-min grid)", "names" => allnames,
                         "prior_file" => prior_file, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped,
+                        "ridge_k" => ridge_k, "ridge_steps" => ridge_steps,
                         "noise" => Dict(String(k) => getfield(nc, k) for k in fieldnames(RealCookNoise))))
 end
 println("prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; batches to ", edges_to_h, " h; record ", out_name)
@@ -117,12 +122,28 @@ for k in 1:n_cooks
     end
     batches = [Dict("t_h" => r.t / 3600, "z" => r.z, "sd" => r.sd, "err_sd" => (r.z .- z_true) ./ r.sd, "F" => r.F, "iters" => r.iters,
                     "wall_s" => r.wall, "misfit_power" => r.misfit.total.ss / r.misfit.total.n, "misfit_z" => r.misfit.total.z_chi2) for r in recs]
+    if ridge_k > 0
+        for (b, r) in zip(batches, recs)
+            t1 = time()
+            rc = ridge_chain(r.channels, prior, d, ph, r.z, r.cov; k=ridge_k, steps=ridge_steps, rng=MersenneTwister(5000 + seed + 97 * round(Int, b["t_h"])))
+            b["z_ridge"] = rc.z; b["sd_ridge"] = rc.sd; b["err_sd_ridge"] = (rc.z .- z_true) ./ rc.sd
+            b["ridge_accept"] = rc.accept; b["ridge_ess"] = rc.ess; b["ridge_wall_s"] = time() - t1
+            b["ridge_sd_ratio"] = rc.sd ./ r.sd
+        end
+    end
     push!(cooks, Dict("seed" => seed, "z_true" => z_true, "x_true" => x_true, "batches" => batches, "wall_s" => time() - t0,
                       "core_at_pull_C" => clean.core[searchsortedlast(t, events.t_pull)] - 273.15))
     e = (recs[end].z .- z_true) ./ recs[end].sd
     @printf("cook %d (seed %d): core at the pull %.1f C; at %.0f h |err|/sd max %.2f (%s) median %.2f, mean err/sd %+.2f; residual power %.2f; %.0f s\n",
             k, seed, clean.core[searchsortedlast(t, events.t_pull)] - 273.15, recs[end].t / 3600, maximum(abs.(e)), allnames[argmax(abs.(e))],
             sort(abs.(e))[div(end + 1, 2)], sum(e) / length(e), recs[end].misfit.total.ss / recs[end].misfit.total.n, time() - t0)
+    if ridge_k > 0
+        b = batches[end]; er = b["err_sd_ridge"]
+        @printf("    with the ridge chain (k %d, %d steps): |err|/sd max %.2f (%s) median %.2f; sd ratio max %.2f (%s); accept %.2f, ESS %s; %.0f s per batch
+",
+                ridge_k, ridge_steps, maximum(abs.(er)), allnames[argmax(abs.(er))], sort(abs.(er))[div(end + 1, 2)],
+                maximum(b["ridge_sd_ratio"]), allnames[argmax(b["ridge_sd_ratio"])], b["ridge_accept"], join([@sprintf("%.0f", v) for v in b["ridge_ess"]], "/"), b["ridge_wall_s"])
+    end
     flush(stdout)
     save()
 end

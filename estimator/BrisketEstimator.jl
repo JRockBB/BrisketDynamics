@@ -29,6 +29,7 @@ using JSON
 using Printf
 using BrisketDynamics
 
+export ridge_chain
 export GateData, load_gate, from_z, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, logistic
 
@@ -294,5 +295,6 @@ include(joinpath(@__DIR__, "stream.jl"))
 include(joinpath(@__DIR__, "iterated.jl"))
 include(joinpath(@__DIR__, "horizon.jl"))
 include(joinpath(@__DIR__, "realcook.jl"))
+include(joinpath(@__DIR__, "ridge.jl"))
 
 end # module
