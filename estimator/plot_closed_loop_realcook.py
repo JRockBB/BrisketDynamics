@@ -109,7 +109,7 @@ def main():
         hs = [c["t_h"] for c in checks if c["replanned"] and c["reason"] == key]
         if hs:
             ax.plot(hs, [y0] * len(hs), "o", ms=7, color=col, mec=SURFACE, mew=1.0, ls="none", label=f"replanned: {label}")
-    ax.set_ylim(-0.5, max(26.0, float(np.nanmax(pull)) + 1.5))
+    ax.set_ylim(-0.5, max(34.0, float(np.nanmax(pull)) + 9.0))   # headroom for the legend above the committed-pull label
     ax.set_ylabel("hour of cook", color=INK2, fontsize=9)
     n_re = sum(c["replanned"] for c in checks)
     ax.set_title(f"What the pilot decided at each hourly check: {n_re} replans, {len(checks) - n_re} holds", color=INK, fontsize=10.5)

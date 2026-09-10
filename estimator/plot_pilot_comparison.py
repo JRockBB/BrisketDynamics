@@ -1,11 +1,12 @@
-"""Two pilots on the same brisket: the RxInfer receding-horizon pilot
-(posterior draws, noise identified, replans when it should) and the
-app's MPC (state feedback, KCBS quality objective), each cook re-run
-through the same plant (estimator/pilot_comparison_trace.jl). Top: the
-two cooks as they happened, pit and core with the executed events.
-Bottom: the scoreboard, each cook under both objectives.
+"""The pilots on the same brisket under the one objective: the RxInfer
+receding-horizon pilot (a posterior from readings, replans when it
+should) and the app's MPC in the variants compared (the oracle with the
+plant's own parameters and state; the MPC with the calibration's
+parameters as its model), each cook re-run through the same plant
+(estimator/pilot_comparison_trace.jl). Top: the cooks as they happened,
+pit and core with the executed events. Bottom: the scoreboard.
 
-Reads data/mock/pilot_comparison.json, writes
+Reads data/mock/pilot_comparison.json (and pilot_comparison_calmodel.json when present), writes
 figures/estimator_pilot_comparison.png.
 
 Run from app/:  uv run python ../estimator/plot_pilot_comparison.py
@@ -59,66 +60,75 @@ def cook_panel(ax, run, title, t_end):
     ax.set_ylabel("temperature [°C]", color=INK2, fontsize=8.5)
     ax.text(0.01, 0.97, title, color=INK, fontsize=10, va="top", ha="left", transform=ax.transAxes)   # the top-left is empty
     ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor=INK2)
+    return ax
 
 
 def main():
-    d = json.loads((REPO / "data" / "mock" / "pilot_comparison.json").read_text(encoding="utf-8"))
-    rx, mc, g = d["rxinfer"], d["mpc"], d["goals"]
-    mr, mm = rx["metrics"], mc["metrics"]
-    t_end = max(rx["events_h"]["serve"], mc["events_h"]["serve"]) + 0.5
+    # the pilot against each MPC variant compared: the oracle (the plant's own parameters and state) and, when it
+    # exists, the MPC flown with the calibration's parameters as its model (what runs without an estimator)
+    files = [("pilot_comparison.json", "the MPC, an oracle: the plant's parameters and state"),
+             ("pilot_comparison_calmodel.json", "the MPC with the calibration's parameters, the plant's state")]
+    runs = []
+    for name, label in files:
+        f = REPO / "data" / "mock" / name
+        if f.exists():
+            runs.append((json.loads(f.read_text(encoding="utf-8")), label))
+    d = runs[0][0]
+    rx = d["rxinfer"]
+    mpcs = [(r["mpc"], label, r) for r, label in runs]
+    t_end = max([rx["events_h"]["serve"]] + [m["events_h"]["serve"] for m, _, _ in mpcs]) + 0.5
+    n_rows = 1 + len(mpcs)
 
-    fig = plt.figure(figsize=(12.5, 12), facecolor=SURFACE)
-    gs = fig.add_gridspec(3, 1, height_ratios=[1.0, 1.0, 1.15], hspace=0.62, left=0.07, right=0.98, top=0.93, bottom=0.04)
+    fig = plt.figure(figsize=(12.5, 4.6 * n_rows + 4.2), facecolor=SURFACE)
+    gs = fig.add_gridspec(n_rows + 1, 1, height_ratios=[1.0] * n_rows + [1.25], hspace=0.62, left=0.07, right=0.98, top=0.95, bottom=0.03)
+    mr = rx["metrics"]
+    cook_panel(fig.add_subplot(gs[0]), rx, f"The RxInfer pilot: {mr['cook_h']:.1f} h cook, pit {mr['pit_mean_C']:.0f} °C mean, pulled at {mr['T_pull_C']:.0f} °C", t_end)
+    for i, (mc, label, _) in enumerate(mpcs):
+        mm = mc["metrics"]
+        ax = cook_panel(fig.add_subplot(gs[1 + i]), mc, f"{label[0].upper() + label[1:]}: {mm['cook_h']:.1f} h cook, pit {mm['pit_mean_C']:.0f} °C mean (max {mm['pit_max_C']:.0f}), pulled at {mm['T_pull_C']:.0f} °C", t_end)
+    plt.gca().set_xlabel("hour of cook", color=INK2, fontsize=8.5)
 
-    cook_panel(fig.add_subplot(gs[0]),
-               rx, f"The RxInfer pilot: {mr['cook_h']:.1f} h cook, pit {mr['pit_mean_C']:.0f} °C mean, pulled at {mr['T_pull_C']:.0f} °C", t_end)
-    ax = fig.add_subplot(gs[1])
-    cook_panel(ax, mc, f"The MPC: {mm['cook_h']:.1f} h cook, pit {mm['pit_mean_C']:.0f} °C mean (max {mm['pit_max_C']:.0f}), pulled at {mm['T_pull_C']:.0f} °C", t_end)
-    ax.set_xlabel("hour of cook", color=INK2, fontsize=8.5)
-
-    # --- the scoreboard: each cook under both objectives --------------------------------------
-    ax = fig.add_subplot(gs[2])
+    # --- the scoreboard: the one objective, every cook ------------------------------------------
+    ax = fig.add_subplot(gs[n_rows])
     ax.set_facecolor(SURFACE)
     ax.set_axis_off()
     fmt_h = lambda v: "—" if v is None else f"{v:.1f} h"
-    jr, jm = mr["J_terms"], mm["J_terms"]
+    cols = [("RxInfer pilot", mr, d["rxinfer_replans"], d["rxinfer_checks"])] + [(lab.split(",")[0].replace("the ", ""), m["metrics"], None, None) for m, lab, _ in mpcs]
+    def row(name, f):
+        return (name, [f(mx, re, ch) for _, mx, re, ch in cols])
     rows = [
-        ("the objective J (the app's, both cooks through one plant)", None, None, None),
-        ("J, lower is better", "", f"{jr['J']:.3f}", f"{jm['J']:.3f}"),
-        ("tenderness (collagen 0.90 to 0.95 at serve)", f"{mr['doneness_serve']:.3f} / {mm['doneness_serve']:.3f}", f"{jr['tenderness']:.3f}", f"{jm['tenderness']:.3f}"),
-        ("appearance (bark L* 28 to 34)", f"{mr['L_serve']:.1f} / {mm['L_serve']:.1f}", f"{jr['appearance']:.3f}", f"{jm['appearance']:.3f}"),
-        ("taste (smoke 0.55 to 0.90; juiciness)", f"{mr['S_serve']:.2f}, {mr['juiciness_serve']:.2f} / {mm['S_serve']:.2f}, {mm['juiciness_serve']:.2f}", f"{jr['taste']:.3f}", f"{jm['taste']:.3f}"),
-        ("bark burn, fuel, smoothness", "", f"{jr['surf']:.3f}, {jr['fuel']:.3f}, {jr['smooth']:.3f}", f"{jm['surf']:.3f}, {jm['fuel']:.3f}, {jm['smooth']:.3f}"),
-        ("safety (lethality on the surface and the core)", "", f"{jr['safety']:.3f}", f"{jm['safety']:.3f}"),
-        ("the cook", None, None, None),
-        ("wrap / pull / serve", "", f"{fmt_h(mr['wrap_h'])} / {mr['pull_h']:.1f} h / {mr['cook_h']:.1f} h", f"{fmt_h(mm['wrap_h'])} / {mm['pull_h']:.1f} h / {mm['cook_h']:.1f} h"),
-        ("core at the pull / at serve", "", f"{mr['T_pull_C']:.0f} °C / {mr['T_serve_C']:.0f} °C", f"{mm['T_pull_C']:.0f} °C / {mm['T_serve_C']:.0f} °C"),
-        ("core reaches 70 / 80 / 90 °C", "", f"{fmt_h(mr['core_70_h'])} / {fmt_h(mr['core_80_h'])} / {fmt_h(mr['core_90_h'])}",
-         f"{fmt_h(mm['core_70_h'])} / {fmt_h(mm['core_80_h'])} / {fmt_h(mm['core_90_h'])}"),
-        ("pit, mean to the pull / max", "", f"{mr['pit_mean_C']:.0f} °C ({mr['pit_mean_C'] * 9 / 5 + 32:.0f} °F) / {mr['pit_max_C']:.0f} °C",
-         f"{mm['pit_mean_C']:.0f} °C ({mm['pit_mean_C'] * 9 / 5 + 32:.0f} °F) / {mm['pit_max_C']:.0f} °C"),
-        ("water W/W0 at serve", "", f"{mr['W_serve']:.3f}  ({100 * mr['wet_basis_water_serve']:.0f} % wet basis)", f"{mm['W_serve']:.3f}  ({100 * mm['wet_basis_water_serve']:.0f} % wet basis)"),
-        ("what it knows", "", "a 17-latent posterior, noise per channel", "the plant state, an ambient filter"),
-        ("when it replans", "", f"when worth it: {d['rxinfer_replans']} of {d['rxinfer_checks']} hourly checks", "every interval"),
+        ("the objective J (the app's, every cook through one plant)", None),
+        row("J, lower is better", lambda m, *_: f"{m['J_terms']['J']:.3f}"),
+        row("tenderness (collagen 0.90 to 0.95 at serve)", lambda m, *_: f"{m['J_terms']['tenderness']:.3f}  ({m['doneness_serve']:.3f})"),
+        row("appearance (bark L* 28 to 34)", lambda m, *_: f"{m['J_terms']['appearance']:.3f}  ({m['L_serve']:.1f})"),
+        row("taste (smoke 0.55 to 0.90; juiciness)", lambda m, *_: f"{m['J_terms']['taste']:.3f}  ({m['S_serve']:.2f}, {m['juiciness_serve']:.2f})"),
+        row("bark burn, fuel, smoothness", lambda m, *_: f"{m['J_terms']['surf']:.3f}, {m['J_terms']['fuel']:.3f}, {m['J_terms']['smooth']:.3f}"),
+        row("safety", lambda m, *_: f"{m['J_terms']['safety']:.3f}"),
+        ("the cook", None),
+        row("wrap / pull / serve", lambda m, *_: f"{fmt_h(m['wrap_h'])} / {m['pull_h']:.1f} h / {m['cook_h']:.1f} h"),
+        row("core at the pull / at serve", lambda m, *_: f"{m['T_pull_C']:.0f} °C / {m['T_serve_C']:.0f} °C"),
+        row("pit, mean to the pull / max", lambda m, *_: f"{m['pit_mean_C']:.0f} °C ({m['pit_mean_C'] * 9 / 5 + 32:.0f} °F) / {m['pit_max_C']:.0f} °C"),
+        row("water W/W0 at serve", lambda m, *_: f"{m['W_serve']:.3f}  ({100 * m['wet_basis_water_serve']:.0f} %)"),
+        ("what it knows", ["a 17-latent posterior from readings"] + [("the plant's parameters and its state" if "oracle" in lab else "the calibration's parameters, the plant's state") for _, lab, _ in mpcs]),
+        ("when it replans", [f"when worth it: {d['rxinfer_replans']} of {d['rxinfer_checks']} checks"] + ["every hour"] * len(mpcs)),
     ]
-    x_cols = [0.0, 0.40, 0.55, 0.78]
+    n_c = len(cols)
+    x0, x1 = 0.0, 0.36
+    xs = [x1 + i * (1.0 - x1) / n_c for i in range(n_c)]
     y = 1.0
-    ax.text(x_cols[2], y, "RxInfer pilot", color=INK, fontsize=9.5, fontweight="bold", va="top", transform=ax.transAxes)
-    ax.text(x_cols[3], y, "MPC", color=INK, fontsize=9.5, fontweight="bold", va="top", transform=ax.transAxes)
-    ax.text(x_cols[1], y, "read (pilot / MPC)", color=INK, fontsize=9.5, fontweight="bold", va="top", transform=ax.transAxes)
-    y -= 0.085
-    for name, goal, a, b in rows:
-        if goal is None:
-            ax.text(x_cols[0], y, name, color=INK, fontsize=9, fontweight="bold", va="top", transform=ax.transAxes)
-            y -= 0.07
+    for x, (name, _, _, _) in zip(xs, cols):
+        ax.text(x, y, name, color=INK, fontsize=9.5, fontweight="bold", va="top", transform=ax.transAxes)
+    y -= 0.075
+    for name, vals in rows:
+        if vals is None:
+            ax.text(x0, y, name, color=INK, fontsize=9, fontweight="bold", va="top", transform=ax.transAxes)
+            y -= 0.06
             continue
-        ax.text(x_cols[0] + 0.02, y, name, color=INK2, fontsize=8.5, va="top", transform=ax.transAxes)
-        ax.text(x_cols[1], y, goal, color=INK2, fontsize=8.5, va="top", transform=ax.transAxes)
-        ax.text(x_cols[2], y, a, color=INK, fontsize=8.5, va="top", transform=ax.transAxes)
-        ax.text(x_cols[3], y, b, color=INK, fontsize=8.5, va="top", transform=ax.transAxes)
-        y -= 0.065
-    plant = "the same brisket" if d["same_plant"] else "different briskets: the MPC flew " + d["mpc_params_file"]
-    ax.set_title(f"Both cooks under the one objective ({plant}; port check on the MPC's core: {d['port_check_max_core_C']:.1f} °C)",
+        ax.text(x0 + 0.02, y, name, color=INK2, fontsize=8.5, va="top", transform=ax.transAxes)
+        for x, v in zip(xs, vals):
+            ax.text(x, y, v, color=INK, fontsize=8.5, va="top", transform=ax.transAxes)
+        y -= 0.058
+    ax.set_title(f"Every cook under the one objective (one plant; port check on the oracle MPC's core: {d['port_check_max_core_C']:.1f} °C)",
                  color=INK, fontsize=10, loc="left")
 
     out = REPO / "figures" / "estimator_pilot_comparison.png"

@@ -11,7 +11,7 @@
 # events commit: after the pull only the serve time is free.
 
 export plan_loss, ReplanPolicy, replan_due, posterior_kl, stable_events, cook_outputs, objective_terms, executed_du
-export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper,
+export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper, N_KNOTS, resample_knots, T_SERVE_MAX,
        schedule_events, plan_outputs_rh, replan_on_graph, commit!, execute_damper!, PlanGoals
 
 "A smooth one-sided penalty: softplus with width `s`, ≈ max(x, 0) — zero above the floor, linear below."
@@ -56,7 +56,7 @@ function free_set(s::Schedule)
     return FreeSet(!executed, isnan(s.t_wrap) && !executed, !committed, true, s.spritz === nothing && !executed,
                    isnan(s.t_add) && !executed)
 end
-Base.length(f::FreeSet) = 3 * f.damper + f.wrap + f.pull + f.serve + 3 * f.spritz + f.add
+Base.length(f::FreeSet) = N_KNOTS * f.damper + f.wrap + f.pull + f.serve + 3 * f.spritz + f.add
 
 "The executed events as `monolith_solve` keywords (`NEVER` where not executed)."
 function schedule_events(s::Schedule)
@@ -72,7 +72,20 @@ end
 # --- the plan block ------------------------------------------------------------------------
 # ζ, in the free set's order: damper 3 logits | wrap logit f (of now→pull) | pull log h from now |
 #   serve log h after the pull | spritz logit f (of now→pull), log dt h, log m kg | add logit f
-const KNOT_F = [0.0, 1 / 3, 2 / 3]
+# the damper's knots: N_KNOTS across the remaining cook at fractions k/N of now to the pull, piecewise linear,
+# held after the last. Three could not make a push (the MPC's 350 °F for three hours before its wrap); seven can.
+const N_KNOTS = 7
+knot_f(n) = [(k - 1) / n for k in 1:n]
+# the app's decision space: its full plan searches cook lengths of 12 to 24 h (scripts/run_fullplan.py), so the
+# serve is bounded at 24 h here too. The pull is a fraction of now to the bound, the rest a fraction of the pull
+# to the bound: no plan can leave the app's space, and the plan grid (30 h) is never overrun.
+const T_SERVE_MAX = 24 * 3600.0
+"The knot values of a plan resampled onto `n` knots (linear in the fraction), for a warm start from a plan with another count."
+function resample_knots(u, n)
+    length(u) == n && return collect(Float64, u)
+    fu, fn = knot_f(length(u)), knot_f(n)
+    return [(k = searchsortedlast(fu, x); k >= length(fu) ? Float64(u[end]) : u[k] + (u[k + 1] - u[k]) * (x - fu[k]) / (fu[k + 1] - fu[k])) for x in fn]
+end
 lgt(x) = log(x / (1 - x))
 lgs(x) = 1 / (1 + exp(-x))
 
@@ -84,12 +97,19 @@ function plan_prior(f::FreeSet, s::Schedule)
     # every prior is a regulariser for the graph, not a preference: three sd wide in its coordinate. At one
     # logit-sd the wrap prior charged 5.9 units for a wrap at 8.5 h from hour eight, six times any J difference,
     # and the pilot wrapped five hours after the MPC in every run; the damper and the rest had the same story.
-    if f.damper; append!(m, fill(lgt(0.15), 3)); append!(sd, fill(3.0, 3)); end
-    if f.wrap;   push!(m, lgt(0.7));  push!(sd, 3.0); end
-    if f.pull;   push!(m, log(max((12 * 3600 - s.t_now) / 3600, 1.0))); push!(sd, 2.0); end
-    if f.serve;  push!(m, log(1.5));  push!(sd, 1.5); end
-    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [3.0, 1.0, 1.0]); end
-    if f.add;    push!(m, lgt(0.5));  push!(sd, 3.0); end
+    # ... and at three sd it still charged 1.6 half-J units for the MPC's hot cook (a knot at 0.82, an early pull),
+    # twice the J difference it was hiding: the planner sat in the low-and-slow basin at the truth. Ten sd on
+    # every timing and damper coordinate is numerically a prior and nothing else. The spritz dose and cadence
+    # keep one log-sd: the app bounds them, and J alone would pour water on.
+    fp = clamp((12 * 3600 - s.t_now) / (T_SERVE_MAX - s.t_now), 0.02, 0.98)          # a 12-h pull, as a fraction of now to the bound
+    tp = f.pull ? s.t_now + fp * (T_SERVE_MAX - s.t_now) : s.t_pull
+    fr = clamp(1.5 * 3600 / max(T_SERVE_MAX - tp, 600.0), 0.02, 0.98)                 # a 1.5-h rest, as a fraction of the pull to the bound
+    if f.damper; append!(m, fill(lgt(0.15), N_KNOTS)); append!(sd, fill(10.0, N_KNOTS)); end
+    if f.wrap;   push!(m, lgt(0.7));  push!(sd, 10.0); end
+    if f.pull;   push!(m, lgt(fp));   push!(sd, 10.0); end
+    if f.serve;  push!(m, lgt(fr));   push!(sd, 10.0); end
+    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [10.0, 1.0, 1.0]); end
+    if f.add;    push!(m, lgt(0.5));  push!(sd, 10.0); end
     return m, Diagonal(1 ./ sd .^ 2)
 end
 
@@ -97,10 +117,10 @@ end
 function decode_plan(ζ, f::FreeSet, s::Schedule)
     k = 0
     take() = (k += 1; ζ[k])
-    u = f.damper ? [lgs(take()) for _ in 1:3] : fill(isnan(s.u[findlast(!isnan, s.u)]) ? 0.15 : s.u[findlast(!isnan, s.u)], 3)
+    u = f.damper ? [lgs(take()) for _ in 1:N_KNOTS] : fill(isnan(s.u[findlast(!isnan, s.u)]) ? 0.15 : s.u[findlast(!isnan, s.u)], N_KNOTS)
     fw = f.wrap ? lgs(take()) : NaN
-    t_pull = f.pull ? s.t_now + 3600 * exp(take()) : s.t_pull
-    t_serve = f.serve ? t_pull + 3600 * exp(take()) : s.t_serve
+    t_pull = f.pull ? s.t_now + (T_SERVE_MAX - s.t_now) * lgs(take()) : s.t_pull
+    t_serve = f.serve ? t_pull + max(T_SERVE_MAX - t_pull, 0.0) * lgs(take()) : s.t_serve   # the rest cannot cross the bound
     if f.spritz
         fs = lgs(take()); dts = 3600 * exp(take()); ms = exp(take())
         spritz = (t=s.t_now + fs * (t_pull - s.t_now), dt=dts, m=ms)
@@ -117,11 +137,11 @@ end
 function encode_plan(plan, f::FreeSet, s::Schedule)
     clampf(x) = clamp(x, 0.02, 0.98)
     ζ = Float64[]
-    f.damper && append!(ζ, lgt.(clamp.(plan.u, 0.02, 0.98)))
+    f.damper && append!(ζ, lgt.(clamp.(resample_knots(plan.u, N_KNOTS), 0.02, 0.98)))
     rem = max(plan.t_pull - s.t_now, 600.0)
     f.wrap && push!(ζ, lgt(clampf((plan.t_wrap - s.t_now) / rem)))
-    f.pull && push!(ζ, log(rem / 3600))
-    f.serve && push!(ζ, log(max(plan.t_serve - plan.t_pull, 600.0) / 3600))
+    f.pull && push!(ζ, lgt(clampf(rem / (T_SERVE_MAX - s.t_now))))
+    f.serve && push!(ζ, lgt(clampf((plan.t_serve - plan.t_pull) / max(T_SERVE_MAX - plan.t_pull, 600.0))))
     if f.spritz
         sp = plan.spritz === nothing ? (t=s.t_now + 0.3 * rem, dt=3600.0, m=0.05) : plan.spritz
         append!(ζ, [lgt(clampf((sp.t - s.t_now) / rem)), log(sp.dt / 3600), log(sp.m)])
@@ -134,7 +154,8 @@ end
 function plan_damper(plan, s::Schedule)
     Tel = promote_type(eltype(plan.u), typeof(plan.t_pull), Float64)
     u = Vector{Tel}(undef, length(s.t))
-    tk = s.t_now .+ KNOT_F .* (plan.t_pull - s.t_now)
+    nk = length(plan.u)
+    tk = s.t_now .+ knot_f(nk) .* (plan.t_pull - s.t_now)
     for (i, ti) in enumerate(s.t)
         if ti <= s.t_now && !isnan(s.u[i])
             u[i] = s.u[i]
@@ -143,7 +164,7 @@ function plan_damper(plan, s::Schedule)
         elseif ti >= tk[end]
             u[i] = plan.u[end]
         else
-            j = ti <= tk[2] ? 1 : 2
+            j = min(searchsortedlast(tk, ForwardDiff.value(ti)), nk - 1)
             w = (ti - tk[j]) / (tk[j + 1] - tk[j])
             u[i] = (1 - w) * plan.u[j] + w * plan.u[j + 1]
         end
@@ -324,7 +345,8 @@ draw of the four outputs, the tail as a residual like any other), the
 plan prior, the graph iterator; warm-started at `ζ_init` when given.
 """
 function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), ζ_init=nothing,
-                         verbose::Bool=false, iters::Int=30, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0))
+                         verbose::Bool=false, iters::Int=30, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0),
+                         scan_damper::Bool=true)
     f = free_set(s)
     n = length(f)
     mζ, Λζ = plan_prior(f, s)
@@ -332,23 +354,36 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
     # the residual vector of a plan: goals per draw, then the prior
     resid(ζ) = vcat([goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals), goals) for z in zs]..., sqrt(Λζ) * (ζ .- mζ))
     objective(c) = 0.5 * sum(abs2, resid(c))
-    # the objective is multi-modal in the wrap and nearly flat in the rest, and the warm start sits where the
-    # last plan left it: a coarse scan of the wrap fraction (of now to the pull) and the rest length at the
-    # solve's draws, one cook each, picks a second start; the solve runs from both and keeps the better
+    # the objective is multi-modal: in the wrap, in the damper (a low-and-slow cook and a hot-and-fast one are
+    # separate basins, and the solve from the low one never crosses), and nearly flat in the rest; the warm start
+    # sits where the last plan left it. A coarse scan, one cook each, picks a second start: the wrap fraction
+    # (of now to the pull) and the rest length first, then damper shapes (flat levels and a push, early, middle
+    # or late) with pull horizons a hot cook needs; the solve runs from both starts and keeps the better
     starts = [c0]
-    k_wrap = f.wrap ? 3 * f.damper + 1 : 0
-    k_serve = f.serve ? 3 * f.damper + f.wrap + f.pull + 1 : 0
+    k_wrap = f.wrap ? N_KNOTS * f.damper + 1 : 0
+    k_pull = f.pull ? N_KNOTS * f.damper + f.wrap + 1 : 0
+    k_serve = f.serve ? N_KNOTS * f.damper + f.wrap + f.pull + 1 : 0
+    best = (objective(c0), c0)
+    rest_logit(c, h) = lgt(clamp(h * 3600 / max(T_SERVE_MAX - decode_plan(c, f, s).t_pull, 600.0), 0.02, 0.98))
+    try_candidate!(c) = (Fc = try objective(c) catch err; err isa InterruptException ? rethrow() : Inf end; Fc < best[1] && (best = (Fc, c)))
     if k_wrap > 0 || k_serve > 0
-        best = (objective(c0), c0)
         for fw in (k_wrap > 0 ? scan_wrap : (nothing,)), h in (k_serve > 0 ? scan_rest : (nothing,))
             c = copy(c0)
             fw === nothing || (c[k_wrap] = lgt(fw))
-            h === nothing || (c[k_serve] = log(h))
-            Fc = try objective(c) catch err; err isa InterruptException ? rethrow() : Inf end
-            Fc < best[1] && (best = (Fc, c))
+            h === nothing || (c[k_serve] = rest_logit(c, h))
+            try_candidate!(c)
         end
-        maximum(abs.(best[2] .- c0)) > 1e-9 && push!(starts, best[2])
     end
+    if scan_damper && f.damper
+        shapes = ([0.3], [0.5], [0.15, 0.15, 0.5, 0.9, 0.9, 0.3, 0.15], [0.5, 0.9, 0.9, 0.3, 0.15, 0.15, 0.15], [0.15, 0.15, 0.15, 0.4, 0.9, 0.9, 0.5])
+        for sh in shapes, hp in (k_pull > 0 ? (nothing, 8.0, 12.0) : (nothing,))
+            c = copy(best[2])
+            c[1:N_KNOTS] .= lgt.(resample_knots(sh, N_KNOTS))
+            hp === nothing || (c[k_pull] = lgt(clamp(hp * 3600 / (T_SERVE_MAX - s.t_now), 0.02, 0.98)))
+            try_candidate!(c)
+        end
+    end
+    maximum(abs.(best[2] .- c0)) > 1e-9 && push!(starts, best[2])
     # the per-draw affine model of the GOAL RESIDUALS (the hinge included) at c: goal ~ N(res, 1)
     function rebuild!(c)
         RH_AFFS[] = [(goal_residuals(plan_outputs_rh(z, c, f, s, d; goals), goals),

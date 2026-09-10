@@ -1,14 +1,14 @@
 # Two pilots' executed cooks through the same plant: the RxInfer pilot's
 # schedule from data/mock/closed_loop_realcook.json and the app's MPC
 # schedule from an exported trace (estimator/export_mpc_trace.py), each
-# re-run in the Julia monolith at the parameters it was flown on, and
-# scored under both objectives: the pilot's goals (core at the pull,
-# retained water and bark at serve, the floor at serve) and the MPC's
-# quality terms (collagen conversion at the center, juiciness, bark).
-# Also checks the port: the Julia core against the Tesseract's own trace.
+# re-run in the Julia monolith on the plant it was flown on, and scored
+# under the one objective, the app's J (cook_outputs / objective_terms in
+# horizon.jl). Also checks the port: the Julia core against the
+# Tesseract's own trace.
 #
-# Run:  julia --project=estimator estimator/pilot_comparison_trace.jl [mpc_trace.json]
-# Writes data/mock/pilot_comparison.json.
+# Run:  julia --project=estimator estimator/pilot_comparison_trace.jl [mpc_trace.json] [out.json] [label]
+# Writes data/mock/<out.json> (default pilot_comparison.json); one record per MPC variant compared,
+# e.g. pilot_comparison_calmodel.json for the MPC flown with the calibration's parameters.
 using Pkg
 Pkg.activate(@__DIR__)
 include(joinpath(@__DIR__, "BrisketEstimator.jl"))
@@ -18,7 +18,9 @@ using JSON, LinearAlgebra, Printf, Statistics
 const E = BrisketEstimator
 
 REPO = normpath(joinpath(@__DIR__, ".."))
-mpc_file = length(ARGS) >= 1 ? ARGS[1] : "mpc_result_traces_mpc_nominal_trace.json"
+mpc_file = length(ARGS) >= 1 ? ARGS[1] : "mpc_mock1d_traces_mpc_nominal_trace.json"
+out_name = length(ARGS) >= 2 ? ARGS[2] : "pilot_comparison.json"          # one record per MPC variant compared
+mpc_label = length(ARGS) >= 3 ? ARGS[3] : "MPC"
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_1d.json"))
 rec = JSON.parsefile(joinpath(REPO, "data", "mock", "closed_loop_realcook.json"))
 mp = JSON.parsefile(joinpath(REPO, "data", "control", mpc_file))
@@ -89,7 +91,7 @@ es = mp["events_s"]
 ev_mpc = (wrap=ev_or(es["wrap"], NEVER.wrap), pull=ev_or(es["pull"], NEVER.pull), serve=Float64(es["serve"]),
           add=ev_or(es["add"], NEVER.add), spritz=(es["spritz"] === nothing || es["spritz_dose"] === nothing || es["spritz_dose"] <= 0) ? NEVER.spritz : Float64(es["spritz"]),
           dt_spritz=es["dt_spritz"] === nothing ? 3600.0 : Float64(es["dt_spritz"]), m_spritz=es["spritz_dose"] === nothing ? 0.05 : Float64(es["spritz_dose"]))
-mc, o_mpc = cook(x_mpc, cfg.A_meat, u_mpc, ev_mpc; label="MPC (" * mp["variant"] * ")")
+mc, o_mpc = cook(x_mpc, cfg.A_meat, u_mpc, ev_mpc; label=mpc_label * " (" * mp["variant"] * ")")
 # the port check: the Julia core against the Tesseract's own trace at its grid points
 tc_tess = Float64.(mp["tcore_C"])
 tc_julia = [interp(GRID, o_mpc.Tcore .- 273.15, ti) for ti in tm]
@@ -99,9 +101,9 @@ port = maximum(abs.(tc_julia .- tc_tess))
 same_plant = all(abs(x_mpc[i] - x_true[i]) <= 1e-6 * max(1.0, abs(x_true[i])) for i in 1:15)
 println("same plant as the RxInfer pilot: ", same_plant)
 
-dst = joinpath(REPO, "data", "mock", "pilot_comparison.json")
+dst = joinpath(REPO, "data", "mock", out_name)
 open(dst, "w") do io
-    JSON.print(io, Dict("rxinfer" => rx, "mpc" => mc, "mpc_source" => mpc_file, "mpc_variant" => mp["variant"], "mpc_params_file" => mp["params_file"],
+    JSON.print(io, Dict("rxinfer" => rx, "mpc" => mc, "mpc_source" => mpc_file, "mpc_variant" => mp["variant"], "mpc_params_file" => mp["params_file"], "mpc_label" => mpc_label,
                         "same_plant" => same_plant, "port_check_max_core_C" => port, "mpc_tesseract_metrics" => mp["metrics"],
                         "goals" => rec["goals"], "rxinfer_checks" => length(rec["checks"]), "rxinfer_replans" => rec["n_replans"],
                         "rxinfer_wall_s" => sum(c["wall_s"] for c in rec["checks"])))

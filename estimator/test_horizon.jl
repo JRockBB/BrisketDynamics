@@ -16,6 +16,7 @@ using .BrisketEstimator
 using BrisketDynamics
 using ForwardDiff, JSON, LinearAlgebra, Random, Test
 const E = BrisketEstimator
+const knot_f = E.knot_f
 
 @testset "hinge: a one-sided floor" begin
     @test hinge(-10.0) < 1e-4
@@ -31,11 +32,11 @@ rng = MersenneTwister(2)
 @testset "free set, encode/decode, ordering" begin
     s = Schedule(GRID; u0=0.15)
     f = free_set(s)
-    @test f.damper && f.wrap && f.pull && f.serve && f.spritz && f.add && length(f) == 10
+    @test f.damper && f.wrap && f.pull && f.serve && f.spritz && f.add && length(f) == N_KNOTS + 7
     m, Λ = plan_prior(f, s)
-    @test length(m) == 10 && size(Λ) == (10, 10)
+    @test length(m) == N_KNOTS + 7 && size(Λ) == (N_KNOTS + 7, N_KNOTS + 7)
     for trial in 1:50
-        ζ = m .+ 0.5 .* randn(rng, 10)          # inside the encoding's clamp band (fractions in 0.02 to 0.98)
+        ζ = m .+ 0.5 .* randn(rng, N_KNOTS + 7)          # inside the encoding's clamp band (fractions in 0.02 to 0.98)
         p = decode_plan(ζ, f, s)
         @test s.t_now < p.t_wrap < p.t_pull < p.t_serve
         @test s.t_now < p.spritz.t < p.t_pull && s.t_now < p.t_add < p.t_pull
@@ -50,11 +51,16 @@ rng = MersenneTwister(2)
     # a pull committed ahead fixes its own time only: the damper, wrap, spritz and add before it stay decisions
     s2b = Schedule(GRID; u0=0.15); s2b.t_now = 8 * 3600.0; s2b.t_pull = 15.0 * 3600.0
     f2b = free_set(s2b)
-    @test f2b.damper && f2b.wrap && !f2b.pull && f2b.serve && f2b.spritz && f2b.add && length(f2b) == 9
+    @test f2b.damper && f2b.wrap && !f2b.pull && f2b.serve && f2b.spritz && f2b.add && length(f2b) == N_KNOTS + 6
     p2b = decode_plan(plan_prior(f2b, s2b)[1], f2b, s2b)
     @test p2b.t_pull == s2b.t_pull && s2b.t_now < p2b.t_wrap < p2b.t_pull && s2b.t_now < p2b.spritz.t < p2b.t_pull
-    p2 = decode_plan([log(2.0)], f2, s2)
-    @test p2.t_pull == s2.t_pull && abs(p2.t_serve - (s2.t_pull + 2 * 3600)) < 1e-9
+    p2 = decode_plan([E.lgt(2 * 3600 / (T_SERVE_MAX - s2.t_pull))], f2, s2)     # the rest: a fraction of the pull to the bound
+    @test p2.t_pull == s2.t_pull && abs(p2.t_serve - (s2.t_pull + 2 * 3600)) < 1e-6
+    # no plan leaves the app's decision space: the serve stays under the 24-h bound whatever the coordinates
+    for ζ in ([fill(10.0, N_KNOTS); 0.0; 10.0; 10.0; 0.0; 0.0; log(0.05); 0.0], [fill(-10.0, N_KNOTS); 0.0; -10.0; -10.0; 0.0; 0.0; log(0.05); 0.0])
+        p = decode_plan(ζ, f, s)
+        @test s.t_now < p.t_pull < p.t_serve <= T_SERVE_MAX + 1e-9
+    end
 end
 
 @testset "commit: due events execute at their planned time and stay fixed" begin
@@ -89,6 +95,13 @@ end
     k2 = findfirst(GRID .>= 4 * 3600 + (13 - 4) * 3600 / 3)
     @test abs(u[k2] - 0.5) < 0.05
     @test all(u[GRID .>= 13 * 3600] .== 0.2)
+    # a plan with seven knots draws a push: high in the middle knots, low at the ends
+    plan7 = (u=[0.1, 0.1, 0.9, 0.9, 0.1, 0.1, 0.1], t_wrap=NaN, t_pull=11.0 * 3600, t_serve=13 * 3600, spritz=nothing, t_add=NaN)
+    u7 = plan_damper(plan7, s)
+    tk = 4 * 3600 .+ knot_f(7) .* (11 - 4) * 3600
+    @test abs(u7[searchsortedlast(GRID, tk[3])] - 0.9) < 0.05 && abs(u7[searchsortedlast(GRID, tk[6])] - 0.1) < 0.05
+    @test resample_knots([0.1, 0.5, 0.2], 7)[1] == 0.1 && length(resample_knots([0.1, 0.5, 0.2], 7)) == 7
+    @test maximum(abs.(resample_knots(resample_knots([0.1, 0.5, 0.2], 7), 3) .- [0.1, 0.5, 0.2])) < 0.1     # a peak between knots is clipped a little
 end
 
 @testset "the plan physics at the truth, all events on, finite residuals and Jacobian" begin
@@ -106,11 +119,11 @@ end
     f = free_set(s)
     mζ, _ = plan_prior(f, s)
     y = plan_outputs_rh(z, mζ, f, s, d)
-    @test length(y) == 12 && all(isfinite, y)
-    @test 0 <= y[1] <= 1 && 0 < y[2] < 1 && 0 < y[3] < 100 && 273.15 < y[4] < 373.15 && 0 <= y[5] <= 1 && y[7] >= 0 && y[11] > 0 && y[12] > 0
+    @test length(y) == 8 + (N_KNOTS - 1) + 2 && all(isfinite, y)
+    @test 0 <= y[1] <= 1 && 0 < y[2] < 1 && 0 < y[3] < 100 && 273.15 < y[4] < 373.15 && 0 <= y[5] <= 1 && y[7] >= 0 && y[end - 1] > 0 && y[end] > 0
     g = PlanGoals()
     r = E.goal_residuals(y, g)
-    @test all(isfinite, r) && all(r .>= 0) && length(r) == 13
+    @test all(isfinite, r) && all(r .>= 0) && length(r) == 9 + (N_KNOTS - 1) + 2
     # the app's objective, term for term: a good cook scores under one; the terms read as the app's
     y0 = [0.93, 0.48, 31.0, 273.15 + 75, 0.7, 0.55, 0.0, 0.3, 0.0, 0.0, 1e5, 1e5]
     T = objective_terms(y0, g)
@@ -126,13 +139,13 @@ end
     @test objective_terms(vcat(y0[1:10], 10.0, 10.0), g).safety > 1000                   # ten seconds of lethality: the curve bites
     @test all(isfinite, ForwardDiff.gradient(v -> sum(abs2, E.goal_residuals(v, g)), y0))
     Jr = ForwardDiff.jacobian(v -> E.goal_residuals(plan_outputs_rh(z, v, f, s, d), g), mζ)
-    @test size(Jr) == (13, 10) && all(isfinite, Jr)
+    @test size(Jr) == (9 + (N_KNOTS - 1) + 2, N_KNOTS + 7) && all(isfinite, Jr)
     @test any(abs.(Jr) .> 0)                # the objective answers to the plan
     # the replan's rest starts: never worse than the warm start alone, from a state with the pull committed
     s6 = Schedule(GRID; u0=0.15); s6.t_now = 13 * 3600.0; s6.u[GRID .<= s6.t_now] .= 0.3
     s6.t_wrap = 11.0 * 3600; s6.t_pull = 14.0 * 3600; s6.t_add = 10.0 * 3600
     zz = vcat(z, log(0.03))
-    r1 = replan_on_graph([zz], s6, d; iters=6, scan_wrap=(), scan_rest=())
+    r1 = replan_on_graph([zz], s6, d; iters=6, scan_wrap=(), scan_rest=(), scan_damper=false)
     r3 = replan_on_graph([zz], s6, d; iters=6)
     @test r1.n_starts == 1 && r3.n_starts <= 2 && r3.F <= r1.F + 1e-9
     # the executed damper's smoothness term: hourly means to the pull

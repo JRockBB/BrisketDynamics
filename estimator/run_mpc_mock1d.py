@@ -39,6 +39,7 @@ def main():
     ap.add_argument("--tpit0-K", type=float, default=293.15)
     ap.add_argument("--t0-meat-K", type=float, default=281.15)
     ap.add_argument("--replan-iters", type=int, default=200)
+    ap.add_argument("--model-params", default=None, help="the controller's parameter file (default: the plant's, an oracle)")
     ap.add_argument("--out", default="mpc_mock1d.json")
     args = ap.parse_args()
 
@@ -51,6 +52,11 @@ def main():
     m = json.loads((REPO / "data" / "calibration" / args.params).read_text())
     theta = np.array([m[n] for n, _ in THETA_SITES])
     phi = phi_full(m)
+    if args.model_params:
+        mm = json.loads((REPO / "data" / "calibration" / args.model_params).read_text())
+        theta_model, phi_model = np.array([mm[n] for n, _ in THETA_SITES]), phi_full(mm)
+    else:
+        theta_model, phi_model = None, None
     mpc.set_clients(monolith_client())
     b = json.loads((REPO / "data" / "control" / args.plan).read_text())
     T_F = float(b["best_t_f_h"]) * HR
@@ -70,6 +76,7 @@ def main():
         t_wrap_init_abs=t_wrap_star, u_incumbent=u0_plan, u_incumbent_grids=grids0, replan_iters=args.replan_iters,
         t_pull_init_abs=T_PULL, t_add_init_abs=T_ADD, t_spritz_init_abs=T_SPRITZ, dt_spritz_init=DT_SPRITZ,
         spritz_dose_init=SPRITZ_DOSE, t_salt=args.t_salt_h * HR, tpit0=args.tpit0_K, t0_meat=args.t0_meat_K,
+        theta_model=theta_model, phi_model=phi_model,
     )
     wall = time.time() - t0
     tag = "mpc_nominal"
@@ -84,7 +91,7 @@ def main():
     stem = Path(args.out).stem
     tpath = REPO / "data" / "control" / f"{stem}_traces.npz"
     np.savez(tpath, **payload)
-    summary = {"params": args.params, "plan": args.plan, "cook_h": T_F / HR, "wall_s": wall,
+    summary = {"params": args.params, "model_params": args.model_params, "plan": args.plan, "cook_h": T_F / HR, "wall_s": wall,
                "t_wrap_exec_h": None if r.get("t_wrap_exec_abs") is None else float(r["t_wrap_exec_abs"]) / HR,
                "t_pull_exec_h": None if r.get("t_pull_exec_abs") is None else float(r["t_pull_exec_abs"]) / HR,
                "doneness": float(r["doneness"]), "juiciness": float(r["juiciness"]), "l_star_end": float(r["l_star_end"]),

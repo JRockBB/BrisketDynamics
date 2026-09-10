@@ -443,6 +443,7 @@ def run_cook(
     t_salt: float = 0.0,
     tpit0: float = 293.15,
     t0_meat: float = 281.15,
+    theta_model=None,
 ):
     """Simulate a full cook under MPC or open-loop control.
 
@@ -481,6 +482,7 @@ def run_cook(
     """
     cc = cc or ControlConfig()
     phi_model = phi_plant if phi_model is None else phi_model
+    theta_model = theta if theta_model is None else theta_model   # the controller's meat; the plant keeps theta
     state = CookState.fresh(tpit0=tpit0, t0_meat=t0_meat)
     m0_start = state.m0
     traj = {k: [] for k in ("t", "tpit", "tcore", "tsurf", "u")}
@@ -619,7 +621,7 @@ def run_cook(
             fm = float(np.clip(fm, 1e-3, 1 - 1e-3))
             zm0 = float(np.log(fm / (1 - fm)))
             u_plan, plan_grids, hist = plan(
-                theta,
+                theta_model,
                 phi_model,
                 state,
                 t_remaining,
@@ -782,7 +784,7 @@ def run_cook(
                 t_end=dt_seg, dt_exchange=min(600.0, dt_seg / 2), n_u=len(u_seg)
             )
             pred = coupled_cook(
-                jnp.asarray(theta),
+                jnp.asarray(theta_model),
                 jnp.asarray(_with_a0(phi_model, state_before.a0)),
                 jnp.asarray(u_seg),
                 _CLIENTS,
