@@ -8,9 +8,9 @@ split-r-hat / ESS per site plus the sd(z) of NUTS against the Fisher
 (gn_map_real.json), the Laplace (laplace_samples_real.npz) and the TMB
 nested-ignition posteriors on the same unconstrained coordinates.
 
-Writes figures/corner_nuts_real.png, figures/posterior_predictive_nuts_real.png
+Writes figures/calibration/corner_nuts_real.png, figures/calibration/posterior_predictive_nuts_real.png
 (the reference posterior gets the same two figures as the approximations) and
-figures/posterior_widths.png, the width comparison the table above prints.
+figures/calibration/posterior_widths.png, the width comparison the table above prints.
 """
 
 import argparse
@@ -39,8 +39,8 @@ def _figures(merged: dict, cols: dict):
         posterior_width_plot,
     )
 
-    posterior_width_plot(cols, REPO / "figures" / "posterior_widths.png")
-    print("wrote figures/posterior_widths.png")
+    posterior_width_plot(cols, REPO / "figures" / "calibration" / "posterior_widths.png")
+    print("wrote figures/calibration/posterior_widths.png")
 
     corner_names = (
         [k for k, _ in calibrate.THETA_SITES]
@@ -48,8 +48,8 @@ def _figures(merged: dict, cols: dict):
         + [k for k, _ in calibrate.PHI_SITES_IGNITION]
         + [k for k, _ in calibrate.RHO_SITES]
     )
-    corner_plot(merged, REPO / "figures" / "corner_nuts_real.png", names=corner_names)
-    print("wrote figures/corner_nuts_real.png")
+    corner_plot(merged, REPO / "figures" / "calibration" / "corner_nuts_real.png", names=corner_names)
+    print("wrote figures/calibration/corner_nuts_real.png")
 
     log = cooklog.load(dt_min=10.0)
     tx = monolith_client()
@@ -63,7 +63,7 @@ def _figures(merged: dict, cols: dict):
         {"u_knots": log["u"], "obs_pit": log["obs_pit"], "obs_core": log["obs_core"]},
         tx,
         grids,
-        REPO / "figures" / "posterior_predictive_nuts_real.png",
+        REPO / "figures" / "calibration" / "posterior_predictive_nuts_real.png",
         ics={
             "tpit0": log["meta"]["tpit0_K"],
             "t_amb": 300.0,
@@ -71,7 +71,7 @@ def _figures(merged: dict, cols: dict):
         },
         masks={"pit": log["mask_pit"], "core": log["mask_core"]},
     )
-    print("wrote figures/posterior_predictive_nuts_real.png")
+    print("wrote figures/calibration/posterior_predictive_nuts_real.png")
 
 
 def sd_z(samples: dict) -> dict:

@@ -28,7 +28,7 @@ sample; all non-Mache logs borrow the Mache MAP's AR(1) noise scales (same
 digitization process).
 
 Run from app/:  uv run python -u ../scripts/run_pool_real.py [--set keg]
-Writes data/calibration/pool_<set>.json and figures/pool_<set>.png
+Writes data/calibration/pool_<set>.json and figures/calibration/pool_<set>.png
 (the default set keeps its original pool_real.* names).
 """
 
@@ -301,9 +301,9 @@ def _figure(fits: dict, log_names, spec, repo: Path):
             ax.legend(fontsize=8)
     fig.suptitle(spec["title"], y=0.995)
     fig.tight_layout()
-    fig.savefig(repo / "figures" / f"{spec['stem']}.png", dpi=140)
+    fig.savefig(repo / "figures" / "calibration" / f"{spec['stem']}.png", dpi=140)
     plt.close(fig)
-    print(f"wrote figures/{spec['stem']}.png")
+    print(f"wrote figures/calibration/{spec['stem']}.png")
 
 
 if __name__ == "__main__":

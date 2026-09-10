@@ -16,7 +16,7 @@ Run from app/:
     uv run python -u ../scripts/run_mpc.py
     uv run python -u ../scripts/run_mpc.py --replot --out mpc_result_vi.json --figure mpc_demo_vi.png
 
-Writes figures/mpc_demo.png, data/control/mpc_result.json, and
+Writes figures/control/mpc_demo.png, data/control/mpc_result.json, and
 data/control/mpc_result_traces.npz (time series + wrap + J so the figure
 can be redrawn without another cook).
 """
@@ -356,7 +356,7 @@ def main():
     through the t = 2 h ambient drop, and MPC (with and without the front)
     re-planning schedule + wrap + pull hourly from measured state. Prints
     the quality at serve of each, writes data/control/mpc_result.json, and
-    renders figures/mpc_demo.png.
+    renders figures/control/mpc_demo.png.
     """
     wrap_mode = True  # the assessed plan wraps; the demo is wrap-aware
 
@@ -401,7 +401,7 @@ def main():
             ol,
             mp0,
             mp,
-            REPO / "figures" / args.figure,
+            REPO / "figures" / "control" / args.figure,
             t_dist_h=meta["t_dist_h"],
             wrap_mode=meta["wrap_mode"],
         )
@@ -673,11 +673,11 @@ def main():
         ol,
         mp0,
         mp,
-        REPO / "figures" / args.figure,
+        REPO / "figures" / "control" / args.figure,
         t_dist_h=T_DIST / HR,
         wrap_mode=wrap_mode,
     )
-    print(f"wrote figures/{args.figure}")
+    print(f"wrote figures/control/{args.figure}")
     print(
         f"replot: uv run python -u ../scripts/run_mpc.py --replot "
         f"--out {args.out} --figure {args.figure}"

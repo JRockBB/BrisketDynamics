@@ -1,7 +1,7 @@
 """Mathematical composition diagram: the coupled differential equations.
 
 Run from app/:  uv run python -u ../scripts/render_math_diagram.py
-Writes figures/math_diagram.png — the companion to composition_diagram.png
+Writes figures/model/math_diagram.png — the companion to composition_diagram.png
 showing WHAT is being solved rather than how it is packaged: each
 component's equations in a box, with the exchanged signals as arrows.
 Full derivations and constants: docs/model.md.
@@ -269,6 +269,6 @@ fig.suptitle(
     y=0.985,
 )
 fig.tight_layout(rect=(0, 0, 1, 0.965))
-out = REPO / "figures" / "math_diagram.png"
+out = REPO / "figures" / "model" / "math_diagram.png"
 fig.savefig(out, dpi=150)
 print(f"wrote {out}")

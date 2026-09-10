@@ -1,6 +1,6 @@
 # The model, mathematically
 
-![The coupled equations](../figures/math_diagram.png)
+![The coupled equations](../figures/model/math_diagram.png)
 
 Every equation the code integrates, in one place, in the same notation as
 the diagram above. Calibrated latents are marked **θ** (meat) or **φ**

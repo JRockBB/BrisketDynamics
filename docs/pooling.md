@@ -65,7 +65,7 @@ behaves: D_eff within 7 %, k_e within 7 % (0.51 vs 0.54 ×10⁻³),
 a_myosin/L/m_conv close — across two smokers and a 44 K ambient spread.
 The spread sits where the known confounds live: h_c/k_m on the draft
 ridge between different rigs, k_mult absorbing phillip's mid-cook slice
-start. (`figures/pool_real.png`)
+start. (`figures/calibration/pool_real.png`)
 
 ## Tier 2 — one smoker, three cooks (`--set keg`)
 
@@ -81,7 +81,7 @@ settings, including a documented mid-cook vent change). Caveat: the
 pooled point estimates are ridge-coupled (C_th/UA trade off; a joint
 precision-weighted mean with prior-dedup can land outside the
 per-coordinate hull) — the cross-cook AGREEMENT is the meaningful
-validation, not the pooled point. (`figures/pool_keg.png`)
+validation, not the pooled point. (`figures/calibration/pool_keg.png`)
 
 ## Tier 3 — one model, two units (`--set wsm`)
 
@@ -97,7 +97,7 @@ hierarchy — the new tier), everything else per-cook.
 
 The UA spread is exactly what partial pooling is for, and it sharpens
 the case for the water-pan designed experiment (roadmap item 4).
-(`figures/pool_wsm.png`)
+(`figures/calibration/pool_wsm.png`)
 
 ## What transfers, and what does not
 

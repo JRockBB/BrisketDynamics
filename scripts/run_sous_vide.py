@@ -19,7 +19,7 @@ padding, ~+15% and ~+35%); the slab column matches it, and us, to ~1%.
 
 Run from app/:  uv run python -u ../scripts/run_sous_vide.py
 Writes data/validation/sous_vide_baldwin.json and
-figures/sous_vide_baldwin.png.
+figures/validation/sous_vide_baldwin.png.
 """
 
 import json
@@ -223,9 +223,9 @@ def _figure(payload: dict, repo: Path):
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(repo / "figures" / "sous_vide_baldwin.png", dpi=140)
+    fig.savefig(repo / "figures" / "validation" / "sous_vide_baldwin.png", dpi=140)
     plt.close(fig)
-    print("wrote figures/sous_vide_baldwin.png")
+    print("wrote figures/validation/sous_vide_baldwin.png")
 
 
 if __name__ == "__main__":

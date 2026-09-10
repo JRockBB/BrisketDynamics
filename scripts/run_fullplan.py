@@ -8,7 +8,7 @@ color L*, bark-burn surface constraint, fuel — scored at serve. The rest is
 what follows the pull inside the cook.
 
 Run from app/:  uv run python -u ../scripts/run_fullplan.py
-Writes figures/fullplan.png + data/control/fullplan_result.json.
+Writes figures/control/fullplan.png + data/control/fullplan_result.json.
 ``--replot`` redraws the figure from the saved json (one forward solve).
 """
 
@@ -81,7 +81,7 @@ def main():
 
     Runs ``plan_duration`` over the requested hours at ``--params``, picks
     the best cook with ``optimal_duration``, and writes
-    data/control/fullplan_result{tag}.json plus figures/fullplan{tag}.png:
+    data/control/fullplan_result{tag}.json plus figures/control/fullplan{tag}.png:
     the quality objective versus cook length (each point annotated with its
     own wrap moment) and the chosen cook's core/surface trajectories with
     the wrap and pull marked, through the rest to serve.
@@ -374,8 +374,8 @@ def main():
         y=1.0,
     )
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / fig_name, dpi=140, bbox_inches="tight")
-    print(f"wrote figures/{fig_name}")
+    fig.savefig(REPO / "figures" / "control" / fig_name, dpi=140, bbox_inches="tight")
+    print(f"wrote figures/control/{fig_name}")
 
 
 if __name__ == "__main__":

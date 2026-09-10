@@ -1,4 +1,4 @@
-"""Bark model forward validation (figures/bark_model.png).
+"""Bark model forward validation (figures/model/bark_model.png).
 
 Three cook styles through the full coupled pipeline at the MAP-real
 smoker — low-and-slow, hot-and-fast, and low-and-slow with a 5 h wrap —
@@ -7,7 +7,7 @@ forcing is the pit's own burn rate (mdot), so this figure is a product of
 the coupled solve.
 
 Run from app/:  uv run python -u ../scripts/run_bark.py
-Writes figures/bark_model.png + data/control/bark_forward.json.
+Writes figures/model/bark_model.png + data/control/bark_forward.json.
 """
 
 import json
@@ -71,7 +71,7 @@ def main():
     Simulates low-and-slow, hot-and-fast, and low-and-slow with a 5 h wrap
     at the MAP-real smoker, prints and saves the final bark states and mean
     pit temperature per style (data/control/bark_forward.json), and writes
-    figures/bark_model.png: three panels of predicted surface lightness L*,
+    figures/model/bark_model.png: three panels of predicted surface lightness L*,
     Maillard browning state B, and smoke-deposition state S versus time,
     with the wrap moment marked.
     """
@@ -144,8 +144,8 @@ def main():
         y=1.0,
     )
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / "bark_model.png", dpi=140, bbox_inches="tight")
-    print("wrote figures/bark_model.png")
+    fig.savefig(REPO / "figures" / "model" / "bark_model.png", dpi=140, bbox_inches="tight")
+    print("wrote figures/model/bark_model.png")
 
 
 if __name__ == "__main__":

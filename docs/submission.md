@@ -64,10 +64,10 @@ found and fixed in the Julia↔JAX threading, the model's deficiencies
 documented in the repo.
 
 **Key artifacts:** `docs/writeup.md` (six-criteria writeup) ·
-`docs/monolith.md` (the seam, measured) · `figures/cooklog_fit_map.png` ·
-`figures/corner_laplace_real.png` · `figures/fullplan.png` ·
-`figures/mpc_demo.png` · `figures/control_robust.png` ·
-`figures/bark_model.png` · `docs/verification.md`
+`docs/monolith.md` (the seam, measured) · `figures/calibration/cooklog_fit_map.png` ·
+`figures/calibration/corner_laplace_real.png` · `figures/control/fullplan.png` ·
+`figures/control/mpc_demo.png` · `figures/control/control_robust.png` ·
+`figures/model/bark_model.png` · `docs/verification.md`
 
 ---
 
@@ -101,7 +101,7 @@ Repo: https://github.com/JRock95/BrisketDynamics
 #TesseractHackathon #DifferentiableProgramming #JuliaLang #JAX
 #BayesianInference #BBQ
 
-[Attach: figures/mpc_demo.png]
+[Attach: figures/control/mpc_demo.png]
 [Tag: Pasteur Labs & ISI; Tesseract]
 
 ---

@@ -5,7 +5,7 @@ measured fan schedule.
 
 Run from app/:  uv run python -u ../scripts/render_animation.py [--stride N]
 
-Writes figures/cook_animation.gif (and .mp4 if ffmpeg is available).
+Writes figures/model/cook_animation.gif (and .mp4 if ffmpeg is available).
 Visualization only — calls the Julia solvers directly (full fields are not
 Tesseract outputs; no gradients are involved).
 """
@@ -31,7 +31,7 @@ def main():
     un-rendered-fat profiles, and the pit/core/surface time series with the
     observed core data, a moving time cursor, and a status line (doneness,
     water retained, fat rendered, stall flag). Writes
-    figures/cook_animation.gif at ``--fps`` frames/s, one frame per
+    figures/model/cook_animation.gif at ``--fps`` frames/s, one frame per
     ``--stride`` time-grid points.
     """
     ap = argparse.ArgumentParser()
@@ -204,7 +204,7 @@ def main():
         return lnT, lnW, lnF, cursor, txt
 
     anim = FuncAnimation(fig, update, frames=frames, blit=False)
-    out = REPO / "figures" / "cook_animation.gif"
+    out = REPO / "figures" / "model" / "cook_animation.gif"
     anim.save(out, writer=PillowWriter(fps=args.fps), dpi=90)
     print(f"wrote {out} ({len(list(frames))} frames)")
 

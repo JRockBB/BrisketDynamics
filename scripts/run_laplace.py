@@ -12,7 +12,7 @@ ADVI output, so every downstream consumer reads them unchanged.
 Run from app/:  uv run python -u ../scripts/run_laplace.py
 Writes data/calibration/laplace_samples_real.npz, laplace_mean_real.json,
 laplace_hess_real.npz (H, z0; sorted-site order),
-figures/corner_laplace_real.png, figures/posterior_predictive_laplace_real.png.
+figures/calibration/corner_laplace_real.png, figures/calibration/posterior_predictive_laplace_real.png.
 """
 
 import argparse
@@ -158,19 +158,19 @@ def main():
         + [k for k, _ in calibrate.RHO_SITES]
     )
     corner_plot(
-        stacked, REPO / "figures" / "corner_laplace_real.png", names=corner_names
+        stacked, REPO / "figures" / "calibration" / "corner_laplace_real.png", names=corner_names
     )
     posterior_predictive_plot(
         stacked,
         pp_data,
         tx,
         grids,
-        REPO / "figures" / "posterior_predictive_laplace_real.png",
+        REPO / "figures" / "calibration" / "posterior_predictive_laplace_real.png",
         ics=ics,
         masks={"pit": log["mask_pit"], "core": log["mask_core"]},
     )
     print(
-        "wrote figures/corner_laplace_real.png, figures/posterior_predictive_laplace_real.png"
+        "wrote figures/calibration/corner_laplace_real.png, figures/calibration/posterior_predictive_laplace_real.png"
     )
 
 

@@ -9,7 +9,7 @@ the plant's actual outcome at the end. Bottom: the posterior widths of
 the thickness, the surface transfer and the area, and the misfit z.
 
 Run from app/:  uv run python ../estimator/plot_closed_loop.py
-Reads data/mock/closed_loop.json, writes figures/estimator_closed_loop.png.
+Reads data/mock/closed_loop.json, writes figures/estimator/closed_loop.png.
 """
 
 import json
@@ -122,7 +122,7 @@ def main():
     ax.set_ylim(-6, 6)
     ax.set_ylabel("misfit check, total χ² z", color=INK2, fontsize=8)
     ax.set_xlabel("replan at hour", color=INK2, fontsize=8)
-    out = REPO / "figures" / "estimator_closed_loop.png"
+    out = REPO / "figures" / "estimator" / "closed_loop.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     print("wrote", out)

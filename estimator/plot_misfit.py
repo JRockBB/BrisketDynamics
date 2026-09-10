@@ -8,11 +8,11 @@ a right model with right noise lives.
 
 Run from app/:  uv run python ../estimator/plot_misfit.py
 Reads data/mock/mock_1d_misfit.json and mock_2d_misfit.json,
-writes figures/estimator_misfit.png. With arguments,
+writes figures/estimator/misfit.png. With arguments,
   plot_misfit.py OUT A.json "label A" B.json "label B"
 draws the same figure from two records that may be post-hoc misfit
 files or stream records with the check embedded per batch, to
-figures/OUT.png.
+figures/estimator/OUT.png.
 """
 
 import json
@@ -98,7 +98,7 @@ def main(out="estimator_misfit", files=None, labels=None):
                labelcolor=INK2)
     fig.suptitle("The misfit check at every hourly refit: what a refit reports next to its posterior",
                  color=INK, fontsize=10.5)
-    out = REPO / "figures" / (out + ".png")
+    out = REPO / "figures" / "estimator" / (out + ".png")
     fig.savefig(out, dpi=150, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     print("wrote", out)

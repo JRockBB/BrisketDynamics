@@ -24,7 +24,7 @@ measures).
 
 Run from app/:  uv run python -u ../scripts/run_oven_roast.py
 Writes data/validation/oven_roast_cet2015.json and
-figures/oven_roast_cet2015.png.
+figures/validation/oven_roast_cet2015.png.
 """
 
 import json
@@ -211,8 +211,8 @@ def _figure(cases, primary):
         y=0.99,
     )
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / "oven_roast_cet2015.png", dpi=140)
-    print("wrote figures/oven_roast_cet2015.png")
+    fig.savefig(REPO / "figures" / "validation" / "oven_roast_cet2015.png", dpi=140)
+    print("wrote figures/validation/oven_roast_cet2015.png")
 
 
 if __name__ == "__main__":

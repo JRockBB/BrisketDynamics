@@ -17,7 +17,7 @@ This document follows the six judging criteria in order.
 
 ## 1. Composition across a real boundary
 
-![Composition](../figures/composition_diagram.png)
+![Composition](../figures/model/composition_diagram.png)
 
 **Where the boundary is.** `brisket-monolith` is one Tesseract around the whole
 physics: the lumped charcoal pit (energy balance, fuel burn with a smooth
@@ -89,7 +89,7 @@ there. The tests are written to know that.
 
 ## 2. Derivatives doing real work
 
-**Calibration on a real cook** (`figures/cooklog_fit_map.png`): a 19-hour
+**Calibration on a real cook** (`figures/calibration/cooklog_fit_map.png`): a 19-hour
 brisket cook digitized from a 2013 Virtual Weber Bulletin Board post (18.5″
 WSM, HeaterMeter controller; provenance and uncertainty budget in
 `data/cook_log/PROVENANCE.md`). The measured blower duty replays as the
@@ -136,9 +136,9 @@ stall break, the climb to 90 °C (core rms 3.0 K).
   ~10–20 % on 13 of 15 physics sites — the curvature statement holds — with
   the heavy-tailed exceptions the quadratic approximations cannot carry
   (k_spread 1.14 in z against ~0.6, a0 0.74 against the Laplace's 0.47).
-  The corner (`figures/corner_nuts_real.png`) shows both pit ridges
+  The corner (`figures/calibration/corner_nuts_real.png`) shows both pit ridges
   directly, and the predictive band
-  (`figures/posterior_predictive_nuts_real.png`) brackets the pit trace and
+  (`figures/calibration/posterior_predictive_nuts_real.png`) brackets the pit trace and
   the core arc with the same early-core bias the MAP fit has.
 - **The cheap posterior, chosen by measurement.** Eighteen approximation
   variants (Laplace, profile and TMB/INLA nested-Laplace grids, structured
@@ -146,7 +146,7 @@ stall break, the climb to 90 °C (core rms 3.0 K).
   were scored against the NUTS reference by per-site 1-Wasserstein
   distance in unconstrained coordinates
   (`scripts/compare_approx.py` → `data/calibration/approx_summary.md`,
-  `figures/posterior_widths.png`). The winner, and the supported chain, is
+  `figures/calibration/posterior_widths.png`). The winner, and the supported chain, is
   Gauss–Newton Laplace plus a TMB/INLA nested-Laplace marginal on the two
   heavy-tailed ignition coordinates — an 11×11 grid with a converged inner
   Newton and the ½ log det correction, ~51 min — which matches NUTS to
@@ -162,7 +162,7 @@ stall break, the climb to 90 °C (core rms 3.0 K).
   draw ρ > 0.95 into an undefined log-prob was found and fixed with
   `domain=`).
 
-**The plan** (`figures/fullplan.png`): the perfect brisket picks its own
+**The plan** (`figures/control/fullplan.png`): the perfect brisket picks its own
 length. An outer scan over cook lengths (start to serve, 8–20 h), and inside
 each the damper schedule, the Texas-crutch wrap time and the pull time are
 optimized jointly against a KCBS-weighted quality objective — appearance 0.14
@@ -193,19 +193,19 @@ the solve, horizon-stretching terms included) lets
 schedule jointly by gradient — J 1.0618 at 10.84 h in 5 minutes, below the
 13-point scan's grid minimum (1.0664) and shorter than its 11 h choice,
 because the continuous t_f lands between grid points
-(`figures/duration_opt.png`). The scan keeps the scout's job: its
+(`figures/control/duration_opt.png`). The scan keeps the scout's job: its
 duration-to-duration warm-start chain finds the schedule basin the gradient
 run polishes, and its curve is the landscape the one-point optimum cannot
 show. The serving deadline then positions the *start*, not the cook:
 extending the fractional plan is a one-parameter family in t_f, and the
 planned duration is the shortest whose empirical done-fraction over 30
 posterior draws clears 0.9 (`scripts/run_start_time.py`,
-`figures/start_time.png`) — light the fire (planned duration) before
+`figures/control/start_time.png`) — light the fire (planned duration) before
 serving, one-sided because the resting hold makes finishing early nearly
 free. On this posterior the stretch margin prices the
 robust-control result from the other side, and the pair is measured
 apples-to-apples — same 10.84 h basis, same posterior draws, same cook
-conditions (`figures/start_time_compare.png`): stretching the nominal plan
+conditions (`figures/control/start_time_compare.png`): stretching the nominal plan
 to P(done) ≥ 0.9 costs 15.44 h planned against the 10.84 h optimum (P at
 t* is only 0.60 — the knife edge again), while re-hedging the schedule at
 that same optimum (E[J] over 8 posterior draws, `--plan robust`) reaches
@@ -213,7 +213,7 @@ the target at t* exactly — **zero deadline margin against 4.6 h**. Hedge
 the schedule; the stretch then buys nothing the hedge has not already
 bought.
 
-**Receding-horizon MPC** (`figures/mpc_demo.png`): the calibrated smoker
+**Receding-horizon MPC** (`figures/control/mpc_demo.png`): the calibrated smoker
 as plant, the 11 h plan under defense, hourly replans from the measured state
 (full T/W/C/F/B/S-field handoff through the Tesseract), replanning the
 schedule, the wrap, the pull, the chimney and the spritz policy; the
@@ -226,7 +226,7 @@ doneness 0.945, J = 1.067. Without the front MPC lands at J = 1.070 against
 the plan's own 1.093 — the hourly replans refine a plan its optimizer left
 a few thousandths short — the principle-of-optimality check.
 
-**Control under calibrated uncertainty** (`figures/control_robust.png`):
+**Control under calibrated uncertainty** (`figures/control/control_robust.png`):
 re-optimizing the expected plan objective over 8 posterior draws (25 min on
 the monolith), evaluated on 30 held-out draws against the plan-optimal
 schedule. The fast plan is knife-edged under parameter uncertainty: on the
@@ -237,7 +237,7 @@ J 1.81 ± 0.60 (worst 4.1) and doneness 0.975 ± 0.031 (minimum 0.86) —
 the robust cook gives up a little nominal quality to never serve a tough
 brisket.
 
-**The bark model** (`figures/bark_model.png`): Maillard browning (first-order
+**The bark model** (`figures/model/bark_model.png`): Maillard browning (first-order
 in lightness, Arrhenius × a water-activity bell via a smooth sorption isotherm)
 and smoke-phenolic deposition (requires a moist surface and smoke flux) as
 surface states; the smoke flux is the pit's exact burn rate, so bark color is

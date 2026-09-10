@@ -14,7 +14,7 @@ bench against the same three cooks, and the pilot went from J 0.97 to
 **The calibration's chain as the next cook's prior**
 (`estimator/export_chain_prior.py`, `data/calibration/prior_next_cook.json`;
 the loop takes the prior file as its first argument). The chain's
-marginals are not Gaussian (`figures/corner_nuts_real.png`: a0 and
+marginals are not Gaussian (`figures/calibration/corner_nuts_real.png`: a0 and
 ρ_core piled at a boundary, m_conv and r_max skewed, the dH_eff to r_max
 pair curved), and the estimator is a Gaussian machine in z, so the prior
 is written site by site in the graph's own families, by the pool's
@@ -106,7 +106,7 @@ multiplied by (1 − wrap), and there is no unwrap in the model, so
 unwrap, spritz and rewrap is not a move the planner has. The figure now
 stops the pulses at the wrap.
 
-**The scoreboard** (`figures/estimator_pilot_comparison.png`, one plant,
+**The scoreboard** (`figures/estimator/pilot_comparison.png`, one plant,
 one objective):
 
 | | RxInfer pilot | MPC, oracle | MPC, calibration model |
@@ -179,7 +179,7 @@ it, thirty iterations of the graph's iterated solve are not the app's
 two hundred, and the scan is what carries it between basins.
 
 **The closed loop with the new planner** (`data/mock/closed_loop_realcook.json`,
-`figures/estimator_closed_loop_realcook.png`): J 0.971 (tenderness
+`figures/estimator/closed_loop_realcook.png`): J 0.971 (tenderness
 0.037, appearance 0.078, taste 0.743, burn 0.005, fuel 0.107). The bark
 is in band for the first time, 34.2 (the push: pit 120 °C mean, 138 max,
 the core at 70 °C by 4.9 h), and the meat paid for it: water 0.435,
@@ -213,7 +213,7 @@ within 1.37 °C of the Tesseract's over the cook; the app's own
 evaluation of the executed cooks 0.970 (pilot) and 0.646 (oracle MPC)
 against the Julia 0.971 and 0.680 (`estimator/objective_crosscheck.py`).
 
-**The scoreboard** (`figures/estimator_pilot_comparison.png`, one plant,
+**The scoreboard** (`figures/estimator/pilot_comparison.png`, one plant,
 one objective):
 
 | | RxInfer pilot | MPC, oracle | MPC, calibration model |
@@ -324,7 +324,7 @@ decision; under J it had pulled the fuel add and the spritz to hour
 zero), and the checks are written before the outcome is computed.
 
 **The run** (`data/mock/closed_loop_realcook.json`,
-`figures/estimator_closed_loop_realcook.png`; the loss columns are J):
+`figures/estimator/closed_loop_realcook.png`; the loss columns are J):
 
 | check | reason | committed | J: standing → new | KL [nats] | wrap / pull / serve [h] | spritz / add [h] | collagen at serve | juiciness | bark L* |
 |---|---|---|---|---|---|---|---|---|---|
@@ -647,7 +647,7 @@ follows; the app's MPC on the same brisket after it.
 
 **The closed loop under these goals** (`estimator/mock_closed_loop_realcook.jl`,
 record `data/mock/closed_loop_realcook.json`, figure
-`figures/estimator_closed_loop_realcook.png`; the policy now has six
+`figures/estimator/closed_loop_realcook.png`; the policy now has six
 conditions and the record carries the posterior's move per check):
 
 | check | reason | committed | loss: standing → new | KL [nats] | wrap / pull / serve [h] | spritz / add [h] | collagen at the pull | water | bark L* |
@@ -719,7 +719,7 @@ Reading it:
 **Against the MPC, on one brisket** (`estimator/run_mpc_mock1d.py`,
 `export_mpc_trace.py`, `pilot_comparison_trace.jl`, record
 `data/mock/pilot_comparison.json`, figure
-`figures/estimator_pilot_comparison.png`). The app's MPC
+`figures/estimator/pilot_comparison.png`). The app's MPC
 (`brisket_app/mpc.py`: state feedback, the plant state read exactly, an
 ambient Kalman filter, a replan every hour, the KCBS quality objective
 of collagen conversion at the center in a 0.90 to 0.95 band, a mahogany
@@ -939,7 +939,7 @@ in one second for 877 samples (`estimator/test_volatility.jl`).
 
 **The stream on the real-cook plant** (`estimator/mock_stream_realcook.jl`,
 record `data/mock/mock_realcook_stream.json`, figure
-`figures/estimator_realcook_stream.png`): two-hourly refits to the pull
+`figures/estimator/realcook_stream.png`): two-hourly refits to the pull
 on the graph engine, every channel levelled, the noise carried from
 batch to batch, one AR round each.
 
@@ -1005,7 +1005,7 @@ testsets).
 **The closed loop on the real-cook plant**
 (`estimator/mock_closed_loop_realcook.jl`, record
 `data/mock/closed_loop_realcook.json`, figure
-`figures/estimator_closed_loop_realcook.png`). The plant above, read
+`figures/estimator/closed_loop_realcook.png`). The plant above, read
 by its instruments; every hour the estimator refits on the graph
 engine with the channels at their rates, the noise identified and
 levelled; the standing plan is scored under six posterior draws; the
@@ -1125,7 +1125,7 @@ executed schedule and produced pit, core, humidity and scale readings
 graph engine, the posterior's six draws feed the replan on the graph
 (warm-started from the previous plan), the due events commit, the
 damper executes (record `data/mock/closed_loop.json`, figure
-`figures/estimator_closed_loop.png`):
+`figures/estimator/closed_loop.png`):
 
 | replan at | committed | wrap | pull | serve | spritz from | fuel add | predicted core at the pull | water | bark L* | posterior sd of L | misfit z |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -1456,8 +1456,8 @@ core probe, a worse humidity sensor and a better scale, every channel
 starting at its prior's means (records
 `data/mock/mock_1d_alt_tightprior_noise_stream.json` and
 `mock_1d_alt_noise_stream.json`, figures
-`figures/estimator_noise_mock_1d_alt_tightprior.png` and
-`figures/estimator_noise_mock_1d_alt.png`). At 19 h, the full set:
+`figures/estimator/noise_mock_1d_alt_tightprior.png` and
+`figures/estimator/noise_mock_1d_alt.png`). At 19 h, the full set:
 
 | channel | truth σ, ρ | prior σ, ρ | the calibration's widths as the prior | with the between-cook floor |
 |---|---|---|---|---|
@@ -1543,9 +1543,9 @@ sampling propagates a blown-up solve instead of throwing.
 engine; with the slab-physics runs of the earlier entries this closes
 the square (records `data/mock/mock_2d_phys2d_stream.json` and
 `mock_1d_phys2d_stream.json`, figures
-`figures/estimator_stream_mock_2d_phys2d.png`,
-`figures/estimator_stream_mock_1d_phys2d.png` and the misfit check of
-both in `figures/estimator_misfit_phys2d.png`). At 19 h, m_conv aside:
+`figures/estimator/stream_mock_2d_phys2d.png`,
+`figures/estimator/stream_mock_1d_phys2d.png` and the misfit check of
+both in `figures/estimator/misfit_phys2d.png`). At 19 h, m_conv aside:
 
 | plant → engine | channel set | max err/sd (latent) | median | radius (truth) | residual power per row | z χ² total (worst channel) |
 |---|---|---|---|---|---|---|
@@ -1596,8 +1596,8 @@ m = s ρ_d A L (1 + W̄ + F̄) with s = 1 for a slab and πR²H / (A L) for a
 cylinder (`MassScale(...; shape_latent=)`, prior LogNormal(0, 0.3)).
 `estimator/mock_stream_shape.jl` streams the two scale-bearing channel
 sets on both plants with that eighteenth latent and the misfit check
-recorded per batch; the figures are `figures/estimator_stream_mock_1d_shape.png`
-and `figures/estimator_stream_mock_2d_shape.png`, the records
+recorded per batch; the figures are `figures/estimator/stream_mock_1d_shape.png`
+and `figures/estimator/stream_mock_2d_shape.png`, the records
 `data/mock/mock_1d_shape_stream.json` and `mock_2d_shape_stream.json`.
 
 | plant | channel set | shape factor at 19 h (truth) | max err/sd (latent) | median | residual power per row | rulers' misfit z |
@@ -1652,7 +1652,7 @@ answer is known: white least-squares residuals over 400 draws sit in
 the band with the exact degrees of freedom, and a slow structured error
 lights both statistics on its own channel only. The check is attached
 to every solve and stream record; `estimator/misfit_stream.jl` scores a
-stored run, and `figures/estimator_misfit.png` draws it against the
+stored run, and `figures/estimator/misfit.png` draws it against the
 cook hour for the two mock plants (matched against cylinder, the
 humidity-plus-scale set solid, pit + core dashed).
 
@@ -1721,8 +1721,8 @@ matched), and the 2-D axisymmetric cylinder (R 0.135 m, height 0.078 m,
 and core σ, ρ; the humidity sensor 100 Pa (ρ 0.8), the scale 20 g
 (ρ 0.5), the rulers 3 mm on L and 0.01 m² on the footprint. Three
 channel sets, cumulative: pit + core; + humidity + scale; + the two
-rulers. The figures (`figures/estimator_stream_mock_1d.png`,
-`figures/estimator_stream_mock_2d.png`) show, per latent, the posterior
+rulers. The figures (`figures/estimator/stream_mock_1d.png`,
+`figures/estimator/stream_mock_2d.png`) show, per latent, the posterior
 width against the cook hour and the standardized error
 (estimate − truth) / sd with its ±2 band; the records are
 `data/mock/mock_1d_stream.json` and `mock_2d_stream.json`.
@@ -2086,7 +2086,7 @@ against the tree and its laptop-only items 1–7 acted on the same day
   the meat-side heat input about half the MAP, so the scale cook must
   come with a ruler; if a thick cut still calibrates to a thin \(L\), the
   Fickian slab (review T1) is the wrong model. Figure
-  `figures/water_budget_scan.png`, data
+  `figures/calibration/water_budget_scan.png`, data
   `data/validation/water_budget_scan.json`.
 - **Docs.** README, writeup, `model.md`, `monolith.md` and a note on the
   submission carry the \(5n_x + 4 + 6 = 210\) layout; `model.md` gained
@@ -2157,7 +2157,7 @@ within 7 % across the two cooks, k_e within 7 %, a_myosin/L/m_conv close
 — the "briskets I buy" block behaves — while the spread sits on the known
 confounds (h_c/k_m on the draft ridge between different rigs; k_mult
 absorbing the uniform-interior slice start). Fits: rms pit 1.33/1.87 K,
-core 3.02/1.43 K (`figures/pool_real.png`,
+core 3.02/1.43 K (`figures/calibration/pool_real.png`,
 `data/calibration/pool_real.json`). Synthetic two-cook mechanics check:
 `scripts/run_hier_synth.py`.
 
@@ -2183,7 +2183,7 @@ precision-weighted mean with K−1 prior-dedup can land outside the
 per-coordinate MAP hull) — the cross-cook agreement above is the
 meaningful validation, and it was checked against a falsy-default pooling
 bug fixed en route (explicit-empty role lists no longer fall back to
-defaults; regression-tested). (`figures/pool_keg.png`,
+defaults; regression-tested). (`figures/calibration/pool_keg.png`,
 `data/calibration/pool_keg.json`.)
 
 ## Same-model pool: two WSM 18.5 units (2026-09-04)
@@ -2206,7 +2206,7 @@ its known sloppy ridge (14x apart — closed-loop logs cannot pin it; the
 characterization burn can). Meat side: **k_e now holds within +/-8 %
 across FIVE cooks** (mache, three kegs, wbegg: 0.51-0.57e-3) spanning
 brisket and pork butt, two smoker models, and a 60 F ambient range.
-(`figures/pool_wsm.png`, `data/calibration/pool_wsm.json`.)
+(`figures/calibration/pool_wsm.png`, `data/calibration/pool_wsm.json`.)
 
 ## Wrap constants from a documented butcher-paper wrap (2026-09-04)
 
@@ -2279,7 +2279,7 @@ each (like t_f) when a consumer needs them.
 Baldwin's α/h to ≤ 8 % on all 21 table cases (his published
 cylinder/sphere columns are safety-padded ~+15 % and ~+35 % above that
 exact solution; the slab column, us, and theory agree to ~1 %;
-`figures/sous_vide_baldwin.png`).
+`figures/validation/sous_vide_baldwin.png`).
 
 **Oven roast vs Papasidero et al. 2015, CET 43:151 (zero fitted
 parameters; the first validation with measured WEIGHT LOSS):**
@@ -2295,7 +2295,7 @@ geometry/preheat sensitivity band, core rms 2.6-6.9 °C, and predicted
 water loss x1.06-1.27 of measured — where the paper's own fitted COMSOL
 model overshot the loss ~2x. The purge + surface-evaporation moisture
 physics transfers from smoker calibration to an oven regime it never saw
-(`figures/oven_roast_cet2015.png`,
+(`figures/validation/oven_roast_cet2015.png`,
 `data/validation/oven_roast_cet2015.json`).
 
 ## Smoke quality: the structure (2026-09-04)
@@ -2678,7 +2678,7 @@ twice against an unannounced −15 K cold front at 2 h — in-process, and
 over HTTP through the REAL client path against the mock — lands nearly
 identically (wrap re-timed 7.06 → 6.83 h, pull 8.39 → 10.07/10.10 h; the
 KF recovers ~60 % of the ambient drop and the setpoint plan compensates
-with a ~300 °F push; `figures/pilot_http.png`,
+with a ~300 °F push; `figures/control/pilot_http.png`,
 `data/control/pilot_{sim,http}*.jsonl/json`).
 
 ## The `brisket` CLI (2026-09-04)

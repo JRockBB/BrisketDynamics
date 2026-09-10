@@ -2,7 +2,7 @@
 
 Run from app/:  uv run python ../scripts/run_control.py [--iters N]
 
-Produces figures/control_before_after.png (objective curve + before/after
+Produces figures/control/control_before_after.png (objective curve + before/after
 trajectories + recovered schedule) and data/control/schedule_opt.json.
 """
 
@@ -31,7 +31,7 @@ def main():
     flat-damper cook, then optimizes the schedule with Optax (Adam) against
     the doneness/bark-limit objective. Writes
     data/control/schedule_opt.json and control_losses.npy, plus
-    figures/control_before_after.png: the objective curve, before/after
+    figures/control/control_before_after.png: the objective curve, before/after
     core and surface trajectories with the bark limit, and the recovered
     damper schedule.
     """
@@ -173,7 +173,7 @@ def main():
     )
     axes[2].legend(fontsize=8)
     fig.tight_layout()
-    fig_path = REPO / "figures" / "control_before_after.png"
+    fig_path = REPO / "figures" / "control" / "control_before_after.png"
     fig.savefig(fig_path, dpi=140)
     print(f"wrote {fig_path}")
 

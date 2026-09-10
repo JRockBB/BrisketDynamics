@@ -83,7 +83,7 @@ def main():
     Optimizes E[J] over N_OPT decorrelated posterior draws (warm-started
     from the MAP-optimal schedule), evaluates both schedules on N_EVAL
     held-out draws, prints the doneness statistics, and writes
-    data/control/schedule_robust.json plus figures/control_robust.png:
+    data/control/schedule_robust.json plus figures/control/control_robust.png:
     doneness histograms under parameter uncertainty for each schedule, and
     the two schedules overlaid.
     """
@@ -109,7 +109,7 @@ def main():
     ap.add_argument(
         "--figure",
         default="control_robust.png",
-        help="output figure name under figures/",
+        help="output figure name under figures/control/",
     )
     ap.add_argument(
         "--out",
@@ -367,8 +367,8 @@ def main():
     )
     axes[1].legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / args.figure, dpi=140)
-    print(f"wrote figures/{args.figure}")
+    fig.savefig(REPO / "figures" / "control" / args.figure, dpi=140)
+    print(f"wrote figures/control/{args.figure}")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ parameters as its model), each cook re-run through the same plant
 pit and core with the executed events. Bottom: the scoreboard.
 
 Reads data/mock/pilot_comparison.json (and pilot_comparison_calmodel.json when present), writes
-figures/estimator_pilot_comparison.png.
+figures/estimator/pilot_comparison.png.
 
 Run from app/:  uv run python ../estimator/plot_pilot_comparison.py
 """
@@ -131,7 +131,7 @@ def main():
     ax.set_title(f"Every cook under the one objective (one plant; port check on the oracle MPC's core: {d['port_check_max_core_C']:.1f} °C)",
                  color=INK, fontsize=10, loc="left")
 
-    out = REPO / "figures" / "estimator_pilot_comparison.png"
+    out = REPO / "figures" / "estimator" / "pilot_comparison.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE)
     print("wrote", out)
 

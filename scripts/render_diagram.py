@@ -1,7 +1,7 @@
 """Composition/boundary diagram for the writeup (criterion 1).
 
 Run from app/:  uv run python -u ../scripts/render_diagram.py
-Writes figures/composition_diagram.png. Pure matplotlib (no Julia).
+Writes figures/model/composition_diagram.png. Pure matplotlib (no Julia).
 """
 
 from pathlib import Path
@@ -236,6 +236,6 @@ label(3.0, 1.45, "T_pit, ṁ", GREEN, size=7.4)
 label(3.0, 0.5, "q_meat", GREEN, size=7.4)
 arrow((4.55, 2.87), (4.55, 2.45), ORANGE, style="<|-|>")
 
-out = REPO / "figures" / "composition_diagram.png"
+out = REPO / "figures" / "model" / "composition_diagram.png"
 fig.savefig(out, dpi=150, bbox_inches="tight")
 print(f"wrote {out.relative_to(REPO)}")

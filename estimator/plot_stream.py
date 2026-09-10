@@ -8,7 +8,7 @@ standardized errors that leave the ±2 band are the model being wrong in a
 way the extra sensors cannot absorb.
 
 Run from app/:  uv run python ../estimator/plot_stream.py
-Writes figures/estimator_stream_<name>.png.
+Writes figures/estimator/stream_<name>.png.
 """
 
 import json
@@ -70,7 +70,7 @@ def plot(path: Path):
                fontsize=9, frameon=False, labelcolor=INK2)
     fig.suptitle(f"Streaming estimator on a mock cook, plant: {d['plant']}; hourly full-history refits",
                  color=INK, fontsize=10.5)
-    out = REPO / "figures" / ("estimator_stream_" + path.stem.replace("_stream", "") + ".png")
+    out = REPO / "figures" / "estimator" / ("stream_" + path.stem.replace("_stream", "") + ".png")
     fig.savefig(out, dpi=150, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     print("wrote", out)

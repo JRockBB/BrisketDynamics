@@ -9,7 +9,7 @@ The margin is one-sided because finishing early is nearly free (the resting
 hold exists for this); light the fire at (serve deadline − planned).
 
 Run from app/:  uv run python -u ../scripts/run_start_time.py [--serve 18:00]
-Writes data/control/start_time.json and figures/start_time.png.
+Writes data/control/start_time.json and figures/control/start_time.png.
 """
 
 import argparse
@@ -269,9 +269,9 @@ def _figure(out: dict, repo: Path, tag: str = ""):
         transform=ax.transAxes, ha="right", fontsize=8, color="0.4",
     )
     fig.tight_layout()
-    fig.savefig(repo / "figures" / f"start_time{tag}.png", dpi=140)
+    fig.savefig(repo / "figures" / "control" / f"start_time{tag}.png", dpi=140)
     plt.close(fig)
-    print(f"wrote figures/start_time{tag}.png")
+    print(f"wrote figures/control/start_time{tag}.png")
 
 
 def _compare_figure(nominal: dict, robust: dict, repo: Path):
@@ -309,9 +309,9 @@ def _compare_figure(nominal: dict, robust: dict, repo: Path):
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8, loc="lower right")
     fig.tight_layout()
-    fig.savefig(repo / "figures" / "start_time_compare.png", dpi=140)
+    fig.savefig(repo / "figures" / "control" / "start_time_compare.png", dpi=140)
     plt.close(fig)
-    print("wrote figures/start_time_compare.png")
+    print("wrote figures/control/start_time_compare.png")
 
 
 if __name__ == "__main__":

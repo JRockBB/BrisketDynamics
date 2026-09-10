@@ -9,7 +9,7 @@ Usage (from app/):
     uv run python ../scripts/plot_pilot.py ../data/control/pilot_http.jsonl \
         --truth-url http://127.0.0.1:8181   # overlay the mock's true ambient
     uv run python ../scripts/plot_pilot.py ../data/control/pilot_sim.jsonl \
-        --figure ../figures/pilot_sim.png
+        --figure ../figures/control/pilot_sim.png
 """
 
 import argparse

@@ -6,7 +6,7 @@ sd comparison cannot). Run metadata (Pareto-khat, importance ESS, wall time)
 is pulled from each method's result json where present.
 
 Run from app/:  uv run python -u ../scripts/compare_approx.py
-Writes figures/posterior_widths.png (sd ratio to NUTS; same path the NUTS
+Writes figures/calibration/posterior_widths.png (sd ratio to NUTS; same path the NUTS
 merge uses) and data/calibration/approx_summary.md.
 """
 
@@ -136,8 +136,8 @@ def main():
         print(f"\nwrote {out_md.relative_to(REPO)}")
 
     if not args.no_figure:
-        posterior_width_plot(cols, REPO / "figures" / "posterior_widths.png")
-        print("wrote figures/posterior_widths.png")
+        posterior_width_plot(cols, REPO / "figures" / "calibration" / "posterior_widths.png")
+        print("wrote figures/calibration/posterior_widths.png")
 
 
 if __name__ == "__main__":

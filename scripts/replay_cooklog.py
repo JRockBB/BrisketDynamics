@@ -69,5 +69,5 @@ for ax, sim, obs, mask, name in [
     ax.legend(fontsize=8)
 fig.suptitle("Real cook, open-loop fan-duty replay — BEFORE calibration")
 fig.tight_layout()
-fig.savefig(REPO / "figures" / "cooklog_replay_defaults.png", dpi=140)
-print("wrote figures/cooklog_replay_defaults.png")
+fig.savefig(REPO / "figures" / "calibration" / "cooklog_replay_defaults.png", dpi=140)
+print("wrote figures/calibration/cooklog_replay_defaults.png")

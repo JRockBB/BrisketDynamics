@@ -6,7 +6,7 @@ against the goals.
 Reads data/mock/closed_loop_realcook.json and
 data/mock/closed_loop_realcook_trace.json (the plant's history under the
 executed schedule, from estimator/closed_loop_trace.jl), writes
-figures/estimator_closed_loop_realcook.png.
+figures/estimator/closed_loop_realcook.png.
 
 Run from app/:  uv run python ../estimator/plot_closed_loop_realcook.py
 """
@@ -151,7 +151,7 @@ def main():
                  f"burn {actual['surf']:.2f}, fuel {actual['fuel']:.2f}); collagen {actual['C_serve']:.2f}, juiciness {actual['juiciness']:.2f}, L* {actual['L']:.0f}", color=INK, fontsize=9.5)
     ax.legend(loc="lower left", fontsize=8, frameon=False, labelcolor=INK2, ncol=2)
 
-    out = REPO / "figures" / f"estimator_closed_loop_realcook{suffix}.png"
+    out = REPO / "figures" / "estimator" / f"closed_loop_realcook{suffix}.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE)
     print("wrote", out)
 

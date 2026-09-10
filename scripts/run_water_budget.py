@@ -18,7 +18,7 @@ k_m. No new data is needed for the map itself.
 
 Run from app/:  uv run python -u ../scripts/run_water_budget.py
 Writes data/validation/water_budget_scan.json and
-figures/water_budget_scan.png.
+figures/calibration/water_budget_scan.png.
 """
 
 import json
@@ -254,7 +254,7 @@ def figure(theta, W, S, Z, ref):
         f"after a {ref['stall_h']:.0f} h stall; a real flat retains 50\u201360 %",
         color=ink, fontsize=10.5,
     )
-    out = REPO / "figures" / "water_budget_scan.png"
+    out = REPO / "figures" / "calibration" / "water_budget_scan.png"
     fig.savefig(out, dpi=150, facecolor=surface, bbox_inches="tight")
     plt.close(fig)
     print("wrote", out)

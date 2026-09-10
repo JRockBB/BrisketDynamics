@@ -8,7 +8,7 @@ curvature) at the optimum.
 Run from app/:  uv run python -u ../scripts/run_gn_map.py [--warm]
 Writes data/calibration/map_real.json (the MAP every downstream script
 reads), data/calibration/gn_map_real.json (fit diagnostics, Fisher widths)
-and figures/cooklog_fit_map.png.
+and figures/calibration/cooklog_fit_map.png.
 """
 
 import argparse
@@ -142,8 +142,8 @@ def main():
         ax.legend(fontsize=8)
     fig.suptitle("Real cook - Gauss-Newton MAP fit")
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / "cooklog_fit_map.png", dpi=140)
-    print("wrote figures/cooklog_fit_map.png")
+    fig.savefig(REPO / "figures" / "calibration" / "cooklog_fit_map.png", dpi=140)
+    print("wrote figures/calibration/cooklog_fit_map.png")
 
 
 if __name__ == "__main__":

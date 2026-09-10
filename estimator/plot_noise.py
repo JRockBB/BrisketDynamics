@@ -4,7 +4,7 @@ truth and the prior it started from.
 
 Run from app/:  uv run python ../estimator/plot_noise.py [record.json]
 Default record data/mock/mock_1d_alt_noise_stream.json;
-writes figures/estimator_noise_<name>.png.
+writes figures/estimator/noise_<name>.png.
 """
 
 import json
@@ -64,7 +64,7 @@ def plot(path: Path):
                frameon=False, labelcolor=INK2)
     fig.suptitle(f"Noise identified by the AR node at every hourly refit, plant: {d['plant']}", color=INK,
                  fontsize=10.5)
-    out = REPO / "figures" / ("estimator_noise_" + path.stem.replace("_noise_stream", "") + ".png")
+    out = REPO / "figures" / "estimator" / ("noise_" + path.stem.replace("_noise_stream", "") + ".png")
     fig.savefig(out, dpi=150, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     print("wrote", out)

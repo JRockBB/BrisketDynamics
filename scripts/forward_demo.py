@@ -1,6 +1,6 @@
 """Phase A demo: full 12-h coupled cook at default parameters.
 
-Produces figures/forward_cook.png (pit + surface + core temperatures, the
+Produces figures/model/forward_cook.png (pit + surface + core temperatures, the
 stall, evaporative flux, fuel) and prints the wall time.
 
 Run:  uv run --project app python scripts/forward_demo.py
@@ -33,7 +33,7 @@ def main():
 
     Runs ``coupled_cook`` at THETA_DEFAULT/PHI_DEFAULT with a
     flat damper of 0.4, prints the wall time, and writes
-    figures/forward_cook.png: three stacked
+    figures/model/forward_cook.png: three stacked
     panels of pit/surface/core temperature (showing the stall), evaporative
     mass flux, and remaining fuel versus time. Also prints the final core
     temperature and core collagen conversion.
@@ -74,7 +74,7 @@ def main():
     ax.set_ylabel("fuel [kg]")
     ax.set_xlabel("time [h]")
 
-    figdir = REPO / "figures"
+    figdir = REPO / "figures" / "model"
     figdir.mkdir(exist_ok=True)
     fig.tight_layout()
     fig.savefig(figdir / "forward_cook.png", dpi=150)

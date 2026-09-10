@@ -191,7 +191,7 @@ def _fit_figure(log, mu, name: str) -> None:
         ax.legend(fontsize=8)
     fig.suptitle(f"GN-MAP fit: {name}")
     fig.tight_layout()
-    out = REPO / "figures" / f"fit_{name}.png"
+    out = REPO / "figures" / "calibration" / f"fit_{name}.png"
     fig.savefig(out, dpi=140)
     plt.close(fig)
     print(f"wrote {out.relative_to(REPO)}")

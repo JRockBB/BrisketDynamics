@@ -4,7 +4,7 @@ process against the fire regime that produced it, the misfit check per
 channel, and the parameter errors, batch by batch.
 
 Reads data/mock/mock_realcook_stream.json and data/mock/mock_realcook.json,
-writes figures/estimator_realcook_stream.png.
+writes figures/estimator/realcook_stream.png.
 
 Run from app/:  uv run python ../estimator/plot_realcook_stream.py
 """
@@ -112,7 +112,7 @@ def main():
     ax.legend(fontsize=8, frameon=False, labelcolor=INK2)
 
     fig.suptitle("The streaming estimator on a plant read like a real cook", color=INK, fontsize=11.5)
-    out = REPO / "figures" / "estimator_realcook_stream.png"
+    out = REPO / "figures" / "estimator" / "realcook_stream.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE)
     print("wrote", out)
 

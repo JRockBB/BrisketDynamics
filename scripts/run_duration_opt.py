@@ -8,7 +8,7 @@ included. Warm-started from the scan optimum by default (--cold starts at
 mid-range defaults); scored by the same `score_outputs` the scan used.
 
 Run from app/:  uv run python -u ../scripts/run_duration_opt.py
-Writes data/control/duration_opt.json and figures/duration_opt.png.
+Writes data/control/duration_opt.json and figures/control/duration_opt.png.
 """
 
 import argparse
@@ -245,9 +245,9 @@ def _figure(out: dict, repo: Path):
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(repo / "figures" / "duration_opt.png", dpi=140)
+    fig.savefig(repo / "figures" / "control" / "duration_opt.png", dpi=140)
     plt.close(fig)
-    print("wrote figures/duration_opt.png")
+    print("wrote figures/control/duration_opt.png")
 
 
 if __name__ == "__main__":

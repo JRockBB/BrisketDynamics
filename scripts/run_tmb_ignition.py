@@ -9,7 +9,7 @@ formula. Writes its own npz so the profile nested grid is not overwritten.
 Run from app/:  uv run python -u ../scripts/run_tmb_ignition.py
 Writes data/calibration/tmb_ignition_grid_real.npz,
 tmb_ignition_samples_real.npz, tmb_ignition_real.json,
-figures/tmb_ignition_marginal.png.
+figures/calibration/tmb_ignition_marginal.png.
 """
 
 import argparse
@@ -250,9 +250,9 @@ def _figure(nested, nuts_path, repo, fig_name="tmb_ignition_marginal.png"):
     )
     ax.legend(fontsize=8, loc="lower left")
     fig.tight_layout()
-    fig.savefig(repo / "figures" / fig_name, dpi=140)
+    fig.savefig(repo / "figures" / "calibration" / fig_name, dpi=140)
     plt.close(fig)
-    print(f"wrote figures/{fig_name}")
+    print(f"wrote figures/calibration/{fig_name}")
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ three-segment structure.
 
 Run from app/:  uv run python -u ../scripts/run_wrap_fit.py
 Writes data/calibration/wrap_fit_erickson.json and
-figures/wrap_fit_erickson.png.
+figures/calibration/wrap_fit_erickson.png.
 """
 
 import json
@@ -332,9 +332,9 @@ def _figure(log, mk, obs, f, tc_fit, tc_nowrap, tc_foil, x, tag=""):
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8, loc="lower right")
     fig.tight_layout()
-    fig.savefig(REPO / "figures" / f"wrap_fit_erickson{tag}.png", dpi=140)
+    fig.savefig(REPO / "figures" / "calibration" / f"wrap_fit_erickson{tag}.png", dpi=140)
     plt.close(fig)
-    print(f"wrote figures/wrap_fit_erickson{tag}.png")
+    print(f"wrote figures/calibration/wrap_fit_erickson{tag}.png")
 
 
 if __name__ == "__main__":
