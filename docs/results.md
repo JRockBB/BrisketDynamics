@@ -4,6 +4,87 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The belief where the Gaussian is wrong: a chain on the exact posterior (2026-09-11)
+
+The coverage entry below found the Gauss-Newton posterior two to three
+times too narrow on the fire's ridge and on the late water sites. The
+ask was to replace the Gaussian there. Two things were tried, and one
+was built.
+
+**Importance sampling around the Gaussian cannot do it.** Particles
+drawn from the Gaussian widened threefold along its four widest
+directions and weighted by the exact posterior keep one or two
+effective particles in a hundred (`scratchpad/particle_probe.jl`): in
+17 dimensions the arithmetic of a widened proposal is against it, not a
+bug. A plant solve on the bench costs 0.2 s, so the alternative is a
+chain.
+
+**The chain** (`estimator/ridge.jl`, `ridge_chain`): random-walk
+Metropolis on the exact posterior of the readings (a plant solve per
+step, the identified noise and levels held at their estimates),
+preconditioned by the Gaussian's covariance, the step adapted to a 0.3
+acceptance during the burn-in, every direction moving. Its first form
+sampled only the Gaussian's five widest directions and missed the
+failure it was built for: C_th after the fuel add is a direction the
+Gaussian believes narrow, so the widest-k rule never looked there. A
+rule for choosing directions on top of that would have been a patch on
+a patch; the chain now moves every direction and has no rule. A profile
+of the exact log-posterior along the widest directions at hour four
+(`scratchpad/ridge_profile.jl`) shows what it walks on: skewed on two
+of them (a wall on one side, a long tail on the other), narrower than
+the Gaussian on two others (walls at two sd). Its test caught a closure
+bug that had silently accepted every proposal (a variable assigned
+inside the log-posterior closure shadowed the chain's), the reason its
+first run reported a spread nine times the Gaussian's.
+
+**The verdict, nine cooks, 2000 steps per refit** (the coverage worker
+with `ridge_k 17`; records `data/mock/coverage_ridge_{1,4,7}.json`,
+figures `figures/estimator/coverage_realcook_gauss9.png` and
+`coverage_realcook_ridge.png`, the same nine cooks under each belief):
+
+| at 14 h | Gaussian | chain |
+|---|---|---|
+| pooled mean, spread, inside 2 sd | +0.12, 1.30, 91 % | +0.11, 1.24, 89 % |
+| C_th spread, inside 2 sd | 2.95, 56 % | 1.59, 78 % |
+| C_th error on the worst cook | 6.0 sd | 2.7 sd |
+| a0, k_spread, u_leak spread | 1.35, 2.01, 1.33 | 1.15, 1.77, 1.70 |
+| a_myosin mean (z) | +0.80 (2.4) | +1.00 (3.1) |
+| wall per refit | about a minute | 9 to 12 minutes |
+
+- **It fixes the one gross failure.** C_th after the fuel add goes from
+  three times too narrow to 1.6, and the 6 sd miss becomes 2.7; every
+  cook's C_th error at 14 h is inside 2.7 sd under the chain against
+  four of nine beyond 2.8 under the Gaussian. The chain widens C_th by
+  1.4 at hour fourteen and nowhere else.
+- **Elsewhere it changes nothing the test can see.** The pooled spread
+  and coverage are the same within the noise of nine cooks, and by hour
+  the chain's spread is higher than the Gaussian's before the fuel add
+  (1.22 against 1.03 at hour two). Two reasons, both honest: the chain's
+  own widths carry the noise of an effective sample of five to eight per
+  direction per refit, which inflates the standardized errors it is
+  judged by; and on most sites and hours the exact posterior is
+  narrower than the Gaussian (the chain's sd ratios sit at 0.8 to 0.95),
+  which the profile's walls already showed. The Gaussian is not
+  uniformly overconfident; it is overconfident at one event.
+- **The a_myosin bias is not a width and the chain does not remove
+  it.** Its mean error grows from +0.8 to +1.0 sd under the exact
+  posterior. The posterior's mean itself sits high of the truth over
+  truths drawn from the prior, which points at the likelihood: the
+  plug-in noise, the whitening, or the scale channel's model of the drip
+  the site is identified from. That is a model finding, and the next
+  one to chase.
+
+**What the pilot does with it.** Nothing by default. The loop takes
+`[ridge k] [ridge steps]` and reads the chain's mean and covariance
+when asked, but ten minutes per hourly check for a correction that
+matters at one event and leaves the plan's sites where they were is
+not worth the wall. The chain stays as the instrument that says, on a
+given cook and hour, how far the Gaussian is from the posterior; the
+coverage test stays as the claim's currency. The record now says
+precisely where the Gaussian belief is trusted and where it is not.
+
+---
+
 ## Coverage: is the posterior calibrated? (2026-09-10, later)
 
 The question was whether the streaming estimator's standardized errors

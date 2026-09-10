@@ -163,22 +163,21 @@ Its structure is fixed by three measured RxInfer behaviours
   them with. Every logged cook tightens both, and the second WSM cook
   (wbegg_2014) is the first test of the cooker block on a brisket the
   chain has not seen.
-- **The widths on the fire.** The coverage test (`docs/results.md`,
-  coverage: 21 cooks with truths drawn from the pilot's prior) finds the
-  posterior calibrated on the identified meat sites and overconfident by
-  a factor of two to three on the pit ridge (a0, C_th, u_leak, the
-  ignition spread) and the late water sites (k_e, a_myosin), with C_th's
-  width collapsing at the fuel add while its error does not; the misfit
-  check cannot see it because the residuals are clean. Two things:
-  calibrate the reported widths per site from the test before the
-  plan's draws and the KL trigger read them (a factor on the sd, rerun
-  on every estimator change); and break the ridge with the sensors the
-  table ranks for it (humidity is in; the fuel scale is next). The
-  drifting biases on a_myosin (+0.8 sd) and k_e (−0.8 sd) by hour
-  fourteen point at the linearised MAP on a skewed posterior, the same
-  shape the chain shows on the calibration cook; a reweighted particle
-  belief for the plan (the belief in the plan, above) is the honest
-  carrier of that shape.
+- **The widths on the fire, and a bias on the drip.** The coverage test
+  (`docs/results.md`, coverage) finds the Gaussian posterior calibrated
+  on the identified meat sites and overconfident on the fire's ridge
+  (a0, C_th, u_leak, the ignition spread) and the late water sites; a
+  chain on the exact posterior (`estimator/ridge.jl`) fixes the one
+  gross failure, C_th's width collapsing at the fuel add, and changes
+  nothing else the test can see, at ten minutes per refit. Two things
+  remain: the a_myosin mean sits +1 sd high over truths drawn from the
+  prior under the EXACT posterior, so the fault is in the likelihood
+  (the plug-in noise, the whitening, or the scale channel's model of the
+  drip) rather than the Gaussian, and that is the next thing to chase
+  with the coverage test as the judge; and the ridge itself is broken
+  only by a sensor that reads the burn rate (a whole-cooker platform
+  scale; on a pellet grill the auger duty cycle), the row of the sensor
+  table the estimator cannot supply for itself.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it
