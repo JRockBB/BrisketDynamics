@@ -12,7 +12,7 @@
 
 export plan_loss, ReplanPolicy, replan_due, posterior_kl, stable_events, cook_outputs, objective_terms, executed_du
 export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper, N_KNOTS, resample_knots, T_SERVE_MAX, N_BAND, draw_residual, plan_residual, sigma_draws,
-       schedule_events, plan_outputs_rh, replan_on_graph, commit!, execute_damper!, PlanGoals
+       schedule_events, plan_outputs_rh, plan_solve, plan_trajectories, plan_predictive, replan_on_graph, commit!, execute_damper!, PlanGoals
 
 "A smooth one-sided penalty: softplus with width `s`, ≈ max(x, 0) — zero above the floor, linear below."
 function hinge(x, s=1.0)
@@ -279,6 +279,11 @@ from the state the smoother says the cook is in, not from a history
 re-cooked with today's values.
 """
 function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), history=nothing)
+    o, p, t_add = plan_solve(z, ζ, f, s, d; history)
+    return cook_outputs(o, s.t, diff(p.u), p.t_pull, t_add, p.t_serve, d.cfg, goals)
+end
+"The plan's cook solved at latents `z`: the output `o`, the decoded plan and the add time (`ADD_NEVER` when none)."
+function plan_solve(z, ζ, f::FreeSet, s::Schedule, d::GateData; history=nothing)
     x = from_z(z[1:N_PHYS], d.prior[1:N_PHYS])
     A = length(z) >= 16 ? exp(z[16]) : d.cfg.A_meat
     p = decode_plan(ζ, f, s)
@@ -292,7 +297,38 @@ function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::Pla
     θ, φ = x[1:N_THETA], x[(N_THETA + 1):N_PHYS]
     o = history === nothing ? monolith_solve(θ, φ, u, s.t, s.t; kw...) :
         solve_segments(vcat(history.θs, [θ]), vcat(history.φs, [φ]), u, s.t, history.edges; kw...)
-    return cook_outputs(o, s.t, diff(p.u), p.t_pull, t_add, p.t_serve, d.cfg, goals)
+    return o, p, t_add
+end
+
+"""
+    plan_trajectories(z, ζ, f, s, d; goals, history) -> vcat(Tpit, Tcore, Tsurf, y)
+
+The plan's pit, core and surface temperatures on `s.t` and its outcomes (`cook_outputs`), stacked: what the
+belief at `z` says the cook will do.
+"""
+function plan_trajectories(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), history=nothing)
+    o, p, t_add = plan_solve(z, ζ, f, s, d; history)
+    y = cook_outputs(o, s.t, diff(p.u), p.t_pull, t_add, p.t_serve, d.cfg, goals)
+    return vcat(o.Tpit, o.Tcore, o.Tsurf, y)
+end
+
+"""
+    plan_predictive(z, V, ζ, f, s, d; goals, history) -> (t, Tpit, Tcore, Tsurf, y)
+
+What the belief `(z, V)` predicts the cook will do under plan `ζ`: the pit, core and surface temperatures on
+`s.t` and the outcomes, each as `(mean, sd)`, the mean at the posterior mean and the sd the belief's covariance
+carried through the plan physics (the Jacobian of the trajectories in z at the mean, times V). The temperatures
+the pilot plans on are uncertain by exactly this much; a figure that draws them as lines has dropped it.
+"""
+function plan_predictive(z, V, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), history=nothing)
+    g(v) = plan_trajectories(v, ζ, f, s, d; goals, history)
+    m = g(z)
+    J = ForwardDiff.jacobian(g, z, ForwardDiff.JacobianConfig(g, z, ForwardDiff.Chunk{min(length(z), 9)}()))
+    Vs = Matrix(Symmetric(Matrix(V)))
+    sd = sqrt.(max.(vec(sum((J * Vs) .* J; dims=2)), 0.0))
+    n = length(s.t)
+    blk(k) = (mean=m[((k - 1) * n + 1):(k * n)], sd=sd[((k - 1) * n + 1):(k * n)])
+    return (t=s.t, Tpit=blk(1), Tcore=blk(2), Tsurf=blk(3), y=(mean=m[(3n + 1):end], sd=sd[(3n + 1):end]))
 end
 
 

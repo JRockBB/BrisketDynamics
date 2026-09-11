@@ -141,6 +141,19 @@ end
     Jr = ForwardDiff.jacobian(v -> E.goal_residuals(plan_outputs_rh(z, v, f, s, d), g), mζ)
     @test size(Jr) == (9 + (N_KNOTS - 1) + 2, N_KNOTS + 7) && all(isfinite, Jr)
     @test any(abs.(Jr) .> 0)                # the objective answers to the plan
+    # the plan's predictive: the belief's covariance carried through the plan physics into the temperatures and
+    # the outcomes; the mean is the plain solve, the sd finite, zero under a zero covariance, and growing with it
+    V = Matrix(Diagonal(fill(0.05^2, length(z))))
+    pr = plan_predictive(z, V, mζ, f, s, d)
+    n = length(s.t)
+    @test length(pr.Tcore.mean) == n && length(pr.Tpit.sd) == n && length(pr.Tsurf.sd) == n && length(pr.y.mean) == length(y)
+    @test maximum(abs.(pr.y.mean .- y)) < 1e-9 && all(isfinite, pr.Tcore.sd) && all(pr.Tcore.sd .>= 0)
+    kp = searchsortedlast(s.t, decode_plan(mζ, f, s).t_pull)
+    @test pr.Tcore.sd[kp] > 0.2 && pr.Tpit.sd[kp] > 0.2 && pr.y.sd[1] > 1e-3          # the belief matters to the cook
+    pr0 = plan_predictive(z, zeros(length(z), length(z)), mζ, f, s, d)
+    @test maximum(pr0.Tcore.sd) < 1e-9 && maximum(pr0.y.sd) < 1e-9
+    pr4 = plan_predictive(z, 4 .* V, mζ, f, s, d)
+    @test abs(pr4.Tcore.sd[kp] / pr.Tcore.sd[kp] - 2) < 1e-6                        # linear in the sd
     # the replan's rest starts: never worse than the warm start alone, from a state with the pull committed
     s6 = Schedule(GRID; u0=0.15); s6.t_now = 13 * 3600.0; s6.u[GRID .<= s6.t_now] .= 0.3
     s6.t_wrap = 11.0 * 3600; s6.t_pull = 14.0 * 3600; s6.t_add = 10.0 * 3600

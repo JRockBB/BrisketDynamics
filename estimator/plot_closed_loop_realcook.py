@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 INK, INK2, GRID_C, SURFACE = "#1f2430", "#5b6472", "#e4e7ec", "#fbfbfa"
-PIT, CORE = "#eb6834", "#2a78d6"
+PIT, CORE, SURF = "#eb6834", "#2a78d6", "#8b5a2b"
 EVENT_C = {"wrap": "#2a78d6", "add": "#eb6834", "spritz": "#1baf7a", "pull": "#8d5cd6", "serve": "#c9a227"}
 REASONS = [("first", "the first plan", "#5b6472"), ("event_due", "an event about to commit", "#2a78d6"),
            ("loss_rise", "the plan's value changed", "#eb6834"), ("misfit", "the misfit check", "#d6336c"),
@@ -58,8 +58,24 @@ def main():
     # --- 1. the cook as it happened ----------------------------------------------------------
     ax = fig.add_subplot(gs[0])
     style(ax)
-    ax.plot(t[keep], np.array(tr["T_pit_C"])[keep], color=PIT, lw=1.6, label="pit")
-    ax.plot(t[keep], np.array(tr["T_core_C"])[keep], color=CORE, lw=2.2, label="core")
+    # what the pilot BELIEVED at several checks: the plan's predicted pit, core and surface trajectories with the
+    # posterior covariance carried through the plan physics (closed_loop_trace.jl), mean and ±2 sd from that hour on;
+    # the temperatures the pilot planned on are uncertain by this much
+    import matplotlib.patches as mpatches
+    band_handles = []
+    preds = tr.get("predictive", [])
+    for j, pr in enumerate(preds):
+        g = np.array(pr["grid_h"])
+        m = (g >= pr["t_h"] - 1e-9) & (g <= t_end)
+        strong = bool(pr.get("last", False))
+        for key, col in (("Tpit", PIT), ("Tcore", CORE), ("Tsurf", SURF)):
+            mu, sd = np.array(pr[key]["mean"]), np.array(pr[key]["sd"])
+            ax.fill_between(g[m], (mu - 2 * sd)[m], (mu + 2 * sd)[m], color=col, alpha=0.22 if strong else 0.09, lw=0)
+            ax.plot(g[m], mu[m], color=col, lw=1.0 if strong else 0.7, ls=(0, (3, 2)), alpha=0.9 if strong else 0.5)
+        band_handles.append(mpatches.Patch(color=INK2, alpha=0.5 if strong else 0.2, label=f"believed at {pr['t_h']:.0f} h (mean, ±2 sd)"))
+    ax.plot(t[keep], np.array(tr["T_pit_C"])[keep], color=PIT, lw=1.6, label="pit, the plant")
+    ax.plot(t[keep], np.array(tr["T_surf_C"])[keep], color=SURF, lw=1.2, label="surface, the plant")
+    ax.plot(t[keep], np.array(tr["T_core_C"])[keep], color=CORE, lw=2.2, label="core, the plant")
     labels = [("wrap", ev["wrap"], "wrapped"), ("add", ev["add"], "fuel added"), ("spritz", ev["spritz"], "spritz begins"),
               ("pull", ev["pull"], "pulled"), ("serve", ev["serve"], "served")]
     ymax = 140
@@ -79,15 +95,24 @@ def main():
             if ts < min(ev["pull"], ev["wrap"] if ev["wrap"] is not None else ev["pull"]):   # no spritz on a wrapped brisket: the plant gates the train by the wrap
                 ax.axvline(ts, color=EVENT_C["spritz"], lw=0.6, alpha=0.5)
     ax.set_xlim(0, t_end)
-    ax.set_ylim(15, max(ymax, float(np.max(np.array(tr["T_pit_C"])[keep])) + 8))
+    # headroom above the hottest trace or band for the legend, which sits in the upper left where no event line runs
+    top = max(ymax, float(np.max(np.array(tr["T_pit_C"])[keep])) + 8)
+    for pr in preds:
+        g = np.array(pr["grid_h"]); m = (g >= pr["t_h"] - 1e-9) & (g <= t_end)
+        top = max(top, float(np.max((np.array(pr["Tpit"]["mean"]) + 2 * np.array(pr["Tpit"]["sd"]))[m])) + 4)
+    ax.set_ylim(15, top + 60)
     ax.set_ylabel("temperature [°C]", color=INK2, fontsize=9)
     core = np.array(tr["T_core_C"])
     pit_mean = float(np.mean(np.array(tr["T_pit_C"])[t <= ev["pull"]]))
     t70 = t[np.argmax(core >= 70)] if (core >= 70).any() else float("nan")
+    believed = ", ".join(f"{pr['t_h']:.0f}" for pr in preds)
     ax.set_title(f"The cook as it happened: a {pit_mean * 9 / 5 + 32:.0f} °F pit, the core at 70 °C by {t70:.1f} h, "
-                 f"wrapped at {ev['wrap']:.1f} h, pulled at {ev['pull']:.1f} h at {actual['T_pull']:.0f} °C, served at {ev['serve']:.1f} h",
+                 f"wrapped at {ev['wrap']:.1f} h, pulled at {ev['pull']:.1f} h at {actual['T_pull']:.0f} °C, served at {ev['serve']:.1f} h"
+                 + (f"\nand what the pilot believed it would do at {believed} h: the plan's temperatures under the posterior, mean and ±2 sd" if preds else ""),
                  color=INK, fontsize=10.5, pad=60)
-    ax.legend(loc="lower right", fontsize=8.5, frameon=False, labelcolor=INK2)
+    hs, ls_ = ax.get_legend_handles_labels()
+    ax.legend(hs + band_handles, ls_ + [h_.get_label() for h_ in band_handles], loc="upper left", fontsize=8, frameon=False, labelcolor=INK2, ncol=1,
+              borderaxespad=0.4, handlelength=1.6)      # one column, clear of the first spritz line
 
     # --- 2. what the pilot decided, hour by hour -------------------------------------------------
     ax = fig.add_subplot(gs[1], sharex=ax)
@@ -124,6 +149,8 @@ def main():
     style(ax)
     last = next(c for c in reversed(checks) if c["replanned"])
     pm, ps = last["predicted"]["mean"], last["predicted"]["sd"]
+    if preds:                                  # the belief's covariance through the plan physics, at the last replan drawn
+        pm, ps = preds[-1]["y"]["mean"], preds[-1]["y"]["sd"]
     # each goal is a band (or a floor): the row's shaded span is the band in the goal's sd, measured from its center
     # (for a floor, from the floor upward); the markers are the prediction and the plant on the same scale
     rows = [("tenderness: collagen at the center at serve", 0, goals["c_target"], goals["c_overdone"], 0.05, actual["C_serve"], "{:.3f}"),
@@ -135,13 +162,15 @@ def main():
         span = (0.0, 5.0) if hi is None else (-(hi - lo) / 2 / sd, (hi - lo) / 2 / sd)
         ax.fill_between(span, [y - 0.42, y - 0.42], [y + 0.08, y + 0.08], color="#eeeeea", lw=0)
         ax.axhline(y, color=GRID_C, lw=0.8)
+        if ps[idx] is not None and np.isfinite(ps[idx]):
+            ax.errorbar([(pm[idx] - center) / sd], [y], xerr=[2 * ps[idx] / sd], fmt="none", ecolor=CORE, elinewidth=1.4, capsize=3, alpha=0.8)
         ax.plot([(pm[idx] - center) / sd], [y], "o", color=CORE, ms=8, mec=SURFACE, mew=1.2)
         ax.plot([(act - center) / sd], [y], "s", color=PIT, ms=8, mec=SURFACE, mew=1.2)
         band = f"at least {lo:g}" if hi is None else f"{lo:g} to {hi:g}"
         ax.text(-4.9, y + 0.12, f"{name}: {band}, softness {sd:g}", color=INK2, fontsize=8.5, va="bottom")
         ax.text(4.9, y + 0.12, f"the plant: {fmt.format(act)}", color=INK2, fontsize=8.5, va="bottom", ha="right")
     ax.axvline(0, color=INK, lw=1)
-    ax.plot([], [], "o", color=CORE, label="predicted at the last replan")
+    ax.plot([], [], "o", color=CORE, label="predicted at the last replan (±2 sd of the belief)" if preds else "predicted at the last replan")
     ax.plot([], [], "s", color=PIT, label="the plant")
     ax.set_xlim(-5, 5)
     ax.set_ylim(0.2, len(rows) + 0.6)
