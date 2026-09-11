@@ -181,7 +181,7 @@ record = []
 n_replans = 0
 rng_draws = MersenneTwister(7)
 t_start = time()
-println("t[h]  reason           committed        L_now  L_plan  KL     plan: wrap / pull / serve / spritz / add   outcomes at the last replan (collagen at serve, water, L*, serve C)   misfit z   pit σ, level   wall")
+println("t[h]  reason (* = the replan was worse than the standing plan, which was kept)  committed        L_now  L_plan  KL     plan: wrap / pull / serve / spritz / add   outcomes at the last replan (collagen at serve, water, L*, serve C)   misfit z   pit σ, level   wall")
 flush(stdout)
 while s.t_now < 28 * 3600
     t0 = time()
@@ -195,30 +195,39 @@ while s.t_now < 28 * 3600
     kl = plan === nothing ? NaN : posterior_kl(z, V, z_at_plan, V_at_plan)
     due, why = replan_due(pol, s, plan, L_now, L_plan, t_last, mis === nothing ? nothing : mis.z_chi2; kl=isnan(kl) ? nothing : kl, n_latent=length(z))
     stable = Symbol[]
+    kept = false
     if due
         ζ_init = plan === nothing ? nothing : encode_plan(plan, free_set(s), s)
         r = replan_on_graph(zs, s, d_plan; goals, ζ_init, verbose=false, history=hist)
-        why == :event_due && (stable = stable_events(r.plan, plan, pol.stable))   # left where it stood: commit it
-        global plan = r.plan
-        global L_plan = plan_loss(zs, plan, s, d_plan; goals, history=hist).mean
+        L_new = plan_loss(zs, r.plan, s, d_plan; goals, history=hist).mean
+        # a plan the pilot holds is never replaced by a worse one under the same belief: the warm start is the
+        # standing plan re-encoded on the new window (its knots resampled), and the solve from there once settled in
+        # a later-wrap basin at 0.54 against the standing 0.52, at the check that decided the wrap
+        kept = plan !== nothing && L_new > L_now + 1e-6
+        ζ_new = kept ? ζ_init : r.ζ
+        why == :event_due && (stable = stable_events(kept ? plan : r.plan, plan, pol.stable))   # left where it stood: commit it
+        if !kept
+            global plan = r.plan
+        end
+        global L_plan = kept ? L_now : L_new
         global t_last = s.t_now
         global n_replans += 1
         global z_at_plan, V_at_plan = copy(z), copy(V)
-        ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d_plan; goals, history=hist) for zz in zs])
+        ys = reduce(hcat, [plan_outputs_rh(zz, ζ_new, r.free, s, d_plan; goals, history=hist) for zz in zs])
         global pred = (mean=vec(mean(ys; dims=2)), sd=vec(std(ys; dims=2)), t_h=s.t_now / 3600)
     end
     done = s.t_now > 0 ? commit!(s, plan, CHECK; force=stable, force_horizon=pol.stable_horizon) : Symbol[]     # the prior's plan is a warm start, not a decision
     p = plan
     sdz = sqrt.(diag(V))
     @printf("%4.0f  %-15s  %-15s  %5.2f  %5.2f  %5.1f  %5.2f / %5.2f / %5.2f / %s / %5.2f   %5.3f±%5.3f %5.3f±%5.3f %5.1f±%4.1f %6.1f±%4.1f   %s   %.2f %.2f   %3.0f s\n",
-            s.t_now / 3600, string(why), isempty(done) ? "-" : join(string.(done), ","),
+            s.t_now / 3600, string(why) * (kept ? "*" : ""), isempty(done) ? "-" : join(string.(done), ","),
             L_now, L_plan, kl,
             (isnan(p.t_wrap) ? NaN : p.t_wrap / 3600), p.t_pull / 3600, p.t_serve / 3600,
             p.spritz === nothing ? "-" : @sprintf("%.1f", p.spritz.t / 3600), (isnan(p.t_add) ? NaN : p.t_add / 3600),
             pred.mean[1], pred.sd[1], pred.mean[2], pred.sd[2], pred.mean[3], pred.sd[3], pred.mean[4] - 273.15, pred.sd[4],
             mis === nothing ? "  -  " : @sprintf("%5.2f", mis.z_chi2), noise[1][1], pit_level_now(s), time() - t0)
     flush(stdout)
-    push!(record, Dict("t_h" => s.t_now / 3600, "reason" => string(why), "replanned" => due, "committed" => string.(done),
+    push!(record, Dict("t_h" => s.t_now / 3600, "reason" => string(why), "replanned" => due, "kept_standing" => kept, "committed" => string.(done),
                        "L_now" => nn(L_now), "L_plan" => L_plan, "kl" => nn(kl), "stable" => string.(stable), "converged" => conv, "wall_s" => time() - t0,
                        "plan" => Dict("u" => p.u, "t_wrap_h" => nn(p.t_wrap / 3600), "t_pull_h" => p.t_pull / 3600, "t_serve_h" => p.t_serve / 3600,
                                       "spritz" => p.spritz === nothing ? nothing : Dict("t_h" => p.spritz.t / 3600, "dt_h" => p.spritz.dt / 3600, "m" => p.spritz.m),

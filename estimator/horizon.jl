@@ -99,19 +99,24 @@ function plan_prior(f::FreeSet, s::Schedule)
     # and the pilot wrapped five hours after the MPC in every run; the damper and the rest had the same story.
     # ... and at three sd it still charged 1.6 half-J units for the MPC's hot cook (a knot at 0.82, an early pull),
     # twice the J difference it was hiding: the planner sat in the low-and-slow basin at the truth. Ten sd on
-    # every timing and damper coordinate is numerically a prior and nothing else. The spritz dose and cadence
-    # keep one log-sd: the app bounds them, and J alone would pour water on.
+    # every timing and damper coordinate looked like numerically a prior and nothing else ... until an event fell
+    # due: a wrap four minutes off and an add twelve minutes off sit at logit −3.9 and −3.0 of their fractional
+    # coordinates, and at ten sd the prior charged the standing plan 0.22 half-J units for them, against a plan
+    # whose goals were 0.02 worse, so the pilot deferred the wrap two hours (the drifting-plant entry in
+    # docs/results.md). A hundred sd charges a hundredth of that. The spritz dose and cadence keep one log-sd:
+    # the app bounds them, and J alone would pour water on.
     fp = clamp((12 * 3600 - s.t_now) / (T_SERVE_MAX - s.t_now), 0.02, 0.98)          # a 12-h pull, as a fraction of now to the bound
     tp = f.pull ? s.t_now + fp * (T_SERVE_MAX - s.t_now) : s.t_pull
     fr = clamp(1.5 * 3600 / max(T_SERVE_MAX - tp, 600.0), 0.02, 0.98)                 # a 1.5-h rest, as a fraction of the pull to the bound
-    if f.damper; append!(m, fill(lgt(0.15), N_KNOTS)); append!(sd, fill(10.0, N_KNOTS)); end
-    if f.wrap;   push!(m, lgt(0.7));  push!(sd, 10.0); end
-    if f.pull;   push!(m, lgt(fp));   push!(sd, 10.0); end
-    if f.serve;  push!(m, lgt(fr));   push!(sd, 10.0); end
-    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [10.0, 1.0, 1.0]); end
-    if f.add;    push!(m, lgt(0.5));  push!(sd, 10.0); end
+    if f.damper; append!(m, fill(lgt(0.15), N_KNOTS)); append!(sd, fill(PLAN_SD, N_KNOTS)); end
+    if f.wrap;   push!(m, lgt(0.7));  push!(sd, PLAN_SD); end
+    if f.pull;   push!(m, lgt(fp));   push!(sd, PLAN_SD); end
+    if f.serve;  push!(m, lgt(fr));   push!(sd, PLAN_SD); end
+    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [PLAN_SD, 1.0, 1.0]); end
+    if f.add;    push!(m, lgt(0.5));  push!(sd, PLAN_SD); end
     return m, Diagonal(1 ./ sd .^ 2)
 end
+const PLAN_SD = 100.0      # the sd of the plan block's prior on every timing and damper coordinate: a regulariser for the graph
 
 "The decisions in seconds (executed ones from the schedule) from ζ."
 function decode_plan(ζ, f::FreeSet, s::Schedule)
