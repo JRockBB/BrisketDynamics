@@ -4,6 +4,108 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Parameters that move: the smoother, judged on a drifting plant (2026-09-11, later)
+
+Every coverage number before this entry was earned on a plant whose
+parameters are constants. A real pit's are not: the leak drifts as the
+vents are nudged, the surface coefficients change as the bark sets, and
+the charge of fuel added at mid-cook burns at its own rate with its own
+enthalpy. The batch estimator refits every latent as one constant over
+the full history; on such a plant it estimates an average that nothing
+ever had, and reports the width of the average. This entry builds the
+plant that moves, two estimators for it, and judges all three by the
+same coverage test, against the truth in force at each hour.
+
+**The drifting plant** (`estimator/drift.jl`, the mock
+`mock_drift_realcook.jl`). Truths drawn from the pilot's prior as
+before; then u_leak, k_e and h_c walk in the unconstrained coordinate,
+stepping on the hour with sd 0.05, 0.05 and 0.03 per hour, and at the
+add the charge's r_max and dH_eff jump by a log-normal factor of sd 0.15
+and 0.10. The draws are made once per seed, so the same plant answers
+every schedule executed on it. The plant is the monolith solved in
+segments with a boundary on every hour and at the add, the state
+handed exactly from one segment to the next (`segments.jl`: the meat
+fields, bark, ring and salt as initial conditions, the pit's
+temperature, fuel, pan and firebox as new solver keywords, the ignited
+fraction through a0). The hand-off is tested exact against the whole
+solve: core 0.003 K, pit 0.02 K, mass 0.09 g, vapor 0.5 Pa on a 16 h cook
+cut in four, and core 0.0004 K, fuel 0.04 g with a boundary at the
+centre of the add's pulse; its ForwardDiff Jacobian equals the whole
+solve's to four digits (`test_segments.jl`).
+
+**Two estimators for it.** The *filter* (`filter.jl`) is the textbook
+shape: predict the last posterior with process noise at the plant's own
+rates, update on the window's readings alone with the physics started
+from the state the last fit's solve handed off. Its approximation is
+the handed-off state taken as known. The *smoother* (`smoother.jl`)
+makes no such approximation: the full history is refit every batch as
+before, but a moving site carries one value per two-hour piece of
+history (a new copy at every batch edge) tied to its predecessor by a
+random-walk prior at the plant's rate, and a jump site gets one new
+copy from the add with the jump's variance. The stacked block is
+solved by the same Gauss-Newton graph; the physics is the segmented
+cook differentiated through the hand-offs; the belief at an hour is
+the latest copy of each site with its marginal width. The block grows
+from 17 to 37 latents by hour fourteen. Both are told the plant's own
+rates: the test is of the mechanism, not of guessing the rates.
+
+**The verdict** (`coverage_drift.jl`; nine cooks, seeds 1 to 9, the
+chain prior, batches every two hours to 14 h; records
+`data/mock/coverage_drift_{1,4,7}.json`; figures
+`figures/estimator/coverage_realcook_drift{batch,filter,smoother}.png`).
+Pooled over all seventeen sites at 14 h, the standardized error against
+the truth in force then (a calibrated belief: mean 0, spread 1, 68 % and
+95 % inside one and two sd):
+
+| estimator, on the drifting plant | mean | spread | inside 1 sd | inside 2 sd | beyond 4 sd | wall per cook |
+|---|---|---|---|---|---|---|
+| the batch estimator (every latent a constant) | −0.00 | 2.59 | 52 % | 80 % | 8 % | 22 min |
+| the filter (a0 excluded: it is a handed-off state) | +0.29 | 2.24 | 45 % | 72 % | 6 % | 3 min |
+| **the smoother** | **−0.02** | **1.47** | **56 %** | **86 %** | **2 %** | 23 min |
+| for scale: the batch estimator on the CONSTANT plant, 21 cooks | −0.10 | 1.54 | 55 % | 87 % | | |
+
+The smoother on a plant that moves is as calibrated as the batch
+estimator was on a plant that does not, at the batch estimator's cost
+(the larger block is nothing next to the solves). Site by site, spread
+at 14 h as batch / filter / smoother: the leak 1.86 / 4.42 / 1.18; the
+burn rate after the add 5.55 / 3.76 / 2.02; h_c 1.83 / 1.52 / 1.11;
+a0 3.47 / state / 1.80; and the meat sites the batch estimator
+corrupts to explain a fire it cannot: D_eff 2.92 / 2.11 / 0.94,
+L 3.18 / 0.89 / 0.91, A_meat 3.14 / 0.92 / 0.92, core_depth 1.67 /
+1.37 / 0.60. On the cook whose new charge burned a quarter slower
+(seed 3, a two-sigma jump) the batch estimator ends 15 sd off on
+r_max with D_eff, L and A_meat off the chart; the filter 11 sd off;
+the smoother 4 sd off two hours after the add. The filter is retired:
+the state it takes as known carries the last window's parameter error
+into the next, and the leak and the drip pay for it (a_myosin's spread
+3.25 against 0.83 for the other two). What the smoother does not fix is
+what was not drift: the fire's ridge (C_th 2.29, a0 −1.7 sd low, the
+cold-start bias of the previous entry) and the plug-in noise widths.
+k_e sits 0.7 sd low for batch and smoother alike, as it did on the
+constant plant (−0.77 there); k_m reads +1.3 sd for all three (z 2.6,
++0.26 on the constant plant), which nine cooks cannot settle and fresh
+seeds will.
+
+Two conventions in the code moved after this run was launched, both
+in the smoother's favour and both small: the plant's jump now happens
+at the add itself (the old walk applied it to the hourly segment
+containing the add, up to an hour early), and the smoother's jump copy
+starts at the add's grid point instead of the next batch edge. The
+numbers above are the run as launched, with the smoother an hour late
+on the add's charge.
+
+**In the pilot.** The loop (`mock_closed_loop_realcook.jl`) takes the
+estimator as an argument (`batch` or `smoother`, the smoother refit
+once per check from its last stacked belief, the plan and the replan
+trigger reading the latest values) and a drift seed for its plant. Two
+flights on the same drifting plant (seed 1) are the next entry. A
+run-ending crash that truncated a finished cook's record also cost an
+afternoon: the loop now writes its checks after every hour, builds each
+record before opening the file, and `pilot_outcome.jl` replays a
+partial record's executed schedule to recover the outcome.
+
+---
+
 ## The a_myosin bias was one draw; the widths are the noise plug-in; the fire is the ridge (2026-09-11)
 
 The chain entry below left one bias standing: the drip site a_myosin

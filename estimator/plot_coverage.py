@@ -94,8 +94,14 @@ def main():
     for ax in axes[:, 0]:
         ax.set_ylabel("(estimate − truth) / sd", color=INK2, fontsize=8)
     axes.flat[0].set_ylim(-5, 5)
-    what = "the Gaussian posterior" if key == "err_sd" else "the belief with the ridge chain"
-    fig.suptitle(f"Coverage of {what} on the honest bench: {n_ok} cooks with truths drawn from the pilot's prior, "
+    drifting = "drift" in pattern
+    what = {"err_sd": "the batch estimator (every latent a constant)" if drifting else "the Gaussian posterior",
+            "err_sd_ridge": "the belief with the ridge chain",
+            "err_sd_marg": "the Gaussian posterior with the noise marginalised",
+            "err_sd_filter": "the filter (predict from a handed-off state, update on the window)",
+            "err_sd_smoother": "the smoother (the moving sites piecewise constant over the history)"}.get(key, key)
+    bench = "on the DRIFTING plant (the leak, the surface coefficients and the add's charge move; the error is against the truth in force at that hour)" if drifting else "on the honest bench"
+    fig.suptitle(f"Coverage of {what} {bench}: {n_ok} cooks with truths drawn from the pilot's prior, "
                  f"each cook's standardized error (grey), the pooled mean ± 2 standard errors (blue), the ±2 band; "
                  f"pooled at {hours[last]:.0f} h: mean {np.mean(pooled):+.2f}, spread {np.std(pooled, ddof=1):.2f}, within 2 sd {100 * np.mean(np.abs(pooled) <= 2):.0f} %",
                  fontsize=9.5, color=INK, x=0.01, ha="left", wrap=True)
