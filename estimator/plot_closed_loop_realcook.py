@@ -43,7 +43,8 @@ def main():
     rec_name = sys.argv[1] if len(sys.argv) > 1 else "closed_loop_realcook.json"     # the loop record; the figure takes its suffix
     d = json.loads((REPO / "data" / "mock" / rec_name).read_text(encoding="utf-8"))
     tr = json.loads((REPO / "data" / "mock" / rec_name.replace(".json", "_trace.json")).read_text(encoding="utf-8"))
-    suffix = rec_name.replace("closed_loop_realcook", "").replace(".json", "")
+    stem = rec_name.replace(".json", "")
+    suffix = stem.replace("closed_loop_realcook", "") if stem.startswith("closed_loop_realcook") else "_" + stem.replace("closed_loop_", "")
     checks = d["checks"]
     goals, actual = d["goals"], d["actual"]
     ev = tr["events_h"]

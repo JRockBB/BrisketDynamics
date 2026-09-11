@@ -258,24 +258,31 @@ const DELTA_PULL_S = 300.0     # the pull blend, as brisket_app/control.py
 const TAU_ADD_S = 300.0        # the chimney dump duration, as brisket_app/control.py
 
 """
-    plan_outputs_rh(z, ζ, f, s, d; goals) -> y (see `cook_outputs`)
+    plan_outputs_rh(z, ζ, f, s, d; goals, history=nothing) -> y (see `cook_outputs`)
 
 The plan's outcomes at latents `z` (physics, area) and plan `ζ`, the
 whole cook solved from the start with the executed schedule and the
-plan's future.
+plan's future. With a `history` (`plan_history`: the segment edges on
+`s.t` and the physics blocks in force before each), the past is solved
+in segments at the values that were in force then, the state handed
+off exactly, and `z` governs from the last edge on: the plan starts
+from the state the smoother says the cook is in, not from a history
+re-cooked with today's values.
 """
-function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals())
+function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), history=nothing)
     x = from_z(z[1:N_PHYS], d.prior[1:N_PHYS])
     A = length(z) >= 16 ? exp(z[16]) : d.cfg.A_meat
     p = decode_plan(ζ, f, s)
     u = plan_damper(p, s)
     sp = p.spritz
     t_add = isnan(p.t_add) ? BrisketDynamics.ADD_NEVER : p.t_add
-    o = monolith_solve(x[1:N_THETA], x[(N_THETA + 1):N_PHYS], u, s.t, s.t; pit=d.pit, cfg=d.cfg,
-                       abstol=d.abstol, reltol=d.reltol, A_meat=A,
-                       t_wrap=isnan(p.t_wrap) ? BrisketDynamics.WRAP_NEVER : p.t_wrap, t_pull=p.t_pull, t_add=t_add,
-                       t_spritz=sp === nothing ? BrisketDynamics.SPRITZ_NEVER : sp.t,
-                       dt_spritz=sp === nothing ? 3600.0 : sp.dt, m_spritz=sp === nothing ? 0.05 : sp.m)
+    kw = (pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol, A_meat=A,
+          t_wrap=isnan(p.t_wrap) ? BrisketDynamics.WRAP_NEVER : p.t_wrap, t_pull=p.t_pull, t_add=t_add,
+          t_spritz=sp === nothing ? BrisketDynamics.SPRITZ_NEVER : sp.t,
+          dt_spritz=sp === nothing ? 3600.0 : sp.dt, m_spritz=sp === nothing ? 0.05 : sp.m)
+    θ, φ = x[1:N_THETA], x[(N_THETA + 1):N_PHYS]
+    o = history === nothing ? monolith_solve(θ, φ, u, s.t, s.t; kw...) :
+        solve_segments(vcat(history.θs, [θ]), vcat(history.φs, [φ]), u, s.t, history.edges; kw...)
     return cook_outputs(o, s.t, diff(p.u), p.t_pull, t_add, p.t_serve, d.cfg, goals)
 end
 
@@ -319,8 +326,8 @@ function draw_residual(r, k::Int, n_draws::Int, hedge::Bool)
     k == 1 && return vcat(zero(r[1:N_BAND]), r[(N_BAND + 1):end])
     return vcat(r[1:N_BAND] ./ sqrt(n_draws - 1), zero(r[(N_BAND + 1):end]))
 end
-plan_residual(z, ζ, f::FreeSet, s::Schedule, d::GateData, k::Int, n_draws::Int, hedge::Bool; goals::PlanGoals=PlanGoals()) =
-    draw_residual(goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals), goals), k, n_draws, hedge)
+plan_residual(z, ζ, f::FreeSet, s::Schedule, d::GateData, k::Int, n_draws::Int, hedge::Bool; goals::PlanGoals=PlanGoals(), history=nothing) =
+    draw_residual(goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals, history), goals), k, n_draws, hedge)
 
 """
     sigma_draws(z, V; n_dirs=2) -> [mean, ±1 sd along the widest directions...]
@@ -385,17 +392,17 @@ plan prior, the graph iterator; warm-started at `ζ_init` when given.
 """
 function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), ζ_init=nothing,
                          verbose::Bool=false, iters::Int=30, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0),
-                         scan_damper::Bool=true, hedge::Bool=true, cold_start::Bool=true)
+                         scan_damper::Bool=true, hedge::Bool=true, cold_start::Bool=true, history=nothing)
     f = free_set(s)
     n = length(f)
     N = length(zs)
     mζ, Λζ = plan_prior(f, s)
     c0 = ζ_init === nothing ? copy(mζ) : copy(ζ_init)
     # the residual vector of a plan: goals per draw (the hedge's split when there are several), then the prior
-    resid(ζ) = vcat([plan_residual(z, ζ, f, s, d, k, N, hedge; goals) for (k, z) in enumerate(zs)]..., sqrt(Λζ) * (ζ .- mζ))
+    resid(ζ) = vcat([plan_residual(z, ζ, f, s, d, k, N, hedge; goals, history) for (k, z) in enumerate(zs)]..., sqrt(Λζ) * (ζ .- mζ))
     objective(c) = 0.5 * sum(abs2, resid(c))
     # the scan judges candidates by the full J at the mean (one cook each), the solve by the hedged objective
-    objective_scan(c) = 0.5 * (sum(abs2, goal_residuals(plan_outputs_rh(zs[1], c, f, s, d; goals), goals)) + sum(abs2, sqrt(Λζ) * (c .- mζ)))
+    objective_scan(c) = 0.5 * (sum(abs2, goal_residuals(plan_outputs_rh(zs[1], c, f, s, d; goals, history), goals)) + sum(abs2, sqrt(Λζ) * (c .- mζ)))
     # the objective is multi-modal: in the wrap, in the damper (a low-and-slow cook and a hot-and-fast one are
     # separate basins, and the solve from the low one never crosses), and nearly flat in the rest; the warm start
     # sits where the last plan left it. A coarse scan, one cook each, picks a second start: the wrap fraction
@@ -440,12 +447,12 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
     end
     # the per-draw affine model of the GOAL RESIDUALS (the hinge included) at c: goal ~ N(res, 1)
     function rebuild!(c)
-        RH_AFFS[] = [(plan_residual(z, c, f, s, d, k, N, hedge; goals),
-                      ForwardDiff.jacobian(v -> plan_residual(z, v, f, s, d, k, N, hedge; goals), c)) for (k, z) in enumerate(zs)]
+        RH_AFFS[] = [(plan_residual(z, c, f, s, d, k, N, hedge; goals, history),
+                      ForwardDiff.jacobian(v -> plan_residual(z, v, f, s, d, k, N, hedge; goals, history), c)) for (k, z) in enumerate(zs)]
         RH_CENTER[] = copy(c)
     end
     prob = IteratedProblem(:ζ, objective, rebuild!, n)
-    n_out = length(goal_residuals(plan_outputs_rh(zs[1], c0, f, s, d; goals), goals))
+    n_out = length(goal_residuals(plan_outputs_rh(zs[1], c0, f, s, d; goals, history), goals))
     g = [zeros(n_out) for _ in 1:length(zs)]
     Σg = Matrix(1.0 * I, n_out, n_out)
     run_infer(Λ_lm, callbacks, its) = infer(model = rh_graph(mζ = mζ, Λζ = Matrix(Λζ), N = length(zs), Σg = Σg),
@@ -481,11 +488,11 @@ without it, the mean over draws of half the squared goal residuals. The
 plan is re-encoded in the current free set (its committed events are
 fixed in `s`). `draws` holds each draw's contribution.
 """
-function plan_loss(zs, plan, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), hedge::Bool=true)
+function plan_loss(zs, plan, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), hedge::Bool=true, history=nothing)
     f = free_set(s)
     ζ = encode_plan(plan, f, s)
     N = length(zs)
-    ls = [0.5 * sum(abs2, plan_residual(z, ζ, f, s, d, k, N, hedge; goals)) for (k, z) in enumerate(zs)]
+    ls = [0.5 * sum(abs2, plan_residual(z, ζ, f, s, d, k, N, hedge; goals, history)) for (k, z) in enumerate(zs)]
     return (mean=(hedge && N > 1) ? sum(ls) : sum(ls) / N, draws=ls)
 end
 

@@ -17,7 +17,8 @@
 # Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl [prior.json] [out.json] [hedge dirs] [ridge k] [ridge steps] [estimator] [drift seed]
 #   estimator: "batch" (every latent a constant on the history) or "smoother" (smoother.jl: the leak, the surface
 #   coefficients and the add's charge piecewise constant over the history with a random-walk prior between the
-#   pieces at drift.jl's rates; the plan, the trigger and the record read the latest values)
+#   pieces at drift.jl's rates; the plan, the trigger and the record read the latest values, and the plan's
+#   physics solves the past in the smoother's segments so it starts from the state the cook is in)
 #   drift seed > 0: the plant's leak, surface coefficients and the add's charge move (drift.jl, drawn once from the seed)
 #   ridge k > 0: after every refit the belief along the k widest posterior directions is sampled on the exact
 #   posterior (ridge.jl) and the plan, the replan trigger and the record read the corrected belief
@@ -135,7 +136,8 @@ function estimate!(s::Schedule, z_prev)
             levels[i] = rec.channels[i] isa Levelled ? rec.channels[i].level : nothing
         end
         info = Dict("block" => length(rec.z), "iters" => rec.iters, "wall_s" => rec.wall, "F" => rec.F,
-                    "copies" => Dict(allnames[rec.layout.sites[m]] => length(rec.layout.starts[m]) for m in eachindex(rec.layout.sites)))
+                    "copies" => Dict(allnames[rec.layout.sites[m]] => length(rec.layout.starts[m]) for m in eachindex(rec.layout.sites)),
+                    "z_stack" => rec.z, "sd_stack" => rec.sd, "starts_h" => Dict(allnames[rec.layout.sites[m]] => GRID[rec.layout.starts[m]] ./ 3600 for m in eachindex(rec.layout.sites)))
         return rec.z_now, Matrix(Symmetric(rec.cov_now)), rec.misfit.total, rec.noise, rec.converged, rec.z_now, nothing, info
     end
     ph = Physics1D(area_latent=AREA, events=ev)
@@ -166,6 +168,7 @@ z = vcat(d_plan.z0, [log(cfg.A_meat), log(0.8 * L_med)])
 z_map = copy(z)          # the refit's warm start: the MAP, not the ridge-corrected belief
 ridge = nothing
 est_info = nothing
+hist = nothing           # the plan's history (plan_history): the smoother's segments, so the plan starts from the state the cook is in
 allnames = vcat(names, ["A_meat", "core_depth"])
 _, _, h0 = E.prior_terms(z, prior)
 V = Matrix(Diagonal(1 ./ h0))
@@ -185,22 +188,23 @@ while s.t_now < 28 * 3600
     mis = nothing; noise_post = Dict{Int,NamedTuple}(); conv = true
     if s.t_now > 0
         global z, V, mis, noise_post, conv, z_map, ridge, est_info = estimate!(s, z_map)
+        global hist = ESTIMATOR == "smoother" && lay_prev !== nothing ? plan_history(z_stack, lay_prev, GRID, PLAN_GRID, prior) : nothing
     end
     zs = draws(z, V, rng_draws)
-    L_now = plan === nothing ? NaN : plan_loss(zs, plan, s, d_plan; goals).mean
+    L_now = plan === nothing ? NaN : plan_loss(zs, plan, s, d_plan; goals, history=hist).mean
     kl = plan === nothing ? NaN : posterior_kl(z, V, z_at_plan, V_at_plan)
     due, why = replan_due(pol, s, plan, L_now, L_plan, t_last, mis === nothing ? nothing : mis.z_chi2; kl=isnan(kl) ? nothing : kl, n_latent=length(z))
     stable = Symbol[]
     if due
         ζ_init = plan === nothing ? nothing : encode_plan(plan, free_set(s), s)
-        r = replan_on_graph(zs, s, d_plan; goals, ζ_init, verbose=false)
+        r = replan_on_graph(zs, s, d_plan; goals, ζ_init, verbose=false, history=hist)
         why == :event_due && (stable = stable_events(r.plan, plan, pol.stable))   # left where it stood: commit it
         global plan = r.plan
-        global L_plan = plan_loss(zs, plan, s, d_plan; goals).mean
+        global L_plan = plan_loss(zs, plan, s, d_plan; goals, history=hist).mean
         global t_last = s.t_now
         global n_replans += 1
         global z_at_plan, V_at_plan = copy(z), copy(V)
-        ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d_plan; goals) for zz in zs])
+        ys = reduce(hcat, [plan_outputs_rh(zz, r.ζ, r.free, s, d_plan; goals, history=hist) for zz in zs])
         global pred = (mean=vec(mean(ys; dims=2)), sd=vec(std(ys; dims=2)), t_h=s.t_now / 3600)
     end
     done = s.t_now > 0 ? commit!(s, plan, CHECK; force=stable, force_horizon=pol.stable_horizon) : Symbol[]     # the prior's plan is a warm start, not a decision
@@ -222,7 +226,7 @@ while s.t_now < 28 * 3600
                        "predicted" => Dict("mean" => pred.mean, "sd" => [nn(x) for x in pred.sd], "t_h" => pred.t_h),
                        "posterior_z" => z, "posterior_sd" => sdz, "posterior_cov" => [V[i, :] for i in axes(V, 1)],
                        "z_true" => truth_now(s.t_now, schedule_events(s).t_add), "err_sd" => (z .- truth_now(s.t_now, schedule_events(s).t_add)) ./ sdz,
-                       "ridge" => ridge, "estimator" => est_info,
+                       "ridge" => ridge, "estimator" => est_info, "history_edges_h" => hist === nothing ? nothing : PLAN_GRID[hist.edges] ./ 3600,
                        "misfit_z" => mis === nothing ? nothing : mis.z_chi2,
                        "noise" => Dict(chnames[i] => Dict("sigma" => v.σ, "rho" => v.ρ, "sigma_sd" => v.σ_sd, "rho_sd" => v.ρ_sd) for (i, v) in noise_post),
                        "pit_level_now" => pit_level_now(s)))
