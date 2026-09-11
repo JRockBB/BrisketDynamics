@@ -29,7 +29,7 @@ using JSON
 using Printf
 using BrisketDynamics
 
-export ridge_chain
+export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, solve_segments, filter_fit, A0_INDEX
 export GateData, load_gate, from_z, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, logistic
 
@@ -86,6 +86,44 @@ end
 # --- unconstrained parameterization and the prior ---------------------------
 
 isbeta(p::PriorSite) = p.family == "beta"
+
+"""
+    FilterPrior(sites, m, Λ)
+
+A full-covariance Gaussian prior on the latent block in z (a filter's predicted belief: the last posterior
+inflated by process noise), carrying the per-site families `sites` for the transforms z -> x. Indexes and
+iterates as its sites, so every consumer of a `Vector{PriorSite}` (from_z, the channels, the layouts) reads
+it unchanged; `prior_terms` returns the Gaussian's value, gradient and FULL Hessian.
+"""
+struct FilterPrior
+    sites::Vector{PriorSite}
+    m::Vector{Float64}
+    Λ::Matrix{Float64}
+end
+Base.getindex(p::FilterPrior, i) = p.sites[i]
+Base.length(p::FilterPrior) = length(p.sites)
+Base.lastindex(p::FilterPrior) = lastindex(p.sites)
+Base.iterate(p::FilterPrior, st...) = iterate(p.sites, st...)
+Base.eltype(::Type{FilterPrior}) = PriorSite
+function prior_terms(z, p::FilterPrior)
+    r = z .- p.m
+    return 0.5 * dot(r, p.Λ * r), p.Λ * r, Matrix(p.Λ)
+end
+"The prior's precision as a matrix: a diagonal from the per-site curvature, or the Gaussian's own."
+_prec(h::AbstractVector) = Matrix(Diagonal(h))
+_prec(H::AbstractMatrix) = Matrix(H)
+"""
+    prior_quadratic(c, prior; damping=0.0) -> (mp, Λp)
+
+The prior's local quadratic at `c` as the graph's prior node takes it (mean and precision), with an optional
+Levenberg-Marquardt penalty added to the precision.
+"""
+function prior_quadratic(c, prior; damping::Float64=0.0)
+    _, g, h = prior_terms(c, prior)
+    Λp = _prec(h) + damping * I
+    mp = c .- Λp \ g
+    return mp, Λp
+end
 logistic(v) = 1 / (1 + exp(-v))
 
 from_z(z, prior) = [isbeta(p) ? logistic(v) : exp(v) for (v, p) in zip(z, prior)]
@@ -185,9 +223,7 @@ Gauss-Newton step and covariance from `c`.
 """
 function graph_posterior(c, μ, Jz, d::GateData; bp_iters::Int=20)
     AFF[] = Affine(d.L * μ, d.L * Jz, copy(c))
-    _, g, h = prior_terms(c, d.prior)
-    mp = c .- g ./ h
-    Λp = Matrix(Diagonal(h))
+    mp, Λp = prior_quadratic(c, d.prior)
     r = infer(model = cook_graph(mp = mp, Λp = Λp), data = (w = d.w_obs,), meta = GRAPH_META,
               initialization = init_z(mp, Λp), iterations = bp_iters,
               returnvars = (z = KeepLast(),))
@@ -296,5 +332,8 @@ include(joinpath(@__DIR__, "iterated.jl"))
 include(joinpath(@__DIR__, "horizon.jl"))
 include(joinpath(@__DIR__, "realcook.jl"))
 include(joinpath(@__DIR__, "ridge.jl"))
+include(joinpath(@__DIR__, "noise_marginal.jl"))
+include(joinpath(@__DIR__, "segments.jl"))
+include(joinpath(@__DIR__, "filter.jl"))
 
 end # module

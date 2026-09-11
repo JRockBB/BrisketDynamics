@@ -433,7 +433,7 @@ of a sensor before it exists.
 function fisher_cov(channels, z, S, J, prior, lay; fix::AbstractVector{<:Integer}=Int[])
     _, B, _ = assemble(channels, z, S, J, prior, lay)
     _, _, h = prior_terms(z, prior)
-    H = B' * B + Diagonal(h)
+    H = B' * B + _prec(h)
     n = length(z)
     keep = setdiff(1:n, fix)          # latents in `fix` are treated as known (conditioned on)
     cov = fill(NaN, n, n)

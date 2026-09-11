@@ -147,9 +147,9 @@ function solve_channels_graph(channels, prior, d::GateData, ph::Physics; c0, ite
         AFF[] = Affine(a, B, copy(c))
         w_ref[] = w
         lay_ref[] = lay
-        _, g, h = prior_terms(c, prior)
-        mp .= c .- g ./ h
-        Λp .= Matrix(Diagonal(h))
+        mp_c, Λp_c = prior_quadratic(c, prior)
+        mp .= mp_c
+        Λp .= Λp_c
     end
     prob = IteratedProblem(:z, objective, rebuild!, n)
     run_infer(Λ_lm, callbacks, its) = infer(model = cook_graph_lm(), data = (w = w_ref[], mp = mp, Λp = Λp, lm_obs = zeros(n), Λ_lm = Λ_lm),

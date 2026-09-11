@@ -49,10 +49,7 @@ logit, and an undamped step then runs to infinity).
 """
 function graph_posterior_affine(c, a, B, w, prior; bp_iters::Int=20, damping::Float64=0.0)
     AFF[] = Affine(a, B, copy(c))
-    _, g, h = prior_terms(c, prior)
-    hd = h .+ damping            # Levenberg-Marquardt: a quadratic penalty around c on the prior node
-    mp = c .- g ./ hd
-    Λp = Matrix(Diagonal(hd))
+    mp, Λp = prior_quadratic(c, prior; damping)      # Levenberg-Marquardt: a quadratic penalty around c on the prior node
     r = infer(model = cook_graph(mp = mp, Λp = Λp), data = (w = w,), meta = GRAPH_META,
               initialization = init_z(mp, Λp), iterations = bp_iters,
               returnvars = (z = KeepLast(),))
