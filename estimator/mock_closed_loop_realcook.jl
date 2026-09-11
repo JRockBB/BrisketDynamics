@@ -77,6 +77,10 @@ dd = DRIFT_SEED > 0 ? DriftDraw(MersenneTwister(2000 + DRIFT_SEED), idx) : nothi
 "The plant's latent block in force just before `te` (what a belief at `te` is scored against)."
 truth_now(te, t_add) = dd === nothing ? z_true0 : truth_at(z_true0, dd, te, t_add)
 from_z_all(z) = [isbeta(p) ? 1 / (1 + exp(-v)) : exp(v) for (v, p) in zip(z, prior)]
+"The plant's drift for the record: the seed, the rates and the block in force from every hour under the schedule's add."
+drift_record(s::Schedule) = dd === nothing ? nothing :
+    Dict("seed" => DRIFT_SEED, "sd_per_hour" => DRIFT_SD_PER_HOUR, "jump_log_sd" => JUMP_LOG_SD,
+         "z_by_hour" => [truth_at(z_true0, dd, h * 3600.0, schedule_events(s).t_add; from=true) for h in 0:29])
 fill_future(u) = (last = u[findlast(!isnan, u)]; [isnan(x) ? last : x for x in u])
 nn(x) = isnan(x) ? nothing : x
 "The executed damper from the schedule's grid onto the plant's (linear, held after the schedule's end)."
@@ -225,18 +229,17 @@ while s.t_now < 28 * 3600
                        "misfit_z" => mis === nothing ? nothing : mis.z_chi2,
                        "noise" => Dict(chnames[i] => Dict("sigma" => v.σ, "rho" => v.ρ, "sigma_sd" => v.σ_sd, "rho_sd" => v.ρ_sd) for (i, v) in noise_post),
                        "pit_level_now" => pit_level_now(s)))
+    # the checks so far, after every check: a crash or a kill later never loses them (pilot_outcome.jl recovers the
+    # outcome from a partial record); the record is built before the file is opened, so a failure in building it
+    # cannot truncate what was written
+    partial = Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file, "partial" => true,
+                   "estimator" => ESTIMATOR, "drift" => drift_record(s))
+    open(io -> JSON.print(io, partial), joinpath(REPO, "data", "mock", out_name), "w")
     execute_damper!(s, plan, CHECK)
     !isnan(s.t_pull) && s.t_now + 1e-9 >= s.t_serve && break
 end
 
 # --- the plant's actual outcome under the executed schedule --------------------------------------
-drift_record = dd === nothing ? nothing : Dict("seed" => DRIFT_SEED, "sd_per_hour" => DRIFT_SD_PER_HOUR, "jump_log_sd" => JUMP_LOG_SD,
-                                               "z_by_hour" => [truth_at(z_true0, dd, h * 3600.0, schedule_events(s).t_add; from=true) for h in 0:29])
-# the checks first, so a failure in the outcome below cannot lose them
-open(joinpath(REPO, "data", "mock", out_name), "w") do io
-    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file, "partial" => true,
-                        "estimator" => ESTIMATOR, "drift" => drift_record))
-end
 _, _, o = plant_readings(s)
 nx = size(o.W_field, 1); w = E.fv_weights(nx)
 wret = [dot(w, o.W_field[:, k]) / cfg.W0 for k in axes(o.W_field, 2)]
@@ -254,9 +257,8 @@ reasons = Dict(r => count(rec -> rec["reason"] == r, record) for r in unique(rec
 @printf("the plant's actual outcome: J %.3f (tenderness %.3f, appearance %.3f, taste %.3f, surf %.3f, fuel %.3f, smooth %.3f, safety %.3f); collagen at serve %.3f (%.3f at the pull, core %.1f C), water %.3f, juiciness %.3f, L* %.1f, smoke %.2f, core at serve %.1f C\n",
         actual.J, actual.tenderness, actual.appearance, actual.taste, actual.surf, actual.fuel, actual.smooth, actual.safety,
         actual.C_serve, actual.C_pull, actual.T_pull, actual.W, actual.juiciness, actual.L, actual.S, actual.T_serve)
-open(joinpath(REPO, "data", "mock", out_name), "w") do io
-    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file,
-                        "estimator" => ESTIMATOR, "drift" => drift_record,
+final = Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file,
+                        "estimator" => ESTIMATOR, "drift" => drift_record(s),
                         "policy" => Dict(string(k) => getfield(pol, k) for k in fieldnames(ReplanPolicy)),
                         "goals" => Dict(string(k) => getfield(goals, k) for k in fieldnames(PlanGoals)),
                         "executed" => Dict("t_wrap_h" => s.t_wrap / 3600, "t_pull_h" => s.t_pull / 3600, "t_serve_h" => s.t_serve / 3600,
@@ -264,8 +266,9 @@ open(joinpath(REPO, "data", "mock", out_name), "w") do io
                                            "spritz" => s.spritz === nothing ? nothing : Dict("t_h" => s.spritz.t / 3600, "dt_h" => s.spritz.dt / 3600, "m" => s.spritz.m),
                                            "u" => [nn(x) for x in s.u], "t_h" => s.t ./ 3600),
                         "actual" => Dict(string(k) => getfield(actual, k) for k in fieldnames(typeof(actual))),
-                        "plant" => "monolith (1-D) at the mock's truth, real-cook instruments (2-min grid)",
+                        "plant" => dd === nothing ? "monolith (1-D) at the mock's truth, real-cook instruments (2-min grid)" :
+                                   "monolith (1-D) at the mock's truth drifting (drift.jl, seed $DRIFT_SEED), real-cook instruments (2-min grid)",
                         "noise_truth" => Dict(String(k) => getfield(nc, k) for k in fieldnames(RealCookNoise)),
-                        "z_true" => z_true, "names" => vcat(names, ["A_meat", "core_depth"])))
-end
+                        "z_true" => z_true0, "names" => allnames)
+open(io -> JSON.print(io, final), joinpath(REPO, "data", "mock", out_name), "w")
 println("wrote data/mock/", out_name)
