@@ -7,7 +7,7 @@
 #
 # Run:  julia --project=estimator estimator/coverage_drift.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h]
 # Writes data/mock/<out.json> (coverage_drift_<seed0>.json by default), after every cook; plot_coverage.py
-# reads it with the keys err_sd (batch) and err_sd_filter.
+# reads it with the keys err_sd (batch), err_sd_filter and err_sd_smoother.
 using Pkg
 Pkg.activate(@__DIR__)
 ENV["JULIA_FASTCHOLESKY_NO_WARN_NON_SYMMETRIC"] = "1"
@@ -47,6 +47,7 @@ idx = Dict(n => i for (i, n) in enumerate(allnames))
 DRIFT = Dict("u_leak" => 0.05, "k_e" => 0.05, "h_c" => 0.03)      # sd per hour in z
 JUMP = Dict("r_max" => 0.15, "dH_eff" => 0.10)                     # the new charge at the add: log-sd about the first charge
 q = zeros(length(sites)); for (nm, sd) in DRIFT; q[idx[nm]] = sd^2; end
+moving = vcat([(idx[nm], :drift, sd^2) for (nm, sd) in DRIFT], [(idx[nm], :jump, (events.t_add, sd^2)) for (nm, sd) in JUMP])
 hours = collect(1.0:1.0:30.0)
 seg_edges = [findlast(t .<= h * 3600) for h in hours[1:(end - 1)]]
 
@@ -134,20 +135,34 @@ for k in 1:n_cooks
         err isa InterruptException && rethrow()
         @printf("cook %d (seed %d): the filter failed (%s); skipped\n", k, seed, sprint(showerror, err)[1:min(end, 80)]); push!(skipped, seed); save(); continue
     end
-    tf = time() - t1
+    tf = time() - t1; t2 = time()
+    sr = try
+        smoother_fit(chs, sites, d, edges; moving, area_latent=AREA, events=events, noise=np, noise_rounds=1, levelled=true, verbose=false)
+    catch err
+        err isa InterruptException && rethrow()
+        @printf("cook %d (seed %d): the smoother failed (%s); skipped
+", k, seed, sprint(showerror, err)[1:min(end, 80)]); push!(skipped, seed); save(); continue
+    end
+    ts = time() - t2
     batches = [Dict("t_h" => b.t / 3600, "z" => b.z, "sd" => b.sd, "err_sd" => (b.z .- truth_at(zs, b.t)) ./ b.sd, "F" => b.F,
                     "misfit_power" => b.misfit.total.ss / b.misfit.total.n,
                     "z_filter" => f.z, "sd_filter" => f.sd, "err_sd_filter" => (f.z .- truth_filter(zs, o, kk)) ./ f.sd, "F_filter" => f.F,
                     "z_true_filter" => truth_filter(zs, o, kk), "z_true" => truth_at(zs, b.t),
-                    "filter_prior_sd" => [isnan(x) ? nothing : x for x in f.prior_sd], "filter_converged" => f.converged, "filter_iters" => f.iters) for (kk, (b, f)) in enumerate(zip(br, fr))]
-    push!(cooks, Dict("seed" => seed, "z_by_hour" => zs, "batches" => batches, "wall_batch_s" => tb, "wall_filter_s" => tf))
-    eb = abs.(batches[end]["err_sd"]); ef = abs.(batches[end]["err_sd_filter"])
-    @printf("cook %d (seed %d): at %.0f h  batch |err|/sd max %.2f (%s) median %.2f | filter max %.2f (%s) median %.2f; batch %.0f s, filter %.0f s\n",
-            k, seed, br[end].t / 3600, maximum(eb), allnames[argmax(eb)], sort(eb)[div(end + 1, 2)], maximum(ef), allnames[argmax(ef)], sort(ef)[div(end + 1, 2)], tb, tf)
+                    "filter_prior_sd" => [isnan(x) ? nothing : x for x in f.prior_sd], "filter_converged" => f.converged, "filter_iters" => f.iters,
+                    "z_smoother" => sm.z_now, "sd_smoother" => sm.sd_now, "err_sd_smoother" => (sm.z_now .- truth_at(zs, sm.t)) ./ sm.sd_now,
+                    "smoother_block" => length(sm.z), "smoother_converged" => sm.converged, "smoother_iters" => sm.iters, "F_smoother" => sm.F) for (kk, (b, f, sm)) in enumerate(zip(br, fr, sr))]
+    push!(cooks, Dict("seed" => seed, "z_by_hour" => zs, "batches" => batches, "wall_batch_s" => tb, "wall_filter_s" => tf, "wall_smoother_s" => ts))
+    eb = abs.(batches[end]["err_sd"]); ef = abs.(batches[end]["err_sd_filter"]); es = abs.(batches[end]["err_sd_smoother"])
+    @printf("cook %d (seed %d): at %.0f h  batch |err|/sd max %.2f (%s) median %.2f | filter max %.2f (%s) median %.2f | smoother max %.2f (%s) median %.2f; batch %.0f s, filter %.0f s, smoother %.0f s
+",
+            k, seed, br[end].t / 3600, maximum(eb), allnames[argmax(eb)], sort(eb)[div(end + 1, 2)], maximum(ef), allnames[argmax(ef)], sort(ef)[div(end + 1, 2)],
+            maximum(es), allnames[argmax(es)], sort(es)[div(end + 1, 2)], tb, tf, ts)
     for nm in ("u_leak", "k_e", "h_c", "r_max")
         i = idx[nm]
-        @printf("    %-7s truth %s | batch %s | filter %s\n", nm, join([@sprintf("%+.2f", truth_at(zs, b.t)[i]) for b in br], " "),
-                join([@sprintf("%+.2f", b["err_sd"][i]) for b in batches], " "), join([@sprintf("%+.2f", b["err_sd_filter"][i]) for b in batches], " "))
+        @printf("    %-7s truth %s | batch %s | filter %s | smoother %s
+", nm, join([@sprintf("%+.2f", truth_at(zs, b.t)[i]) for b in br], " "),
+                join([@sprintf("%+.2f", b["err_sd"][i]) for b in batches], " "), join([@sprintf("%+.2f", b["err_sd_filter"][i]) for b in batches], " "),
+                join([@sprintf("%+.2f", b["err_sd_smoother"][i]) for b in batches], " "))
     end
     flush(stdout)
     save()
