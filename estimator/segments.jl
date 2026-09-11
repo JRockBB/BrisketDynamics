@@ -6,20 +6,18 @@
 # forward between refits both need the same thing: a solve that starts where the last one ended. The
 # monolith takes the meat fields, the bark and ring states and the salt field as initial conditions
 # (`T0f`, `W0f`, `C0f`, `F0f`, `B0`, `S0`, `R0`, `Ssalt0f`) and the pit's state through its config
-# (`Tpit0`, `m0`, `m_pan0`, `T_pan0`) and the ignited fraction `a0` (φ[7], the only place a0 acts). The
-# firebox temperature restarts at the pit's (exact for a single-zone pit, `c_duct = 0`), and the
-# state-triggered wrap latch is not carried (the wrap here is a time). Event times stay absolute, so a
+# and the pit's state as solver keywords (`Tpit0`, `mfuel0`, `mpan0`, `Tpan0`, `Tfb0`), the ignited fraction
+# through `a0` (φ[7], the only place a0 acts); the state-triggered wrap latch is not carried (the wrap here is
+# a time). Every handed-off quantity may be a ForwardDiff Dual, so a segmented cook differentiates. Event times stay absolute, so a
 # segment after the wrap is wrapped from its first step and an add before it is already in `m0`; a
 # boundary must not fall inside the add's pulse.
 
-"The state of an output `o` at save index `k`: the initial-condition keywords, the pit config and the ignited fraction a solve from there takes."
-function handoff(o, k::Int, pit::PitConfig)
+"The state of an output `o` at save index `k`: the initial-condition keywords a solve from there takes (the meat fields, bark, ring and salt; the pit's temperature, fuel, pan and firebox as solver keywords, so a Dual state flows through) and the ignited fraction."
+function handoff(o, k::Int)
     ics = (T0f=o.T_field[:, k], W0f=o.W_field[:, k], C0f=o.C_field[:, k], F0f=o.F_field[:, k], Ssalt0f=o.salt_field[:, k],
-           B0=o.bark_b[k], S0=o.bark_s[k], R0=o.ring[k])
-    fields = Dict(f => getfield(pit, f) for f in fieldnames(PitConfig))
-    fields[:Tpit0] = o.Tpit[k]; fields[:m0] = o.m_fuel[k]; fields[:m_pan0] = o.m_pan[k]; fields[:T_pan0] = o.T_pan[k]
-    pit_k = PitConfig(; (f => fields[f] for f in fieldnames(PitConfig))...)
-    return ics, pit_k, clamp(o.ignited[k], 1e-6, 1 - 1e-6)
+           B0=o.bark_b[k], S0=o.bark_s[k], R0=o.ring[k],
+           Tpit0=o.Tpit[k], mfuel0=o.m_fuel[k], mpan0=o.m_pan[k], Tpan0=o.T_pan[k], Tfb0=o.T_firebox[k])
+    return ics, clamp(o.ignited[k], 1e-6, 1 - 1e-6)
 end
 
 """
@@ -35,16 +33,16 @@ function solve_segments(θs, φs, u, t, edges; pit::PitConfig, cfg::MeatConfig, 
     n = length(t)
     bounds = vcat(1, collect(Int, edges), n)
     outs = NamedTuple[]
-    ics = (;); pit_i = pit
+    ics = (;)
     for i in 1:(length(bounds) - 1)
         ia, ib = bounds[i], bounds[i + 1]
         tt = t[ia:ib]; uu = u[ia:ib]
-        φ = copy(φs[i])
+        φ = φs[i]
         if i > 1
-            ics, pit_i, a0 = handoff(outs[end], size(outs[end].T_field, 2), pit)
-            φ[7] = a0
+            ics, a0 = handoff(outs[end], size(outs[end].T_field, 2))
+            φ = vcat(φ[1:6], a0)                     # a0 is the handed-off ignited fraction (keeps a Dual φ)
         end
-        push!(outs, monolith_solve(θs[i], φ, uu, tt, tt; pit=pit_i, cfg, A_meat, ics..., kw...))
+        push!(outs, monolith_solve(θs[i], φ, uu, tt, tt; pit, cfg, A_meat, ics..., kw...))
     end
     length(outs) == 1 && return outs[1]
     # concatenate: the first segment whole, later ones without their first point (the boundary is shared)

@@ -189,6 +189,11 @@ function _monolith_solve_arr(
     R0=NaN,
     t_salt=NaN,
     Ssalt0f=Float64[],
+    Tpit0=NaN,
+    mfuel0=NaN,
+    mpan0=NaN,
+    Tpan0=NaN,
+    Tfb0=NaN,
 )
     u_t0, u_dt = float(u_tknots[1]), float(u_tknots[2] - u_tknots[1])
     rhs! = make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
@@ -200,8 +205,9 @@ function _monolith_solve_arr(
         Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
                      s0=salt_profile(p[4], cfg,
                                      isnan(t_salt) ? cfg.t_salt : t_salt))),
-        [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP], Tp(pit.m_pan0),
-         Tp(pit.T_pan0), Tp(pit.Tpit0)],
+        [Tp(isnan(Tpit0) ? pit.Tpit0 : Tpit0), Tp(isnan(mfuel0) ? pit.m0 : mfuel0), p[MEAT_NP + PIT_NP],
+         Tp(isnan(mpan0) ? pit.m_pan0 : mpan0), Tp(isnan(Tpan0) ? pit.T_pan0 : Tpan0),
+         Tp(isnan(Tfb0) ? (isnan(Tpit0) ? pit.Tpit0 : Tpit0) : Tfb0)],
     )
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!, x0, (float(tsave[1]), float(tsave[end])), p
@@ -360,6 +366,10 @@ and `pv_base`; accepts ForwardDiff-dual `θ`/`φ`/`u_knots`.
 - `m_spritz::Real`: Spritz dose [kg/m²]; NaN ⇒ `cfg.m_spritz`. [Default=NaN]
 - `T0f, W0f, C0f, F0f, B0, S0, R0`: Meat field / bark / ring ICs for a state handoff
   (see [`meat_solve`](@ref)). [Default=uniform]
+- `Tpit0, mfuel0, mpan0, Tpan0, Tfb0::Real`: The pit's state (chamber temperature, fuel
+  mass, pan water, pan temperature, firebox temperature) for a state handoff; NaN ⇒ the
+  config's initial values (`pit.Tpit0`, `pit.m0`, `pit.m_pan0`, `pit.T_pan0`, the firebox
+  at `Tpit0`). [Default=NaN]
 - `abstol, reltol::Float64`: Solver tolerances. [Default=1e-6]
 
 # Returns
@@ -394,6 +404,11 @@ function monolith_solve(
     abstol=1e-6,
     reltol=1e-6,
     A_meat::Real=NaN,
+    Tpit0::Real=NaN,
+    mfuel0::Real=NaN,
+    mpan0::Real=NaN,
+    Tpan0::Real=NaN,
+    Tfb0::Real=NaN,
 )
     length(θ) == MEAT_NP ||
         throw(ArgumentError("θ must have length $MEAT_NP; got $(length(θ))"))
@@ -422,7 +437,7 @@ function monolith_solve(
     nu = length(u_knots)
     A = _monolith_solve_arr(
         p, cfg, pit, hum, u_tknots, tsave, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0, S0,
-        R0, t_salt, Ssalt0f,
+        R0, t_salt, Ssalt0f, Tpit0, mfuel0, mpan0, Tpan0, Tfb0,
     )
     return _monolith_outputs(A, p, cfg, pit, hum, u_tknots, tsave, nu)
 end
@@ -569,6 +584,11 @@ function _monolith_solve_arr_s(
     R0=NaN,
     t_salt=NaN,
     Ssalt0f=Float64[],
+    Tpit0=NaN,
+    mfuel0=NaN,
+    mpan0=NaN,
+    Tpan0=NaN,
+    Tfb0=NaN,
 )
     # u_t0/u_dt in seconds may carry Duals of t_f; the interp ratio
     # (s·t_f − u_t0)/u_dt cancels t_f exactly, value and derivative
@@ -588,8 +608,9 @@ function _monolith_solve_arr_s(
         Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
                      s0=salt_profile(p[4], cfg,
                                      isnan(t_salt) ? cfg.t_salt : t_salt))),
-        [Tp(pit.Tpit0), Tp(pit.m0), p[MEAT_NP + PIT_NP], Tp(pit.m_pan0),
-         Tp(pit.T_pan0), Tp(pit.Tpit0)],
+        [Tp(isnan(Tpit0) ? pit.Tpit0 : Tpit0), Tp(isnan(mfuel0) ? pit.m0 : mfuel0), p[MEAT_NP + PIT_NP],
+         Tp(isnan(mpan0) ? pit.m_pan0 : mpan0), Tp(isnan(Tpan0) ? pit.T_pan0 : Tpan0),
+         Tp(isnan(Tfb0) ? (isnan(Tpit0) ? pit.Tpit0 : Tpit0) : Tfb0)],
     )
     s_grid = collect(Float64, s_save)
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(rhs_s!, x0, (0.0, 1.0), p)
@@ -650,6 +671,11 @@ function monolith_solve_tf(
     T_wrap_trigger::Real=Inf,
     frac_dt_add::Real=NaN,
     A_meat::Real=NaN,
+    Tpit0::Real=NaN,
+    mfuel0::Real=NaN,
+    mpan0::Real=NaN,
+    Tpan0::Real=NaN,
+    Tfb0::Real=NaN,
     abstol=1e-6,
     reltol=1e-6,
 )
@@ -684,7 +710,7 @@ function monolith_solve_tf(
     tsave = float.(s_save) .* t_f
     A = _monolith_solve_arr_s(
         p, cfg, pit, hum, u_tk, s_save, t_f, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0,
-        S0, R0, t_salt, Ssalt0f,
+        S0, R0, t_salt, Ssalt0f, Tpit0, mfuel0, mpan0, Tpan0, Tfb0,
     )
     return _monolith_outputs(A, p, cfg, pit, hum, u_tk, tsave, nu)
 end

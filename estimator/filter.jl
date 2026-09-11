@@ -35,7 +35,7 @@ function filter_fit(readings, masks, t, u, pit::PitConfig, cfg::MeatConfig, site
     carried = Dict(i => (np.σ_mean, np.ρ_mean) for (i, np) in noise)     # the noise estimate carried across windows
     levels = Dict{Int,Union{Nothing,Vector{Float64}}}(i => nothing for i in keys(noise))
     ics = (;)
-    pit_w = pit
+    pit_w = pit                 # the pit's state travels in `ics`; the config is the cook's
     a0_hand = NaN
     i_start = 1
     out = NamedTuple[]
@@ -83,7 +83,7 @@ function filter_fit(readings, masks, t, u, pit::PitConfig, cfg::MeatConfig, site
         x = from_z(z[1:N_PHYS], sites_phys)
         φ = x[(N_THETA + 1):N_PHYS]
         o = monolith_solve(x[1:N_THETA], φ, uw, tw, tw; pit=pit_w, cfg, A_meat=exp(z[area_latent]), abstol=d.abstol, reltol=d.reltol, ics..., events...)
-        ics, pit_w, a0_hand = handoff(o, length(tw), pit)
+        ics, a0_hand = handoff(o, length(tw))
         i_start = i_end
         push!(out, (t=t[i_end], z=copy(z), cov=copy(V), sd=sqrt.(max.(diag(V), 0.0)), F=res.F, misfit=res.misfit, noise=res.noise,
                     iters=length(res.hist), wall=time() - t0, prior_m=pm, prior_sd=psd, converged=res.converged, window_h=Δh))

@@ -6,7 +6,7 @@ ENV["JULIA_FASTCHOLESKY_NO_WARN_NON_SYMMETRIC"] = "1"
 include(joinpath(@__DIR__, "BrisketEstimator.jl"))
 using .BrisketEstimator
 using BrisketDynamics
-using JSON, LinearAlgebra, Random, Test
+using JSON, LinearAlgebra, Random, Test, ForwardDiff
 const E = BrisketEstimator
 
 REPO = normpath(joinpath(@__DIR__, ".."))
@@ -33,9 +33,21 @@ tt, uu = t[keep], u[keep]
     println("segmented vs whole: core $(round(dcore; digits=4)) K, pit $(round(dpit; digits=4)) K, mass $(round(dmass * 1000; digits=3)) g, vapor $(round(dpv; digits=2)) Pa, bark $(round(dbark; digits=3)) L*")
     @test dcore < 0.05 && dpit < 0.2 && dmass < 1e-3 && dpv < 5.0 && dbark < 0.05     # the noise is 1.2 K, 1.5 K, 20 g, 100 Pa
     # the handed-off ignited fraction is what the whole solve had at the boundary
-    ics, pit_k, a0 = handoff(o1, edges[1], pit)
-    @test a0 ≈ clamp(o1.ignited[edges[1]], 1e-6, 1 - 1e-6) && pit_k.Tpit0 ≈ o1.Tpit[edges[1]] && pit_k.m0 ≈ o1.m_fuel[edges[1]]
-    @test pit_k.T_amb == pit.T_amb && length(ics.T0f) == nx
+    ics, a0 = handoff(o1, edges[1])
+    @test a0 ≈ clamp(o1.ignited[edges[1]], 1e-6, 1 - 1e-6) && ics.Tpit0 ≈ o1.Tpit[edges[1]] && ics.mfuel0 ≈ o1.m_fuel[edges[1]] && ics.Tfb0 ≈ o1.T_firebox[edges[1]]
+    @test length(ics.T0f) == nx
+    # the segmented cook differentiates through the hand-off: its ForwardDiff Jacobian equals the whole solve's
+    # (finite differences are no yardstick here: the adaptive solver's response is rough at the 0.1 % level)
+    e2 = edges[1:2]; k10 = e2[2]
+    t10, u10 = tt[1:k10], uu[1:k10]
+    f_whole(v) = (θv = vcat(θ[1:2], v[1], θ[4:8]); φv = vcat(φ[1:5], v[2], φ[7]);
+                  o = monolith_solve(θv, φv, u10, t10, t10; pit, cfg, A_meat=A, events...); [o.Tcore[end], o.Tpit[end]])
+    f_seg(v) = (θv = vcat(θ[1:2], v[1], θ[4:8]); φv = vcat(φ[1:5], v[2], φ[7]);
+                o = solve_segments([θv, θv, θv], [φv, φv, φv], uu, tt, e2; pit, cfg, A_meat=A, events...); [o.Tcore[k10], o.Tpit[k10]])
+    v0 = [θ[3], φ[6]]
+    Jw = ForwardDiff.jacobian(f_whole, v0); Js = ForwardDiff.jacobian(f_seg, v0)
+    println("Jacobian at 10 h, whole ", round.(Jw; sigdigits=4), " segmented ", round.(Js; sigdigits=4))
+    @test maximum(abs.(Js .- Jw) ./ (abs.(Jw) .+ 1e-2)) < 0.02
 end
 
 @testset "the filter prior: a full Gaussian the graph reads like the families" begin
