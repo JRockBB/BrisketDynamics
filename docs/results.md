@@ -4,6 +4,91 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The a_myosin bias was one draw; the widths are the noise plug-in; the fire is the ridge (2026-09-11)
+
+The chain entry below left one bias standing: the drip site a_myosin
++0.8 sd high at hour fourteen, surviving the exact posterior. Chasing
+it, with the coverage test as the judge, cleared every deterministic
+suspect and then the bias itself.
+
+**Cleared, one at a time** (the coverage worker's switches
+`COVERAGE_CHANNELS` and `COVERAGE_NOISE`, `scratchpad/tolerance_check.jl`,
+`censored_fraction.jl`, `amyosin_profile.jl`, `amyosin_plane.jl`,
+`amyosin_chain.jl`; records `data/mock/coverage_nohum_*.json` and
+`coverage_truthnoise_*.json`):
+
+- *The censored humidity rows.* The cooks whose sensor saturated
+  carried a larger a_myosin error (+1.3 against +0.4), but the same nine
+  cooks streamed without the humidity channel kept the bias (+0.96,
+  z 2.7). Not the cause.
+- *The solver.* The estimator and the mock solve at the same tolerances
+  and their mass, core, pit and vapor outputs agree to the last digit;
+  a 1e-9 solve moves the mass by 0.1 g against 20 g of noise.
+- *The channel models.* The scale and the probe read the plant with the
+  same formulas the mock uses to generate them, line for line.
+- *The probe-depth truncation in the draw.* The thirteen cooks whose
+  draw never hit the clamp carried the same bias (+0.85).
+- *The noise plug-in.* The same nine cooks with every channel's σ and ρ
+  fixed at the mock's and the level process off: a_myosin +0.78, z 2.6.
+  Not the cause of the bias. But this variant showed something else,
+  below.
+- *A skewed posterior, the mode off its mean.* The exact conditional
+  along a_myosin is symmetric on four cooks (mode within 0.04 sd of
+  the conditional mean); the exact joint over the a_myosin and k_e
+  plane is a ridge with correlation −0.9 and symmetric; two 6000-step
+  chains with the noise known put the exact marginal mean 0.4 sd below
+  the mode on one cook and 0.4 sd above it on the other. No consistent
+  skew.
+
+**Then the bias itself.** Every variant above re-used the first nine
+truths (seeds 1 to 9), and the original finding rested on seeds 1 to
+21: one draw of truths, examined five times. Twenty-one FRESH cooks
+(seeds 22 to 42, the noise known; record `coverage_truthnoise_{22,29,36}.json`,
+figure `figures/estimator/coverage_realcook_truthnoise30.png` with all
+thirty):
+
+| a_myosin at 14 h | mean | z of the mean | spread | inside 2 sd |
+|---|---|---|---|---|
+| the first 21 truths, the bench | +0.77 | 2.6 | 1.36 | 81 % |
+| the first 9 truths, four variants | +0.78 to +1.00 | 2.4 to 3.1 | | |
+| 21 fresh truths, the noise known | **+0.02** | **0.1** | **0.95** | **100 %** |
+| all 30 truths, the noise known | +0.25 | 1.4 | 0.98 | 100 % |
+
+There is no bias on the drip site. A 2.6-sigma offset in one draw of
+twenty-one truths, reproduced by re-examining a subset of the same
+draw, read as a finding and was not one. The record's earlier
+sentences about a likelihood fault on the drip are withdrawn; the
+lesson (a bias claim needs fresh draws, not the same truths under more
+variants) goes in the memory.
+
+**What the noise-known variant did show, and it holds on fresh
+truths.** With every channel's noise fixed at the truth the posterior is
+calibrated overall: pooled spread 1.05 on the first nine cooks and 1.21
+on the fresh twenty-one against 1.30 on the bench, 96 % and 90 % inside
+two sd. Site by site the identification's cost is on the fire and the
+ignition: with the noise known k_spread's spread goes from 2.0 to 1.3,
+u_leak from 1.33 to 1.05, a0 from 1.35 to 1.01 on the first nine. The
+plug-in of the identified σ, ρ and level, one round per batch and no
+uncertainty carried, is what makes the bench's widths a quarter too
+narrow. What the noise-known variant does NOT fix is the pit block's
+ridge: C_th's spread stays at 2.3 to 2.4, and a0 sits 0.7 sd low over
+thirty cooks (z −2.8) and 0.9 low on the fresh twenty-one, the same
+sign in every variant run today. That is the one consistent bias in
+the estimator, it is the fire's base rate on its ridge from a cold
+start, and it is the reading a burn-rate sensor exists for.
+
+**What follows.** Two builds, both small, both judged by the coverage
+test on fresh seeds: propagate the noise parameters' uncertainty into
+the physics widths (the law of total variance at the MAP over draws of
+σ and ρ from the AR node's posterior: no new solves, the whitening
+changes) and see whether the bench's spread comes down to the
+noise-known 1.05; and treat a0's cold-start bias as what the humidity
+row of the sensor table and a burn-rate reading are for, not as
+something more fitting will remove. The a_myosin line comes off the
+roadmap.
+
+---
+
 ## The belief where the Gaussian is wrong: a chain on the exact posterior (2026-09-11)
 
 The coverage entry below found the Gauss-Newton posterior two to three

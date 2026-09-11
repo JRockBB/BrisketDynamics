@@ -73,6 +73,7 @@ The online estimator and its pilot: the hourly streaming refits on mock plants, 
 | `pilot_comparison.png` | `estimator/plot_pilot_comparison.py` from `estimator/pilot_comparison_trace.jl` (the pilot and each MPC variant through one plant) | `docs/results.md` |
 | `coverage_realcook.png` | `estimator/plot_coverage.py` from `estimator/coverage_realcook.jl` (21 cooks with truths drawn from the pilot's prior, the Gaussian posterior's standardized errors pooled) | `README.md`, `docs/results.md` |
 | `coverage_realcook_gauss9.png`, `coverage_realcook_ridge.png` | `estimator/plot_coverage.py "coverage_ridge_*.json" err_sd _gauss9` and `... err_sd_ridge _ridge` (the same nine cooks under the Gaussian and under the chain on the exact posterior) | `docs/results.md` |
+| `coverage_realcook_nohum.png`, `coverage_realcook_truthnoise30.png` | `estimator/plot_coverage.py "coverage_nohum_*.json" err_sd _nohum` and `"coverage_truthnoise_*.json" err_sd _truthnoise30` (the diagnostic variants: without the humidity channel; every channel's noise fixed at the truth, thirty cooks) | `docs/results.md` |
 
 ## slab2d/
 

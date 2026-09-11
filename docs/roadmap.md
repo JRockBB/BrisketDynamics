@@ -163,21 +163,22 @@ Its structure is fixed by three measured RxInfer behaviours
   them with. Every logged cook tightens both, and the second WSM cook
   (wbegg_2014) is the first test of the cooker block on a brisket the
   chain has not seen.
-- **The widths on the fire, and a bias on the drip.** The coverage test
-  (`docs/results.md`, coverage) finds the Gaussian posterior calibrated
-  on the identified meat sites and overconfident on the fire's ridge
-  (a0, C_th, u_leak, the ignition spread) and the late water sites; a
-  chain on the exact posterior (`estimator/ridge.jl`) fixes the one
-  gross failure, C_th's width collapsing at the fuel add, and changes
-  nothing else the test can see, at ten minutes per refit. Two things
-  remain: the a_myosin mean sits +1 sd high over truths drawn from the
-  prior under the EXACT posterior, so the fault is in the likelihood
-  (the plug-in noise, the whitening, or the scale channel's model of the
-  drip) rather than the Gaussian, and that is the next thing to chase
-  with the coverage test as the judge; and the ridge itself is broken
-  only by a sensor that reads the burn rate (a whole-cooker platform
-  scale; on a pellet grill the auger duty cycle), the row of the sensor
-  table the estimator cannot supply for itself.
+- **The widths on the fire.** The coverage test (`docs/results.md`,
+  coverage and the two entries after it) finds the Gaussian posterior
+  calibrated on the identified meat sites, a quarter too narrow overall
+  because the identified noise (σ, ρ, the level) is plugged in with no
+  uncertainty carried (with the noise known the pooled spread is 1.05
+  to 1.2 against 1.30), and wrong on the pit block whatever the noise:
+  C_th 2.3 times too narrow at the fuel add and a0 0.7 to 0.9 sd low
+  from its cold start, the same sign on thirty cooks. The a_myosin bias
+  reported before was one draw of truths re-examined; on fresh seeds it
+  is +0.02. Two small builds, each judged by the coverage test on FRESH
+  seeds: propagate the noise parameters' posterior into the physics
+  widths (the law of total variance at the MAP over draws of σ and ρ
+  from the AR node, no new solves); and take a0's bias as the reading a
+  burn-rate sensor exists for (a whole-cooker platform scale; on a
+  pellet grill the auger duty cycle), the row of the sensor table the
+  estimator cannot supply for itself.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it
