@@ -135,6 +135,11 @@ The channel's AR(1) noise from its residuals at `z`, with the prior;
 the applied sd respects the prior's floor.
 """
 function estimate_noise(ch::Channel, S, J, z, prior, lay, np::NoisePrior; kw...)
+    # a window with nothing to identify from (every humidity sample at the cap, a channel not yet sampled):
+    # the noise stays what it was, with the prior's widths
+    if count(noise_mask(ch)) < 3
+        return (σ=ch.σ, ρ=ch.ρ, post=(σ=ch.σ, ρ=ch.ρ, σ_sd=np.σ_sd, ρ_sd=np.ρ_sd, θ=nothing, γ=nothing))
+    end
     g = channel_gap(noise_mask(ch))
     # the AR node sees the channel's own spacing; its prior and posterior on ρ are per grid step
     np_g = NoisePrior(np.σ_mean, np.σ_sd, clamp(np.ρ_mean, 0.0, 0.999)^g, np.ρ_sd * g * max(np.ρ_mean, 1e-3)^(g - 1); floor=np.floor)

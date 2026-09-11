@@ -115,7 +115,7 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
             old_σ, old_ρ = chs[i].σ, chs[i].ρ
             moved = max(moved, abs(est.σ / old_σ - 1), abs(est.ρ - old_ρ))
             chs[i] = with_noise(unlevelled(chs[i]), est.σ, est.ρ)
-            if levelled     # the noise level as a process along each run, at the channel's own spacing
+            if levelled && count(noise_mask(chs[i])) >= 3     # the noise level as a process along each run, at the channel's own spacing
                 runs = residual_runs(chs[i], S, J, c, prior, lay)
                 levels = [volatility_level(e, est.post.ρ, est.σ; w=level_w).level for e in runs]
                 chs[i] = Levelled(chs[i], level_on_grid(noise_mask(chs[i]), levels))
