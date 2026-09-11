@@ -16,6 +16,9 @@
 #   ridge_k > 0: after every batch the belief along the k widest posterior directions is sampled on the exact
 #   posterior (ridge.jl) and the corrected mean and sd are recorded beside the Gaussian's (err_sd_ridge)
 #   several workers with different seed0 write different files; plot_coverage.py pools them all.
+#   Diagnostic switches (environment): COVERAGE_CHANNELS="pit,core,humidity,mass" (drop a channel to see what it
+#   biases); COVERAGE_NOISE="identify" (the bench) or "truth" (every channel's sigma and rho fixed at the mock's,
+#   no level process: is the plug-in noise identification where a bias comes from?)
 # Writes data/mock/<out.json> (coverage_realcook_<seed0>.json by default), after every cook.
 using Pkg
 Pkg.activate(@__DIR__)
@@ -54,6 +57,10 @@ ridge_k = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 0
 ridge_steps = length(ARGS) >= 7 ? parse(Int, ARGS[7]) : 500
 ph = Physics1D(area_latent=AREA, events=events)
 nc = RealCookNoise()
+CHANNELS = split(get(ENV, "COVERAGE_CHANNELS", "pit,core,humidity,mass"), ",")
+NOISE_MODE = get(ENV, "COVERAGE_NOISE", "identify")
+truth_noise = Dict("pit" => (nc.pit_sd, exp(-dt / nc.pit_tau)), "core" => (nc.core_sd, exp(-dt / nc.core_tau)),
+                   "humidity" => (nc.hum_sd, exp(-dt / nc.hum_tau)), "mass" => (nc.mass_sd, exp(-dt / nc.mass_tau)))
 
 # the instruments' noise as the estimator starts it, as on the bench
 cal = noise_priors_from_file(joinpath(REPO, "data", "calibration", "noise_prior_real.json"))
@@ -88,10 +95,11 @@ dst = joinpath(REPO, "data", "mock", out_name)
 save() = open(dst, "w") do io
     JSON.print(io, Dict("plant" => "monolith (1-D) at a truth drawn from the prior, real-cook instruments (2-min grid)", "names" => allnames,
                         "prior_file" => prior_file, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped,
-                        "ridge_k" => ridge_k, "ridge_steps" => ridge_steps,
+                        "ridge_k" => ridge_k, "ridge_steps" => ridge_steps, "channels" => CHANNELS, "noise_mode" => NOISE_MODE,
                         "noise" => Dict(String(k) => getfield(nc, k) for k in fieldnames(RealCookNoise))))
 end
-println("prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; batches to ", edges_to_h, " h; record ", out_name)
+println("prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; batches to ", edges_to_h, " h; record ", out_name,
+        "; channels ", join(CHANNELS, "+"), "; noise ", NOISE_MODE)
 flush(stdout)
 for k in 1:n_cooks
     seed = seed0 + k - 1
@@ -110,12 +118,15 @@ for k in 1:n_cooks
         @printf("cook %d (seed %d): the plant is not finite; skipped\n", k, seed); push!(skipped, seed); save(); continue
     end
     readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=θ[4], depth=depth)
-    chs = [PitProbe(start(priors["pit"])..., Bool.(masks.pit); data=Float64.(readings.pit)),
-           MeatProbe(start(priors["core"])..., Bool.(masks.core); depth_latent=DEPTH, data=Float64.(readings.core)),
-           CensoredHumidity(start(priors["humidity"])..., Bool.(masks.humidity); cap=nc.hum_cap, data=Float64.(readings.humidity)),
-           MassScale(start(priors["mass"])..., Bool.(masks.mass); data=Float64.(readings.mass))]
+    st(name) = NOISE_MODE == "truth" ? truth_noise[name] : start(priors[name])
+    all_chs = Dict("pit" => () -> PitProbe(st("pit")..., Bool.(masks.pit); data=Float64.(readings.pit)),
+                   "core" => () -> MeatProbe(st("core")..., Bool.(masks.core); depth_latent=DEPTH, data=Float64.(readings.core)),
+                   "humidity" => () -> CensoredHumidity(st("humidity")..., Bool.(masks.humidity); cap=nc.hum_cap, data=Float64.(readings.humidity)),
+                   "mass" => () -> MassScale(st("mass")..., Bool.(masks.mass); data=Float64.(readings.mass)))
+    chs = [all_chs[c]() for c in CHANNELS]
+    np_used = NOISE_MODE == "truth" ? nothing : Dict(i => priors[c] for (i, c) in enumerate(CHANNELS))
     recs = try
-        stream_fit(chs, prior, d, edges; physics=ph, noise=np, noise_rounds=1, levelled=true, verbose=false)
+        stream_fit(chs, prior, d, edges; physics=ph, noise=np_used, noise_rounds=1, levelled=(NOISE_MODE != "truth"), verbose=false)
     catch err
         err isa InterruptException && rethrow()
         @printf("cook %d (seed %d): the estimator failed (%s); skipped\n", k, seed, sprint(showerror, err)[1:min(end, 80)]); push!(skipped, seed); save(); continue
