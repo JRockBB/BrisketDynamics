@@ -45,7 +45,6 @@ z_true0 = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x_true[1
 drift = rec["drift"]
 DRIFT_SEED = drift === nothing ? 0 : Int(drift["seed"])
 dd = DRIFT_SEED > 0 ? DriftDraw(MersenneTwister(2000 + DRIFT_SEED), idx) : nothing
-from_z_all(z) = [isbeta(p) ? 1 / (1 + exp(-v)) : exp(v) for (v, p) in zip(z, prior)]
 fill_future(u) = (last = u[findlast(!isnan, u)]; [isnan(x) ? last : x for x in u])
 nn(x) = isnan(x) ? nothing : x
 function damper_on_grid(s::Schedule)
@@ -57,9 +56,7 @@ function plant(s::Schedule)
     ev = schedule_events(s)
     ug = damper_on_grid(s)
     dd === nothing && return monolith_solve(θ_true, φ_true, ug, GRID, GRID; pit, cfg, A_meat=A_true, ev...)
-    edges, blocks = drift_segments(GRID, z_true0, dd, ev.t_add)
-    xs = from_z_all.(blocks)
-    return solve_segments([x[1:8] for x in xs], [x[9:15] for x in xs], ug, GRID, edges; pit, cfg, A_meat=A_true, ev...)
+    return solve_drifting(z_true0, dd, prior, ug, GRID; pit, cfg, A_meat=A_true, ev...)
 end
 
 # --- the schedule replayed from the checks ---------------------------------------------------------

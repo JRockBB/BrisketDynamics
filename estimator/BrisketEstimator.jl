@@ -32,7 +32,7 @@ using BrisketDynamics
 
 export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, solve_segments, filter_fit, A0_INDEX
 export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, smoother_step, drift_layout, warm_start, segment_edges, index_at, current_index, block_at
-export DriftDraw, truth_at, drift_segments, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD
+export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD
 export GateData, load_gate, from_z, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, logistic
 

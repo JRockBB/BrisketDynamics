@@ -67,6 +67,20 @@ function drift_segments(t, z0, dd::DriftDraw, t_add)
 end
 
 """
+    solve_drifting(z0, dd, sites, u, t; pit, cfg, A_meat, events...) -> o
+
+The drifting plant under the damper `u` on the grid `t`: the block `z0` (the first `N_PHYS` entries of the
+latent block, in z under `sites`) walked by `dd`, solved in segments on the hour and at the add with the
+state handed off exactly (`solve_segments`).
+"""
+function solve_drifting(z0, dd::DriftDraw, sites, u, t; pit::PitConfig, cfg::MeatConfig, A_meat, kw...)
+    t_add = get(kw, :t_add, BrisketDynamics.ADD_NEVER)
+    edges, blocks = drift_segments(t, z0, dd, t_add)
+    xs = [from_z(z[1:N_PHYS], sites[1:N_PHYS]) for z in blocks]
+    return solve_segments([x[1:N_THETA] for x in xs], [x[(N_THETA + 1):N_PHYS] for x in xs], u, t, edges; pit, cfg, A_meat, kw...)
+end
+
+"""
     smoother_moving(idx, t_add) -> moving
 
 The smoother's moving-site spec for this plant: the drift sites with the plant's own rates, and once the add

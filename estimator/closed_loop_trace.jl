@@ -10,7 +10,7 @@ Pkg.activate(@__DIR__)
 include(joinpath(@__DIR__, "BrisketEstimator.jl"))
 using .BrisketEstimator
 using BrisketDynamics
-using JSON, LinearAlgebra, Printf, Statistics
+using JSON, LinearAlgebra, Printf, Random, Statistics
 const E = BrisketEstimator
 
 REPO = normpath(joinpath(@__DIR__, ".."))
@@ -22,6 +22,13 @@ pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"])
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
 x_true = Float64.(m["truth"]["x"])
 θ_true, φ_true, A_true = x_true[1:8], x_true[9:15], x_true[16]
+# the drifting plant, when the record says so: the same draw from the same seed (drift.jl)
+drift = get(rec, "drift", nothing)
+gate = JSON.parsefile(joinpath(REPO, "data", "calibration", rec["prior_file"]))
+prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+idx = Dict(n => i for (i, n) in enumerate(vcat(String.(gate["names"]), ["A_meat", "core_depth"])))
+z_true0 = [isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x_true[1:15], prior_phys)]
+dd = drift === nothing ? nothing : DriftDraw(MersenneTwister(2000 + Int(drift["seed"])), idx)
 ex = rec["executed"]
 t10 = Float64.(ex["t_h"]) .* 3600
 u10 = [v === nothing ? NaN : Float64(v) for v in ex["u"]]
@@ -35,7 +42,8 @@ events = (t_wrap=Float64(ex["t_wrap_h"]) * 3600, t_pull=Float64(ex["t_pull_h"]) 
           t_add=ex["t_add_h"] === nothing ? BrisketDynamics.ADD_NEVER : Float64(ex["t_add_h"]) * 3600,
           t_spritz=sp === nothing ? BrisketDynamics.SPRITZ_NEVER : Float64(sp["t_h"]) * 3600,
           dt_spritz=sp === nothing ? 3600.0 : Float64(sp["dt_h"]) * 3600, m_spritz=sp === nothing ? 0.05 : Float64(sp["m"]))
-o = monolith_solve(θ_true, φ_true, u, GRID, GRID; pit, cfg, A_meat=A_true, events...)
+o = dd === nothing ? monolith_solve(θ_true, φ_true, u, GRID, GRID; pit, cfg, A_meat=A_true, events...) :
+                     solve_drifting(z_true0, dd, prior_phys, u, GRID; pit, cfg, A_meat=A_true, events...)
 nx = size(o.W_field, 1); w = E.fv_weights(nx)
 wret = [dot(w, o.W_field[:, k]) / cfg.W0 for k in axes(o.W_field, 2)]
 th = GRID ./ 3600

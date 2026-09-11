@@ -106,6 +106,12 @@ end
     @test ia in edges
     ka = findfirst(==(ia), edges)
     @test blocks[ka + 1][ir] ≈ z0[ir] + dd.jump[ir] && blocks[ka][ir] ≈ z0[ir]
+    # the plant solved on the walk: finite, equal to the constant cook before the first step, different after it
+    o_c = monolith_solve(from_z(z0[1:N_PHYS], prior_phys)[1:8], from_z(z0[1:N_PHYS], prior_phys)[9:15], u6, t6, t6; pit, cfg, A_meat=exp(z0[AREA]), events...)
+    o_d = solve_drifting(z0, dd, sites, u6, t6; pit, cfg, A_meat=exp(z0[AREA]), events...)
+    i1 = findlast(t6 .<= 3600)
+    @test all(isfinite, o_d.Tpit) && length(o_d.t) == length(t6)
+    @test maximum(abs.(o_d.Tpit[1:i1] .- o_c.Tpit[1:i1])) < 0.05 && maximum(abs.(o_d.Tpit .- o_c.Tpit)) > 0.5
     # the smoother's jump copy starts at the add's grid point once the history runs past it
     d = estimator_setup(t, u, pit, cfg, prior_phys, names)
     mv = smoother_moving(idx, t_add)

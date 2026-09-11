@@ -76,7 +76,6 @@ z_true0 = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x_true[1
 dd = DRIFT_SEED > 0 ? DriftDraw(MersenneTwister(2000 + DRIFT_SEED), idx) : nothing     # the plant's drift, drawn once
 "The plant's latent block in force just before `te` (what a belief at `te` is scored against)."
 truth_now(te, t_add) = dd === nothing ? z_true0 : truth_at(z_true0, dd, te, t_add)
-from_z_all(z) = [isbeta(p) ? 1 / (1 + exp(-v)) : exp(v) for (v, p) in zip(z, prior)]
 "The plant's drift for the record: the seed, the rates and the block in force from every hour under the schedule's add."
 drift_record(s::Schedule) = dd === nothing ? nothing :
     Dict("seed" => DRIFT_SEED, "sd_per_hour" => DRIFT_SD_PER_HOUR, "jump_log_sd" => JUMP_LOG_SD,
@@ -96,9 +95,7 @@ function plant_readings(s::Schedule)
     o = if dd === nothing
         monolith_solve(θ_true, φ_true, ug, GRID, GRID; pit, cfg, A_meat=A_true, ev...)
     else                    # the drifting plant: segments on the hour and at the add, the state handed off exactly
-        edges, blocks = drift_segments(GRID, z_true0, dd, ev.t_add)
-        xs = from_z_all.(blocks)
-        solve_segments([x[1:8] for x in xs], [x[9:15] for x in xs], ug, GRID, edges; pit, cfg, A_meat=A_true, ev...)
+        solve_drifting(z_true0, dd, prior, ug, GRID; pit, cfg, A_meat=A_true, ev...)
     end
     r, _, masks, _ = realcook_readings(o, GRID, ev, nc, MersenneTwister(23); A=A_true, L=L_true, depth=depth_true)
     return r, masks, o
