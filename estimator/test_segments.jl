@@ -50,6 +50,18 @@ tt, uu = t[keep], u[keep]
     @test maximum(abs.(Js .- Jw) ./ (abs.(Jw) .+ 1e-2)) < 0.02
 end
 
+@testset "a boundary at the add's pulse hands off exactly" begin
+    # the pulse is a logistic derivative centred at the add (τ_add = 300 s); the smoother's jump copy and the
+    # drifting plant's segment both start at the add's grid point, so the hand-off there must be exact too
+    o1 = monolith_solve(θ, φ, uu, tt, tt; pit, cfg, A_meat=A, events...)
+    i_add = findlast(tt .<= events.t_add + 1e-9)
+    edges = [i_add, i_add + 5]                    # at the centre and ten minutes after
+    o3 = solve_segments([θ, θ, θ], [φ, φ, φ], uu, tt, edges; pit, cfg, A_meat=A, events...)
+    dcore = maximum(abs.(o3.Tcore .- o1.Tcore)); dpit = maximum(abs.(o3.Tpit .- o1.Tpit)); dfuel = maximum(abs.(o3.m_fuel .- o1.m_fuel))
+    println("boundary at the add: core $(round(dcore; digits=4)) K, pit $(round(dpit; digits=4)) K, fuel $(round(dfuel * 1000; digits=3)) g")
+    @test dcore < 0.05 && dpit < 0.2 && dfuel < 1e-3
+end
+
 @testset "the filter prior: a full Gaussian the graph reads like the families" begin
     prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
     names = String.(gate["names"])

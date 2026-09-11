@@ -133,79 +133,105 @@ function prior_terms(z, p::DriftPrior)
 end
 
 """
+    drift_layout(sites, d, batch_edges, b, moving) -> (lay, prior, physics)
+
+The stacked layout, the prior and the physics for a fit at batch edge `b` of `batch_edges`: a drift site
+starts a new value at every earlier batch edge (increment variance `q` per hour times the hours since its
+last value), a jump site at its event's grid point once the history runs past it (one increment of
+variance `var`).
+"""
+function drift_layout(sites::Vector{PriorSite}, d::GateData, batch_edges, b::Int, moving; area_latent::Int=0, events::NamedTuple=NamedTuple())
+    ie = findlast(d.t .<= batch_edges[b] + 1e-9)
+    dth = (d.t[2] - d.t[1]) / 3600
+    specs = Tuple{Int,Vector{Int}}[]; incvar = Vector{Float64}[]
+    for (s, kind, param) in moving
+        if kind === :drift
+            prev_edges = [findlast(d.t .<= e + 1e-9) for e in batch_edges[1:(b - 1)]]
+            starts = filter(i -> 1 < i < ie, prev_edges)
+            push!(specs, (s, starts)); push!(incvar, param .* (diff(vcat(1, starts)) .* dth))
+        elseif kind === :jump
+            t_jump, var = param
+            ij = isfinite(t_jump) ? findlast(d.t .<= t_jump + 1e-9) : nothing       # the copy starts at the event's grid point
+            if ij === nothing || !(1 < ij < ie)
+                push!(specs, (s, Int[])); push!(incvar, Float64[])
+            else
+                push!(specs, (s, [ij])); push!(incvar, [var])
+            end
+        else
+            throw(ArgumentError("a moving site is :drift or :jump"))
+        end
+    end
+    lay = DriftLayout(length(sites), specs)
+    return lay, DriftPrior(sites, lay, incvar), PhysicsDrift(area_latent, events, lay)
+end
+
+"The warm start for a layout from the last stacked `z` and its layout: every copy continues the value before it."
+function warm_start(lay::DriftLayout, z, old::Union{Nothing,DriftLayout})
+    nb = lay.n_base
+    c = zeros(lay.n); c[1:nb] = z[1:nb]
+    for m in eachindex(lay.sites), j in eachindex(lay.starts[m])
+        c[lay.offsets[m] + j] = (j == 1 ? z[lay.sites[m]] : c[lay.offsets[m] + j - 1])
+    end
+    old === nothing && return c
+    old.n == lay.n && old.starts == lay.starts && return copy(z)
+    for m in eachindex(lay.sites), j in eachindex(lay.starts[m])
+        mo = findfirst(==(lay.sites[m]), old.sites)
+        mo === nothing && continue
+        if j <= length(old.starts[mo])
+            c[lay.offsets[m] + j] = z[old.offsets[mo] + j]
+        elseif !isempty(old.starts[mo])
+            c[lay.offsets[m] + j] = z[old.offsets[mo] + length(old.starts[mo])]
+        end
+    end
+    return c
+end
+
+"""
+    smoother_step(channels, sites, d, batch_edges, b, z_prev, lay_prev; moving, area_latent, events, kw...) -> record
+
+One refit of the smoother at batch edge `b`: the history to that edge over the stacked block laid out by
+`drift_layout`, warm-started from the last fit. Returns the record `smoother_fit` collects, plus the fitted
+channels (their noise carried by the caller).
+"""
+function smoother_step(channels, sites::Vector{PriorSite}, d::GateData, batch_edges, b::Int, z_prev, lay_prev;
+                       moving::AbstractVector=[], area_latent::Int=0, events::NamedTuple=NamedTuple(), verbose::Bool=false, kw...)
+    lay, prior, ph = drift_layout(sites, d, batch_edges, b, moving; area_latent, events)
+    c = warm_start(lay, z_prev, lay_prev)
+    keep = d.t .<= batch_edges[b] + 1e-9
+    chs = [restrict(ch, keep) for ch in channels]
+    t0 = time()
+    res = solve_map_channels(chs, prior, d; c0=c, physics=ph, verbose, kw...)
+    ci = current_index(lay)
+    sd = sqrt.(max.(diag(res.cov), 0.0))
+    return (batch=b, t=batch_edges[b], z=res.z, sd=sd, cov=res.cov, z_now=res.z[ci], sd_now=sd[ci], cov_now=res.cov[ci, ci], layout=lay,
+            F=res.F, channels=res.channels, iters=length(res.hist), wall=time() - t0, misfit=res.misfit, noise=res.noise, converged=res.converged)
+end
+
+"""
     smoother_fit(channels, sites, d, batch_edges; moving, area_latent, noise, ...) -> Vector{NamedTuple}
 
 The streaming estimator with moving sites: at every batch edge the full history to the edge is refit over
-the stacked block. `moving` is a vector of `(site, kind, param)`: `(s, :drift, q)` gives site `s` a new
-value at every batch edge with increment variance `q` (z² per hour) times the hours since its last value;
-`(s, :jump, (t_jump, var))` gives it one new value from the first batch edge at or after `t_jump`, with
-increment variance `var`. Each record carries the stacked `z` and `cov`, and the belief at that hour as
-`z_now`/`sd_now` (the latest value of every base site) beside the batch fields `stream_fit` reports.
+the stacked block (`smoother_step`). `moving` is a vector of `(site, kind, param)`: `(s, :drift, q)` gives
+site `s` a new value at every batch edge with increment variance `q` (z² per hour) times the hours since
+its last value; `(s, :jump, (t_jump, var))` gives it one new value from the first batch edge at or after
+`t_jump`, with increment variance `var`. Each record carries the stacked `z` and `cov`, and the belief at
+that hour as `z_now`/`sd_now`/`cov_now` (the latest value of every base site).
 """
 function smoother_fit(channels, sites::Vector{PriorSite}, d::GateData, batch_edges; moving::AbstractVector=[],
                       area_latent::Int=0, verbose::Bool=false, events::NamedTuple=NamedTuple(), kw...)
-    nb = length(sites)
     z = vcat(d.z0, [isbeta(p) ? log(p.p1 / p.p2) : p.p1 for p in sites[(N_PHYS + 1):end]])
+    lay = nothing
     channels = collect(Channel, channels)
     out = NamedTuple[]
-    for (b, te) in enumerate(batch_edges)
-        keep = d.t .<= te + 1e-9
-        ie = findlast(keep)
-        # the layout to this edge: a drift site starts a new value at every earlier batch edge, a jump site at
-        # the first edge at or after its event
-        specs = Tuple{Int,Vector{Int}}[]; incvar = Vector{Float64}[]
-        for (s, kind, param) in moving
-            if kind === :drift
-                prev_edges = [findlast(d.t .<= e + 1e-9) for e in batch_edges[1:(b - 1)]]
-                starts = filter(i -> 1 < i < ie, prev_edges)
-                hours = diff(vcat(1, starts)) .* ((d.t[2] - d.t[1]) / 3600)
-                push!(specs, (s, starts)); push!(incvar, param .* hours)
-            elseif kind === :jump
-                t_jump, var = param
-                edge_at = findfirst(e -> e >= t_jump - 1e-9, batch_edges[1:(b - 1)])
-                if edge_at === nothing
-                    push!(specs, (s, Int[])); push!(incvar, Float64[])
-                else
-                    push!(specs, (s, [findlast(d.t .<= batch_edges[edge_at] + 1e-9)])); push!(incvar, [var])
-                end
-            else
-                throw(ArgumentError("a moving site is :drift or :jump"))
-            end
-        end
-        lay = DriftLayout(nb, specs)
-        prior = DriftPrior(sites, lay, incvar)
-        ph = PhysicsDrift(area_latent, events, lay)
-        # the warm start: the last stacked z, every new copy at the value it continues from
-        c = zeros(lay.n); c[1:nb] = z[1:nb]
-        for m in eachindex(lay.sites), j in eachindex(lay.starts[m])
-            c[lay.offsets[m] + j] = (j == 1 ? z[lay.sites[m]] : c[lay.offsets[m] + j - 1])
-        end
-        if length(z) == lay.n            # the same layout as last time: continue from it
-            c = copy(z)
-        elseif length(z) > nb            # a grown layout: copy the old copies where they align
-            old = out[end].layout
-            for m in eachindex(lay.sites), j in eachindex(lay.starts[m])
-                mo = findfirst(==(lay.sites[m]), old.sites)
-                if mo !== nothing && j <= length(old.starts[mo])
-                    c[lay.offsets[m] + j] = z[old.offsets[mo] + j]
-                elseif mo !== nothing && !isempty(old.starts[mo])
-                    c[lay.offsets[m] + j] = z[old.offsets[mo] + length(old.starts[mo])]
-                end
-            end
-        end
-        chs = [restrict(ch, keep) for ch in channels]
-        t0 = time()
-        res = solve_map_channels(chs, prior, d; c0=c, physics=ph, verbose, kw...)
-        z = res.z
-        for (i, np) in res.noise
+    for b in eachindex(batch_edges)
+        rec = smoother_step(channels, sites, d, batch_edges, b, z, lay; moving, area_latent, events, verbose, kw...)
+        z, lay = rec.z, rec.layout
+        for (i, np) in rec.noise
             channels[i] = with_noise(unlevelled(channels[i]), np.σ, np.ρ)
-            res.channels[i] isa Levelled && (channels[i] = Levelled(channels[i], res.channels[i].level))
+            rec.channels[i] isa Levelled && (channels[i] = Levelled(channels[i], rec.channels[i].level))
         end
-        ci = current_index(lay)
-        sd = sqrt.(max.(diag(res.cov), 0.0))
-        push!(out, (batch=b, t=te, z=res.z, sd=sd, cov=res.cov, z_now=res.z[ci], sd_now=sd[ci], layout=lay,
-                    F=res.F, channels=res.channels, iters=length(res.hist), wall=time() - t0, misfit=res.misfit, noise=res.noise, converged=res.converged))
-        verbose && @printf("  smoother batch %2d  t = %5.1f h  block %d  F = %9.3f  outer %2d  (%.0f s)\n", b, te / 3600, lay.n, res.F, length(res.hist), time() - t0)
+        push!(out, rec)
+        verbose && @printf("  smoother batch %2d  t = %5.1f h  block %d  F = %9.3f  outer %2d  (%.0f s)\n", b, batch_edges[b] / 3600, lay.n, rec.F, rec.iters, rec.wall)
         verbose && flush(stdout)
     end
     return out

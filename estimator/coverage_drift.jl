@@ -1,9 +1,11 @@
 # The coverage test on a DRIFTING plant: truths drawn from the pilot's prior, then walked through the cook
-# (the leak and the surface coefficients on random walks, a new charge at the add), each cook read by the
-# real-cook instruments with its own noise draw, and streamed two ways: the batch estimator (every latent a
-# constant on the full history) and the filter (filter.jl: predict with the same process noise the plant
-# walks with, update on the window). The standardized errors are against the truth AT THAT HOUR. A calibrated
-# belief has them at mean zero and spread one; the batch estimator on a moving parameter does not.
+# (drift.jl: the leak and the surface coefficients on random walks stepping on the hour, a new charge at the
+# add), each cook read by the real-cook instruments with its own noise draw, and streamed three ways: the
+# batch estimator (every latent a constant on the full history), the filter (filter.jl: predict with the same
+# process noise the plant walks with, update on the window from a handed-off state) and the smoother
+# (smoother.jl: the moving sites piecewise constant over the full history, a random-walk prior between the
+# pieces, the jump at the add). The standardized errors are against the truth in force at that hour. A
+# calibrated belief has them at mean zero and spread one; the batch estimator on a moving parameter does not.
 #
 # Run:  julia --project=estimator estimator/coverage_drift.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h]
 # Writes data/mock/<out.json> (coverage_drift_<seed0>.json by default), after every cook; plot_coverage.py
@@ -43,13 +45,10 @@ cal = noise_priors_from_file(joinpath(REPO, "data", "calibration", "noise_prior_
 tostep(np, from_dt) = (a = dt / from_dt; NoisePrior(np.σ_mean, np.σ_sd, np.ρ_mean^a, np.ρ_sd * a * np.ρ_mean^(a - 1); floor=np.floor))
 np = Dict(1 => tostep(cal["pit"], 600.0), 2 => tostep(cal["core"], 600.0), 3 => NoisePrior(100.0, 100.0, 0.8^(dt / 600), 0.3; floor=60.0), 4 => NoisePrior(0.02, 0.02, 0.5^(dt / 1800), 0.3; floor=0.015))
 idx = Dict(n => i for (i, n) in enumerate(allnames))
-# the drift the plant walks with, and the process noise the filter is told (the same: the test is of the filter, not of guessing q)
-DRIFT = Dict("u_leak" => 0.05, "k_e" => 0.05, "h_c" => 0.03)      # sd per hour in z
-JUMP = Dict("r_max" => 0.15, "dH_eff" => 0.10)                     # the new charge at the add: log-sd about the first charge
-q = zeros(length(sites)); for (nm, sd) in DRIFT; q[idx[nm]] = sd^2; end
-moving = vcat([(idx[nm], :drift, sd^2) for (nm, sd) in DRIFT], [(idx[nm], :jump, (events.t_add, sd^2)) for (nm, sd) in JUMP])
-hours = collect(1.0:1.0:30.0)
-seg_edges = [findlast(t .<= h * 3600) for h in hours[1:(end - 1)]]
+# the drift the plant walks with (drift.jl), and the process noise the filter and the smoother are told (the same:
+# the test is of the estimators' mechanism, not of guessing the rates)
+q = zeros(length(sites)); for (nm, sd) in DRIFT_SD_PER_HOUR; q[idx[nm]] = sd^2; end
+moving = smoother_moving(idx, events.t_add)
 
 function beta_rand(rng, a, b)
     x = range(1e-6, 1 - 1e-6; length=4001); lp = (a - 1) .* log.(x) .+ (b - 1) .* log.(1 .- x); p = exp.(lp .- maximum(lp)); c = cumsum(p); c ./= c[end]
@@ -61,25 +60,10 @@ function draw_truth(rng)
 end
 from_z_all(z) = [isbeta(p) ? 1 / (1 + exp(-v)) : exp(v) for (v, p) in zip(z, sites)]
 to_z_all(x) = [isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x, sites)]
-"The truth walked through the cook: z per hour (17 latents; the area and the depth constant)."
-function walk_truth(rng, z0)
-    zs = Vector{Vector{Float64}}(); z = copy(z0)
-    for (k, h) in enumerate(hours)
-        if k > 1
-            for (nm, sd) in DRIFT; z[idx[nm]] += sd * randn(rng); end
-            if hours[k - 1] < events.t_add / 3600 <= h
-                for (nm, sd) in JUMP; z[idx[nm]] = z0[idx[nm]] + sd * randn(rng); end
-            end
-        end
-        push!(zs, copy(z))
-    end
-    return zs
-end
-truth_at(zs, te) = zs[max(1, findlast(hours .<= te / 3600 + 1e-9))]
 # the filter's a0 after its first window is the ignited fraction at the window's START (a state handed off from
 # the last window's solve), not the initial fraction: its truth is the plant's ignited fraction there
-function truth_filter(zs, o, k)
-    zt = copy(truth_at(zs, edges[k]))
+function truth_filter(z0, dd, o, k)
+    zt = truth_at(z0, dd, edges[k], events.t_add)
     if k > 1
         i0 = findlast(t .<= edges[k - 1] + 1e-9)
         ig = clamp(o.ignited[i0], 1e-6, 1 - 1e-6)
@@ -93,16 +77,17 @@ dst = joinpath(REPO, "data", "mock", out_name)
 save() = open(dst, "w") do io
     JSON.print(io, Dict("plant" => "monolith (1-D) in hourly segments, parameters drifting; real-cook instruments", "names" => allnames,
                         "prior_file" => prior_file, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped,
-                        "drift" => Dict("sd_per_hour" => DRIFT, "jump_log_sd" => JUMP), "q" => q))
+                        "drift" => Dict("sd_per_hour" => DRIFT_SD_PER_HOUR, "jump_log_sd" => JUMP_LOG_SD), "q" => q))
 end
-println("prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; batches to ", edges_to_h, " h; drift ", DRIFT, "; jump ", JUMP, "; record ", out_name)
+println("prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; batches to ", edges_to_h, " h; drift ", DRIFT_SD_PER_HOUR, "; jump ", JUMP_LOG_SD, "; record ", out_name)
 flush(stdout)
 for k in 1:n_cooks
     seed = seed0 + k - 1
     rng = MersenneTwister(2000 + seed)
     z0 = draw_truth(rng)
-    zs = walk_truth(rng, z0)
-    xs = [from_z_all(z) for z in zs]
+    dd = DriftDraw(rng, idx)
+    seg_edges, blocks = drift_segments(t, z0, dd, events.t_add)
+    xs = [from_z_all(z) for z in blocks]
     A, depth = xs[1][AREA], xs[1][DEPTH]
     t0 = time()
     o = try
@@ -144,14 +129,14 @@ for k in 1:n_cooks
 ", k, seed, sprint(showerror, err)[1:min(end, 80)]); push!(skipped, seed); save(); continue
     end
     ts = time() - t2
-    batches = [Dict("t_h" => b.t / 3600, "z" => b.z, "sd" => b.sd, "err_sd" => (b.z .- truth_at(zs, b.t)) ./ b.sd, "F" => b.F,
+    batches = [Dict("t_h" => b.t / 3600, "z" => b.z, "sd" => b.sd, "err_sd" => (b.z .- truth_at(z0, dd, b.t, events.t_add)) ./ b.sd, "F" => b.F,
                     "misfit_power" => b.misfit.total.ss / b.misfit.total.n,
-                    "z_filter" => f.z, "sd_filter" => f.sd, "err_sd_filter" => (f.z .- truth_filter(zs, o, kk)) ./ f.sd, "F_filter" => f.F,
-                    "z_true_filter" => truth_filter(zs, o, kk), "z_true" => truth_at(zs, b.t),
+                    "z_filter" => f.z, "sd_filter" => f.sd, "err_sd_filter" => (f.z .- truth_filter(z0, dd, o, kk)) ./ f.sd, "F_filter" => f.F,
+                    "z_true_filter" => truth_filter(z0, dd, o, kk), "z_true" => truth_at(z0, dd, b.t, events.t_add),
                     "filter_prior_sd" => [isnan(x) ? nothing : x for x in f.prior_sd], "filter_converged" => f.converged, "filter_iters" => f.iters,
-                    "z_smoother" => sm.z_now, "sd_smoother" => sm.sd_now, "err_sd_smoother" => (sm.z_now .- truth_at(zs, sm.t)) ./ sm.sd_now,
+                    "z_smoother" => sm.z_now, "sd_smoother" => sm.sd_now, "err_sd_smoother" => (sm.z_now .- truth_at(z0, dd, sm.t, events.t_add)) ./ sm.sd_now,
                     "smoother_block" => length(sm.z), "smoother_converged" => sm.converged, "smoother_iters" => sm.iters, "F_smoother" => sm.F) for (kk, (b, f, sm)) in enumerate(zip(br, fr, sr))]
-    push!(cooks, Dict("seed" => seed, "z_by_hour" => zs, "batches" => batches, "wall_batch_s" => tb, "wall_filter_s" => tf, "wall_smoother_s" => ts))
+    push!(cooks, Dict("seed" => seed, "z_by_hour" => [truth_at(z0, dd, h * 3600.0, events.t_add; from=true) for h in 0:29], "segment_edges_h" => t[seg_edges] ./ 3600, "batches" => batches, "wall_batch_s" => tb, "wall_filter_s" => tf, "wall_smoother_s" => ts))
     eb = abs.(batches[end]["err_sd"]); ef = abs.(batches[end]["err_sd_filter"]); es = abs.(batches[end]["err_sd_smoother"])
     @printf("cook %d (seed %d): at %.0f h  batch |err|/sd max %.2f (%s) median %.2f | filter max %.2f (%s) median %.2f | smoother max %.2f (%s) median %.2f; batch %.0f s, filter %.0f s, smoother %.0f s
 ",
@@ -160,7 +145,7 @@ for k in 1:n_cooks
     for nm in ("u_leak", "k_e", "h_c", "r_max")
         i = idx[nm]
         @printf("    %-7s truth %s | batch %s | filter %s | smoother %s
-", nm, join([@sprintf("%+.2f", truth_at(zs, b.t)[i]) for b in br], " "),
+", nm, join([@sprintf("%+.2f", truth_at(z0, dd, b.t, events.t_add)[i]) for b in br], " "),
                 join([@sprintf("%+.2f", b["err_sd"][i]) for b in batches], " "), join([@sprintf("%+.2f", b["err_sd_filter"][i]) for b in batches], " "),
                 join([@sprintf("%+.2f", b["err_sd_smoother"][i]) for b in batches], " "))
     end

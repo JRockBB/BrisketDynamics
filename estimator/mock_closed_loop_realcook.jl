@@ -14,7 +14,11 @@
 # onto the plant's grid. The record holds every check with its reason,
 # and the plant's actual outcome.
 #
-# Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl [prior.json] [out.json] [hedge dirs] [ridge k] [ridge steps]
+# Run:  julia --project=estimator estimator/mock_closed_loop_realcook.jl [prior.json] [out.json] [hedge dirs] [ridge k] [ridge steps] [estimator] [drift seed]
+#   estimator: "batch" (every latent a constant on the history) or "smoother" (smoother.jl: the leak, the surface
+#   coefficients and the add's charge piecewise constant over the history with a random-walk prior between the
+#   pieces at drift.jl's rates; the plan, the trigger and the record read the latest values)
+#   drift seed > 0: the plant's leak, surface coefficients and the add's charge move (drift.jl, drawn once from the seed)
 #   ridge k > 0: after every refit the belief along the k widest posterior directions is sampled on the exact
 #   posterior (ridge.jl) and the plan, the replan trigger and the record read the corrected belief
 #   prior.json (data/calibration): the prior the pilot starts from; the gate's literature prior by default,
@@ -53,6 +57,12 @@ N_DRAWS = 2 * HEDGE_DIRS
 RIDGE_K = length(ARGS) >= 4 ? parse(Int, ARGS[4]) : 0
 RIDGE_STEPS = length(ARGS) >= 5 ? parse(Int, ARGS[5]) : 300
 println("hedge directions: ", HEDGE_DIRS, " (", N_DRAWS, " sigma points); ridge chain: k ", RIDGE_K, RIDGE_K > 0 ? " with $RIDGE_STEPS steps" : " (off)")
+ESTIMATOR = length(ARGS) >= 6 ? ARGS[6] : "batch"
+ESTIMATOR in ("batch", "smoother") || error("the estimator is batch or smoother")
+DRIFT_SEED = length(ARGS) >= 7 ? parse(Int, ARGS[7]) : 0
+COPY_EVERY = 2 * 3600.0          # the smoother gives a drifting site a new value every two hours of history (the coverage test's spacing)
+println("estimator: ", ESTIMATOR, ESTIMATOR == "smoother" ? " (a new value every $(COPY_EVERY / 3600) h at the rates " * string(DRIFT_SD_PER_HOUR) * "; the add's charge " * string(JUMP_LOG_SD) * ")" : "",
+        "; plant: ", DRIFT_SEED > 0 ? "drifting (seed $DRIFT_SEED)" : "constant")
 goals = PlanGoals()
 pol = ReplanPolicy()
 nc = RealCookNoise()
@@ -61,6 +71,12 @@ nc = RealCookNoise()
 x_true = Float64.(m["truth"]["x"])
 θ_true, φ_true, A_true, depth_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
 L_true = θ_true[4]
+idx = Dict(n => i for (i, n) in enumerate(vcat(names, ["A_meat", "core_depth"])))
+z_true0 = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x_true[1:15], prior_phys)], log(A_true), log(depth_true))
+dd = DRIFT_SEED > 0 ? DriftDraw(MersenneTwister(2000 + DRIFT_SEED), idx) : nothing     # the plant's drift, drawn once
+"The plant's latent block in force just before `te` (what a belief at `te` is scored against)."
+truth_now(te, t_add) = dd === nothing ? z_true0 : truth_at(z_true0, dd, te, t_add)
+from_z_all(z) = [isbeta(p) ? 1 / (1 + exp(-v)) : exp(v) for (v, p) in zip(z, prior)]
 fill_future(u) = (last = u[findlast(!isnan, u)]; [isnan(x) ? last : x for x in u])
 nn(x) = isnan(x) ? nothing : x
 "The executed damper from the schedule's grid onto the plant's (linear, held after the schedule's end)."
@@ -72,7 +88,14 @@ end
 "The plant's readings under the executed schedule: the same unit noise every call, scaled by the executed fire and lid lifts."
 function plant_readings(s::Schedule)
     ev = schedule_events(s)
-    o = monolith_solve(θ_true, φ_true, damper_on_grid(s), GRID, GRID; pit, cfg, A_meat=A_true, ev...)
+    ug = damper_on_grid(s)
+    o = if dd === nothing
+        monolith_solve(θ_true, φ_true, ug, GRID, GRID; pit, cfg, A_meat=A_true, ev...)
+    else                    # the drifting plant: segments on the hour and at the add, the state handed off exactly
+        edges, blocks = drift_segments(GRID, z_true0, dd, ev.t_add)
+        xs = from_z_all.(blocks)
+        solve_segments([x[1:8] for x in xs], [x[9:15] for x in xs], ug, GRID, edges; pit, cfg, A_meat=A_true, ev...)
+    end
     r, _, masks, _ = realcook_readings(o, GRID, ev, nc, MersenneTwister(23); A=A_true, L=L_true, depth=depth_true)
     return r, masks, o
 end
@@ -86,16 +109,35 @@ np = Dict(1 => tostep(cal["pit"], 600.0), 2 => tostep(cal["core"], 600.0),
 chnames = Dict(1 => "pit", 2 => "core", 3 => "humidity", 4 => "mass")
 noise = Dict(i => (v.σ_mean, v.ρ_mean) for (i, v) in np)                  # carried from check to check
 levels = Dict{Int,Union{Nothing,Vector{Float64}}}(i => nothing for i in keys(np))
+z_stack, lay_prev = nothing, nothing        # the smoother's stacked belief and its layout, carried between checks
 function estimate!(s::Schedule, z_prev)
     readings, masks, _ = plant_readings(s)
     keep = GRID .<= s.t_now + 1e-9
     d = estimator_setup(GRID, damper_on_grid(s), pit, cfg, prior_phys, names)
+    ev = schedule_events(s)
     base = [PitProbe(noise[1]..., masks.pit .& keep; data=readings.pit),
             MeatProbe(noise[2]..., masks.core .& keep; depth_latent=DEPTH, data=readings.core),
             CensoredHumidity(noise[3]..., masks.humidity .& keep; cap=nc.hum_cap, data=readings.humidity),
             MassScale(noise[4]..., masks.mass .& keep; data=readings.mass)]
     chs = [levels[i] === nothing ? ch : Levelled(ch, levels[i]) for (i, ch) in enumerate(base)]
-    ph = Physics1D(area_latent=AREA, events=schedule_events(s))
+    if ESTIMATOR == "smoother"
+        # the history to now over the stacked block: a new value of each drifting site every COPY_EVERY of history,
+        # the add's charge from the add; warm-started from the last check's stacked belief
+        starts = filter(e -> e < s.t_now - 1e-9, COPY_EVERY .* (1:ceil(Int, GRID[end] / COPY_EVERY)))
+        batch_edges = vcat(starts, s.t_now)
+        rec = smoother_step(chs, prior, d, batch_edges, length(batch_edges), z_stack === nothing ? z_prev : z_stack, lay_prev;
+                            moving=smoother_moving(idx, ev.t_add), area_latent=AREA, events=ev, engine=:graph, noise=np, noise_rounds=1,
+                            levelled=true, verbose=false)
+        global z_stack, lay_prev = rec.z, rec.layout
+        for (i, v) in rec.noise
+            noise[i] = (v.σ, v.ρ)
+            levels[i] = rec.channels[i] isa Levelled ? rec.channels[i].level : nothing
+        end
+        info = Dict("block" => length(rec.z), "iters" => rec.iters, "wall_s" => rec.wall, "F" => rec.F,
+                    "copies" => Dict(allnames[rec.layout.sites[m]] => length(rec.layout.starts[m]) for m in eachindex(rec.layout.sites)))
+        return rec.z_now, Matrix(Symmetric(rec.cov_now)), rec.misfit.total, rec.noise, rec.converged, rec.z_now, nothing, info
+    end
+    ph = Physics1D(area_latent=AREA, events=ev)
     res = solve_map_channels(chs, prior, d; c0=z_prev, physics=ph, engine=:graph, noise=np, noise_rounds=1,
                              levelled=true, verbose=false)
     for (i, v) in res.noise
@@ -110,7 +152,7 @@ function estimate!(s::Schedule, z_prev)
         z_b, V_b = rc.z, rc.cov
         ridge = Dict("accept" => rc.accept, "ess" => rc.ess, "wall_s" => time() - t1, "sd_ratio" => rc.sd ./ res.sd, "mean_shift_sd" => (rc.z .- res.z) ./ res.sd)
     end
-    return z_b, V_b, res.misfit.total, res.noise, res.converged, res.z, ridge
+    return z_b, V_b, res.misfit.total, res.noise, res.converged, res.z, ridge, nothing
 end
 draws(z, V, rng) = HEDGE_DIRS == 0 ? [copy(z)] : sigma_draws(z, V; n_dirs=HEDGE_DIRS)     # the mean first
 "The pit level at the latest sample (1 when none is inferred)."
@@ -122,9 +164,10 @@ d_plan = estimator_setup(PLAN_GRID, fill(0.15, length(PLAN_GRID)), pit, cfg, pri
 z = vcat(d_plan.z0, [log(cfg.A_meat), log(0.8 * L_med)])
 z_map = copy(z)          # the refit's warm start: the MAP, not the ridge-corrected belief
 ridge = nothing
+est_info = nothing
+allnames = vcat(names, ["A_meat", "core_depth"])
 _, _, h0 = E.prior_terms(z, prior)
 V = Matrix(Diagonal(1 ./ h0))
-z_true = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x_true[1:15], prior_phys)], log(A_true), log(depth_true))
 plan = nothing
 L_plan = Inf
 t_last = -Inf
@@ -140,7 +183,7 @@ while s.t_now < 28 * 3600
     t0 = time()
     mis = nothing; noise_post = Dict{Int,NamedTuple}(); conv = true
     if s.t_now > 0
-        global z, V, mis, noise_post, conv, z_map, ridge = estimate!(s, z_map)
+        global z, V, mis, noise_post, conv, z_map, ridge, est_info = estimate!(s, z_map)
     end
     zs = draws(z, V, rng_draws)
     L_now = plan === nothing ? NaN : plan_loss(zs, plan, s, d_plan; goals).mean
@@ -176,7 +219,9 @@ while s.t_now < 28 * 3600
                                       "spritz" => p.spritz === nothing ? nothing : Dict("t_h" => p.spritz.t / 3600, "dt_h" => p.spritz.dt / 3600, "m" => p.spritz.m),
                                       "t_add_h" => nn(p.t_add / 3600)),
                        "predicted" => Dict("mean" => pred.mean, "sd" => [nn(x) for x in pred.sd], "t_h" => pred.t_h),
-                       "posterior_z" => z, "posterior_sd" => sdz, "posterior_cov" => [V[i, :] for i in axes(V, 1)], "err_sd" => (z .- z_true) ./ sdz, "ridge" => ridge,
+                       "posterior_z" => z, "posterior_sd" => sdz, "posterior_cov" => [V[i, :] for i in axes(V, 1)],
+                       "z_true" => truth_now(s.t_now, schedule_events(s).t_add), "err_sd" => (z .- truth_now(s.t_now, schedule_events(s).t_add)) ./ sdz,
+                       "ridge" => ridge, "estimator" => est_info,
                        "misfit_z" => mis === nothing ? nothing : mis.z_chi2,
                        "noise" => Dict(chnames[i] => Dict("sigma" => v.σ, "rho" => v.ρ, "sigma_sd" => v.σ_sd, "rho_sd" => v.ρ_sd) for (i, v) in noise_post),
                        "pit_level_now" => pit_level_now(s)))
@@ -185,9 +230,12 @@ while s.t_now < 28 * 3600
 end
 
 # --- the plant's actual outcome under the executed schedule --------------------------------------
+drift_record = dd === nothing ? nothing : Dict("seed" => DRIFT_SEED, "sd_per_hour" => DRIFT_SD_PER_HOUR, "jump_log_sd" => JUMP_LOG_SD,
+                                               "z_by_hour" => [truth_at(z_true0, dd, h * 3600.0, schedule_events(s).t_add; from=true) for h in 0:29])
 # the checks first, so a failure in the outcome below cannot lose them
 open(joinpath(REPO, "data", "mock", out_name), "w") do io
-    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file, "partial" => true))
+    JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file, "partial" => true,
+                        "estimator" => ESTIMATOR, "drift" => drift_record))
 end
 _, _, o = plant_readings(s)
 nx = size(o.W_field, 1); w = E.fv_weights(nx)
@@ -208,6 +256,7 @@ reasons = Dict(r => count(rec -> rec["reason"] == r, record) for r in unique(rec
         actual.C_serve, actual.C_pull, actual.T_pull, actual.W, actual.juiciness, actual.L, actual.S, actual.T_serve)
 open(joinpath(REPO, "data", "mock", out_name), "w") do io
     JSON.print(io, Dict("checks" => record, "check_h" => CHECK / 3600, "n_draws" => N_DRAWS, "n_replans" => n_replans, "prior_file" => prior_file,
+                        "estimator" => ESTIMATOR, "drift" => drift_record,
                         "policy" => Dict(string(k) => getfield(pol, k) for k in fieldnames(ReplanPolicy)),
                         "goals" => Dict(string(k) => getfield(goals, k) for k in fieldnames(PlanGoals)),
                         "executed" => Dict("t_wrap_h" => s.t_wrap / 3600, "t_pull_h" => s.t_pull / 3600, "t_serve_h" => s.t_serve / 3600,

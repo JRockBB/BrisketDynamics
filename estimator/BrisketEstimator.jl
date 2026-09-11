@@ -25,12 +25,14 @@ module BrisketEstimator
 using RxInfer
 using ForwardDiff
 using LinearAlgebra
+using Random
 using JSON
 using Printf
 using BrisketDynamics
 
 export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, solve_segments, filter_fit, A0_INDEX
-export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, segment_edges, index_at, current_index, block_at
+export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, smoother_step, drift_layout, warm_start, segment_edges, index_at, current_index, block_at
+export DriftDraw, truth_at, drift_segments, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD
 export GateData, load_gate, from_z, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, logistic
 
@@ -337,5 +339,6 @@ include(joinpath(@__DIR__, "noise_marginal.jl"))
 include(joinpath(@__DIR__, "segments.jl"))
 include(joinpath(@__DIR__, "filter.jl"))
 include(joinpath(@__DIR__, "smoother.jl"))
+include(joinpath(@__DIR__, "drift.jl"))
 
 end # module

@@ -18,7 +18,9 @@
 #   several workers with different seed0 write different files; plot_coverage.py pools them all.
 #   Diagnostic switches (environment): COVERAGE_CHANNELS="pit,core,humidity,mass" (drop a channel to see what it
 #   biases); COVERAGE_NOISE="identify" (the bench) or "truth" (every channel's sigma and rho fixed at the mock's,
-#   no level process: is the plug-in noise identification where a bias comes from?)
+#   no level process: is the plug-in noise identification where a bias comes from?);
+#   COVERAGE_WIDTHS=marginal records beside the plug-in widths the widths with the noise parameters marginalised
+#   (noise_marginal.jl: the law of total variance at the MAP over draws from the AR node's posterior)
 # Writes data/mock/<out.json> (coverage_realcook_<seed0>.json by default), after every cook.
 using Pkg
 Pkg.activate(@__DIR__)
@@ -59,6 +61,7 @@ ph = Physics1D(area_latent=AREA, events=events)
 nc = RealCookNoise()
 CHANNELS = split(get(ENV, "COVERAGE_CHANNELS", "pit,core,humidity,mass"), ",")
 NOISE_MODE = get(ENV, "COVERAGE_NOISE", "identify")
+WIDTHS = get(ENV, "COVERAGE_WIDTHS", "plugin")
 truth_noise = Dict("pit" => (nc.pit_sd, exp(-dt / nc.pit_tau)), "core" => (nc.core_sd, exp(-dt / nc.core_tau)),
                    "humidity" => (nc.hum_sd, exp(-dt / nc.hum_tau)), "mass" => (nc.mass_sd, exp(-dt / nc.mass_tau)))
 
@@ -95,11 +98,11 @@ dst = joinpath(REPO, "data", "mock", out_name)
 save() = open(dst, "w") do io
     JSON.print(io, Dict("plant" => "monolith (1-D) at a truth drawn from the prior, real-cook instruments (2-min grid)", "names" => allnames,
                         "prior_file" => prior_file, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped,
-                        "ridge_k" => ridge_k, "ridge_steps" => ridge_steps, "channels" => CHANNELS, "noise_mode" => NOISE_MODE,
+                        "ridge_k" => ridge_k, "ridge_steps" => ridge_steps, "channels" => CHANNELS, "noise_mode" => NOISE_MODE, "widths" => WIDTHS,
                         "noise" => Dict(String(k) => getfield(nc, k) for k in fieldnames(RealCookNoise))))
 end
 println("prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; batches to ", edges_to_h, " h; record ", out_name,
-        "; channels ", join(CHANNELS, "+"), "; noise ", NOISE_MODE)
+        "; channels ", join(CHANNELS, "+"), "; noise ", NOISE_MODE, "; widths ", WIDTHS)
 flush(stdout)
 for k in 1:n_cooks
     seed = seed0 + k - 1
@@ -133,6 +136,13 @@ for k in 1:n_cooks
     end
     batches = [Dict("t_h" => r.t / 3600, "z" => r.z, "sd" => r.sd, "err_sd" => (r.z .- z_true) ./ r.sd, "F" => r.F, "iters" => r.iters,
                     "wall_s" => r.wall, "misfit_power" => r.misfit.total.ss / r.misfit.total.n, "misfit_z" => r.misfit.total.z_chi2) for r in recs]
+    if WIDTHS == "marginal" && NOISE_MODE != "truth"
+        for (b, r) in zip(batches, recs)
+            t1 = time()
+            nm = noise_marginal_cov(r.channels, prior, d, ph, r.z, r.noise; K=8, rng=MersenneTwister(9000 + seed + 31 * round(Int, b["t_h"])))
+            b["sd_marg"] = nm.sd; b["err_sd_marg"] = (r.z .- z_true) ./ nm.sd; b["marg_sd_ratio"] = nm.sd ./ r.sd; b["marg_wall_s"] = time() - t1
+        end
+    end
     if ridge_k > 0
         for (b, r) in zip(batches, recs)
             t1 = time()
@@ -148,6 +158,13 @@ for k in 1:n_cooks
     @printf("cook %d (seed %d): core at the pull %.1f C; at %.0f h |err|/sd max %.2f (%s) median %.2f, mean err/sd %+.2f; residual power %.2f; %.0f s\n",
             k, seed, clean.core[searchsortedlast(t, events.t_pull)] - 273.15, recs[end].t / 3600, maximum(abs.(e)), allnames[argmax(abs.(e))],
             sort(abs.(e))[div(end + 1, 2)], sum(e) / length(e), recs[end].misfit.total.ss / recs[end].misfit.total.n, time() - t0)
+    if WIDTHS == "marginal" && NOISE_MODE != "truth"
+        b = batches[end]; em = b["err_sd_marg"]
+        @printf("    with the noise marginalised: |err|/sd max %.2f (%s) median %.2f; sd ratio median %.2f max %.2f (%s); %.1f s per batch
+",
+                maximum(abs.(em)), allnames[argmax(abs.(em))], sort(abs.(em))[div(end + 1, 2)], sort(b["marg_sd_ratio"])[div(end + 1, 2)],
+                maximum(b["marg_sd_ratio"]), allnames[argmax(b["marg_sd_ratio"])], b["marg_wall_s"])
+    end
     if ridge_k > 0
         b = batches[end]; er = b["err_sd_ridge"]
         @printf("    with the ridge chain (k %d, %d steps): |err|/sd max %.2f (%s) median %.2f; sd ratio max %.2f (%s); accept %.2f, ESS %s; %.0f s per batch

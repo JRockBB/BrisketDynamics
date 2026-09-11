@@ -89,6 +89,41 @@ end
     @test maximum(abs.(Jd2[1:(layl.oTpit + i2 - 1), 18:19])) < 1e-6     # no sensitivity to a copy before it starts
 end
 
+@testset "the drifting plant and the jump at the add" begin
+    idx = Dict(n => i for (i, n) in enumerate(allnames))
+    dd = DriftDraw(MersenneTwister(5), idx)
+    @test length(dd.inc[iu]) == 30 && haskey(dd.jump, ir)
+    t_add = events.t_add
+    zb = truth_at(z0, dd, 2 * 3600.0, t_add)                    # before 2 h: one hour's increment
+    zf = truth_at(z0, dd, 2 * 3600.0, t_add; from=true)         # from 2 h on: two
+    @test zb[iu] ≈ z0[iu] + dd.inc[iu][1] && zf[iu] ≈ z0[iu] + sum(dd.inc[iu][1:2])
+    @test truth_at(z0, dd, 2.5 * 3600, t_add)[ik] ≈ z0[ik] + sum(dd.inc[ik][1:2])
+    @test truth_at(z0, dd, t_add, t_add)[ir] ≈ z0[ir] && truth_at(z0, dd, t_add, t_add; from=true)[ir] ≈ z0[ir] + dd.jump[ir]
+    @test truth_at(z0, dd, 0.0, t_add) == z0
+    edges, blocks = drift_segments(t, z0, dd, t_add)
+    @test length(blocks) == length(edges) + 1 && all(1 .< edges .< length(t)) && issorted(edges) && allunique(edges)
+    ia = findlast(t .<= t_add + 1e-9)
+    @test ia in edges
+    ka = findfirst(==(ia), edges)
+    @test blocks[ka + 1][ir] ≈ z0[ir] + dd.jump[ir] && blocks[ka][ir] ≈ z0[ir]
+    # the smoother's jump copy starts at the add's grid point once the history runs past it
+    d = estimator_setup(t, u, pit, cfg, prior_phys, names)
+    mv = smoother_moving(idx, t_add)
+    @test length(mv) == 5 && length(smoother_moving(idx, BrisketDynamics.ADD_NEVER)) == 3 && length(smoother_moving(idx, NaN)) == 3
+    be = 3600.0 .* [2, 4, 6, 8, 10, 12, 14]
+    lay6, _, _ = drift_layout(sites, d, be, 6, mv; area_latent=AREA, events)      # to 12 h: no data past the add yet, no copy
+    lay7, pr7, _ = drift_layout(sites, d, be, 7, mv; area_latent=AREA, events)    # to 14 h: the copy from the add
+    m_r = findfirst(==(ir), lay7.sites); m_u = findfirst(==(iu), lay7.sites)
+    @test isempty(lay6.starts[findfirst(==(ir), lay6.sites)]) && lay7.starts[m_r] == [ia]
+    @test pr7.incvar[m_r] == [JUMP_LOG_SD["r_max"]^2]
+    @test length(lay7.starts[m_u]) == 6 && pr7.incvar[m_u] ≈ fill(2 * DRIFT_SD_PER_HOUR["u_leak"]^2, 6)
+    @test lay6.n == 17 + 3 * 5 && lay7.n == 17 + 3 * 6 + 2
+    # the warm start carries the old copies over and continues the last value into a new one
+    c = warm_start(lay7, vcat(z0, 0.1 .* (1:(lay6.n - 17))), lay6)
+    @test length(c) == lay7.n && c[lay7.offsets[m_u] + 5] == 0.1 * (lay6.offsets[findfirst(==(iu), lay6.sites)] - 17 + 5) && c[lay7.offsets[m_u] + 6] == c[lay7.offsets[m_u] + 5]
+    @test c[lay7.offsets[m_r] + 1] == z0[ir]
+end
+
 @testset "the smoother with no moving site is the batch fit" begin
     cal = noise_priors_from_file(joinpath(REPO, "data", "calibration", "noise_prior_real.json"))
     tostep(np, from_dt) = (a = dt / from_dt; NoisePrior(np.σ_mean, np.σ_sd, np.ρ_mean^a, np.ρ_sd * a * np.ρ_mean^(a - 1); floor=np.floor))
