@@ -90,7 +90,7 @@ lgt(x) = log(x / (1 - x))
 lgs(x) = 1 / (1 + exp(-x))
 
 "The prior on the free decisions: means and precisions in ζ's order."
-function plan_prior(f::FreeSet, s::Schedule)
+function plan_prior(f::FreeSet, s::Schedule; plan_sd::Float64=PLAN_SD)
     m = Float64[]; sd = Float64[]
     # the damper's prior is a regulariser for the graph, not a fuel preference: three logit-sd wide, so a
     # half-open damper costs a sixth of a unit per knot (at one sd it cost 1.5 per knot, a cool cook by fiat)
@@ -99,24 +99,28 @@ function plan_prior(f::FreeSet, s::Schedule)
     # and the pilot wrapped five hours after the MPC in every run; the damper and the rest had the same story.
     # ... and at three sd it still charged 1.6 half-J units for the MPC's hot cook (a knot at 0.82, an early pull),
     # twice the J difference it was hiding: the planner sat in the low-and-slow basin at the truth. Ten sd on
-    # every timing and damper coordinate looked like numerically a prior and nothing else ... until an event fell
-    # due: a wrap four minutes off and an add twelve minutes off sit at logit −3.9 and −3.0 of their fractional
-    # coordinates, and at ten sd the prior charged the standing plan 0.22 half-J units for them, against a plan
-    # whose goals were 0.02 worse, so the pilot deferred the wrap two hours (the drifting-plant entry in
-    # docs/results.md). A hundred sd charges a hundredth of that. The spritz dose and cadence keep one log-sd:
-    # the app bounds them, and J alone would pour water on.
+    # every timing and damper coordinate is numerically nothing ... until an event falls due: a wrap four minutes
+    # off and an add twelve minutes off sit at logit −3.9 and −3.0 of their fractional coordinates, where ten sd
+    # charged the standing plan 0.22 half-J units against a plan whose goals were 0.02 worse, and the pilot
+    # deferred its wrap two hours (the drifting-plant entry in docs/results.md). A hundred sd removes the charge
+    # and breaks the solve: the prior's precision was the conditioning of the Gauss-Newton step, and without it
+    # the step runs to a norm of a thousand, the line search crushes it, and the solve stops in a worse basin
+    # (opening plan 0.54 against 0.44). So the prior stays at ten sd for the SOLVE, and the choices are made
+    # without it: the scan judges candidates and the pick among solved starts judges by the goals alone, and the
+    # loop never replaces a standing plan with one that scores worse under the same belief. The spritz dose and
+    # cadence keep one log-sd: the app bounds them, and J alone would pour water on.
     fp = clamp((12 * 3600 - s.t_now) / (T_SERVE_MAX - s.t_now), 0.02, 0.98)          # a 12-h pull, as a fraction of now to the bound
     tp = f.pull ? s.t_now + fp * (T_SERVE_MAX - s.t_now) : s.t_pull
     fr = clamp(1.5 * 3600 / max(T_SERVE_MAX - tp, 600.0), 0.02, 0.98)                 # a 1.5-h rest, as a fraction of the pull to the bound
-    if f.damper; append!(m, fill(lgt(0.15), N_KNOTS)); append!(sd, fill(PLAN_SD, N_KNOTS)); end
-    if f.wrap;   push!(m, lgt(0.7));  push!(sd, PLAN_SD); end
-    if f.pull;   push!(m, lgt(fp));   push!(sd, PLAN_SD); end
-    if f.serve;  push!(m, lgt(fr));   push!(sd, PLAN_SD); end
-    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [PLAN_SD, 1.0, 1.0]); end
-    if f.add;    push!(m, lgt(0.5));  push!(sd, PLAN_SD); end
+    if f.damper; append!(m, fill(lgt(0.15), N_KNOTS)); append!(sd, fill(plan_sd, N_KNOTS)); end
+    if f.wrap;   push!(m, lgt(0.7));  push!(sd, plan_sd); end
+    if f.pull;   push!(m, lgt(fp));   push!(sd, plan_sd); end
+    if f.serve;  push!(m, lgt(fr));   push!(sd, plan_sd); end
+    if f.spritz; append!(m, [lgt(0.3), log(1.0), log(0.05)]); append!(sd, [plan_sd, 1.0, 1.0]); end
+    if f.add;    push!(m, lgt(0.5));  push!(sd, plan_sd); end
     return m, Diagonal(1 ./ sd .^ 2)
 end
-const PLAN_SD = 100.0      # the sd of the plan block's prior on every timing and damper coordinate: a regulariser for the graph
+const PLAN_SD = 10.0       # the sd of the plan block's prior on every timing and damper coordinate: the solve's conditioning
 
 "The decisions in seconds (executed ones from the schedule) from ζ."
 function decode_plan(ζ, f::FreeSet, s::Schedule)
@@ -397,17 +401,17 @@ plan prior, the graph iterator; warm-started at `ζ_init` when given.
 """
 function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), ζ_init=nothing,
                          verbose::Bool=false, iters::Int=30, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0),
-                         scan_damper::Bool=true, hedge::Bool=true, cold_start::Bool=true, history=nothing)
+                         scan_damper::Bool=true, hedge::Bool=true, cold_start::Bool=true, history=nothing, plan_sd::Float64=PLAN_SD)
     f = free_set(s)
     n = length(f)
     N = length(zs)
-    mζ, Λζ = plan_prior(f, s)
+    mζ, Λζ = plan_prior(f, s; plan_sd)
     c0 = ζ_init === nothing ? copy(mζ) : copy(ζ_init)
     # the residual vector of a plan: goals per draw (the hedge's split when there are several), then the prior
     resid(ζ) = vcat([plan_residual(z, ζ, f, s, d, k, N, hedge; goals, history) for (k, z) in enumerate(zs)]..., sqrt(Λζ) * (ζ .- mζ))
     objective(c) = 0.5 * sum(abs2, resid(c))
-    # the scan judges candidates by the full J at the mean (one cook each), the solve by the hedged objective
-    objective_scan(c) = 0.5 * (sum(abs2, goal_residuals(plan_outputs_rh(zs[1], c, f, s, d; goals, history), goals)) + sum(abs2, sqrt(Λζ) * (c .- mζ)))
+    # the scan judges candidates by the full J at the mean (one cook each, the goals alone), the solve by the hedged objective
+    objective_scan(c) = 0.5 * sum(abs2, goal_residuals(plan_outputs_rh(zs[1], c, f, s, d; goals, history), goals))
     # the objective is multi-modal: in the wrap, in the damper (a low-and-slow cook and a hot-and-fast one are
     # separate basins, and the solve from the low one never crosses), and nearly flat in the rest; the warm start
     # sits where the last plan left it. A coarse scan, one cook each, picks a second start: the wrap fraction
@@ -464,12 +468,15 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
                                             data = (g = g, lm_obs = zeros(n), Λ_lm = Λ_lm), meta = RH_META,
                                             initialization = rh_init(RH_CENTER[], Matrix(Λζ)), iterations = its,
                                             callbacks = callbacks, returnvars = (ζ = KeepLast(),))
-    r = nothing
+    # every distinct start is solved; the pick among the solves is by the goals alone (the prior conditions the
+    # solve and must not choose between basins)
+    r = nothing; F_goals = Inf
     for c in starts
         rc = iterated_solve(prob, run_infer; c0=c, iters, verbose)
-        (r === nothing || rc.F < r.F) && (r = rc)
+        Fg = try objective_scan(rc.z) catch err; err isa InterruptException ? rethrow() : Inf end
+        (r === nothing || Fg < F_goals) && (r = rc; F_goals = Fg)
     end
-    return (plan=decode_plan(r.z, f, s), ζ=r.z, F=r.F, cov=r.cov, hist=r.hist, converged=r.converged, free=f, n_starts=length(starts))
+    return (plan=decode_plan(r.z, f, s), ζ=r.z, F=r.F, F_goals=F_goals, cov=r.cov, hist=r.hist, converged=r.converged, free=f, n_starts=length(starts))
 end
 
 # --- when to replan ------------------------------------------------------------------------
