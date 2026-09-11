@@ -117,7 +117,7 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
             chs[i] = with_noise(unlevelled(chs[i]), est.σ, est.ρ)
             if levelled && count(noise_mask(chs[i])) >= 3     # the noise level as a process along each run, at the channel's own spacing
                 runs = residual_runs(chs[i], S, J, c, prior, lay)
-                levels = [volatility_level(e, est.post.ρ, est.σ; w=level_w).level for e in runs]
+                levels = [volatility_level(e, clamp(est.post.ρ, 0.0, 0.999), est.σ; w=level_w).level for e in runs]   # the AR posterior mean can exceed 1 on a drifting residual
                 chs[i] = Levelled(chs[i], level_on_grid(noise_mask(chs[i]), levels))
             end
             noise_post[i] = (σ=est.σ, ρ=est.ρ, σ_sd=est.post.σ_sd, ρ_sd=est.post.ρ_sd)

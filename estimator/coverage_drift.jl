@@ -139,7 +139,7 @@ for k in 1:n_cooks
                     "misfit_power" => b.misfit.total.ss / b.misfit.total.n,
                     "z_filter" => f.z, "sd_filter" => f.sd, "err_sd_filter" => (f.z .- truth_filter(zs, o, kk)) ./ f.sd, "F_filter" => f.F,
                     "z_true_filter" => truth_filter(zs, o, kk), "z_true" => truth_at(zs, b.t),
-                    "filter_prior_sd" => f.prior_sd, "filter_converged" => f.converged, "filter_iters" => f.iters) for (kk, (b, f)) in enumerate(zip(br, fr))]
+                    "filter_prior_sd" => [isnan(x) ? nothing : x for x in f.prior_sd], "filter_converged" => f.converged, "filter_iters" => f.iters) for (kk, (b, f)) in enumerate(zip(br, fr))]
     push!(cooks, Dict("seed" => seed, "z_by_hour" => zs, "batches" => batches, "wall_batch_s" => tb, "wall_filter_s" => tf))
     eb = abs.(batches[end]["err_sd"]); ef = abs.(batches[end]["err_sd_filter"])
     @printf("cook %d (seed %d): at %.0f h  batch |err|/sd max %.2f (%s) median %.2f | filter max %.2f (%s) median %.2f; batch %.0f s, filter %.0f s\n",

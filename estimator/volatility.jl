@@ -45,6 +45,7 @@ with `w` the log-variance's random-walk variance per sample (how fast a
 regime can change) and the prior centered on the base noise.
 """
 function volatility_level(e::AbstractVector, ρ::Real, σ0::Real; w::Float64=0.05, iters::Int=20)
+    ρ = clamp(ρ, 0.0, 0.999)          # a residual with a trend can give the AR node a ρ above one
     n = length(e)
     n < 4 && return (level=ones(n), z_mean=fill(log(σ0^2 * (1 - ρ^2)), n), z_sd=fill(1.0, n))
     η = [e[k] - ρ * e[k - 1] for k in 2:n]                  # the innovations
