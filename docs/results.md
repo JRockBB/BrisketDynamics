@@ -4,6 +4,150 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The pilot on the drifting plant, and the filter on the graph (2026-09-12)
+
+Three things, in the order they were found. The smoother pilot flew
+against the batch pilot on the drifting plant and lost twice for
+reasons that were not the belief's; the planner was fixed in two
+places and the bench then went the smoother's way on every plant; and
+the estimator was rebuilt as what the user had asked for from the
+start, a belief updated as the measurements arrive, on the same
+graph, with the plant's state in it.
+
+**The flights, and what the plan got wrong.** The loop takes the
+estimator as an argument (`batch` or `smoother`) and a drift seed for
+its plant (drift.jl). On seed 1 (the leak's logit walks +0.35 by 10 h,
+the add's charge burns 7 % slower), one cook each under the planner as
+it stood:
+
+| seed 1, one objective | wrap | pull | serve | collagen at serve | water | L* | J |
+|---|---|---|---|---|---|---|---|
+| batch estimator | 11.4 h | 14.8 h at 91 °C | 17.8 h | 0.933 | 0.435 | 33.0 | **0.882** |
+| smoother, the plan re-cooking the history | 12.6 h | 18.1 h at 93 °C | 21.1 h | 0.993 | 0.395 | 29.4 | 1.180 |
+| smoother, the plan from the smoother's state | 13.4 h | 16.0 h at 90 °C | 18.5 h | 0.934 | 0.355 | 27.1 | 1.121 |
+
+Both losses were found from the loop's own records (written after
+every check now) with `scratchpad/plan_at_state_drift.jl`, which
+replays a check's state and scores any plan at the belief and at the
+truth in force, under the plan's physics and under the plant's real
+history. *First, the plan re-cooked the history.* The plan's physics
+solved the whole cook from the start with the belief's current values
+as constants; the batch estimator's constants fit the history, so its
+picture of the meat at now was about right, while the smoother's
+current values are right for the future and wrong for the past: a
+leakier pit and a weaker charge re-cooked from hour zero put the meat
+hours behind. At the 14 h check, forty minutes after the add, the
+belief's error was a median 0.9 sd and the standing plan (pull 16.4 h)
+scored J 0.92 on the real history, 1.93 re-cooked; the pilot pulled
+1.7 h late. `plan_outputs_rh`, the planner and the plan loss now take a
+`history` (`plan_history`: the smoother's segment edges on the plan
+grid and the blocks in force before each), solve the past in those
+segments with the state handed off exactly, and let the belief govern
+from the last edge on. *Second, the plan's prior chose the wrap.* With
+the history in place the smoother pilot pulled right and wrapped two
+hours after the batch pilot, and paid in bark and water. At its 11 h
+check the wrap was due in four minutes; the replan returned a plan
+with the wrap at 13.4 h that scored worse by the goals under the same
+belief (0.54 against 0.52) and the loop adopted it. The plan block's
+prior at ten sd is numerically nothing until an event falls due, when
+a wrap four minutes off sits at logit −3.9 of its fractional coordinate
+and the prior charged the standing plan 0.22 half-J units against 0.05
+for the deferred one. A hundred sd removed the charge and broke the
+solve (the prior's precision was the Gauss-Newton step's conditioning;
+the opening plan went from 0.44 to 0.54); so the prior stays at ten sd
+for the solve and the choices are made without it: the scan judges
+candidates and the pick among solved starts judges by the goals alone,
+and the loop never replaces a standing plan with one that scores worse
+under the same belief. The opening plan from the prior mean went from a
+goals loss of 0.44 to 0.38 with the pick alone.
+
+**The bench.** Three drifting plants (seeds 1 to 3), both estimators,
+the same planner (records `data/mock/closed_loop_drift_{batch,smoother}{,_s2,_s3}.json`,
+figures `figures/estimator/closed_loop_realcook_drift_*.png`):
+
+| plant | batch estimator: wrap / pull / serve, collagen, water, L*, J | smoother: wrap / pull / serve, collagen, water, L*, J |
+|---|---|---|
+| seed 1 | 8.7 / 14.4 / 19.1 h, 0.976, 0.403, 32.3, 0.876 | 9.3 / 13.7 / 15.2 h, 0.960, 0.416, 31.5, **0.794** |
+| seed 2 | 9.8 / 15.8 / 20.9 h, 0.955, 0.439, 34.6, 0.873 | 7.4 / 13.3 / 18.2 h, 0.975, 0.422, 32.3, **0.790** |
+| seed 3 | 8.5 / 13.1 / 17.5 h, 0.983, 0.434, 33.8, 0.983 | 8.9 / 13.0 / 14.5 h, 0.969, 0.418, 31.5, **0.815** |
+| mean | 0.911 | **0.800** |
+
+The smoother pilot wins on every plant, by 0.08 to 0.17 J. Each batch
+cook lost on tenderness (collagen 0.955 to 0.983 at serve, over the
+band's top) and on two plants on bark (L* 33.8 and 34.6, at or past the
+band's pale edge): the batch belief, its leak and burn rate averaged
+over a history that had moved, cooked longer and paler than the plant
+needed. The cook figures now draw the pilot's belief of the pit, surface
+and core at every hourly check as one track per temperature, mean and
+±2 sd, carried from each check to the next (`plan_predictive`: the
+posterior covariance through the plan physics), and the predicted
+outcomes with their widths.
+
+**The filter on the graph.** The user's standing point was that the
+belief should be updated as the measurements arrive, and neither the
+hourly batch refit nor the smoother is that. The filter proper
+(`estimator/sequential.jl`) is the same estimator with the plant's
+state in the belief: the latent block is the seventeen latents and the
+state `handoff` carries (the meat's temperature, water, collagen, fat
+and salt fields, the bark and the ring, the pit's temperature, fuel,
+pan, firebox and ignited fraction); every ten-minute slice is the same
+graph fit as everywhere else (`solve_map_channels` on the graph
+engine, the same channel objects restricted to the slice's samples,
+one node per whitened residual, the censored humidity and the scale
+unchanged, the AR node identifying each channel's noise hourly with
+the last posterior as its prior), under a full-covariance prior that
+is the previous slice's posterior carried through the physics, the
+transition's Jacobian taken from the same ForwardDiff pass the graph
+linearizes with (`PhysicsState`). The drift sites carry process noise
+at their rates and the add's charge a jump at the add; the state's
+uncertainty is in the belief, so no hand-off is taken as known, which
+is what the earlier window filter paid for on the leak and the drip.
+A slice linearizes once at the predicted mean (twice if the step did
+not converge) and costs 5 to 7 s after the first; the whole drifting
+mock (96 slices to 16 h) ran in 36 min on a loaded machine. On that
+cook the latents' median error stayed at 0.6 to 1.5 sd through the
+cook with the fire's ridge (C_th, then dH_eff after the add) at 2 to 3
+sd, and the belief's pit, surface and centre temperatures tracked the
+plant with their widths at every slice
+(`figures/estimator/filter_belief_drift.png`: the running belief, one
+track per temperature, and the moving latents followed below).
+
+The coverage on the nine drifting cooks (`coverage_filter.jl`, the
+same seeds and edges as the batch and the smoother; records
+`data/mock/coverage_filter_{1,4,7}.json`, figure
+`figures/estimator/coverage_realcook_driftgraphfilter.png`), pooled
+over the latents at 14 h, with the two filters' a0 excluded (a0 is the
+ignited fraction at the start; after the first slice it is a state):
+
+| estimator, on the drifting plant | mean | spread | inside 1 sd | inside 2 sd | beyond 4 sd | wall per cook |
+|---|---|---|---|---|---|---|
+| the batch estimator | −0.00 | 2.59 | 52 % | 80 % | 8 % | 22 min |
+| the window filter (the state taken as known) | +0.29 | 2.24 | 45 % | 72 % | 6 % | 3 min |
+| the smoother | −0.02 | 1.47 | 56 % | 86 % | 2 % | 23 min |
+| **the filter on the graph** | +0.07 | 1.57 | 49 % | 79 % | 1 % | 20 min |
+
+The filter on the graph is as calibrated as the smoother overall
+(1.57 against 1.47) and better on the meat's slow sites (k_e 0.93
+against 1.42, k_m 1.26 against 1.50, D_eff 1.06 against 0.94 even),
+with its own failure pattern on the fire: C_th sits 2.2 sd low at 14 h
+(the ridge, as everywhere) and the leak lags the plant's walk
+(u_leak −1.1 sd, spread 1.5, against the smoother's −0.5 / 1.2): the
+process noise at the plant's own rate lets the leak move, and the
+filter moves it late. Its belief of the temperatures is the new
+number: against the plant's pit, centre and surface at every slice
+(756 slices), the standardized errors have median 1.16, 1.92 and 1.19
+and spreads 1.83, 2.45 and 1.64, so the temperature widths are about
+half of honest. The state's process noise is a nominal jitter (a
+thousandth in every state), and the physics' own error over a slice is
+larger than that: the widths on the temperatures are earned the way
+the noise prior was, from the coverage, and that is the next item.
+What the filter gives that nothing before it did: the belief every ten
+minutes as the samples arrive, the pit, centre and surface with their
+widths, on the same graph with the same channels and the same noise
+node, at 5 to 7 s a slice.
+
+---
+
 ## Parameters that move: the smoother, judged on a drifting plant (2026-09-11, later)
 
 Every coverage number before this entry was earned on a plant whose
