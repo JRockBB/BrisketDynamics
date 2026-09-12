@@ -86,7 +86,7 @@ end
 
 """
     sequential_filter(readings, masks, t, u, pit, cfg, sites, names, events; step, noise, cap, depth_latent, area_latent,
-                      q, jumps, x_jitter, iters, noise_every, verbose, t_end) -> Vector{NamedTuple}
+                      q, jumps, x_jitter, iters, noise_every, diagnostics, verbose, t_end) -> Vector{NamedTuple}
 
 The filter on the real-cook channels (`readings`/`masks`: pit, core, humidity, mass on the grid `t`), a slice of
 `step` seconds at a time. `noise` are the channels' NoisePrior by index (the AR node's prior for the first slice,
@@ -95,13 +95,17 @@ its posterior carried forward after); `q` the process-noise variance rate per ho
 crosses `t_jump`. A slice's fit linearizes at the predicted mean and once more if the step did not converge
 (`iters`); the noise is identified on every `noise_every`-th slice (a linearization more, at the fit's end).
 Returns one record per slice: `t` (the slice's end), the belief's pit, centre and surface temperatures
-`(mean, sd)` there, the latents' posterior `z`, `z_sd`, `z_cov`, the noise posteriors, the fit's misfit,
-iterations and wall.
+`(mean, sd)` there and their joint covariance `T_cov`, the latents' posterior `z`, `z_sd`, `z_cov`, the noise
+posteriors, the fit's misfit, iterations and wall. With `diagnostics`, the slice's INNOVATIONS: the whitened
+residuals of every sample at the PREDICTED mean (before the update, from the same channel assembly the graph
+fits), their predicted covariance S = H P Hᵀ + I, the normalized innovation squared `nis` (chi-squared with
+`dof` degrees of freedom when the filter is consistent) and the standardized innovations per channel
+(`innov`: zero-mean, unit, white when it is), at one linearization more per slice.
 """
 function sequential_filter(readings, masks, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
                            events::NamedTuple; step::Float64=600.0, noise::AbstractDict{Int,NoisePrior}, cap::Float64,
                            depth_latent::Int, area_latent::Int, q::AbstractVector, jumps::AbstractVector=[],
-                           x_jitter::Float64=1e-3, iters::Int=2, noise_every::Int=6, verbose::Bool=false, t_end::Float64=Inf)
+                           x_jitter::Float64=1e-3, iters::Int=2, noise_every::Int=6, diagnostics::Bool=false, verbose::Bool=false, t_end::Float64=Inf)
     dt = t[2] - t[1]
     per = max(1, round(Int, step / dt))
     n_z = length(sites); sites_phys = sites[1:N_PHYS]
@@ -136,6 +140,26 @@ function sequential_filter(readings, masks, t, u, pit::PitConfig, cfg::MeatConfi
         ph = PhysicsState(area_latent, events, lay, k0 == 1)
         prior_w = FilterPrior(joint, m, inv(Symmetric(P)))
         identify = slice % noise_every == 0
+        # the innovations: every sample's whitened residual at the predicted mean, before the update
+        nis, dof, innov = NaN, 0, Dict{Int,Vector{Float64}}()
+        if diagnostics
+            Sp, Jp, layp = physics_outputs(m, d, ph)
+            a, B, w = assemble(chs, m, Sp, Jp, prior_w, layp)
+            keepr = findall(isfinite, w)
+            if !isempty(keepr)
+                nu = w[keepr] .- a[keepr]; H = B[keepr, :]
+                Sm = Symmetric(H * P * H' + I)
+                nis = dot(nu, Sm \ nu); dof = length(nu)
+                sdev = sqrt.(max.(diag(Sm), 1e-12))
+                pos = Dict(i => j for (j, i) in enumerate(keepr))
+                row = 0
+                for (ci, ch) in enumerate(chs)
+                    nr = size(whitening(ch), 1)
+                    innov[ci] = [(w[i] - a[i]) / sdev[pos[i]] for i in (row + 1):(row + nr) if haskey(pos, i)]
+                    row += nr
+                end
+            end
+        end
         res = solve_map_channels(chs, prior_w, d; c0=m, physics=ph, engine=:graph, noise=identify ? np : nothing, noise_rounds=1,
                                  levelled=false, iters=identify ? max(iters, 3) : iters, verbose=false)
         for (i, v) in res.noise
@@ -157,9 +181,11 @@ function sequential_filter(readings, masks, t, u, pit::PitConfig, cfg::MeatConfi
         P = Matrix(Symmetric(F * Pz * F' + Q))
         m[lay.n] = clamp(m[lay.n], 1e-6, 1 - 1e-6)
         sd = sqrt.(max.(diag(P), 0.0))
+        iT = [pit_index(lay), centre_index(lay), surface_index(lay)]
         push!(out, (t=tw[end], T_pit=(m[pit_index(lay)], sd[pit_index(lay)]), T_centre=(m[centre_index(lay)], sd[centre_index(lay)]),
-                    T_surface=(m[surface_index(lay)], sd[surface_index(lay)]), z=m[1:n_z], z_sd=sd[1:n_z], z_cov=P[1:n_z, 1:n_z],
-                    noise=res.noise, misfit=res.misfit, iters=length(res.hist), converged=res.converged, wall=time() - t0))
+                    T_surface=(m[surface_index(lay)], sd[surface_index(lay)]), T_cov=P[iT, iT], z=m[1:n_z], z_sd=sd[1:n_z], z_cov=P[1:n_z, 1:n_z],
+                    noise=res.noise, misfit=res.misfit, iters=length(res.hist), converged=res.converged, wall=time() - t0,
+                    nis=nis, dof=dof, innov=innov))
         verbose && @printf("  t %5.2f h: pit %.1f ± %.1f, centre %.1f ± %.1f, surface %.1f ± %.1f C; %d iterations, F %.2f; %.0f s\n",
                            tw[end] / 3600, m[pit_index(lay)] - 273.15, sd[pit_index(lay)], m[centre_index(lay)] - 273.15, sd[centre_index(lay)],
                            m[surface_index(lay)] - 273.15, sd[surface_index(lay)], length(res.hist), res.F, time() - t0)

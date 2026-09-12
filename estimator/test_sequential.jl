@@ -85,4 +85,14 @@ end
     # the belief's pit temperature sits with the pit readings of the last slice (the probe's noise is 1.5 K)
     k = searchsortedlast(t, r.t)
     @test abs(r.T_pit[1] - readings.pit[k]) < 6.0
+    # the consistency diagnostics: the innovations at the predicted mean, their normalized square and degrees of
+    # freedom (the slice's unmasked samples less the censored humidity), the standardized innovations per channel
+    recd = sequential_filter(readings, masks, t, u, pit, cfg, sites, names, events; step=600.0, noise, cap=nc.hum_cap,
+                             depth_latent=DEPTH, area_latent=AREA, q, diagnostics=true, verbose=false, t_end=1200.0)
+    r2 = recd[end]
+    @test isfinite(r2.nis) && r2.nis > 0 && r2.dof > 0 && sum(length(v) for v in values(r2.innov)) == r2.dof
+    @test size(r2.T_cov) == (3, 3) && r2.T_cov[1, 1] ≈ r2.T_pit[2]^2
+    k2 = searchsortedlast(t, r2.t)
+    @test all(isfinite, r2.innov[1]) && length(r2.innov[1]) == count(masks.pit[(k2 - 4):k2])   # the slice's pit samples after its first point
+    @test maximum(abs.(r2.z .- recs[2].z)) < 1e-9                    # the diagnostics do not change the fit
 end

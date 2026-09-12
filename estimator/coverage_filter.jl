@@ -85,7 +85,7 @@ for k in 1:n_cooks
     mk = (pit=Bool.(masks.pit), core=Bool.(masks.core), humidity=Bool.(masks.humidity), mass=Bool.(masks.mass))
     recs = try
         sequential_filter(rd, mk, t, u, pit, cfg, sites, names, events; step=step_min * 60, noise=deepcopy(np0), cap=nc.hum_cap,
-                          depth_latent=DEPTH, area_latent=AREA, q, jumps, verbose=false, t_end=edges[end])
+                          depth_latent=DEPTH, area_latent=AREA, q, jumps, diagnostics=true, verbose=false, t_end=edges[end])
     catch err
         err isa InterruptException && rethrow()
         @printf("cook %d (seed %d): the filter failed (%s); skipped\n", k, seed, sprint(showerror, err)[1:min(end, 100)]); push!(skipped, seed); save(); continue
@@ -96,18 +96,32 @@ for k in 1:n_cooks
     batches = [(r = at_edge(te); zt = truth_at(z0, dd, te, events.t_add);
                 Dict("t_h" => te / 3600, "z" => r.z, "sd" => r.z_sd, "err_sd" => (r.z .- zt) ./ r.z_sd, "z_true" => zt,
                      "err_sd_graphfilter" => (r.z .- zt) ./ r.z_sd)) for te in edges]
-    # the temperatures at every slice against the plant's
+    # the temperatures at every slice against the plant's, and the consistency tests: the normalized innovation
+    # squared of the slice (chi-squared with `dof` when the filter is consistent), the normalized estimation error
+    # squared of the latents against the truth in force (chi-squared with 17, or 16 without a0) and of the three
+    # temperatures jointly (chi-squared with 3), and the standardized innovations per channel for the whiteness test
     kk(te) = searchsortedlast(t, te + 1e-9)
-    temps = [Dict("t_h" => r.t / 3600,
-                  "pit" => [r.T_pit[1], r.T_pit[2], o.Tpit[kk(r.t)]], "centre" => [r.T_centre[1], r.T_centre[2], o.Tcore[kk(r.t)]],
-                  "surface" => [r.T_surface[1], r.T_surface[2], o.Tsurf[kk(r.t)]]) for r in recs]
+    ia0 = idx["a0"]; keep16 = [i for i in 1:length(sites) if i != ia0]
+    function nees(e, C)
+        F = cholesky(Matrix(Symmetric(C)); check=false)
+        issuccess(F) ? dot(e, F \ e) : NaN
+    end
+    temps = [(zt = truth_at(z0, dd, r.t, events.t_add); e = r.z .- zt;
+              eT = [r.T_pit[1] - o.Tpit[kk(r.t)], r.T_centre[1] - o.Tcore[kk(r.t)], r.T_surface[1] - o.Tsurf[kk(r.t)]];
+              Dict("t_h" => r.t / 3600,
+                   "pit" => [r.T_pit[1], r.T_pit[2], o.Tpit[kk(r.t)]], "centre" => [r.T_centre[1], r.T_centre[2], o.Tcore[kk(r.t)]],
+                   "surface" => [r.T_surface[1], r.T_surface[2], o.Tsurf[kk(r.t)]],
+                   "nis" => r.nis, "dof" => r.dof, "innov" => Dict(string(ci) => v for (ci, v) in r.innov),
+                   "nees_z" => nees(e, r.z_cov), "nees_z16" => nees(e[keep16], r.z_cov[keep16, keep16]), "nees_T" => nees(eT, r.T_cov))) for r in recs]
     push!(cooks, Dict("seed" => seed, "z_by_hour" => [truth_at(z0, dd, h * 3600.0, events.t_add; from=true) for h in 0:29], "batches" => batches,
                       "temps" => temps, "wall_filter_s" => wall, "n_slices" => length(recs)))
     e = abs.(batches[end]["err_sd"])
     ep = [(r["pit"][1] - r["pit"][3]) / r["pit"][2] for r in temps]; ec = [(r["centre"][1] - r["centre"][3]) / r["centre"][2] for r in temps]; es = [(r["surface"][1] - r["surface"][3]) / r["surface"][2] for r in temps]
-    @printf("cook %d (seed %d): at %.0f h |err|/sd max %.2f (%s) median %.2f; the temperatures' |err|/sd median pit %.2f centre %.2f surface %.2f; %d slices, %.0f s\n",
+    nis_r = [r["nis"] / max(r["dof"], 1) for r in temps if r["dof"] > 0]
+    @printf("cook %d (seed %d): at %.0f h |err|/sd max %.2f (%s) median %.2f; the temperatures' |err|/sd median pit %.2f centre %.2f surface %.2f; NIS/dof mean %.2f, NEES/16 mean %.2f, NEES_T/3 mean %.2f; %d slices, %.0f s\n",
             k, seed, edges[end] / 3600, maximum(e), allnames[argmax(e)], sort(e)[div(end + 1, 2)],
-            sort(abs.(ep))[div(end + 1, 2)], sort(abs.(ec))[div(end + 1, 2)], sort(abs.(es))[div(end + 1, 2)], length(recs), wall)
+            sort(abs.(ep))[div(end + 1, 2)], sort(abs.(ec))[div(end + 1, 2)], sort(abs.(es))[div(end + 1, 2)],
+            sum(nis_r) / length(nis_r), sum(r["nees_z16"] for r in temps) / 16 / length(temps), sum(r["nees_T"] for r in temps) / 3 / length(temps), length(recs), wall)
     for nm in ("u_leak", "k_e", "h_c", "r_max")
         i = idx[nm]
         @printf("    %-7s truth %s | filter %s\n", nm, join([@sprintf("%+.2f", b["z_true"][i]) for b in batches], " "), join([@sprintf("%+.2f", b["err_sd"][i]) for b in batches], " "))
