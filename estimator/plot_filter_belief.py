@@ -50,7 +50,7 @@ def main():
     moving = [n for n in ("u_leak", "k_e", "h_c", "r_max", "dH_eff", "C_th") if n in names]
 
     fig = plt.figure(figsize=(12.5, 10.5), facecolor=SURFACE)
-    gs = fig.add_gridspec(2, 1, height_ratios=[1.5, 1.0], hspace=0.35, left=0.08, right=0.98, top=0.90, bottom=0.07)
+    gs = fig.add_gridspec(2, 1, height_ratios=[1.5, 1.0], hspace=0.35, left=0.08, right=0.98, top=0.87, bottom=0.07)
 
     # --- 1. the belief of the temperatures, step by step ------------------------------------------
     ax = fig.add_subplot(gs[0])
@@ -72,13 +72,15 @@ def main():
         if te is None or te > t_end:
             continue
         ax.axvline(te, color=col, lw=1.0)
-        ax.text(te + 0.1, 1.02 + 0.07 * (i % 2), f"{EVENT_L[key]} {te:.1f} h", color=col, fontsize=8.5, va="bottom", transform=above)
+        right = te > 0.9 * t_end                   # a label near the right edge sits to the left of its line
+        ax.text(te + (-0.1 if right else 0.1), 1.02 + 0.07 * (i % 3), f"{EVENT_L[key]} {te:.1f} h", color=col, fontsize=8.5, va="bottom",
+                ha="right" if right else "left", transform=above)
     ax.set_xlim(0, t_end)
     top = max(float(np.max(np.array(pl["pit"])[keep])), float(np.max(np.array(d["pit"]["mean"]) + 2 * np.array(d["pit"]["sd"])))) + 8
     ax.set_ylim(15, top + 55)
     ax.set_ylabel("temperature [°C]", color=INK2, fontsize=9)
     ax.set_title(f"The filter's belief of the cook, updated every {d['step_min']:.0f} min as the samples arrive: the pit, surface and centre temperatures, "
-                 f"mean and ±2 sd, against the plant", color=INK, fontsize=10.5, pad=34)
+                 f"mean and ±2 sd, against the plant", color=INK, fontsize=10.5, pad=86)
     ax.legend(loc="upper left", fontsize=8, frameon=False, labelcolor=INK2, ncol=2)
 
     # --- 2. the moving latents, followed ---------------------------------------------------------
