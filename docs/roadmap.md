@@ -179,22 +179,28 @@ Its structure is fixed by three measured RxInfer behaviours
   burn-rate sensor exists for (a whole-cooker platform scale; on a
   pellet grill the auger duty cycle), the row of the sensor table the
   estimator cannot supply for itself.
-- **The smoother as the pilot's estimator.** On a plant whose leak,
-  surface coefficients and fuel charge move, the smoother (moving sites
-  piecewise constant over the history, a random-walk prior between the
-  pieces) is as calibrated as the batch estimator was on a constant
-  plant (`docs/results.md`, the drifting-plant entry); the batch refit
-  is not. Three things remain. The pilot flights on the drifting plant
-  (batch against smoother, one objective) decide whether the smoother
-  becomes the loop's default, and what the replan trigger should make
-  of the belief jump when the add's new copies appear with an hour of
-  data. The drift rates are a modelling choice (0.05, 0.05, 0.03 per
-  hour in the unconstrained coordinate; the charge's jump 0.15 and
-  0.10): on a real pit they are what a second cook's residuals
-  identify, the same way the noise prior was earned, and the coverage
-  test should be rerun with the smoother told rates twice and half the
-  plant's. The nine-cook run showed k_m +1.3 sd for every estimator
-  (+0.26 on the constant plant): fresh seeds before it is called a bias.
+- **The filter on the graph as the pilot's estimator.** The belief is
+  now updated as the measurements arrive (`estimator/sequential.jl`:
+  the plant's state in the latent block, the same graph fit per
+  ten-minute slice, the previous posterior carried through the physics
+  as the prior; `docs/results.md`, the drifting-plant pilot entry). The
+  smoother pilot beat the batch pilot on all three drifting plants
+  (0.80 against 0.91 J) once the plan solved the past in the smoother's
+  segments and the planner chose by the goals alone; the filter is the
+  estimator the pilot should fly next. What remains: (i) the state's
+  process noise is a nominal jitter, and the nine-cook coverage says
+  the temperature beliefs are too narrow (median |err|/sd 1.2 to 1.8
+  against 0.67 for a calibrated one): earn it from the coverage the way
+  the noise prior was earned, or carry the model's own error as a
+  state; (ii) the pilot on the filter: the plan from the filtered state
+  at now (`plan_solve` from the state's initial conditions, the past's
+  integrals from the filtered history) instead of the segment history;
+  (iii) the AR whitening restarts at each slice's first sample, a small
+  overcount of information across slices; (iv) the drift rates and the
+  add's jump are a modelling choice (0.05, 0.05, 0.03 per hour; 0.15
+  and 0.10), on a real pit what a second cook's residuals identify;
+  (v) the nine-cook run showed k_m +1.3 sd for every estimator (+0.26 on
+  the constant plant): fresh seeds before it is called a bias.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it
