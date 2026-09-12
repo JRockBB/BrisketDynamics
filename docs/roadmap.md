@@ -200,7 +200,10 @@ Its structure is fixed by three measured RxInfer behaviours
   add's jump are a modelling choice (0.05, 0.05, 0.03 per hour; 0.15
   and 0.10), on a real pit what a second cook's residuals identify;
   (v) the nine-cook run showed k_m +1.3 sd for every estimator (+0.26 on
-  the constant plant): fresh seeds before it is called a bias.
+  the constant plant): fresh seeds before it is called a bias; (vi) the
+  constant-plant headline (pilot J 0.84 against the MPC's 0.68 and 0.76,
+  the entry of 2026-09-10) was measured under the planner before the
+  goals-only pick and the guard: one flight refreshes it.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it
