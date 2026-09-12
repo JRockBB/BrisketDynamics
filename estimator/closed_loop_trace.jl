@@ -70,10 +70,11 @@ rate = diff(Tc) ./ diff(th)
         100 * cfg.W0 / (1 + cfg.W0), 100 * (wret[kpull] * cfg.W0) / (1 + wret[kpull] * cfg.W0))
 @printf("bark L*: %.1f at the wrap, %.1f at the pull\n", o.l_star[kwrap], o.l_star[kpull])
 
-# --- what the pilot believed at its checks: the plan's predictive under the posterior -------------------------
+# --- what the pilot believed at every check: the plan's predictive under the posterior ------------------------
 # the state at a check replayed from the checks before it (their commits and their hour of damper), the check's
-# own plan and belief, the smoother's history when the record carries it; the predictive at the replans nearest
-# a quarter, a half and three quarters of the way to the last replan, and at the last replan itself
+# own plan and belief, the smoother's history when the record carries it; the predictive at EVERY check, so the
+# figure can draw the belief as the pilot held it: updated at each hourly check and carried from there to the
+# next (the temperatures at now and the plan's forecast over the coming hour), one track per temperature
 d_plan = estimator_setup(PLAN_GRID, fill(0.15, length(PLAN_GRID)), pit, cfg, prior_phys, names)
 goals = PlanGoals()
 h(x) = x === nothing ? NaN : Float64(x) * 3600
@@ -105,16 +106,7 @@ function history_of(c, s)
     specs = [(sidx, [findlast(GRID .<= hh * 3600 + 1e-9) for hh in Float64.(info["starts_h"][allnames[sidx]])]) for (sidx, _, _) in moving]
     return plan_history(Float64.(info["z_stack"]), DriftLayout(length(prior), specs), GRID, PLAN_GRID, prior)
 end
-replans = [c for c in rec["checks"] if c["replanned"] && c["t_h"] > 0]
-chosen = Any[]
-if !isempty(replans)
-    t_last = replans[end]["t_h"]
-    for q in (0.25, 0.5, 0.75)
-        c = replans[argmin(abs.([r["t_h"] for r in replans] .- q * t_last))]
-        any(x -> x["t_h"] == c["t_h"], chosen) || push!(chosen, c)
-    end
-    any(x -> x["t_h"] == t_last, chosen) || push!(chosen, replans[end])
-end
+chosen = [c for c in rec["checks"] if c["t_h"] > 0]                # every check after the opening plan
 predictive = Any[]
 for c in chosen
     t0 = time()
@@ -129,7 +121,7 @@ for c in chosen
             c["t_h"], pr.Tcore.mean[searchsortedlast(PLAN_GRID, plan_of(c).t_pull)] - 273.15, pr.Tcore.sd[searchsortedlast(PLAN_GRID, plan_of(c).t_pull)],
             pr.Tpit.mean[k_now] - 273.15, pr.Tpit.sd[k_now], pr.Tsurf.mean[searchsortedlast(PLAN_GRID, plan_of(c).t_pull)] - 273.15, pr.Tsurf.sd[searchsortedlast(PLAN_GRID, plan_of(c).t_pull)],
             pr.y.mean[1], pr.y.sd[1], pr.y.mean[3], pr.y.sd[3], pr.y.mean[4] - 273.15, pr.y.sd[4], time() - t0)
-    push!(predictive, Dict("t_h" => c["t_h"], "grid_h" => PLAN_GRID ./ 3600, "last" => c === chosen[end],
+    push!(predictive, Dict("t_h" => c["t_h"], "grid_h" => PLAN_GRID ./ 3600, "last" => c === chosen[end], "replanned" => c["replanned"],
                            "Tpit" => Dict("mean" => pr.Tpit.mean .- 273.15, "sd" => pr.Tpit.sd),
                            "Tcore" => Dict("mean" => pr.Tcore.mean .- 273.15, "sd" => pr.Tcore.sd),
                            "Tsurf" => Dict("mean" => pr.Tsurf.mean .- 273.15, "sd" => pr.Tsurf.sd),

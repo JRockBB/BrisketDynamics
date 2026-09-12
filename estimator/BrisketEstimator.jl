@@ -33,6 +33,7 @@ using BrisketDynamics
 export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, solve_segments, filter_fit, A0_INDEX
 export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, smoother_step, drift_layout, warm_start, plan_history, segment_edges, index_at, current_index, block_at
 export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD
+export FilterLayout, PhysicsState, pack_state, unpack_state, state_sites, sequential_filter, pit_index, centre_index, surface_index
 export GateData, load_gate, from_z, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, logistic
 
@@ -129,8 +130,9 @@ function prior_quadratic(c, prior; damping::Float64=0.0)
 end
 logistic(v) = 1 / (1 + exp(-v))
 
-from_z(z, prior) = [isbeta(p) ? logistic(v) : exp(v) for (v, p) in zip(z, prior)]
-dx_dz(z, prior) = [isbeta(p) ? (s = logistic(v); s * (1 - s)) : exp(v) for (v, p) in zip(z, prior)]
+islinear(p::PriorSite) = p.family == "linear"          # a state entry in a filter's block: Gaussian in its own coordinate, no transform
+from_z(z, prior) = [isbeta(p) ? logistic(v) : islinear(p) ? v : exp(v) for (v, p) in zip(z, prior)]
+dx_dz(z, prior) = [isbeta(p) ? (s = logistic(v); s * (1 - s)) : islinear(p) ? one(v) : exp(v) for (v, p) in zip(z, prior)]
 
 """
     prior_terms(z, prior) -> (f, g, h)
@@ -340,5 +342,6 @@ include(joinpath(@__DIR__, "segments.jl"))
 include(joinpath(@__DIR__, "filter.jl"))
 include(joinpath(@__DIR__, "smoother.jl"))
 include(joinpath(@__DIR__, "drift.jl"))
+include(joinpath(@__DIR__, "sequential.jl"))
 
 end # module

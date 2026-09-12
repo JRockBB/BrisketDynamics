@@ -58,21 +58,25 @@ def main():
     # --- 1. the cook as it happened ----------------------------------------------------------
     ax = fig.add_subplot(gs[0])
     style(ax)
-    # what the pilot BELIEVED at several checks: the plan's predicted pit, core and surface trajectories with the
-    # posterior covariance carried through the plan physics (closed_loop_trace.jl), mean and ±2 sd from that hour on;
-    # the temperatures the pilot planned on are uncertain by this much
+    # the pilot's belief as it held it: at every hourly check the posterior's pit, core and surface temperatures
+    # with the covariance carried through the plan physics (closed_loop_trace.jl), each check's belief drawn from
+    # that hour to the next check (its forecast over the coming hour), the last check's to the serve; one track
+    # per temperature, updated where the checks are
     import matplotlib.patches as mpatches
     band_handles = []
-    preds = tr.get("predictive", [])
+    preds = sorted([pr for pr in tr.get("predictive", []) if pr["t_h"] <= t_end], key=lambda pr: pr["t_h"])
     for j, pr in enumerate(preds):
         g = np.array(pr["grid_h"])
-        m = (g >= pr["t_h"] - 1e-9) & (g <= t_end)
-        strong = bool(pr.get("last", False))
+        t_next = preds[j + 1]["t_h"] if j + 1 < len(preds) else t_end
+        m = (g >= pr["t_h"] - 1e-9) & (g <= t_next + 1e-9)
+        if not m.any():
+            continue
         for key, col in (("Tpit", PIT), ("Tcore", CORE), ("Tsurf", SURF)):
             mu, sd = np.array(pr[key]["mean"]), np.array(pr[key]["sd"])
-            ax.fill_between(g[m], (mu - 2 * sd)[m], (mu + 2 * sd)[m], color=col, alpha=0.22 if strong else 0.09, lw=0)
-            ax.plot(g[m], mu[m], color=col, lw=1.0 if strong else 0.7, ls=(0, (3, 2)), alpha=0.9 if strong else 0.5)
-        band_handles.append(mpatches.Patch(color=INK2, alpha=0.5 if strong else 0.2, label=f"believed at {pr['t_h']:.0f} h (mean, ±2 sd)"))
+            ax.fill_between(g[m], (mu - 2 * sd)[m], (mu + 2 * sd)[m], color=col, alpha=0.22, lw=0)
+            ax.plot(g[m], mu[m], color=col, lw=0.9, ls=(0, (3, 2)), alpha=0.8)
+    if preds:
+        band_handles.append(mpatches.Patch(color=INK2, alpha=0.35, label="the pilot's belief: mean (dashed) and ±2 sd, updated at each hourly check"))
     ax.plot(t[keep], np.array(tr["T_pit_C"])[keep], color=PIT, lw=1.6, label="pit, the plant")
     ax.plot(t[keep], np.array(tr["T_surf_C"])[keep], color=SURF, lw=1.2, label="surface, the plant")
     ax.plot(t[keep], np.array(tr["T_core_C"])[keep], color=CORE, lw=2.2, label="core, the plant")
@@ -97,18 +101,18 @@ def main():
     ax.set_xlim(0, t_end)
     # headroom above the hottest trace or band for the legend, which sits in the upper left where no event line runs
     top = max(ymax, float(np.max(np.array(tr["T_pit_C"])[keep])) + 8)
-    for pr in preds:
-        g = np.array(pr["grid_h"]); m = (g >= pr["t_h"] - 1e-9) & (g <= t_end)
-        top = max(top, float(np.max((np.array(pr["Tpit"]["mean"]) + 2 * np.array(pr["Tpit"]["sd"]))[m])) + 4)
+    for j, pr in enumerate(preds):
+        g = np.array(pr["grid_h"]); t_next = preds[j + 1]["t_h"] if j + 1 < len(preds) else t_end
+        m = (g >= pr["t_h"] - 1e-9) & (g <= t_next + 1e-9)
+        m.any() and (top := max(top, float(np.max((np.array(pr["Tpit"]["mean"]) + 2 * np.array(pr["Tpit"]["sd"]))[m])) + 4))
     ax.set_ylim(15, top + 60)
     ax.set_ylabel("temperature [°C]", color=INK2, fontsize=9)
     core = np.array(tr["T_core_C"])
     pit_mean = float(np.mean(np.array(tr["T_pit_C"])[t <= ev["pull"]]))
     t70 = t[np.argmax(core >= 70)] if (core >= 70).any() else float("nan")
-    believed = ", ".join(f"{pr['t_h']:.0f}" for pr in preds)
     ax.set_title(f"The cook as it happened: a {pit_mean * 9 / 5 + 32:.0f} °F pit, the core at 70 °C by {t70:.1f} h, "
                  f"wrapped at {ev['wrap']:.1f} h, pulled at {ev['pull']:.1f} h at {actual['T_pull']:.0f} °C, served at {ev['serve']:.1f} h"
-                 + (f"\nand what the pilot believed it would do at {believed} h: the plan's temperatures under the posterior, mean and ±2 sd" if preds else ""),
+                 + ("\nand the pilot's belief of it: the pit, surface and core under the posterior at each hourly check, carried to the next" if preds else ""),
                  color=INK, fontsize=10.5, pad=60)
     hs, ls_ = ax.get_legend_handles_labels()
     ax.legend(hs + band_handles, ls_ + [h_.get_label() for h_ in band_handles], loc="upper left", fontsize=8, frameon=False, labelcolor=INK2, ncol=1,
