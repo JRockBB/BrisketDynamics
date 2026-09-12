@@ -85,34 +85,34 @@ function physics_outputs(v, d::GateData, ph::PhysicsState)
 end
 
 """
-    sequential_filter(readings, masks, t, u, pit, cfg, sites, names, events; step, noise, cap, depth_latent, area_latent,
-                      q, jumps, x_jitter, iters, noise_every, diagnostics, verbose, t_end) -> Vector{NamedTuple}
+    FilterState
 
-The filter on the real-cook channels (`readings`/`masks`: pit, core, humidity, mass on the grid `t`), a slice of
-`step` seconds at a time. `noise` are the channels' NoisePrior by index (the AR node's prior for the first slice,
-its posterior carried forward after); `q` the process-noise variance rate per hour per latent (length of
-`sites`); `jumps` a vector of `(site, t_jump, var)`: the site's variance is inflated by `var` in the slice that
-crosses `t_jump`. A slice's fit linearizes at the predicted mean and once more if the step did not converge
-(`iters`); the noise is identified on every `noise_every`-th slice (a linearization more, at the fit's end).
-Returns one record per slice: `t` (the slice's end), the belief's pit, centre and surface temperatures
-`(mean, sd)` there and their joint covariance `T_cov`, the latents' posterior `z`, `z_sd`, `z_cov`, the noise
-posteriors, the fit's misfit, iterations and wall. With `diagnostics`, the slice's INNOVATIONS: the whitened
-residuals of every sample at the PREDICTED mean (before the update, from the same channel assembly the graph
-fits), their predicted covariance S = H P Hᵀ + I, the normalized innovation squared `nis` (chi-squared with
-`dof` degrees of freedom when the filter is consistent) and the standardized innovations per channel
-(`innov`: zero-mean, unit, white when it is), at one linearization more per slice.
+The filter's belief between calls: the layout, the joint sites, the mean and covariance of the block at the
+next slice's start, the channels' noise posteriors, the grid index of the next slice's start and the slice
+count. `filter_init` makes it from the recipe and the prior; `filter_advance!` carries it to a time.
 """
-function sequential_filter(readings, masks, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
-                           events::NamedTuple; step::Float64=600.0, noise::AbstractDict{Int,NoisePrior}, cap::Float64,
-                           depth_latent::Int, area_latent::Int, q::AbstractVector, jumps::AbstractVector=[],
-                           x_jitter::Float64=1e-3, iters::Int=2, noise_every::Int=6, diagnostics::Bool=false, verbose::Bool=false, t_end::Float64=Inf)
-    dt = t[2] - t[1]
-    per = max(1, round(Int, step / dt))
+mutable struct FilterState
+    lay::FilterLayout
+    joint::Vector{PriorSite}
+    m::Vector{Float64}
+    P::Matrix{Float64}
+    np::Dict{Int,NoisePrior}
+    k0::Int
+    slice::Int
+end
+
+"""
+    filter_init(t, u, pit, cfg, sites, events; noise, area_latent, x_jitter=1e-3) -> FilterState
+
+The belief before any sample: the latents at the prior's mean with the prior's widths, the state the recipe's
+(a zero-length solve at the prior mean, handed off at its first point) with a nominal jitter.
+"""
+function filter_init(t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, events::NamedTuple;
+                     noise::AbstractDict{Int,NoisePrior}, area_latent::Int, x_jitter::Float64=1e-3, abstol=1e-6, reltol=1e-6)
     n_z = length(sites); sites_phys = sites[1:N_PHYS]
-    # the initial state from the recipe: a zero-length solve at the prior mean, handed off at its first point
     z0 = [isbeta(p) ? log(p.p1 / p.p2) : p.p1 for p in sites]
     xp0 = from_z(z0[1:N_PHYS], sites_phys)
-    o0 = monolith_solve(xp0[1:N_THETA], xp0[(N_THETA + 1):N_PHYS], u[1:2], t[1:2], t[1:2]; pit, cfg, A_meat=exp(z0[area_latent]), events...)
+    o0 = monolith_solve(xp0[1:N_THETA], xp0[(N_THETA + 1):N_PHYS], u[1:2], t[1:2], t[1:2]; pit, cfg, A_meat=exp(z0[area_latent]), abstol, reltol, events...)
     ics0, a0 = handoff(o0, 1)
     lay = FilterLayout(length(ics0.T0f), n_z)
     joint = vcat(sites, state_sites(lay.n_state))
@@ -121,12 +121,35 @@ function sequential_filter(readings, masks, t, u, pit::PitConfig, cfg::MeatConfi
     P = zeros(lay.n, lay.n)
     for i in 1:n_z; P[i, i] = 1 / h0[i]; end                          # the latents: the prior's widths
     for i in state_range(lay); P[i, i] = x_jitter^2; end               # the initial state is the recipe's: nearly known
-    np = Dict{Int,NoisePrior}(i => v for (i, v) in noise)              # the AR node's priors, its posteriors carried slice to slice
+    return FilterState(lay, joint, m, P, Dict{Int,NoisePrior}(i => v for (i, v) in noise), 1, 0)
+end
+
+"""
+    filter_advance!(st, readings, masks, t, u, pit, cfg, sites, names, events; t_to, step, cap, depth_latent, area_latent,
+                    q, jumps, x_jitter, iters, noise_every, diagnostics, verbose) -> Vector{NamedTuple}
+
+The filter carried from its state to `t_to`, one slice of `step` seconds at a time (the last slice ends at the
+grid point at or before `t_to`), under the events as they stand now; returns the slices' records (see
+`sequential_filter`) and leaves `st` at the last slice's end.
+"""
+function filter_advance!(st::FilterState, readings, masks, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
+                         events::NamedTuple; t_to::Float64, step::Float64=600.0, cap::Float64, depth_latent::Int, area_latent::Int,
+                         q::AbstractVector, jumps::AbstractVector=[], x_jitter::Float64=1e-3, iters::Int=2, noise_every::Int=6,
+                         diagnostics::Bool=false, verbose::Bool=false)
+    dt = t[2] - t[1]
+    per = max(1, round(Int, step / dt))
+    n_z = length(sites); sites_phys = sites[1:N_PHYS]
+    lay, joint = st.lay, st.joint
+    np = st.np
     out = NamedTuple[]
-    k0 = 1; slice = 0
-    while k0 < length(t) && t[k0] < t_end
-        slice += 1
+    k_to = findlast(t .<= t_to + 1e-9)
+    while st.k0 < length(t) && st.k0 + per <= k_to
+        st.slice += 1
+        slice = st.slice
+        k0 = st.k0
+        m, P = st.m, st.P
         k1 = min(k0 + per, length(t)); idx = k0:k1
+
         tw, uw = t[idx], u[idx]
         t0 = time()
         # the slice's channels: the same objects as everywhere, the readings on the slice; its first point belongs
@@ -180,6 +203,7 @@ function sequential_filter(readings, masks, t, u, pit::PitConfig, cfg::MeatConfi
         m = vcat(res.z[1:n_z], L.x_end)
         P = Matrix(Symmetric(F * Pz * F' + Q))
         m[lay.n] = clamp(m[lay.n], 1e-6, 1 - 1e-6)
+        st.m, st.P = m, P
         sd = sqrt.(max.(diag(P), 0.0))
         iT = [pit_index(lay), centre_index(lay), surface_index(lay)]
         push!(out, (t=tw[end], T_pit=(m[pit_index(lay)], sd[pit_index(lay)]), T_centre=(m[centre_index(lay)], sd[centre_index(lay)]),
@@ -190,7 +214,26 @@ function sequential_filter(readings, masks, t, u, pit::PitConfig, cfg::MeatConfi
                            tw[end] / 3600, m[pit_index(lay)] - 273.15, sd[pit_index(lay)], m[centre_index(lay)] - 273.15, sd[centre_index(lay)],
                            m[surface_index(lay)] - 273.15, sd[surface_index(lay)], length(res.hist), res.F, time() - t0)
         verbose && flush(stdout)
-        k0 = k1
+        st.k0 = k1
     end
     return out
+end
+
+"""
+    sequential_filter(readings, masks, t, u, pit, cfg, sites, names, events; step, noise, cap, depth_latent, area_latent,
+                      q, jumps, x_jitter, iters, noise_every, diagnostics, verbose, t_end) -> Vector{NamedTuple}
+
+The filter over a whole record: `filter_init` then `filter_advance!` to `t_end`. Returns one record per slice:
+`t` (the slice's end), the belief's pit, centre and surface temperatures `(mean, sd)` there and their joint
+covariance `T_cov`, the latents' posterior `z`, `z_sd`, `z_cov`, the noise posteriors, the fit's misfit,
+iterations and wall; with `diagnostics`, the innovations at the predicted mean, `nis`, `dof` and the
+standardized innovations per channel (`innov`).
+"""
+function sequential_filter(readings, masks, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
+                           events::NamedTuple; step::Float64=600.0, noise::AbstractDict{Int,NoisePrior}, cap::Float64,
+                           depth_latent::Int, area_latent::Int, q::AbstractVector, jumps::AbstractVector=[],
+                           x_jitter::Float64=1e-3, iters::Int=2, noise_every::Int=6, diagnostics::Bool=false, verbose::Bool=false, t_end::Float64=Inf)
+    st = filter_init(t, u, pit, cfg, sites, events; noise, area_latent, x_jitter)
+    return filter_advance!(st, readings, masks, t, u, pit, cfg, sites, names, events; t_to=min(t_end, t[end]), step, cap, depth_latent,
+                           area_latent, q, jumps, x_jitter, iters, noise_every, diagnostics, verbose)
 end

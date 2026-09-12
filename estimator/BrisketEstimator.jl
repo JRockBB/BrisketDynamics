@@ -34,6 +34,7 @@ export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, s
 export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, smoother_step, drift_layout, warm_start, plan_history, segment_edges, index_at, current_index, block_at
 export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD
 export FilterLayout, PhysicsState, pack_state, unpack_state, state_sites, sequential_filter, pit_index, centre_index, surface_index
+export FilterState, filter_init, filter_advance!, state_range
 export GateData, load_gate, from_z, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, logistic
 
