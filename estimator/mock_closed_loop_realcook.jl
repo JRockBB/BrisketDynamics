@@ -52,7 +52,7 @@ DT = GRID[2] - GRID[1]
 goals = PlanGoals()
 pol = ReplanPolicy()
 nc = RealCookNoise()
-sn = StateNoise()
+sn = load_state_noise()                            # the state's process noise as the bench earned it (data/calibration/state_noise.json)
 
 # --- the plant: the mock's truth, stepped with its state handed off, read like a real cook ------------
 x_true = Float64.(m["truth"]["x"])

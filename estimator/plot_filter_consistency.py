@@ -9,15 +9,23 @@ the standardized innovations' mean and lag-one autocorrelation with
 their bands. A consistent filter sits inside the bands; too-narrow
 widths push NIS and NEES above them.
 
-Reads data/mock/coverage_filter_*.json, writes
-figures/estimator/filter_consistency_drift.png and prints the numbers.
+Below them the belief's state by group (the temperature field, the
+water, the collagen, fat and salt fields, the bark and ring, the pit's
+scalars, the ignited fraction): NEES per degree of freedom against the
+plant's state, the reading the bench earns the state's process noise
+from (estimator/bench_state_noise.py).
 
-Run from app/:  uv run python ../estimator/plot_filter_consistency.py
+Reads data/mock/coverage_filter_*.json (or the pattern given), writes
+figures/estimator/filter_consistency_drift<tag>.png and
+data/mock/filter_consistency_summary<tag>.json, and prints the numbers.
+
+Run from app/:  uv run python ../estimator/plot_filter_consistency.py [pattern] [tag]
 """
 from __future__ import annotations
 
 import glob
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -42,11 +50,14 @@ def style(ax):
 
 
 def main():
-    files = sorted(glob.glob(str(REPO / "data" / "mock" / "coverage_filter_*.json")))
-    cooks = []
+    pattern = sys.argv[1] if len(sys.argv) > 1 else "coverage_filter_*.json"
+    tag = sys.argv[2] if len(sys.argv) > 2 else ""
+    files = sorted(glob.glob(str(REPO / "data" / "mock" / pattern)))
+    cooks, groups, group_dof, sn, physics = [], None, None, None, None
     for f in files:
         d = json.loads(Path(f).read_text(encoding="utf-8"))
         cooks += [c for c in d["cooks"] if c["temps"] and "nis" in c["temps"][0]]
+        groups, group_dof, sn, physics = d.get("groups"), d.get("group_dof"), d.get("state_noise"), d.get("physics")
     if not cooks:
         raise SystemExit("no coverage records with diagnostics")
     n = len(cooks)
@@ -79,16 +90,38 @@ def main():
         r1 = [np.corrcoef(s[:-1], s[1:])[0, 1] for s in seqs if len(s) > 3]
         rows.append((lab, len(allv), float(np.mean(allv)) if len(allv) else np.nan, float(np.std(allv, ddof=1)) if len(allv) > 1 else np.nan,
                      float(np.mean(r1)) if r1 else np.nan, 2 / np.sqrt(np.mean([len(s) for s in seqs])) if seqs else np.nan))
-    print(f"{n} cooks, {m} slices each; the filter's consistency at every slice, pooled:")
+    # the state by group: the pooled NEES/dof, with the band of a mean of chi-squared(dof)/dof over one independent
+    # sample per cook-hour (the updates along a cook are correlated; the band is indicative, it orders the groups)
+    grows = []
+    if groups:
+        n_eff = n * float(th[-1])
+        for g in groups:
+            v = np.array([r["nees_g"][g] for c in cooks for r in c["temps"] if "nees_g" in r], dtype=float)
+            v = v[np.isfinite(v)]
+            k = max(int(round(n_eff * group_dof[g])), 1)
+            grows.append((g, group_dof[g], int(len(v)), float(np.mean(v)) if len(v) else np.nan, stats.chi2.ppf(0.025, k) / k, stats.chi2.ppf(0.975, k) / k))
+    print(f"{n} cooks, {m} updates each; the filter's consistency at every update, pooled:")
     inside_nis = np.mean((nis_ratio >= lo_nis) & (nis_ratio <= hi_nis))
     print(f"  NIS/dof: mean over slices {np.nanmean(nis_ratio):.2f}; inside the 95 % band on {100 * inside_nis:.0f} % of slices (a consistent filter: 95 %)")
     print(f"  NEES/16 of the latents: mean {np.nanmean(nz_mean):.2f} (band {lo16:.2f} to {hi16:.2f}); NEES/3 of the temperatures: mean {np.nanmean(nT_mean):.2f} (band {lo3:.2f} to {hi3:.2f})")
     print(f"  {'channel':12s} {'samples':>8s} {'mean':>7s} {'sd':>6s} {'lag-1 r':>8s} {'band':>6s}")
     for lab, cnt, mu, sd, r1, b in rows:
         print(f"  {lab:12s} {cnt:8d} {mu:7.2f} {sd:6.2f} {r1:8.2f} {b:6.2f}")
+    if grows:
+        print(f"  the state by group (rate, initial sd, NEES/dof, the band): physics {physics}")
+        for g, dof_g, cnt, mu, lo, hi in grows:
+            flag = "" if lo <= mu <= hi else ("  too narrow" if mu > hi else "  too wide")
+            print(f"  {g:9s} dof {dof_g:3d} {sn[g]:10.4g} {sn[g + '0']:10.4g} {mu:8.2f}  {lo:.2f} to {hi:.2f}{flag}")
+    summary = {"n_cooks": n, "n_updates": m, "records": [Path(f).name for f in files], "physics": physics, "state_noise": sn,
+               "nis_dof_mean": float(np.nanmean(nis_ratio)), "nis_inside_band": float(inside_nis),
+               "latents_nees16": float(np.nanmean(nz_mean)), "latents_band": [float(lo16), float(hi16)],
+               "temps_nees3": float(np.nanmean(nT_mean)), "temps_band": [float(lo3), float(hi3)],
+               "whiteness": {lab: {"n": cnt, "mean": mu, "sd": sd, "lag1": r1, "band": b} for lab, cnt, mu, sd, r1, b in rows},
+               "groups": {g: {"dof": dof_g, "n": cnt, "nees_dof": mu, "band": [lo, hi]} for g, dof_g, cnt, mu, lo, hi in grows}}
+    (REPO / "data" / "mock" / f"filter_consistency_summary{tag}.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
 
-    fig = plt.figure(figsize=(12.5, 10.5), facecolor=SURFACE)
-    gs = fig.add_gridspec(3, 1, height_ratios=[1.0, 1.0, 0.8], hspace=0.45, left=0.08, right=0.98, top=0.93, bottom=0.07)
+    fig = plt.figure(figsize=(12.5, 13.5), facecolor=SURFACE)
+    gs = fig.add_gridspec(4, 1, height_ratios=[1.0, 1.0, 0.8, 0.8], hspace=0.5, left=0.08, right=0.98, top=0.95, bottom=0.05)
     ax = fig.add_subplot(gs[0]); style(ax)
     for i in range(n):
         ax.plot(th, nis[i] / np.maximum(dof[i], 1), color=COOK_C, lw=0.6, alpha=0.6)
@@ -97,8 +130,8 @@ def main():
     ax.axhline(1, color=INK2, lw=0.6)
     ax.set_ylim(0, min(12, float(np.nanmax(nis_ratio)) * 1.6 + 0.5))
     ax.set_ylabel("NIS / dof", color=INK2, fontsize=9)
-    ax.set_title(f"The normalized innovation squared per slice: every sample's residual at the predicted mean, whitened by the predicted innovation covariance; "
-                 f"{n} cooks (grey) and the pool (blue); mean {np.nanmean(nis_ratio):.2f}, inside the band on {100 * inside_nis:.0f} % of slices", color=INK, fontsize=9.5)
+    ax.set_title(f"The normalized innovation squared per update: every sample's residual at the predicted mean, whitened by the predicted innovation covariance\n"
+                 f"{n} cooks (grey) and the pool (blue); mean {np.nanmean(nis_ratio):.2f}, inside the band on {100 * inside_nis:.0f} % of updates", color=INK, fontsize=9.5)
     ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor=INK2)
     ax = fig.add_subplot(gs[1], sharex=ax); style(ax)
     ax.fill_between(th, lo16, hi16, color=BAND, lw=0)
@@ -120,8 +153,27 @@ def main():
     ax.set_ylim(-1, 1)
     ax.set_title("Whiteness per channel: the standardized innovations' mean and lag-one autocorrelation (the bar on the autocorrelation is ±2/√N)", color=INK, fontsize=9.5)
     ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor=INK2)
-    ax.set_xlabel("cook hour (panels above)", color=INK2, fontsize=9)
-    out = REPO / "figures" / "estimator" / "filter_consistency_drift.png"
+    if grows:
+        ax = fig.add_subplot(gs[3]); style(ax)
+        x = np.arange(len(grows))
+        vals = np.array([g[3] for g in grows]); lo = np.array([g[4] for g in grows]); hi = np.array([g[5] for g in grows])
+        cols = [MEAN_C if l <= v <= h else "#eb6834" for v, l, h in zip(vals, lo, hi)]
+        floor = 1e-3
+        shown = np.maximum(np.nan_to_num(vals, nan=floor), floor)
+        ax.bar(x, shown, width=0.6, color=cols)
+        top = max(10.0, float(np.nanmax(vals)) * 3.0)
+        for xi, v, sv in zip(x, vals, shown):
+            ax.text(xi, sv * 1.3, "< 0.001" if v < floor else f"{v:.2f}", ha="center", va="bottom", color=INK, fontsize=8)
+        for xi, l, h in zip(x, lo, hi):
+            ax.plot([xi - 0.3, xi + 0.3], [l, l], color=INK2, lw=1.2); ax.plot([xi - 0.3, xi + 0.3], [h, h], color=INK2, lw=1.2)
+        ax.axhline(1, color=INK2, lw=0.6)
+        ax.set_yscale("log")
+        ax.set_ylim(floor, top)
+        ax.set_xticks(x); ax.set_xticklabels([f"{g[0]}\n({g[1]} dof)" for g in grows], color=INK2, fontsize=8)
+        ax.set_ylabel("NEES / dof", color=INK2, fontsize=9)
+        ax.set_title(f"The belief's state by group against the plant's, pooled over every update: NEES per degree of freedom\n"
+                     f"blue inside the band of one sample per cook-hour, orange outside; the rates of data/calibration/state_noise.json, physics {physics}", color=INK, fontsize=9.5)
+    out = REPO / "figures" / "estimator" / f"filter_consistency_drift{tag}.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE)
     print("wrote", out)
 

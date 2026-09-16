@@ -104,6 +104,80 @@ state_rates(sn::StateNoise, lay::FilterLayout) =
 state_init_sd(sn::StateNoise, lay::FilterLayout) =
     _state_vec(lay, (sn.T0, sn.W0, sn.C0, sn.F0, sn.S0), (sn.bark0, sn.bark0, sn.bark0, sn.T_pit0, sn.m_fuel0, sn.m_pan0, sn.T_pan0, sn.T_fb0), sn.ignited0)
 
+"The groups of the state block, in `StateNoise`'s order: one rate and one initial width each."
+const STATE_GROUPS = ("T", "W", "C", "F", "S", "bark", "T_pit", "m_fuel", "m_pan", "T_pan", "T_fb", "ignited")
+"""
+    state_groups(lay) -> Vector{Pair{String,UnitRange{Int}}}
+
+Each group's name and the range of its entries within the state vector (the five fields of `nx` nodes, the
+three bark and ring scalars, the five pit scalars, the ignited fraction); the bench scores the belief's
+consistency group by group and earns the rates from it.
+"""
+function state_groups(lay::FilterLayout)
+    nx = lay.nx
+    r = Pair{String,UnitRange{Int}}[]
+    for (i, g) in enumerate(("T", "W", "C", "F", "S")); push!(r, g => ((i - 1) * nx + 1):(i * nx)); end
+    push!(r, "bark" => (5 * nx + 1):(5 * nx + 3))
+    for (j, g) in enumerate(("T_pit", "m_fuel", "m_pan", "T_pan", "T_fb")); push!(r, g => (5 * nx + 3 + j):(5 * nx + 3 + j)); end
+    push!(r, "ignited" => (5 * nx + 9):(5 * nx + 9))
+    return r
+end
+
+const REPO_ROOT = normpath(joinpath(@__DIR__, ".."))
+"The state-noise file the bench writes and every driver reads."
+const STATE_NOISE_FILE = joinpath(REPO_ROOT, "data", "calibration", "state_noise.json")
+"The filter's own sources, fingerprinted with the physics: a change to any of them means the rates must be re-earned."
+const FILTER_FILES = ("sequential.jl", "channels.jl", "noise.jl", "volatility.jl", "realcook.jl", "drift.jl", "segments.jl", "iterated.jl")
+
+"""
+    physics_fingerprint(; repo=REPO_ROOT) -> String
+
+The first twelve hex digits of the SHA-1 over the physics sources (`src/**/*.jl`) and the filter's own files
+(`FILTER_FILES`), each as its repository path and its bytes with carriage returns dropped, in path order. The
+state-noise file records the fingerprint it was earned on; `load_state_noise` warns when the tree's differs.
+"""
+function physics_fingerprint(; repo::AbstractString=REPO_ROOT)
+    files = String[]
+    for (root, _, fs) in walkdir(joinpath(repo, "src")), f in fs
+        endswith(f, ".jl") && push!(files, replace(relpath(joinpath(root, f), repo), "\\" => "/"))
+    end
+    append!(files, ["estimator/" * f for f in FILTER_FILES])
+    sort!(files)
+    ctx = SHA.SHA1_CTX()
+    for f in files
+        SHA.update!(ctx, codeunits(f))
+        SHA.update!(ctx, filter(!=(0x0d), read(joinpath(repo, f))))
+    end
+    return bytes2hex(SHA.digest!(ctx))[1:12]
+end
+
+"The `StateNoise` as the file's fields: the rates and the initial sds by group."
+state_noise_dict(sn::StateNoise) = Dict("rates" => Dict(g => getfield(sn, Symbol(g)) for g in STATE_GROUPS),
+                                        "init_sd" => Dict(g => getfield(sn, Symbol(g * "0")) for g in STATE_GROUPS))
+
+"""
+    load_state_noise(path=STATE_NOISE_FILE; warn=true) -> StateNoise
+
+The state's process noise and initial widths as the bench earned them (`estimator/bench_state_noise.py`
+writes the file with the physics fingerprint it ran on); the `StateNoise` defaults, with a note, when there is
+no file yet, and a warning when the tree's physics or filter no longer match the file's fingerprint (the
+rates are then stale: rerun the bench).
+"""
+function load_state_noise(path::AbstractString=STATE_NOISE_FILE; warn::Bool=true)
+    if !isfile(path)
+        warn && @info "no state-noise file at $path: the StateNoise defaults, a starting point and not a result; earn them with estimator/bench_state_noise.py"
+        return StateNoise()
+    end
+    d = JSON.parsefile(path)
+    got = string(get(get(d, "physics", Dict()), "fingerprint", ""))
+    fp = physics_fingerprint()
+    got == fp || !warn || @warn "the state noise in $path was earned on physics $got; the tree's is $fp: the rates are stale, rerun estimator/bench_state_noise.py"
+    kw = Dict{Symbol,Float64}()
+    for (k, v) in d["rates"]; kw[Symbol(k)] = Float64(v); end
+    for (k, v) in d["init_sd"]; kw[Symbol(k * "0")] = Float64(v); end
+    return StateNoise(; kw...)
+end
+
 """
     Past
 
@@ -486,8 +560,10 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     diagnostics || (nis = NaN; dof = 0; innov = Dict{Int,Vector{Float64}}())
     sd = sqrt.(max.(diag(P_new), 0.0))
     iT = [pit_index(lay), centre_index(lay), surface_index(lay)]
+    xr = state_range(lay)                                             # with diagnostics the whole state block and its covariance (the bench scores it by group)
     return (t=tw[end], k=k, updated=!isempty(live), channels=live,
             T_pit=(m_new[iT[1]], sd[iT[1]]), T_centre=(m_new[iT[2]], sd[iT[2]]), T_surface=(m_new[iT[3]], sd[iT[3]]), T_cov=P_new[iT, iT],
+            x=(diagnostics ? m_new[xr] : nothing), x_cov=(diagnostics ? P_new[xr, xr] : nothing),
             z=m_new[1:n_z], z_sd=sd[1:n_z], z_cov=P_new[1:n_z, 1:n_z], disc=m_new[disc_range(lay)], disc_sd=sd[disc_range(lay)],
             noise=[(σ=np.σ_mean, σ_sd=np.σ_sd, ρ=np.ρ_mean, ρ_sd=np.ρ_sd) for np in st.np], level=copy(st.level), faulty=copy(st.faulty),
             misfit=mis, iters=n_it, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov)

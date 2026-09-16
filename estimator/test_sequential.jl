@@ -79,6 +79,22 @@ end
     sn = StateNoise()
     @test length(E.state_rates(sn, lay)) == lay.n_state && length(E.state_init_sd(sn, lay)) == lay.n_state
     @test E.state_rates(sn, lay)[1] == sn.T && E.state_rates(sn, lay)[end] == sn.ignited && E.state_init_sd(sn, lay)[5 * lay.nx + 4] == sn.T_pit0
+    # the groups tile the state block once, in StateNoise's order, each at its own rate
+    gr = state_groups(lay)
+    @test first.(gr) == collect(STATE_GROUPS) && sort(vcat([collect(r) for (_, r) in gr]...)) == 1:lay.n_state
+    @test all(E.state_rates(sn, lay)[first(r)] == getfield(sn, Symbol(g)) && E.state_init_sd(sn, lay)[last(r)] == getfield(sn, Symbol(g * "0")) for (g, r) in gr)
+    @test pit_index(lay) - lay.n_z == first(gr[findfirst(x -> first(x) == "T_pit", gr)][2])
+    # the state-noise file: the fingerprint is stable, the file round-trips, no file means the defaults
+    fp = physics_fingerprint()
+    @test length(fp) == 12 && fp == physics_fingerprint()
+    tmp = tempname() * ".json"
+    open(tmp, "w") do io
+        JSON.print(io, merge(state_noise_dict(StateNoise(T=0.7, W0=0.2)), Dict("physics" => Dict("fingerprint" => fp))))
+    end
+    sn2 = load_state_noise(tmp; warn=false)
+    @test sn2.T == 0.7 && sn2.W0 == 0.2 && sn2.C == sn.C && sn2.ignited0 == sn.ignited0
+    @test load_state_noise(tempname() * ".json"; warn=false) == StateNoise()
+    rm(tmp)
 end
 
 @testset "the slice physics from the recipe's state is the whole-cook physics; the discrepancies do not enter it" begin
@@ -122,6 +138,8 @@ end
 @testset "updates on arrival: the belief moves toward the readings, the diagnostics, the record" begin
     q = zeros(length(sites))
     recs = sequential_filter(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, diagnostics=true, t_end=1800.0)
+    @test (nxr = (length(recs[end].x) - 9) ÷ 5; recs[end].x[5 * nxr + 4] == recs[end].T_pit[1] && size(recs[end].x_cov) == (5 * nxr + 9, 5 * nxr + 9))
+    @test filter_update!(filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q), 2).x === nothing
     arrivals = [k for k in 2:findlast(t .<= 1800.0 + 1e-9) if any(mk[k] for mk in (masks.pit, masks.core, masks.humidity, masks.mass))]
     @test length(recs) == length(arrivals) && [r.k for r in recs] == arrivals && all(r.updated for r in recs)   # one update per arrival, none between
     r = recs[end]

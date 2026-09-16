@@ -96,7 +96,7 @@ def main():
     axes.flat[0].set_ylim(-5, 5)
     drifting = "drift" in pattern or key == "err_sd_graphfilter"
     what = {"err_sd": "the batch estimator (every latent a constant)" if drifting else "the Gaussian posterior",
-            "err_sd_graphfilter": "the filter on the graph (the belief over the plant's state and the latents, updated every ten minutes as the samples arrive)",
+            "err_sd_graphfilter": "the filter on the graph (the belief over the plant's state and the latents, updated at every arrival of a sample)",
             "err_sd_ridge": "the belief with the ridge chain",
             "err_sd_marg": "the Gaussian posterior with the noise marginalised",
             "err_sd_filter": "the filter (predict from a handed-off state, update on the window)",

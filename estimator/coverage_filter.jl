@@ -9,9 +9,13 @@
 # by default), after every cook; plot_coverage.py reads it with the key err_sd_graphfilter, plot_filter_consistency.py
 # the consistency tests.
 #
-# Run:  julia --project=estimator estimator/coverage_filter.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [adapt_level 0/1]
+# Run:  julia --project=estimator estimator/coverage_filter.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [adapt_level 0/1] [state_noise.json|default]
 #   adapt_level: 0 (the default) keeps every channel's level at one while the state's process noise is earned from this
 #   bench (a level reads the belief's consistency and cannot be judged before the belief is consistent); 1 lets it follow
+#   state_noise.json (data/calibration): the state's process noise and initial widths the filter runs with (the file the
+#   bench driver estimator/bench_state_noise.py writes; the StateNoise defaults when there is none, or with "default")
+# The record scores the belief's state group by group (the normalized estimation error squared of each field and
+# scalar block against the plant's state, per update): the bench driver reads it to earn the rates.
 using Pkg
 Pkg.activate(@__DIR__)
 ENV["JULIA_FASTCHOLESKY_NO_WARN_NON_SYMMETRIC"] = "1"
@@ -28,6 +32,7 @@ seed0 = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 1
 out_name = length(ARGS) >= 4 ? ARGS[4] : "coverage_filter_$(seed0).json"
 edges_to_h = length(ARGS) >= 5 ? parse(Float64, ARGS[5]) : 14.0
 adapt_level = length(ARGS) >= 6 ? ARGS[6] == "1" : false
+sn_file = length(ARGS) >= 7 ? ARGS[7] : "state_noise.json"
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_realcook.json"))
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]
 dt = t[2] - t[1]
@@ -38,14 +43,16 @@ sites, allnames, idx = blk.sites, blk.names, blk.idx
 AREA, DEPTH = blk.area, blk.depth
 ev = m["events"]
 events = (t_wrap=Float64(ev["t_wrap"]), t_pull=Float64(ev["t_pull"]), t_add=Float64(ev["t_add"]), t_spritz=Float64(ev["t_spritz"]), dt_spritz=Float64(ev["dt_spritz"]), m_spritz=Float64(ev["m_spritz"]))
-edges = 3600.0 .* collect(2:2:floor(Int, edges_to_h))
+edges = unique(vcat(3600.0 .* collect(2:2:floor(Int, edges_to_h)), [3600.0 * edges_to_h]))     # every two hours, and the run's end
 nc = RealCookNoise()
 np0 = realcook_noise_priors(joinpath(REPO, "data", "calibration", "noise_prior_real.json"), dt)
 noise = [np0[i] for i in 1:4]
 dr = drift_rates(blk.file)     # the rates the filter is told (the plant walks with drift.jl's own; the same by default: the test is of the mechanism)
 q = zeros(length(sites)); for (nm, sd) in dr.sd_per_hour; q[idx[nm]] = sd^2; end
 jumps = [(idx[nm], events.t_add, sd^2) for (nm, sd) in dr.jump_log_sd]
-sn = StateNoise()
+sn = sn_file == "default" ? StateNoise() : load_state_noise(isabspath(sn_file) ? sn_file : joinpath(REPO, "data", "calibration", sn_file))
+fingerprint = physics_fingerprint()
+group_dof = Dict{String,Int}()          # each state group's degrees of freedom (filled from the first cook's layout)
 
 cooks = Any[]; skipped = Int[]
 dst = joinpath(REPO, "data", "mock", out_name)
@@ -53,10 +60,14 @@ save() = open(dst, "w") do io
     JSON.print(io, Dict("plant" => "monolith (1-D) in segments, parameters drifting (drift.jl); real-cook instruments", "names" => allnames,
                         "prior_file" => prior_file, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped,
                         "drift" => Dict("sd_per_hour" => DRIFT_SD_PER_HOUR, "jump_log_sd" => JUMP_LOG_SD), "q" => q,
-                        "state_noise" => Dict(string(k) => getfield(sn, k) for k in fieldnames(StateNoise)), "adapt_level" => adapt_level))
+                        "state_noise" => Dict(string(k) => getfield(sn, k) for k in fieldnames(StateNoise)), "state_noise_file" => sn_file,
+                        "physics" => fingerprint, "adapt_level" => adapt_level, "groups" => collect(STATE_GROUPS), "group_dof" => group_dof))
 end
 println("the graph filter: prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; edges to ", edges_to_h, " h; updates on arrival; the level ",
-        adapt_level ? "following the innovations" : "fixed at one (the bench earns the state's process noise)", "; record ", out_name)
+        adapt_level ? "following the innovations" : "fixed at one (the bench earns the state's process noise)", "; the state noise from ", sn_file,
+        "; physics ", fingerprint, "; record ", out_name)
+println("  rates [units/sqrt(h)]: ", join(["$g $(getfield(sn, Symbol(g)))" for g in STATE_GROUPS], ", "))
+println("  initial sds: ", join(["$g $(getfield(sn, Symbol(g * "0")))" for g in STATE_GROUPS], ", "))
 flush(stdout)
 for k in 1:n_cooks
     seed = seed0 + k - 1
@@ -98,13 +109,28 @@ for k in 1:n_cooks
         F = cholesky(Matrix(Symmetric(C)); check=false)
         issuccess(F) ? dot(e, F \ e) : NaN
     end
-    temps = [(zt = truth_at(z0, dd, r.t, events.t_add); e = r.z .- zt;
+    # the state by group: the error against the plant's state at the update's grid point, in the block's correlation
+    # form (a field block's entries span orders of magnitude), as NEES per degree of freedom
+    lay = FilterLayout(size(o.T_field, 1), length(sites), 4)
+    groups = state_groups(lay)
+    for (g, rg) in groups; group_dof[g] = length(rg); end
+    function nees_corr(e, C)
+        s = sqrt.(max.(diag(C), 1e-300))
+        F = cholesky(Matrix(Symmetric(C ./ (s * s'))); check=false)
+        issuccess(F) ? dot(e ./ s, F \ (e ./ s)) : NaN
+    end
+    function group_nees(r)
+        ics, a = handoff(o, r.k)
+        ex = r.x .- pack_state(ics, a, lay)                    # its own name: an `e` here would be the loop's `e`, shared through the closure
+        Dict(g => nees_corr(ex[rg], r.x_cov[rg, rg]) / length(rg) for (g, rg) in groups)
+    end
+    temps = [(zt = truth_at(z0, dd, r.t, events.t_add); ez = r.z .- zt;
               eT = [r.T_pit[1] - o.Tpit[kk(r.t)], r.T_centre[1] - o.Tcore[kk(r.t)], r.T_surface[1] - o.Tsurf[kk(r.t)]];
-              Dict("t_h" => r.t / 3600, "updated" => r.updated,
+              Dict("t_h" => r.t / 3600, "k" => r.k, "updated" => r.updated, "nees_g" => group_nees(r),
                    "pit" => [r.T_pit[1], r.T_pit[2], o.Tpit[kk(r.t)]], "centre" => [r.T_centre[1], r.T_centre[2], o.Tcore[kk(r.t)]],
                    "surface" => [r.T_surface[1], r.T_surface[2], o.Tsurf[kk(r.t)]],
                    "nis" => r.nis, "dof" => r.dof, "innov" => Dict(string(ci) => v for (ci, v) in r.innov),
-                   "nees_z" => nees(e, r.z_cov), "nees_z16" => nees(e[keep16], r.z_cov[keep16, keep16]), "nees_T" => nees(eT, r.T_cov),
+                   "nees_z" => nees(ez, r.z_cov), "nees_z16" => nees(ez[keep16], r.z_cov[keep16, keep16]), "nees_T" => nees(eT, r.T_cov),
                    "level" => r.level, "faulty" => r.faulty, "noise" => [[v.σ, v.ρ] for v in r.noise], "wall_s" => r.wall)) for r in recs]
     push!(cooks, Dict("seed" => seed, "z_by_hour" => [truth_at(z0, dd, h * 3600.0, events.t_add; from=true) for h in 0:29], "batches" => batches,
                       "temps" => temps, "wall_filter_s" => wall, "n_updates" => length(recs)))
@@ -119,6 +145,8 @@ for k in 1:n_cooks
         i = idx[nm]
         @printf("    %-7s truth %s | filter %s\n", nm, join([@sprintf("%+.2f", b["z_true"][i]) for b in batches], " "), join([@sprintf("%+.2f", b["err_sd"][i]) for b in batches], " "))
     end
+    gm(g) = (v = [r["nees_g"][g] for r in temps if isfinite(r["nees_g"][g])]; isempty(v) ? NaN : sum(v) / length(v))
+    println("    the state by group, NEES/dof mean: ", join([@sprintf("%s %.2f", g, gm(g)) for g in STATE_GROUPS], ", "))
     flush(stdout)
     save()
 end

@@ -45,7 +45,8 @@ println("the filter on the drifting mock (seed ", m["drift"]["seed"], ") to ", t
         fault_h > 0 ? "; the core probe stuck from $(fault_h) h" : "", adapt_level ? "" : "; the level fixed at one")
 flush(stdout)
 t0 = time()
-recs = sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, area_latent=AREA, q, jumps, adapt_level, diagnostics=true, verbose=true, t_end=t_end_h * 3600)
+sn = load_state_noise()                            # the state's process noise as the bench earned it (data/calibration/state_noise.json)
+recs = sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, area_latent=AREA, q, jumps, sn, adapt_level, diagnostics=true, verbose=true, t_end=t_end_h * 3600)
 @printf("%d updates in %.0f s\n", length(recs), time() - t0)
 # the plant's own temperatures (the mock's clean traces) and its latents in force at each step
 clean = m["clean"]
