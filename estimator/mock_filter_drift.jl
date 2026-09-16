@@ -2,7 +2,7 @@
 # discrepancies, updated as the real-cook instruments' samples arrive, against the plant's own temperatures and
 # its latents in force at each hour. Writes data/mock/filter_drift.json for plot_filter_belief.py.
 #
-# Run:  julia --project=estimator estimator/mock_filter_drift.jl [t_end_h] [prior.json] [fault: core probe stuck from hour h, 0 = none]
+# Run:  julia --project=estimator estimator/mock_filter_drift.jl [t_end_h] [prior.json] [fault: core probe stuck from hour h, 0 = none] [adapt_level 0/1]
 using Pkg
 Pkg.activate(@__DIR__)
 ENV["JULIA_FASTCHOLESKY_NO_WARN_NON_SYMMETRIC"] = "1"
@@ -16,6 +16,7 @@ REPO = normpath(joinpath(@__DIR__, ".."))
 t_end_h = length(ARGS) >= 1 ? parse(Float64, ARGS[1]) : 16.0
 prior_file = length(ARGS) >= 2 ? ARGS[2] : "prior_next_cook.json"
 fault_h = length(ARGS) >= 3 ? parse(Float64, ARGS[3]) : 0.0
+adapt_level = length(ARGS) >= 4 ? ARGS[4] == "1" : true
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_drift.json"))
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]; dt = t[2] - t[1]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
@@ -41,10 +42,10 @@ dr = drift_rates(blk.file)
 q = zeros(length(sites)); for (nm, sd) in dr.sd_per_hour; q[idx[nm]] = sd^2; end
 jumps = [(idx[nm], events.t_add, sd^2) for (nm, sd) in dr.jump_log_sd]
 println("the filter on the drifting mock (seed ", m["drift"]["seed"], ") to ", t_end_h, " h, updates on arrival; prior ", prior_file,
-        fault_h > 0 ? "; the core probe stuck from $(fault_h) h" : "")
+        fault_h > 0 ? "; the core probe stuck from $(fault_h) h" : "", adapt_level ? "" : "; the level fixed at one")
 flush(stdout)
 t0 = time()
-recs = sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, area_latent=AREA, q, jumps, diagnostics=true, verbose=true, t_end=t_end_h * 3600)
+recs = sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, area_latent=AREA, q, jumps, adapt_level, diagnostics=true, verbose=true, t_end=t_end_h * 3600)
 @printf("%d updates in %.0f s\n", length(recs), time() - t0)
 # the plant's own temperatures (the mock's clean traces) and its latents in force at each step
 clean = m["clean"]
@@ -70,7 +71,7 @@ for i in eachindex(recs)
             join([@sprintf("%.1f", l) for l in recs[i].level], " "), any(recs[i].faulty) ? " FAULT " * join(["pit", "core", "humidity", "scale"][findall(recs[i].faulty)], ",") : "")
 end
 kk(te) = searchsortedlast(t, te + 1e-9)
-dst = joinpath(REPO, "data", "mock", fault_h > 0 ? "filter_drift_fault.json" : "filter_drift.json")
+dst = joinpath(REPO, "data", "mock", fault_h > 0 ? "filter_drift_fault.json" : adapt_level ? "filter_drift.json" : "filter_drift_nolevel.json")
 open(dst, "w") do io
     JSON.print(io, Dict("t_h" => th, "names" => allnames, "fault_h" => fault_h,
                         "pit" => Dict("mean" => [r.T_pit[1] - 273.15 for r in recs], "sd" => [r.T_pit[2] for r in recs]),

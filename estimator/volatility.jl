@@ -54,8 +54,9 @@ function volatility_level(e::AbstractVector, ρ::Real, σ0::Real; w::Float64=0.0
     n < 4 && return (level=ones(n), z_mean=fill(log(σ0^2 * (1 - ρ^2)), n), z_sd=fill(1.0, n))
     η = [e[k] - ρ * e[k - 1] for k in 2:n]                  # the innovations
     if eps !== nothing
+        # the prediction error persists from sample to sample, so only (1 − ρ) of it enters an innovation
         v0 = σ0^2 * (1 - ρ^2)
-        η = [η[j] / sqrt(1 + (eps[k] + ρ^2 * eps[k - 1]) / v0) for (j, k) in enumerate(2:n)]
+        η = [η[j] / sqrt(1 + (1 - ρ)^2 * max(eps[k], eps[k - 1]) / v0) for (j, k) in enumerate(2:n)]
     end
     x = vcat(0.0, cumsum(η))                                 # a random walk with those increments
     z0 = log(σ0^2 * (1 - ρ^2))

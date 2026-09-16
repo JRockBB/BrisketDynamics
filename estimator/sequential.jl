@@ -14,8 +14,9 @@
 # with (`PhysicsState`), the latents with their process noise. Where no sample arrives the belief is only
 # propagated. Nothing here runs on a clock: the update happens when a sample arrives; a channel's noise (σ, ρ)
 # is re-identified on the AR node when its discrepancy series has grown by one correlation time; its level (the
-# GCV volatility smoother on the trailing innovations) whenever it delivers a sample, and a level that stays
-# high is a sensor the belief has stopped trusting (a fault flag for the record).
+# GCV volatility smoother on its standardized innovations, against the other channels') whenever it delivers
+# a sample; a level over the threshold, or a reading frozen at its last value, is a sensor the belief has
+# stopped trusting (its discrepancy innovation inflated, a fault flag for the record).
 #
 # The belief after every update, the pit, centre and surface temperatures with their widths and the plant's
 # state for the plan, is what the pilot plans on and what a figure of the cook must draw.
@@ -191,7 +192,8 @@ covariance of the block (the state at the last update, the discrepancies there, 
 channels on the full grid (their data and masks the caller fills as samples arrive); per channel the noise prior
 (`np0`, the calibration's) and the current posterior (`np`), the level, the fault flag and when the level went
 high, the time of the last identification, the residual at the predicted mean at each of the channel's samples (the
-reading less the physics) with the belief's own prediction variance there and the grid indices; the state's process noise, the latents' (`q` per hour, `jumps`), the objective's constants and the
+reading less the physics) with the belief's own prediction variance there, the innovation standardized by its
+predicted variance at each sample and the latest smoothed variance of those, and the grid indices; the state's process noise, the latents' (`q` per hour, `jumps`), the objective's constants and the
 past's integrals; the grid index the belief is at and the update count; the cook's grid, damper and executed
 events (the caller updates `u` and `events` as the cook goes); the physics' area latent and tolerances; the
 fit's iterations and the level's settings.
@@ -212,6 +214,8 @@ mutable struct FilterState
     t_ident::Vector{Float64}
     dser::Vector{Vector{Float64}}
     dvar::Vector{Vector{Float64}}
+    eser::Vector{Vector{Float64}}
+    vlev::Vector{Float64}
     didx::Vector{Vector{Int}}
     sn::StateNoise
     q::Vector{Float64}
@@ -232,6 +236,9 @@ mutable struct FilterState
     level_w::Float64
     level_window::Int
     fault_level::Float64
+    ident_min::Int
+    adapt_level::Bool
+    ftol::Float64
 end
 
 """
@@ -242,13 +249,20 @@ The belief before any sample: the latents at the prior's centre with the prior's
 every discrepancy at zero with its stationary spread. `channels` are the registry's channels on the grid `t`
 (one `NoisePrior` each in `noise`, in order); `u` the damper on the grid (NaN where not yet executed, the caller
 fills it); `q` the process-noise variance rate per hour per latent; `jumps` a vector of `(site, t_jump, var)`;
-`iters` the Gauss-Newton steps per update (one: the linearization at the predicted mean, the posterior's
-covariance at the step's end, where the transition is linearized too; the belief moves little per sample).
+`iters` the most Gauss-Newton steps an update takes and `ftol` the objective drop under which it stops (a
+routine update converges in one or two; a large innovation, the first scale reading against a prior area a
+third off, needs the iteration: one step of an exponential overshoots and leaves a covariance that claims
+otherwise);
+`ident_min` the residuals a channel must have before its (σ, ρ) are re-identified (the prior until then);
+`adapt_level` whether each channel's level follows its standardized innovations (off on the bench that earns
+the state's process noise: a level reads the belief's consistency and cannot be judged before the belief is
+consistent; the dead-reading flag stays on).
 """
 function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
                      events::NamedTuple; noise::AbstractVector{NoisePrior}, area_latent::Int, sn::StateNoise=StateNoise(),
                      q::AbstractVector=zeros(length(sites)), jumps::AbstractVector=[], goals::PlanGoals=PlanGoals(),
-                     abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=1, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0)
+                     abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=4, ftol::Float64=0.05, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0,
+                     ident_min::Int=24, adapt_level::Bool=true)
     n_z = length(sites); n_ch = length(channels)
     length(noise) == n_ch || throw(ArgumentError("one NoisePrior per channel ($(length(noise)) for $n_ch channels)"))
     length(names) == n_z || throw(ArgumentError("one name per site"))
@@ -268,9 +282,9 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
     for c in 1:n_ch; i = disc_index(lay, c); P[i, i] = noise[c].σ_mean^2; end   # the discrepancies: their stationary spread
     past = Past(); past.m0 = o0.m_fuel[1]; past.t = t[1]
     return FilterState(lay, joint, collect(sites), collect(String, names), m, P, collect(Channel, channels), collect(NoisePrior, noise), collect(NoisePrior, noise),
-                       ones(n_ch), falses(n_ch), fill(NaN, n_ch), fill(NaN, n_ch), [Float64[] for _ in 1:n_ch], [Float64[] for _ in 1:n_ch], [Int[] for _ in 1:n_ch],
+                       ones(n_ch), falses(n_ch), fill(NaN, n_ch), fill(NaN, n_ch), [Float64[] for _ in 1:n_ch], [Float64[] for _ in 1:n_ch], [Float64[] for _ in 1:n_ch], ones(n_ch), [Int[] for _ in 1:n_ch],
                        sn, collect(Float64, q), [(Int(j[1]), Float64(j[2]), Float64(j[3])) for j in jumps], goals, past, 1, 0,
-                       collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, level_w, level_window, fault_level)
+                       collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, level_w, level_window, fault_level, ident_min, adapt_level, ftol)
 end
 
 # a channel's residual series (and the variances beside it) split into runs at gaps longer than three times
@@ -302,38 +316,49 @@ _effective_level(st::FilterState, c::Int) = st.faulty[c] ? max(st.level[c], st.f
 # the noise of channel c after it delivered a sample at k: (σ, ρ) on the AR node over the full residual series
 # (each residual observing the discrepancy through the belief's own prediction variance there) with the
 # calibration's prior, when the series has grown by one correlation time since the last identification; the
-# level from the volatility smoother on the trailing innovations (scaled by the same variances) at every sample;
-# the fault flag
+# level from the volatility smoother on the channel's standardized innovations against the other channels', at
+# every sample; the fault flag
 function _identify!(st::FilterState, c::Int, k::Int)
     t = st.t; dt = t[2] - t[1]; tk = t[k]
     runs, vruns, g = _series_runs(st.dser[c], st.dvar[c], st.didx[c])
     isnan(st.t_ident[c]) && (st.t_ident[c] = t[st.didx[c][1]])
     τ = _corr_time(st.np[c], dt)
-    if tk - st.t_ident[c] >= τ && length(st.dser[c]) >= 8 && any(length(r) >= 3 for r in runs)
+    # a correlation time is when the posterior of (σ, ρ) can have moved; the AR node still needs a series to read
+    # them from (eight residuals of the humidity once put its ρ at 0.82 against 0.96 and made every reading look
+    # four times as informative): at least `ident_min` samples, the calibration's prior until then
+    if tk - st.t_ident[c] >= τ && length(st.dser[c]) >= st.ident_min && any(length(r) >= 3 for r in runs)
         keepr = [i for i in eachindex(runs) if length(runs[i]) >= 2]
         est = ar1_noise(runs[keepr], g, st.np0[c]; eps=vruns[keepr])
         st.np[c] = NoisePrior(est.σ, est.post.σ_sd, est.ρ, est.post.ρ_sd; floor=st.np0[c].floor)
         st.t_ident[c] = tk
     end
-    e = runs[end]; ve = vruns[end]
-    if length(e) >= 4
-        i0 = max(1, length(e) - st.level_window + 1)
-        win = e[i0:end]; vwin = ve[i0:end]
-        ρs = clamp(st.np[c].ρ_mean, 0.0, 0.999)^g
-        lv = volatility_level(win, ρs, st.np[c].σ_mean; w=st.level_w, eps=vwin).level[end]
-        st.level[c] = isfinite(lv) ? clamp(lv, 0.05, 100.0) : 1.0
-        # the flag: the smoother's level is already a judgement over the trailing window. A level over the
-        # threshold is a sensor whose readings carry more than the belief can explain (a burst, a jump, a reading
-        # stuck at a wrong value); a level far under one is a sensor with no noise of its own, a frozen reading the
-        # belief has bent its physics to follow. Either way the belief stops trusting it: a flagged channel's
-        # discrepancy innovation is inflated to the threshold's level (`_effective_level`), so its rows are discounted.
-        if st.level[c] > st.fault_level || st.level[c] < 1 / st.fault_level
-            isnan(st.high_since[c]) && (st.high_since[c] = tk)
-            st.faulty[c] = true
-        elseif 1.5 / st.fault_level < st.level[c] < 2 / 3 * st.fault_level
-            st.high_since[c] = NaN
-            st.faulty[c] = false
-        end
+    # the level: the smoothed variance of the channel's standardized innovations over its trailing window (the
+    # volatility smoother on a white unit series); the channel's level moves by its square root, so its
+    # discrepancy innovation grows until its innovations are unit again (the adaptive filter's fixed point), and
+    # never falls under half the identified noise. It reads the belief's consistency on that channel, so it is
+    # judged only once the belief is consistent (`adapt_level`).
+    e = st.eser[c]
+    if st.adapt_level && length(e) >= 4
+        win = e[max(1, length(e) - st.level_window + 1):end]
+        vc = volatility_level(win, 0.0, 1.0; w=st.level_w).level[end]^2
+        st.vlev[c] = isfinite(vc) ? clamp(vc, 1e-3, 1e4) : 1.0
+        st.level[c] = clamp(st.level[c] * sqrt(st.vlev[c]), 0.5, 100.0)
+    end
+    # the flag: the smoother's level is already a judgement over the trailing window, so a level over the
+    # threshold is a sensor whose readings carry more than the belief can explain (a burst, a jump, a reading
+    # stuck at a wrong value). A reading frozen at its last value carries no noise at all, which innovation power
+    # cannot see through a discrepancy as persistent as a probe's (its innovations are small either way): five
+    # identical readings in a row are a dead sensor. Either way the belief stops trusting it: a flagged channel's
+    # discrepancy innovation is inflated to the threshold's level (`_effective_level`), so its rows are discounted.
+    y = rawdata(st.channels[c])
+    n_s = length(st.didx[c])
+    dead = n_s >= 5 && y !== nothing && all(y[st.didx[c][j]] == y[st.didx[c][end]] for j in (n_s - 4):n_s)
+    if st.level[c] > st.fault_level || dead
+        isnan(st.high_since[c]) && (st.high_since[c] = tk)
+        st.faulty[c] = true
+    elseif st.level[c] < 2 / 3 * st.fault_level
+        st.high_since[c] = NaN
+        st.faulty[c] = false
     end
     return st
 end
@@ -359,6 +384,9 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     for (c, ch) in enumerate(st.channels), j in (k0 + 1):(k - 1)
         ch.mask[j] && throw(ArgumentError("channel $c has a sample at grid point $j between the last update ($k0) and this one ($k): update at every arrival"))
     end
+    for (c, ch) in enumerate(st.channels)
+        (k0 == 1 && ch.mask[1] && rawdata(ch) !== nothing && !isfinite(rawdata(ch)[1])) && throw(ArgumentError("channel $c has a sample at the first grid point but no finite reading"))
+    end
     idx = k0:k; tw = t[idx]; uw = st.u[idx]
     any(isnan, uw) && throw(ArgumentError("the damper is not set on the whole interval $k0:$k"))
     nsteps = k - k0
@@ -376,6 +404,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     d = estimator_setup(tw, uw, st.pit, st.cfg, st.sites[1:N_PHYS], st.names[1:N_PHYS]; abstol=st.abstol, reltol=st.reltol)
     ph = PhysicsState(st.area_latent, st.events, lay, k0 == 1)
     keep = falses(length(idx)); keep[end] = true                      # the interval's channels: the sample at k, the earlier points the last update's
+    k0 == 1 && (keep[1] = true)                                       # the readings at the cook's first point join the first update (nothing came before them)
     for (c, ch) in enumerate(st.channels)
         ch.mask[k] && rawdata(ch) !== nothing && !isfinite(rawdata(ch)[k]) && throw(ArgumentError("channel $c has a sample at grid point $k but no finite reading"))
     end
@@ -406,30 +435,32 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             end
             row += nr
         end
-        if diagnostics
-            keepr = findall(isfinite, w)
-            if !isempty(keepr)
-                nu = w[keepr] .- a[keepr]; H = B[keepr, :]
-                Sm = Symmetric(H * P * H' + I)
-                nis = dot(nu, Sm \ nu); dof = length(nu)
-                sdev = sqrt.(max.(diag(Sm), 1e-12))
-                pos = Dict(i => j for (j, i) in enumerate(keepr))
-                row = 0
-                for (c, ch) in enumerate(chs)
-                    nr = size(whitening(ch), 1)
-                    nr == 0 && continue
-                    innov[c] = [(w[i] - a[i]) / sdev[pos[i]] for i in (row + 1):(row + nr) if haskey(pos, i)]
-                    row += nr
-                end
+        # the innovations whitened by their predicted covariance (the belief's uncertainty of the physics, the
+        # discrepancy's own spread and the floor): white, zero-mean, unit when the filter is consistent. The level
+        # reads them; with `diagnostics` they are recorded with the normalized innovation squared
+        keepr = findall(isfinite, w)
+        if !isempty(keepr)
+            nu = w[keepr] .- a[keepr]; H = B[keepr, :]
+            Sm = Symmetric(H * P * H' + I)
+            nis = dot(nu, Sm \ nu); dof = length(nu)
+            sdev = sqrt.(max.(diag(Sm), 1e-12))
+            pos = Dict(i => j for (j, i) in enumerate(keepr))
+            row = 0
+            for (c, ch) in enumerate(chs)
+                nr = size(whitening(ch), 1)
+                nr == 0 && continue
+                innov[c] = [(w[i] - a[i]) / sdev[pos[i]] for i in (row + 1):(row + nr) if haskey(pos, i)]
+                row += nr
             end
         end
-        res = solve_map_channels(chs, prior_w, d; c0=m, physics=ph, iters=st.iters, verbose=false)
+        res = solve_map_channels(chs, prior_w, d; c0=m, physics=ph, iters=st.iters, ftol=st.ftol, verbose=false)
         z_post, V_post, mis, n_it, converged = res.z, Matrix(Symmetric(res.cov)), res.misfit, length(res.hist), res.converged
     end
     # 3. the residual series, the noise and the level of every channel that reported a reading
     for c in live
         haskey(resid, c) || continue
         push!(st.dser[c], resid[c]); push!(st.dvar[c], rvar[c]); push!(st.didx[c], k)
+        push!(st.eser[c], haskey(innov, c) && !isempty(innov[c]) ? innov[c][1] : 0.0)
         _identify!(st, c, k)
     end
     # 4. the prediction of the state to k: the end state and its Jacobian at the MAP, the latents with process noise
@@ -452,6 +483,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     st.m, st.P = m_new, P_new
     st.k0 = k; st.n_updates += 1
     _accumulate!(st.past, L.o, tw, haskey(st.events, :t_pull) ? st.events.t_pull : BrisketDynamics.PULL_NEVER, st.goals)
+    diagnostics || (nis = NaN; dof = 0; innov = Dict{Int,Vector{Float64}}())
     sd = sqrt.(max.(diag(P_new), 0.0))
     iT = [pit_index(lay), centre_index(lay), surface_index(lay)]
     return (t=tw[end], k=k, updated=!isempty(live), channels=live,
