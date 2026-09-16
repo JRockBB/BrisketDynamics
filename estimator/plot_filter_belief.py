@@ -5,7 +5,7 @@ and what the probes read; the latents that move on the plant (the leak,
 the surface coefficients, the add's charge) as the filter follows them,
 with the truth in force at each hour; and every channel's noise level
 as the filter identifies it, with the spans where a sensor was
-distrusted (its level high for longer than a correlation time).
+distrusted (its level over the threshold, or its reading frozen).
 
 Reads data/mock/filter_drift.json (estimator/mock_filter_drift.jl),
 writes figures/estimator/filter_belief_drift.png.
@@ -77,8 +77,8 @@ def main():
         if f.any():
             edges = np.diff(np.concatenate(([0], f.astype(int), [0])))
             for a, b in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
-                ax.axvspan(th[a], th[min(b, len(th) - 1)], color="#d6336c", alpha=0.08, lw=0)
-            ax.plot([], [], color="#d6336c", lw=6, alpha=0.3, label=f"the {CHANNELS[c]} distrusted")
+                ax.axvspan(th[a], th[min(b, len(th) - 1)], color=CH_C[c], alpha=0.10, lw=0)
+            ax.plot([], [], color=CH_C[c], lw=6, alpha=0.3, label=f"the {CHANNELS[c]} distrusted")
     above = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
     for i, (key, col) in enumerate(EVENT_C.items()):
         te = d["events_h"].get(key)
@@ -128,7 +128,7 @@ def main():
         ax.plot(th, lv[:, c], color=CH_C[c], lw=1.2, label=f"{CHANNELS[c]}: level")
     ax.axhline(1, color=INK2, lw=0.6)
     ax.axhline(3, color="#d6336c", lw=0.8, ls=(0, (3, 2)))
-    ax.text(0.15, 3.1, "distrust threshold (3× the base noise, for a correlation time)", color="#d6336c", fontsize=8, va="bottom")
+    ax.text(0.15, 3.1, "distrust threshold: three times the identified noise (a frozen reading is flagged on its own)", color="#d6336c", fontsize=8, va="bottom")
     ax.set_yscale("log")
     ax.set_ylim(0.2, max(10.0, float(np.nanmax(lv)) * 1.5))
     ax.set_ylabel("level (1 = the identified noise)", color=INK2, fontsize=9)
