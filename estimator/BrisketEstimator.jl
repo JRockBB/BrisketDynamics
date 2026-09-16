@@ -36,7 +36,7 @@ export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, smoother_step, drift
 export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD, drift_rates
 export FilterLayout, PhysicsState, pack_state, unpack_state, state_sites, disc_sites, sequential_filter, pit_index, centre_index, surface_index
 export FilterState, StateNoise, Past, filter_init, filter_update!, filter_advance!, state_range, disc_range, disc_index, state_now, innovation_misfit
-export STATE_GROUPS, STATE_NOISE_FILE, state_groups, group_dofs, state_noise_cov, physics_fingerprint, state_noise_dict, load_state_noise
+export STATE_GROUPS, STATE_NOISE_FILE, state_groups, group_dofs, state_noise_cov, physics_fingerprint, state_noise_dict, load_state_noise, sigma_design
 export GateData, load_gate, from_z, to_z, dx_dz, z_center, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, islogbeta, islinear, logistic,
        latent_block, read_sites, draw_truth, FAMILIES

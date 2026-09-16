@@ -265,8 +265,133 @@ struct PhysicsState <: Physics
     lay::FilterLayout
     first::Bool
     last::Base.RefValue{Any}
+    sigma::Matrix{Float64}            # the prediction's and the update's sigma design (N × n_z); empty: the tangent throughout
+    prior_cov::Base.RefValue{Any}     # the belief's covariance the update's points are placed by (the predicted prior at this update)
+    pts::Base.RefValue{Any}           # the points at the last centre: the centre, the design, the latent steps, the stacks, the joint vectors
+    Jx::Base.RefValue{Any}            # the tangent computed once per update at its first centre: its state columns serve every later centre
+    scale::Base.RefValue{Any}         # the assembled rows' raw scales after the residual inflation (the diagnostics read them)
+    omega::Base.RefValue{Any}         # per channel, the regression's residual variance per reading at the last linearization (the trials read it)
 end
-PhysicsState(area_latent::Int, events::NamedTuple, lay::FilterLayout, first::Bool) = PhysicsState(area_latent, events, lay, first, Ref{Any}(nothing))
+PhysicsState(area_latent::Int, events::NamedTuple, lay::FilterLayout, first::Bool) =
+    PhysicsState(area_latent, events, lay, first, Ref{Any}(nothing), zeros(0, lay.n_z), Ref{Any}(nothing), Ref{Any}(nothing), Ref{Any}(nothing), Ref{Any}(nothing), Ref{Any}(nothing))
+"The physics with the sigma design `sigma` and the belief's covariance `P` its update points are placed by."
+PhysicsState(area_latent::Int, events::NamedTuple, lay::FilterLayout, first::Bool, sigma::AbstractMatrix, P::AbstractMatrix) =
+    PhysicsState(area_latent, events, lay, first, Ref{Any}(nothing), Matrix{Float64}(sigma), Ref{Any}(Matrix(P)), Ref{Any}(nothing), Ref{Any}(nothing), Ref{Any}(nothing), Ref{Any}(nothing))
+"Whether the physics linearizes statistically over sigma points (a design is set) rather than by the tangent."
+has_sigma(ph::PhysicsState) = size(ph.sigma, 1) > 0
+
+"""
+    _sigma_points(v, d, ph) -> (c, E, L, S, V, lay)
+
+The update's sigma points at the centre `v`: the latents stepped by the whitened design scaled by the Cholesky
+factor of the belief's latent block (`ph.prior_cov`), the state and the discrepancies held at the centre's (the
+points read the physics' partial response to the latents; the state's and the discrepancies' columns are the
+tangent's and the identity, so the regression must not carry their conditional coupling twice), each solved
+through the slice: the stacks the channels read and the joint vectors the channels' own latents are read from.
+A failed or non-finite solve is an error naming the point.
+"""
+function _sigma_points(v, d::GateData, ph::PhysicsState)
+    lay = ph.lay; n_z = lay.n_z
+    P = ph.prior_cov[]
+    P === nothing && error("the physics carries a sigma design but no covariance to place the points by")
+    Vzz = Symmetric(Matrix(P[1:n_z, 1:n_z]))
+    F = cholesky(Vzz; check=false)
+    issuccess(F) || error("the belief's latent block is not positive definite at the update (smallest eigenvalue $(minimum(eigvals(Vzz)))): no sigma points can be placed")
+    N = size(ph.sigma, 1)
+    S = Vector{Vector{Float64}}(undef, N); V = Vector{Vector{Float64}}(undef, N)
+    olay = nothing
+    for i in 1:N
+        δ = F.L * ph.sigma[i, :]
+        vi = copy(v); vi[1:n_z] = v[1:n_z] + δ
+        r = try
+            _state_solve(vi, d, ph)
+        catch err
+            err isa InterruptException && rethrow()
+            error("the physics failed at sigma point $i of $N of the update (the latents moved by $(round(norm(δ), digits=3)) in z, at most $(round(maximum(abs.(δ)), digits=3)) on one site): $(sprint(showerror, err))")
+        end
+        all(isfinite, r[1]) || error("the physics returned a non-finite stack at sigma point $i of $N of the update (the latents moved by $(round(norm(δ), digits=3)) in z)")
+        S[i] = r[1]; V[i] = vi; olay = r[3]
+    end
+    return (c=copy(v), E=ph.sigma, L=F.L, S=S, V=V, lay=olay)
+end
+
+"""
+    assemble_at(channels, z, S, J, prior, lay, ph::PhysicsState) -> (a, B, w)
+
+The affine node data by statistical linearization when the physics carries sigma points: for every channel its
+readings at each point, regressed on the whitened latent steps, give the nodes' latent columns (the regression
+slope, exact for a linear reading and the least-squares line through the belief's spread otherwise) and the
+predicted reading at the centre becomes the points' mean; the state's and the discrepancies' columns are the
+tangent's. The regression's residual variance on each row, the part of the reading's spread over the points no
+line explains, inflates that row's noise: where the physics has a knee inside the belief's spread the reading
+is trusted less, and the belief cannot be talked into a regime by the slope at its own mean. Without a design
+this is `assemble`.
+"""
+function assemble_at(channels, z, S, J, prior, lay, ph::PhysicsState)
+    has_sigma(ph) || return assemble(channels, z, S, J, prior, lay)
+    pts = ph.pts[]
+    pts === nothing && error("the sigma points have not been solved at this centre: the physics is read before the channels are assembled")
+    pts.c == z || error("the sigma points were solved at another centre than the one assembled")
+    n = length(z); n_z = ph.lay.n_z; N = length(pts.S)
+    Jzero = zeros(length(pts.S[1]), n)
+    as, Bs, ws, scales = Vector{Float64}[], Matrix{Float64}[], Vector{Float64}[], Vector{Float64}[]
+    omegas = Dict{Int,Vector{Float64}}()
+    for (ci, ch) in enumerate(channels)
+        Lw = whitening(ch)
+        size(Lw, 1) == 0 && continue
+        r, Jr = predict(ch, S, J, z, prior, lay)
+        R = hcat([predict(ch, pts.S[i], Jzero, pts.V[i], prior, pts.lay)[1] for i in 1:N]...)
+        r̄ = vec(sum(R, dims=2) ./ N)
+        Rc = R .- r̄
+        G = (Rc * pts.E) ./ N                                            # the regression of the readings on the whitened steps
+        Jr[:, 1:n_z] = G / pts.L                                         # the slope on the latents: G L⁻¹
+        Ω = max.(vec(sum(Rc .^ 2, dims=2) ./ N) .- vec(sum(G .^ 2, dims=2)), 0.0)   # the residual the line leaves, per reading
+        omegas[ci] = Ω
+        sc = zeros(size(Lw, 1))
+        for j in 1:size(Lw, 1)
+            col = argmax(abs.(Lw[j, :]))
+            s2 = 1 / Lw[j, col]^2                                        # the row's own variance in the reading's units
+            Lw[j, :] .*= sqrt(s2 / (s2 + Ω[col]))
+            sc[j] = sqrt(s2 + Ω[col])
+        end
+        push!(as, Lw * r̄); push!(Bs, Lw * Jr); push!(scales, sc)
+        y = rawdata(ch)
+        push!(ws, y === nothing ? fill(NaN, size(Lw, 1)) : Lw * y)
+    end
+    ph.scale[] = reduce(vcat, scales)
+    ph.omega[] = omegas
+    return reduce(vcat, as), reduce(vcat, Bs), reduce(vcat, ws)
+end
+
+"""
+    assemble_trial(channels, z, S, prior, lay, ph::PhysicsState) -> (a, w)
+
+The objective's assembly at a trial centre under sigma points: the plain slice's readings at the centre, each
+row inflated by the residual of the last linearization (`ph.omega`), so a trial costs one solve. Without a
+design this is `assemble`'s.
+"""
+function assemble_trial(channels, z, S, prior, lay, ph::PhysicsState)
+    has_sigma(ph) || return (r = assemble(channels, z, S, zeros(length(S), length(z)), prior, lay); (r[1], r[3]))
+    omegas = ph.omega[]
+    omegas === nothing && error("a trial centre before any linearization: the rows' inflation is not known yet")
+    Jzero = zeros(length(S), length(z))
+    as, ws = Vector{Float64}[], Vector{Float64}[]
+    for (ci, ch) in enumerate(channels)
+        Lw = whitening(ch)
+        size(Lw, 1) == 0 && continue
+        r, _ = predict(ch, S, Jzero, z, prior, lay)
+        Ω = omegas[ci]
+        for j in 1:size(Lw, 1)
+            col = argmax(abs.(Lw[j, :]))
+            s2 = 1 / Lw[j, col]^2
+            Lw[j, :] .*= sqrt(s2 / (s2 + Ω[col]))
+        end
+        push!(as, Lw * r)
+        y = rawdata(ch)
+        push!(ws, y === nothing ? fill(NaN, size(Lw, 1)) : Lw * y)
+    end
+    return reduce(vcat, as), reduce(vcat, ws)
+end
 function _state_solve(v, d::GateData, ph::PhysicsState)
     lay = ph.lay
     z = v[1:lay.n_z]; x = v[state_range(lay)]
@@ -279,10 +404,9 @@ function _state_solve(v, d::GateData, ph::PhysicsState)
     ics2, a2 = handoff(o, length(d.t))
     return _stack_1d(o, A, θ[4]), pack_state(ics2, a2, lay), OutputLayout(size(o.T_field, 1), length(d.t)), o
 end
-physics_stack(v, d::GateData, ph::PhysicsState) = (r = _state_solve(v, d, ph); (r[1], r[3]))
-function physics_outputs(v, d::GateData, ph::PhysicsState)
-    L = ph.last[]
-    L !== nothing && L.c == v && return L.S, L.J, L.lay                 # the last linearization, at this point already
+physics_stack(v, d::GateData, ph::PhysicsState) = (r = _state_solve(v, d, ph); (r[1], r[3]))    # a trial centre: the slice alone; the points belong to a linearization
+"The tangent of the slice at `v`: the stacked outputs, their Jacobian over the latents and the state, the end state and its Jacobian, the solve."
+function _tangent(v, d::GateData, ph::PhysicsState)
     lay = ph.lay
     nzx = lay.n_z + lay.n_state
     g(vv) = (r = _state_solve(vv, d, ph); vcat(r[1], r[2]))          # over the latents and the state: the discrepancies are not in the physics
@@ -291,8 +415,91 @@ function physics_outputs(v, d::GateData, ph::PhysicsState)
     vzx = v[1:nzx]
     Jzx = ForwardDiff.jacobian(g, vzx, ForwardDiff.JacobianConfig(g, vzx, ForwardDiff.Chunk{12}()))
     J = hcat(Jzx, zeros(size(Jzx, 1), lay.n_ch))
-    ph.last[] = (c=copy(v), S=S, J=J[1:n_s, :], lay=olay, x_end=x_end, J_end=J[(n_s + 1):end, :], o=o)
-    return S, J[1:n_s, :], olay
+    return (S=S, J=J[1:n_s, :], lay=olay, x_end=x_end, J_end=J[(n_s + 1):end, :], o=o)
+end
+function physics_outputs(v, d::GateData, ph::PhysicsState)
+    L = ph.last[]
+    L !== nothing && L.c == v && return L.S, L.J, L.lay                 # the last linearization, at this point already
+    if has_sigma(ph)
+        # the tangent once per update, at its first centre: its state columns serve every centre of the update
+        # (the state's response over two minutes barely moves with the centre); the latent columns are the
+        # regression's, at every centre; the points and the slice at this centre
+        ph.Jx[] === nothing && (ph.Jx[] = _tangent(v, d, ph))
+        T = ph.Jx[]
+        S, x_end, olay, o = _state_solve(v, d, ph)
+        ph.pts[] = _sigma_points(v, d, ph)
+        ph.last[] = (c=copy(v), S=S, J=T.J, lay=olay, x_end=x_end, J_end=T.J_end, o=o, d=d)
+        return S, T.J, olay
+    end
+    T = _tangent(v, d, ph)
+    ph.last[] = (c=copy(v), S=T.S, J=T.J, lay=T.lay, x_end=T.x_end, J_end=T.J_end, o=T.o, d=d)
+    return T.S, T.J, T.lay
+end
+
+"""
+    sigma_design(n, N, seed) -> Matrix (N × n)
+
+A fixed set of `N` points in `n` standard dimensions for the prediction's sigma points: `N ÷ 2` Gaussian draws
+and their negatives (so the set's mean is exactly zero), whitened so the set's covariance is exactly the
+identity. Any linear map of the belief is then reproduced exactly by the points, and a nonlinear one is sampled
+at typical distances: in seventeen dimensions the textbook axis-aligned points sit four sd out along one axis
+each and would probe the physics in regimes the belief does not hold, where these draws spread the same second
+moment over every axis at about one sd apiece.
+"""
+function sigma_design(n::Int, N::Int, seed::Int)
+    M = N ÷ 2
+    M >= n || throw(ArgumentError("the sigma design needs at least 2n points ($N for n = $n)"))
+    E0 = randn(MersenneTwister(seed), M, n)
+    E = vcat(E0, -E0)
+    C = Symmetric(E' * E ./ size(E, 1))
+    Lc = cholesky(C).L
+    return E / Lc'                                                    # rows ε̃ = L⁻¹ ε: the sample covariance is the identity
+end
+
+"""
+    _sigma_prediction(lay, sigma, v, V, J_end, d, ph) -> (m_new, P_new)
+
+The belief propagated to the slice's end through the physics by sigma points over the latents: each point
+perturbs the latents by a whitened draw scaled by the posterior's Cholesky factor, takes the state and the
+discrepancies at their conditional mean given that draw, and solves the slice; the latents' block is kept, the
+cross-covariance and the state's covariance are the points' spread, and the state's own conditional uncertainty
+(given the latents) rides the transition Jacobian at the optimum, the discrepancies theirs an identity. For a
+linear slice this is the linear prediction exactly; for the cook's physics it carries the state's spread across
+the regimes the latents' uncertainty reaches (a diffusivity one sd either way dries or wets the surface), which
+the tangent at the mean cannot. A point whose solve fails, or a latents' block that is not positive definite,
+is an error naming the point: there is no quiet way down to the tangent.
+"""
+function _sigma_prediction(lay::FilterLayout, sigma::AbstractMatrix, v::AbstractVector, V::AbstractMatrix, J_end::AbstractMatrix, d::GateData, ph::PhysicsState)
+    n_z = lay.n_z; zr = 1:n_z; xr = state_range(lay); ξr = (n_z + 1):lay.n
+    nx, nξ, N = length(xr), length(ξr), size(sigma, 1)
+    Vzz = Symmetric(Matrix(V[zr, zr]))
+    F = cholesky(Vzz; check=false)
+    issuccess(F) || error("the latents' posterior covariance is not positive definite at the prediction (smallest eigenvalue $(minimum(eigvals(Vzz)))): no sigma points can be drawn from it")
+    K = Matrix(V[ξr, zr]) / Vzz                                       # the regression of the state and the discrepancies on the latents
+    Vcond = Symmetric(Matrix(V[ξr, ξr]) - K * Matrix(Vzz) * K')       # their spread the latents do not explain
+    Δ = zeros(n_z, N); Ξ = zeros(nξ, N)
+    for i in 1:N
+        δ = F.L * sigma[i, :]
+        ξ = v[ξr] + K * δ
+        vi = copy(v); vi[zr] = v[zr] + δ; vi[xr] = ξ[1:nx]
+        x_end = try
+            _state_solve(vi, d, ph)[2]
+        catch err
+            err isa InterruptException && rethrow()
+            error("the physics failed at sigma point $i of $N (the latents moved by $(round(norm(δ), digits=3)) in z, at most $(round(maximum(abs.(δ)), digits=3)) on one site): $(sprint(showerror, err))")
+        end
+        all(isfinite, x_end) || error("the physics returned a non-finite state at sigma point $i of $N (the latents moved by $(round(norm(δ), digits=3)) in z)")
+        Δ[:, i] = δ; Ξ[:, i] = vcat(x_end, ξ[(nx + 1):end])
+    end
+    ξ̄ = vec(sum(Ξ, dims=2) ./ N)
+    R = Ξ .- ξ̄
+    A = zeros(nξ, nξ); A[1:nx, 1:nx] = J_end[:, xr]; for i in (nx + 1):nξ; A[i, i] = 1.0; end
+    P = zeros(lay.n, lay.n)
+    P[zr, zr] = Vzz
+    P[zr, ξr] = (Δ * R') ./ N; P[ξr, zr] = P[zr, ξr]'
+    P[ξr, ξr] = (R * R') ./ N + A * Vcond * A'
+    m = copy(v); m[ξr] = ξ̄
+    return m, Matrix(Symmetric(P))
 end
 
 """
@@ -307,7 +514,8 @@ reading less the physics) with the belief's own prediction variance there, the i
 predicted variance at each sample and the latest smoothed variance of those, and the grid indices; the state's process noise, the latents' (`q` per hour, `jumps`), the objective's constants and the
 past's integrals; the grid index the belief is at and the update count; the cook's grid, damper and executed
 events (the caller updates `u` and `events` as the cook goes); the physics' area latent and tolerances; the
-fit's iterations and the level's settings.
+fit's iterations and the level's settings; the prediction's sigma design (`sigma`, empty for the tangent
+prediction).
 """
 mutable struct FilterState
     lay::FilterLayout
@@ -350,6 +558,7 @@ mutable struct FilterState
     ident_min::Int
     adapt_level::Bool
     ftol::Float64
+    sigma::Matrix{Float64}
 end
 
 """
@@ -367,13 +576,14 @@ otherwise);
 `ident_min` the residuals a channel must have before its (σ, ρ) are re-identified (the prior until then);
 `adapt_level` whether each channel's level follows its standardized innovations (off on the bench that earns
 the state's process noise: a level reads the belief's consistency and cannot be judged before the belief is
-consistent; the dead-reading flag stays on).
+consistent; the dead-reading flag stays on); `n_sigma` the sigma points of the prediction (`sigma_design`;
+0 for the tangent prediction, the transition Jacobian at the optimum alone) and `sigma_seed` their draw.
 """
 function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
                      events::NamedTuple; noise::AbstractVector{NoisePrior}, area_latent::Int, sn::StateNoise=StateNoise(),
                      q::AbstractVector=zeros(length(sites)), jumps::AbstractVector=[], goals::PlanGoals=PlanGoals(),
                      abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=4, ftol::Float64=0.05, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0,
-                     ident_min::Int=24, adapt_level::Bool=true)
+                     ident_min::Int=24, adapt_level::Bool=true, n_sigma::Int=64, sigma_seed::Int=7)
     n_z = length(sites); n_ch = length(channels)
     length(noise) == n_ch || throw(ArgumentError("one NoisePrior per channel ($(length(noise)) for $n_ch channels)"))
     length(names) == n_z || throw(ArgumentError("one name per site"))
@@ -395,7 +605,8 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
     return FilterState(lay, joint, collect(sites), collect(String, names), m, P, collect(Channel, channels), collect(NoisePrior, noise), collect(NoisePrior, noise),
                        ones(n_ch), falses(n_ch), fill(NaN, n_ch), fill(NaN, n_ch), [Float64[] for _ in 1:n_ch], [Float64[] for _ in 1:n_ch], [Float64[] for _ in 1:n_ch], ones(n_ch), [Int[] for _ in 1:n_ch],
                        sn, collect(Float64, q), [(Int(j[1]), Float64(j[2]), Float64(j[3])) for j in jumps], goals, past, 1, 0,
-                       collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, level_w, level_window, fault_level, ident_min, adapt_level, ftol)
+                       collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, level_w, level_window, fault_level, ident_min, adapt_level, ftol,
+                       n_sigma > 0 ? sigma_design(n_z, n_sigma, sigma_seed) : zeros(0, n_z))
 end
 
 # a channel's residual series (and the variances beside it) split into runs at gaps longer than three times
@@ -513,7 +724,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     end
     # 2. the interval's physics and channels
     d = estimator_setup(tw, uw, st.pit, st.cfg, st.sites[1:N_PHYS], st.names[1:N_PHYS]; abstol=st.abstol, reltol=st.reltol)
-    ph = PhysicsState(st.area_latent, st.events, lay, k0 == 1)
+    ph = size(st.sigma, 1) > 0 ? PhysicsState(st.area_latent, st.events, lay, k0 == 1, st.sigma, P) : PhysicsState(st.area_latent, st.events, lay, k0 == 1)
     keep = falses(length(idx)); keep[end] = true                      # the interval's channels: the sample at k, the earlier points the last update's
     k0 == 1 && (keep[1] = true)                                       # the readings at the cook's first point join the first update (nothing came before them)
     for (c, ch) in enumerate(st.channels)
@@ -533,13 +744,14 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
         # belief's own prior on it shrinks it); with `diagnostics` also the innovations whitened by their predicted
         # covariance (the linearization at the predicted mean is the solve's first, kept)
         Sp, Jp, layp = physics_outputs(m, d, ph)
-        a, B, w = assemble(chs, m, Sp, Jp, prior_w, layp)
+        a, B, w = assemble_at(chs, m, Sp, Jp, prior_w, layp, ph)
+        rowscale = ph.scale[]                                             # under sigma points a row's scale carries the regression's residual
         row = 0
         for (c, ch) in enumerate(chs)
             nr = size(whitening(ch), 1)
             nr == 0 && continue
             if count(noise_mask(ch)) > 0                                  # a capped reading is not a residual
-                σw = white_floor(ch)
+                σw = rowscale === nothing ? white_floor(ch) : rowscale[row + 1]
                 resid[c] = (w[row + 1] - a[row + 1]) * σw + m[disc_index(lay, c)]
                 Bx = B[row + 1, :]; Bx[disc_index(lay, c)] = 0.0             # the belief's prediction variance of the physics there, the discrepancy's own excluded
                 rvar[c] = σw^2 * (dot(Bx, P, Bx) + 1.0)
@@ -574,11 +786,10 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
         push!(st.eser[c], haskey(innov, c) && !isempty(innov[c]) ? innov[c][1] : 0.0)
         _identify!(st, c, k)
     end
-    # 4. the prediction of the state to k: the end state and its Jacobian at the MAP, the latents with process noise
+    # 4. the prediction of the state to k: through the physics by sigma points over the latents (the tangent at the
+    # MAP only when the filter was built without them), the latents with process noise
     L = ph.last[]
     (L === nothing || maximum(abs.(L.c .- z_post)) > 1e-9) && (physics_outputs(z_post, d, ph); L = ph.last[])
-    F = Matrix(1.0 * I, lay.n, lay.n)
-    F[state_range(lay), :] = L.J_end
     Δh = (tw[end] - tw[1]) / 3600
     Q = zeros(lay.n, lay.n)
     for i in 1:n_z; Q[i, i] = st.q[i] * Δh; end
@@ -586,10 +797,18 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
         (tw[1] < t_j <= tw[end]) && (Q[s_i, s_i] += var)
     end
     Q[state_range(lay), state_range(lay)] = state_noise_cov(lay, st.sn, state_rates(st.sn, lay) .* sqrt(Δh))
-    m_new = copy(z_post)
-    m_new[state_range(lay)] = L.x_end
+    sigma_ok = size(st.sigma, 1) > 0
+    if sigma_ok
+        m_new, P_pred = _sigma_prediction(lay, st.sigma, z_post, V_post, L.J_end, d, ph)
+    else
+        F = Matrix(1.0 * I, lay.n, lay.n)
+        F[state_range(lay), :] = L.J_end
+        m_new = copy(z_post)
+        m_new[state_range(lay)] = L.x_end
+        P_pred = F * V_post * F'
+    end
     m_new[ignited_index(lay)] = clamp(m_new[ignited_index(lay)], 1e-6, 1 - 1e-6)
-    P_new = Matrix(Symmetric(F * V_post * F' + Q))
+    P_new = Matrix(Symmetric(P_pred + Q))
     st.m, st.P = m_new, P_new
     st.k0 = k; st.n_updates += 1
     _accumulate!(st.past, L.o, tw, haskey(st.events, :t_pull) ? st.events.t_pull : BrisketDynamics.PULL_NEVER, st.goals)
@@ -602,7 +821,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             x=(diagnostics ? m_new[xr] : nothing), x_cov=(diagnostics ? P_new[xr, xr] : nothing),
             z=m_new[1:n_z], z_sd=sd[1:n_z], z_cov=P_new[1:n_z, 1:n_z], disc=m_new[disc_range(lay)], disc_sd=sd[disc_range(lay)],
             noise=[(σ=np.σ_mean, σ_sd=np.σ_sd, ρ=np.ρ_mean, ρ_sd=np.ρ_sd) for np in st.np], level=copy(st.level), faulty=copy(st.faulty),
-            misfit=mis, iters=n_it, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov)
+            misfit=mis, iters=n_it, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov, sigma=sigma_ok)
 end
 
 "The first grid point after `k0` where any channel has a sample, or `k_to` when none does before it."

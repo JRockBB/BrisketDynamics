@@ -567,6 +567,24 @@ function assemble(channels, z, S, J, prior, lay)
 end
 
 """
+    assemble_at(channels, z, S, J, prior, lay, ph) -> (a, B, w)
+
+The affine node data at `z` under the physics `ph`: `assemble` for every physics that linearizes by the tangent;
+a physics that carries sigma points (the filter's `PhysicsState` with a design) supplies its own method, the
+statistical linearization of each channel's readings over the points.
+"""
+assemble_at(channels, z, S, J, prior, lay, ph) = assemble(channels, z, S, J, prior, lay)   # every physics but the filter's with a design (its own method, sequential.jl)
+
+"""
+    assemble_trial(channels, z, S, prior, lay, ph) -> (a, w)
+
+The whitened predictions and observations at a trial centre of the line search, where only the objective is
+needed: `assemble` without a Jacobian; a physics with sigma points supplies its own (the plain slice at the
+trial centre under the rows' inflation of the last linearization, so a trial costs one solve, not the points).
+"""
+assemble_trial(channels, z, S, prior, lay, ph) = (r = assemble(channels, z, S, zeros(length(S), length(z)), prior, lay); (r[1], r[3]))
+
+"""
     fisher_cov(channels, z, S, J, prior, lay) -> (cov, sd)
 
 The Gauss-Newton (Fisher) posterior covariance of the latents under the

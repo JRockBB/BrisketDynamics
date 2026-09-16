@@ -9,7 +9,8 @@
 # by default), after every cook; plot_coverage.py reads it with the key err_sd_graphfilter, plot_filter_consistency.py
 # the consistency tests.
 #
-# Run:  julia --project=estimator estimator/coverage_filter.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [adapt_level 0/1] [state_noise.json|default]
+# Run:  julia --project=estimator estimator/coverage_filter.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [adapt_level 0/1] [state_noise.json|default] [n_sigma]
+#   n_sigma: the prediction's sigma points over the latents (64 by default; 0 for the tangent prediction)
 #   adapt_level: 0 (the default) keeps every channel's level at one while the state's process noise is earned from this
 #   bench (a level reads the belief's consistency and cannot be judged before the belief is consistent); 1 lets it follow
 #   state_noise.json (data/calibration): the state's process noise and initial widths the filter runs with (the file the
@@ -33,6 +34,7 @@ out_name = length(ARGS) >= 4 ? ARGS[4] : "coverage_filter_$(seed0).json"
 edges_to_h = length(ARGS) >= 5 ? parse(Float64, ARGS[5]) : 14.0
 adapt_level = length(ARGS) >= 6 ? ARGS[6] == "1" : false
 sn_file = length(ARGS) >= 7 ? ARGS[7] : "state_noise.json"
+n_sigma = length(ARGS) >= 8 ? parse(Int, ARGS[8]) : 64
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_realcook.json"))
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]
 dt = t[2] - t[1]
@@ -61,11 +63,11 @@ save() = open(dst, "w") do io
                         "prior_file" => prior_file, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped,
                         "drift" => Dict("sd_per_hour" => DRIFT_SD_PER_HOUR, "jump_log_sd" => JUMP_LOG_SD), "q" => q,
                         "state_noise" => Dict(string(k) => getfield(sn, k) for k in fieldnames(StateNoise)), "state_noise_file" => sn_file,
-                        "physics" => fingerprint, "adapt_level" => adapt_level, "groups" => collect(STATE_GROUPS), "group_dof" => group_dof))
+                        "physics" => fingerprint, "adapt_level" => adapt_level, "groups" => collect(STATE_GROUPS), "group_dof" => group_dof, "n_sigma" => n_sigma))
 end
 println("the graph filter: prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; edges to ", edges_to_h, " h; updates on arrival; the level ",
         adapt_level ? "following the innovations" : "fixed at one (the bench earns the state's process noise)", "; the state noise from ", sn_file,
-        "; physics ", fingerprint, "; record ", out_name)
+        "; physics ", fingerprint, "; the prediction by ", n_sigma > 0 ? "$n_sigma sigma points" : "the tangent", "; record ", out_name)
 println("  rates [units/sqrt(h)]: ", join(["$g $(getfield(sn, Symbol(g)))" for g in STATE_GROUPS], ", "))
 println("  initial sds: ", join(["$g $(getfield(sn, Symbol(g * "0")))" for g in STATE_GROUPS], ", "))
 flush(stdout)
@@ -88,7 +90,7 @@ for k in 1:n_cooks
     readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=xs[1][4], depth=depth)
     chs = realcook_channels(readings, masks, np0; cap=nc.hum_cap, depth_latent=DEPTH)
     recs = try
-        sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, area_latent=AREA, q, jumps, sn, adapt_level, diagnostics=true, verbose=false, t_end=edges[end])
+        sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, area_latent=AREA, q, jumps, sn, adapt_level, n_sigma, diagnostics=true, verbose=false, t_end=edges[end])
     catch err
         err isa InterruptException && rethrow()
         @printf("cook %d (seed %d): the filter failed (%s); skipped\n", k, seed, sprint(showerror, err)[1:min(end, 100)]); push!(skipped, seed); save(); continue

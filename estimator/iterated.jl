@@ -137,12 +137,12 @@ function solve_channels_graph(channels, prior, d::GateData, ph::Physics; c0, ite
     lay_ref = Ref{Any}(nothing)
     function objective(c)
         S, lay = physics_stack(c, d, ph)
-        a, _, w = assemble(channels, c, S, zeros(length(S), n), prior, lay)
+        a, w = assemble_trial(channels, c, S, prior, lay, ph)
         return _objective(a, w, c, prior)
     end
     function rebuild!(c)
         S, J, lay = physics_outputs(c, d, ph)
-        a, B, w = assemble(channels, c, S, J, prior, lay)
+        a, B, w = assemble_at(channels, c, S, J, prior, lay, ph)
         any(isnan, w) && throw(ArgumentError("every channel in a fit must carry data"))
         AFF[] = Affine(a, B, copy(c))
         w_ref[] = w

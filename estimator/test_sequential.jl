@@ -92,6 +92,10 @@ end
     @test Qn == Diagonal(Qn) && Qn[rT[1], rT[1]] == sn.T0^2 && isposdef(Qo) && isposdef(Qn)
     @test group_dofs(lay, sn)["T"] == 1 && group_dofs(lay, sn)["bark"] == 3 && group_dofs(lay, StateNoise(fields=:nodes))["T"] == lay.nx
     @test_throws ArgumentError state_noise_cov(lay, StateNoise(fields=:blob), E.state_init_sd(sn, lay))
+    # the sigma design: exactly zero mean and unit covariance, antithetic, reproducible
+    Sg = sigma_design(17, 64, 7)
+    @test size(Sg) == (64, 17) && maximum(abs.(sum(Sg, dims=1))) < 1e-10 && maximum(abs.(Sg' * Sg ./ 64 - I)) < 1e-10 && Sg == sigma_design(17, 64, 7)
+    @test_throws ArgumentError sigma_design(17, 20, 7)
     # the state-noise file: the fingerprint is stable, the file round-trips, no file means the defaults
     fp = physics_fingerprint()
     @test length(fp) == 12 && fp == physics_fingerprint()
@@ -148,6 +152,38 @@ end
     recs = sequential_filter(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, diagnostics=true, t_end=1800.0)
     @test (nxr = (length(recs[end].x) - 9) ÷ 5; recs[end].x[5 * nxr + 4] == recs[end].T_pit[1] && size(recs[end].x_cov) == (5 * nxr + 9, 5 * nxr + 9))
     @test filter_update!(filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q), 2).x === nothing
+    # the sigma-point prediction against the tangent on a two-minute slice (nearly linear): the same means to a
+    # fraction of a kelvin, widths within a factor, a positive-definite covariance, the latents' block identical
+    st_s = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=64)
+    st_l = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=0)
+    rs = filter_update!(st_s, 2; diagnostics=true); rl = filter_update!(st_l, 2; diagnostics=true)
+    @test rs.sigma && !rl.sigma && size(st_s.sigma) == (64, length(sites)) && size(st_l.sigma, 1) == 0
+    @test abs(rs.T_pit[1] - rl.T_pit[1]) < 0.5 && abs(rs.T_centre[1] - rl.T_centre[1]) < 0.1 && abs(rs.T_surface[1] - rl.T_surface[1]) < 0.5
+    @test 0.5 < rs.T_pit[2] / rl.T_pit[2] < 2 && 0.5 < rs.T_surface[2] / rl.T_surface[2] < 2
+    @test isposdef(Symmetric(st_s.P)) && all(isfinite, st_s.P)
+    # the statistical linearization against the tangent: with the belief's latent block shrunk to nothing the
+    # regression is the tangent and the residual vanishes; with the belief as it is the residual is finite and
+    # non-negative and the rows are scaled by it
+    st0 = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=64)
+    lay0 = st0.lay
+    dd0 = estimator_setup(t[1:2], u[1:2], pit, cfg, sites[1:N_PHYS], names[1:N_PHYS])
+    keep0 = trues(2)
+    chs0 = E.Channel[E.Sequential(E.restrict(E.window(ch, 1:2), keep0), E.disc_index(lay0, c), E.white_floor(ch)) for (c, ch) in enumerate(st0.channels)]
+    pw0 = FilterPrior(st0.joint, st0.m, inv(Symmetric(st0.P)))
+    ph_t = PhysicsState(AREA, events, lay0, true)
+    S_t, J_t, lay_t = physics_outputs(st0.m, dd0, ph_t)
+    a_t, B_t, w_t = E.assemble(chs0, st0.m, S_t, J_t, pw0, lay_t)
+    Ptiny = copy(st0.P); Ptiny[1:lay0.n_z, 1:lay0.n_z] .*= 1e-6
+    ph_s = PhysicsState(AREA, events, lay0, true, st0.sigma, Ptiny)
+    S_s, J_s, lay_s = physics_outputs(st0.m, dd0, ph_s)
+    a_s, B_s, w_s = E.assemble_at(chs0, st0.m, S_s, J_s, pw0, lay_s, ph_s)
+    @test maximum(abs.(a_s .- a_t)) < 1e-3 * maximum(abs.(a_t)) && isapprox(w_s, w_t; rtol=1e-6)   # the residual is the solver tolerance, not zero
+    @test maximum(abs.(B_s[:, 1:lay0.n_z] .- B_t[:, 1:lay0.n_z])) < 1e-2 * maximum(abs.(B_t[:, 1:lay0.n_z]))
+    @test maximum(abs.(B_s[:, (lay0.n_z + 1):end] .- B_t[:, (lay0.n_z + 1):end])) < 1e-5 * maximum(abs.(B_t[:, (lay0.n_z + 1):end]))
+    ph_f = PhysicsState(AREA, events, lay0, true, st0.sigma, st0.P)
+    S_f, J_f, lay_f = physics_outputs(st0.m, dd0, ph_f)
+    a_f, B_f, w_f = E.assemble_at(chs0, st0.m, S_f, J_f, pw0, lay_f, ph_f)
+    @test all(isfinite, a_f) && all(isfinite, B_f) && all(ph_f.scale[] .>= E.white_floor(chs0[1]) - 1e-12) && length(ph_f.scale[]) == length(a_f)
     arrivals = [k for k in 2:findlast(t .<= 1800.0 + 1e-9) if any(mk[k] for mk in (masks.pit, masks.core, masks.humidity, masks.mass))]
     @test length(recs) == length(arrivals) && [r.k for r in recs] == arrivals && all(r.updated for r in recs)   # one update per arrival, none between
     r = recs[end]
