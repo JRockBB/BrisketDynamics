@@ -102,13 +102,13 @@ end
            MeatProbe(sc.σ_mean, sc.ρ_mean, Bool.(mk["core"]) .& keep2; depth_latent=n, data=Float64.(rd["core"]))]
     ph = Physics1D(area_latent=n - 1, events=events)
     z0 = vcat(d.z0, [log(cfg.A_meat), log(0.8 * L_med)])
-    r1 = solve_map_channels(chs, sites, d; c0=z0, physics=ph, engine=:graph, verbose=false)
+    r1 = solve_map_channels(chs, sites, d; c0=z0, physics=ph, verbose=false)
     sd1 = sqrt.(diag(r1.cov))
     # the families replaced by their own local quadratic at the MAP: the same objective to second order there,
     # so the fit stays put and reports the same widths
     mq, Λq = prior_quadratic(r1.z, sites)
     fp2 = FilterPrior(sites, mq, Λq)
-    r2 = solve_map_channels(chs, fp2, d; c0=r1.z, physics=ph, engine=:graph, verbose=false)
+    r2 = solve_map_channels(chs, fp2, d; c0=r1.z, physics=ph, verbose=false)
     sd2 = sqrt.(diag(r2.cov))
     @test r2.converged && maximum(abs.(r2.z .- r1.z) ./ sd1) < 0.05
     @test maximum(abs.(sd2 ./ sd1 .- 1)) < 0.05

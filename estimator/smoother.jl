@@ -1,6 +1,6 @@
 # --- the smoother: moving parameters as piecewise constants over the full history ------------------
 #
-# The batch estimator refits every latent as a constant on the full history; the filter (filter.jl)
+# The batch estimator refits every latent as a constant on the full history; the window filter (retired)
 # predicts and updates on a window from a handed-off state and pays for taking that state as known (the
 # leak and the drip read a state error as a parameter error, and it compounds). This is the version with
 # no such approximation: the full history is solved in segments (segments.jl, exact and differentiable
@@ -187,31 +187,6 @@ function warm_start(lay::DriftLayout, z, old::Union{Nothing,DriftLayout})
 end
 
 """
-    plan_history(z, lay, t_est, t_plan, sites) -> (edges, θs, φs) or nothing
-
-The plan's history from a smoother state: the segment starts of `lay` (grid indices on the estimator's grid
-`t_est`) mapped onto the plan grid `t_plan`, and the physics blocks in force before each start; the plan's own
-belief governs from the last start on (`plan_outputs_rh`'s `history`). `nothing` when no site has moved yet.
-"""
-function plan_history(z, lay::DriftLayout, t_est, t_plan, sites)
-    starts = segment_edges(lay)
-    isempty(starts) && return nothing
-    bounds = vcat(1, starts)
-    edges = Int[]; θs = Vector{Float64}[]; φs = Vector{Float64}[]
-    for (k, e) in enumerate(starts)
-        ie = searchsortedlast(t_plan, t_est[e] + 1e-9)
-        x = from_z(block_at(z, lay, bounds[k]), sites[1:N_PHYS])       # in force from the previous start to this one
-        if !isempty(edges) && ie == edges[end]                          # two starts within one plan step: the segment between them is empty
-            θs[end], φs[end] = x[1:N_THETA], x[(N_THETA + 1):N_PHYS]
-            continue
-        end
-        push!(edges, ie); push!(θs, x[1:N_THETA]); push!(φs, x[(N_THETA + 1):N_PHYS])
-    end
-    all(1 .< edges .< length(t_plan)) || throw(ArgumentError("a segment start falls outside the plan grid"))
-    return (edges=edges, θs=θs, φs=φs)
-end
-
-"""
     smoother_step(channels, sites, d, batch_edges, b, z_prev, lay_prev; moving, area_latent, events, kw...) -> record
 
 One refit of the smoother at batch edge `b`: the history to that edge over the stacked block laid out by
@@ -244,7 +219,7 @@ that hour as `z_now`/`sd_now`/`cov_now` (the latest value of every base site).
 """
 function smoother_fit(channels, sites::Vector{PriorSite}, d::GateData, batch_edges; moving::AbstractVector=[],
                       area_latent::Int=0, verbose::Bool=false, events::NamedTuple=NamedTuple(), kw...)
-    z = vcat(d.z0, [isbeta(p) ? log(p.p1 / p.p2) : p.p1 for p in sites[(N_PHYS + 1):end]])
+    z = vcat(d.z0, z_center.(sites[(N_PHYS + 1):end]))
     lay = nothing
     channels = collect(Channel, channels)
     out = NamedTuple[]

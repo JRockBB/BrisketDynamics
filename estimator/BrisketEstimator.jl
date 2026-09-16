@@ -30,22 +30,40 @@ using JSON
 using Printf
 using BrisketDynamics
 
-export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, solve_segments, filter_fit, A0_INDEX
-export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, smoother_step, drift_layout, warm_start, plan_history, segment_edges, index_at, current_index, block_at
-export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD
-export FilterLayout, PhysicsState, pack_state, unpack_state, state_sites, sequential_filter, pit_index, centre_index, surface_index
-export FilterState, filter_init, filter_advance!, state_range
-export GateData, load_gate, from_z, prior_terms, physics_mean, physics_mean_jac,
-       objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, logistic
+export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, solve_segments
+export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, smoother_step, drift_layout, warm_start, segment_edges, index_at, current_index, block_at
+export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD, drift_rates
+export FilterLayout, PhysicsState, pack_state, unpack_state, state_sites, disc_sites, sequential_filter, pit_index, centre_index, surface_index
+export FilterState, StateNoise, Past, filter_init, filter_update!, filter_advance!, state_range, disc_range, disc_index, state_now, innovation_misfit
+export GateData, load_gate, from_z, to_z, dx_dz, z_center, prior_terms, physics_mean, physics_mean_jac,
+       objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, islogbeta, islinear, logistic,
+       latent_block, read_sites, draw_truth, FAMILIES
 
 const N_THETA = 8
 const N_PHYS = 15
 
+"""
+    PriorSite(family, p1, p2[, p3, p4])
+
+A site of the latent block in its family, the transform z -> x and the prior in one:
+- `"lognormal"`: x = exp(z), z ~ N(p1, p2²) (a positive site);
+- `"beta"`: x = logistic(z), x ~ Beta(p1, p2) (a bounded site, the prior exact in the logit);
+- `"logbeta"`: x = exp(p3 + (p4 − p3) logistic(z)), the fraction ~ Beta(p1, p2) (a positive site whose
+  calibration chain is skewed: bounded in the log to [p3, p4], the skew in the Beta);
+- `"linear"`: x = z, z ~ N(p1, p2²) (a plant state in the filter's block, in its own units).
+"""
 struct PriorSite
-    family::String   # "lognormal" (Gaussian in z) or "beta" (logit-Beta)
+    family::String
     p1::Float64
     p2::Float64
+    p3::Float64
+    p4::Float64
+    function PriorSite(family::AbstractString, p1::Real, p2::Real, p3::Real=0.0, p4::Real=1.0)
+        family in FAMILIES || throw(ArgumentError("unknown prior family \"$family\" (one of $(join(FAMILIES, ", ")))"))
+        return new(String(family), Float64(p1), Float64(p2), Float64(p3), Float64(p4))
+    end
 end
+const FAMILIES = ("lognormal", "beta", "logbeta", "linear")
 
 struct GateData
     t::Vector{Float64}
@@ -77,7 +95,7 @@ function load_gate(path::AbstractString)
     meta = d["meta"]
     L = _mat(d["L"])
     y = Float64.(d["y"])
-    prior = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in d["prior"]]
+    prior = read_sites(d["prior"])
     return GateData(
         Float64.(d["t"]), Float64.(d["u"]), L, L * y, String.(d["names"]), prior,
         Float64.(d["z0"]), Float64.(d["z_map"]), _mat(d["cov_map"]), Float64(d["F_map"]),
@@ -91,6 +109,53 @@ end
 # --- unconstrained parameterization and the prior ---------------------------
 
 isbeta(p::PriorSite) = p.family == "beta"
+islogbeta(p::PriorSite) = p.family == "logbeta"
+islinear(p::PriorSite) = p.family == "linear"          # a state entry in a filter's block: Gaussian in its own coordinate, no transform
+_betalike(p::PriorSite) = isbeta(p) || islogbeta(p)    # the prior is a Beta on a fraction f = logistic(z)
+
+"The prior's centre in z: the Gaussian's mean, or the logit of a Beta's mean (a/(a+b))."
+z_center(p::PriorSite) = _betalike(p) ? log(p.p1 / p.p2) : p.p1
+
+"The sites of a prior file's `prior` list (`prior_next_cook.json`, the gate file)."
+read_sites(list) = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"]), Float64(get(p, "p3", 0.0)), Float64(get(p, "p4", 1.0))) for p in list]
+
+"""
+    latent_block(prior_path, cfg; area_sd=0.3, depth_frac=0.8, depth_sd=0.5)
+
+The estimator's latent block, declared once: the fifteen physics sites of the prior file in their families and
+names, then the two estimator-only sites, the exposed area (`A_meat`, lognormal about the config's) and the meat
+probe's depth (lognormal about `depth_frac` of the thickness's median). Returns `(sites, names, prior_phys,
+phys_names, area, depth, idx, file)`; every driver reads its block from here.
+"""
+function latent_block(prior_path::AbstractString, cfg::MeatConfig; area_sd::Float64=0.3, depth_frac::Float64=0.8, depth_sd::Float64=0.5)
+    file = JSON.parsefile(prior_path)
+    prior_phys = read_sites(file["prior"])
+    length(prior_phys) == N_PHYS || throw(ArgumentError("the prior file carries $(length(prior_phys)) physics sites, not $N_PHYS"))
+    phys_names = String.(file["names"])
+    L_med = from_z(z_center(prior_phys[4]), prior_phys[4])
+    sites = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), area_sd), PriorSite("lognormal", log(depth_frac * L_med), depth_sd)])
+    names = vcat(phys_names, ["A_meat", "core_depth"])
+    return (sites=sites, names=names, prior_phys=prior_phys, phys_names=phys_names, area=length(sites) - 1, depth=length(sites),
+            idx=Dict(n => i for (i, n) in enumerate(names)), file=file)
+end
+
+"An inverse-CDF draw of Beta(a, b) on a fine grid (no Distributions dependency)."
+function _beta_rand(rng, a, b)
+    x = range(1e-6, 1 - 1e-6; length=4001); lp = (a - 1) .* log.(x) .+ (b - 1) .* log.(1 .- x); p = exp.(lp .- maximum(lp)); c = cumsum(p); c ./= c[end]
+    r = rand(rng); k = clamp(searchsortedfirst(c, r), 2, length(c)); x[k - 1] + (x[k] - x[k - 1]) * (r - c[k - 1]) / max(c[k] - c[k - 1], 1e-300)
+end
+"""
+    draw_truth(rng, sites; depth=0, thickness=4) -> z
+
+A truth drawn from the sites' prior, in z (Gaussian for the lognormal and linear sites, a Beta draw in the logit for
+the beta and logbeta sites); with `depth` > 0 the probe's depth is kept inside the meat (under 0.9 of the
+thickness at site `thickness`).
+"""
+function draw_truth(rng::AbstractRNG, sites::AbstractVector{PriorSite}; depth::Int=0, thickness::Int=4)
+    z = [_betalike(p) ? (f = _beta_rand(rng, p.p1, p.p2); log(f / (1 - f))) : p.p1 + p.p2 * randn(rng) for p in sites]
+    depth > 0 && (z[depth] = min(z[depth], log(0.9 * from_z(z[thickness], sites[thickness]))))
+    return z
+end
 
 """
     FilterPrior(sites, m, Λ)
@@ -131,23 +196,46 @@ function prior_quadratic(c, prior; damping::Float64=0.0)
 end
 logistic(v) = 1 / (1 + exp(-v))
 
-islinear(p::PriorSite) = p.family == "linear"          # a state entry in a filter's block: Gaussian in its own coordinate, no transform
-from_z(z, prior) = [isbeta(p) ? logistic(v) : islinear(p) ? v : exp(v) for (v, p) in zip(z, prior)]
-dx_dz(z, prior) = [isbeta(p) ? (s = logistic(v); s * (1 - s)) : islinear(p) ? one(v) : exp(v) for (v, p) in zip(z, prior)]
+"The constrained value of one site at `v` in z (see `PriorSite`)."
+function from_z(v, p::PriorSite)
+    isbeta(p) && return logistic(v)
+    islogbeta(p) && return exp(p.p3 + (p.p4 - p.p3) * logistic(v))
+    islinear(p) && return v
+    return exp(v)
+end
+"dx/dz of one site at `v`."
+function dx_dz(v, p::PriorSite)
+    isbeta(p) && (s = logistic(v); return s * (1 - s))
+    islogbeta(p) && (s = logistic(v); return from_z(v, p) * (p.p4 - p.p3) * s * (1 - s))
+    islinear(p) && return one(v)
+    return exp(v)
+end
+"The unconstrained coordinate of one site's value `x` (the inverse of `from_z`)."
+function to_z(x, p::PriorSite)
+    isbeta(p) && return log(x / (1 - x))
+    islogbeta(p) && (f = clamp((log(x) - p.p3) / (p.p4 - p.p3), 1e-9, 1 - 1e-9); return log(f / (1 - f)))
+    islinear(p) && return x
+    return log(x)
+end
+from_z(z, prior) = [from_z(v, p) for (v, p) in zip(z, prior)]
+dx_dz(z, prior) = [dx_dz(v, p) for (v, p) in zip(z, prior)]
+to_z(x::AbstractVector, prior::AbstractVector) = [to_z(v, p) for (v, p) in zip(x, prior)]
 
 """
     prior_terms(z, prior) -> (f, g, h)
 
 −log p(z), its gradient and diagonal Hessian in the unconstrained space:
-Gaussian for the LogNormal sites; for Beta(a, b) sites the logit-Jacobian
-form −a·log σ(z) − b·log(1 − σ(z)). Identical to `brisket_app.monolith.prior_terms`.
+Gaussian for the LogNormal and linear sites; for Beta(a, b) sites (and the
+logbeta's fraction) the logit-Jacobian form −a·log σ(z) − b·log(1 − σ(z)).
+Identical to `brisket_app.monolith.prior_terms` on the calibration's families.
 """
 function prior_terms(z, prior)
-    f = 0.0
-    g = zeros(length(z))
-    h = zeros(length(z))
+    T = float(eltype(z))
+    f = zero(T)
+    g = zeros(T, length(z))
+    h = zeros(T, length(z))
     for (i, (v, p)) in enumerate(zip(z, prior))
-        if isbeta(p)
+        if _betalike(p)
             a, b = p.p1, p.p2
             s = logistic(v)
             f += -a * log(s) - b * log(1 - s)
@@ -340,7 +428,6 @@ include(joinpath(@__DIR__, "realcook.jl"))
 include(joinpath(@__DIR__, "ridge.jl"))
 include(joinpath(@__DIR__, "noise_marginal.jl"))
 include(joinpath(@__DIR__, "segments.jl"))
-include(joinpath(@__DIR__, "filter.jl"))
 include(joinpath(@__DIR__, "smoother.jl"))
 include(joinpath(@__DIR__, "drift.jl"))
 include(joinpath(@__DIR__, "sequential.jl"))

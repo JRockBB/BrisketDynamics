@@ -36,19 +36,27 @@ end
 end
 
 """
-    volatility_level(e, ρ, σ0; w=0.05, iters=20) -> (level, z_mean, z_sd)
+    volatility_level(e, ρ, σ0; w=0.05, iters=20, eps=nothing) -> (level, z_mean, z_sd)
 
 The level s_k (the marginal sd relative to `σ0`, so 1 means the base
 noise) along one residual run `e` with AR(1) correlation `ρ` per
 sample: the innovations' log-variance from the volatility smoother,
 with `w` the log-variance's random-walk variance per sample (how fast a
-regime can change) and the prior centered on the base noise.
+regime can change) and the prior centered on the base noise. `eps`, a
+known variance per sample the residuals carry besides the process (a
+filter's prediction error), scales each innovation back to the process's
+own spread before the smoother reads it, so the belief's own
+uncertainty is not read as a rising level.
 """
-function volatility_level(e::AbstractVector, ρ::Real, σ0::Real; w::Float64=0.05, iters::Int=20)
+function volatility_level(e::AbstractVector, ρ::Real, σ0::Real; w::Float64=0.05, iters::Int=20, eps=nothing)
     ρ = clamp(ρ, 0.0, 0.999)          # a residual with a trend can give the AR node a ρ above one
     n = length(e)
     n < 4 && return (level=ones(n), z_mean=fill(log(σ0^2 * (1 - ρ^2)), n), z_sd=fill(1.0, n))
     η = [e[k] - ρ * e[k - 1] for k in 2:n]                  # the innovations
+    if eps !== nothing
+        v0 = σ0^2 * (1 - ρ^2)
+        η = [η[j] / sqrt(1 + (eps[k] + ρ^2 * eps[k - 1]) / v0) for (j, k) in enumerate(2:n)]
+    end
     x = vcat(0.0, cumsum(η))                                 # a random walk with those increments
     z0 = log(σ0^2 * (1 - ρ^2))
     res = infer(model = volatility_smoother(w = w, z0_mean = z0, z0_var = 1.0, ε = 1e-6 * σ0^2),
@@ -78,6 +86,7 @@ predict(l::Levelled, S, J, z, prior, lay) = predict(l.ch, S, J, z, prior, lay)
 rawdata(l::Levelled) = rawdata(l.ch)
 channel_label(l::Levelled) = channel_label(l.ch) * ", levelled"
 restrict(l::Levelled, keep) = Levelled(restrict(l.ch, keep), l.level)
+window(l::Levelled, idx) = Levelled(window(l.ch, idx), l.level[idx])
 with_noise(l::Levelled, σ, ρ) = Levelled(with_noise(l.ch, σ, ρ), l.level)
 unlevelled(ch::Channel) = ch
 unlevelled(l::Levelled) = l.ch

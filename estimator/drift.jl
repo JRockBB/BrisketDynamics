@@ -12,6 +12,19 @@ const DRIFT_SD_PER_HOUR = Dict("u_leak" => 0.05, "k_e" => 0.05, "h_c" => 0.03)  
 const JUMP_LOG_SD = Dict("r_max" => 0.15, "dH_eff" => 0.10)                     # the add's charge: log-sd about the first charge
 
 """
+    drift_rates(file) -> (sd_per_hour, jump_log_sd)
+
+The rates the FILTER is told: the prior file's `drift` field when earlier cooks have identified them
+(`next_cook.py` writes it from the beliefs' walks), else the modelling choice above. The plant keeps its own.
+"""
+function drift_rates(file::AbstractDict)
+    haskey(file, "drift") || return (sd_per_hour=DRIFT_SD_PER_HOUR, jump_log_sd=JUMP_LOG_SD)
+    d = file["drift"]
+    return (sd_per_hour=Dict(String(k) => Float64(v) for (k, v) in d["sd_per_hour"]),
+            jump_log_sd=Dict(String(k) => Float64(v) for (k, v) in get(d, "jump_log_sd", JUMP_LOG_SD)))
+end
+
+"""
     DriftDraw(rng, idx; n_hours=30)
 
 The plant's draws: for every drifting site its increment at each hour boundary, for every jump site its jump

@@ -18,10 +18,10 @@
 
 using LinearAlgebra
 
-export Channel, PitProbe, MeatProbe, SurfaceIR, HumiditySensor, MassScale, StaticReading,
-       FuelScale, BarkLightness, WetBulb,
+export Channel, PitProbe, MeatProbe, SurfaceIR, HumiditySensor, CensoredHumidity, MassScale, StaticReading,
+       FuelScale, BarkLightness, WetBulb, Sequential,
        LatentSpec, physics_outputs, physics_stack, assemble, fisher_cov, contiguous_runs,
-       whitening_rows, OutputLayout
+       whitening_rows, OutputLayout, restrict, window, with_noise, channel_label, white_floor, noise_mask
 
 struct OutputLayout
     nx::Int
@@ -105,25 +105,6 @@ end
 
 "A run breaks at a gap longer than three times the channel's own spacing; a full-rate channel keeps the calibration's rule that any gap is an event."
 run_maxgap(mask::AbstractVector{Bool}) = (g = channel_gap(mask); g == 1 ? 1 : 3g)
-
-function _contiguous_runs_old(mask::AbstractVector{Bool})
-    runs = Vector{UnitRange{Int}}()
-    i = 1
-    n = length(mask)
-    while i <= n
-        if mask[i]
-            j = i
-            while j < n && mask[j + 1]
-                j += 1
-            end
-            push!(runs, i:j)
-            i = j + 1
-        else
-            i += 1
-        end
-    end
-    return runs
-end
 
 """
     whitening_rows(mask, σ, ρ) -> L (n_w × n)
@@ -271,6 +252,25 @@ struct StaticReading <: Channel
 end
 StaticReading(latent, σ; data=nothing) = StaticReading(latent, σ, data)
 
+"""
+    CensoredHumidity(σ, ρ, mask; cap, s, data)
+
+The humidity sensor with a saturation cap: a reading at the cap says
+only that the vapor pressure was at least that, so its prediction is
+min(pred, cap), smooth (a softplus of width `s`), and its residual is
+zero whenever the model is above the cap. A capped sample leaves the AR
+chain (`noise_mask`) and enters as one independent one-sided row.
+"""
+struct CensoredHumidity <: Channel
+    σ::Float64
+    ρ::Float64
+    mask::Vector{Bool}
+    cap::Float64
+    s::Float64
+    data::Union{Nothing,Vector{Float64}}
+end
+CensoredHumidity(σ, ρ, mask; cap=6500.0, s=50.0, data=nothing) = CensoredHumidity(σ, ρ, collect(Bool, mask), cap, s, data)
+
 const RHO_DRY_EST = 320.0     # thermophysics.RHO_DRY
 const L_INDEX = 4             # θ[4] = L in the physics block
 
@@ -376,18 +376,49 @@ function predict(ch::WetBulb, S, J, z, prior, lay)
 end
 function predict(ch::StaticReading, S, J, z, prior, lay)
     p = prior[ch.latent]
-    x = isbeta(p) ? logistic(z[ch.latent]) : exp(z[ch.latent])
-    dx = isbeta(p) ? x * (1 - x) : x
-    Jr = zeros(1, length(z)); Jr[1, ch.latent] = dx
+    x = from_z(z[ch.latent], p)
+    Jr = zeros(1, length(z)); Jr[1, ch.latent] = dx_dz(z[ch.latent], p)
     return [x], Jr
 end
+# the censored humidity: the raw vapor pressure rows, then the cap applied to the prediction (a channel with a
+# discrepancy state in the block adds the state before the cap: `Sequential`)
+function predict_raw(ch::CensoredHumidity, S, J, z, prior, lay)
+    idx = (lay.opv + 1):(lay.opv + lay.nt)
+    return copy(S[idx]), copy(J[idx, :])
+end
+"The cap on a censored channel's predicted rows: min(r, cap) as cap − softplus(cap − r); its slope is logistic((cap − r)/s): one below the cap, zero above."
+function censor(ch::CensoredHumidity, r, Jr)
+    y = ch.data
+    y === nothing && return r, Jr
+    for k in eachindex(r)
+        if y[k] >= ch.cap - 1e-9
+            x = (ch.cap - r[k]) / ch.s
+            r[k] = ch.cap - ch.s * (x > 30 ? x : log1p(exp(x)))
+            Jr[k, :] .*= 1 / (1 + exp(-x))
+        end
+    end
+    return r, Jr
+end
+predict(ch::CensoredHumidity, S, J, z, prior, lay) = censor(ch, predict_raw(ch, S, J, z, prior, lay)...)
+predict_raw(ch::Channel, S, J, z, prior, lay) = predict(ch, S, J, z, prior, lay)
+censor(ch::Channel, r, Jr) = (r, Jr)
 
 # the samples whose residuals are the channel's noise process (a censored reading is not one)
 noise_mask(ch::Channel) = ch.mask
+noise_mask(ch::CensoredHumidity) = ch.data === nothing ? ch.mask : ch.mask .& (ch.data .< ch.cap - 1e-9)
 # independent rows a channel appends after its AR rows (none by default); level[k] scales the sd at k
 extra_rows(ch::Channel, level) = zeros(0, length(level))
+function extra_rows(ch::CensoredHumidity, level)
+    censored = findall(ch.mask .& .!noise_mask(ch))
+    rows = zeros(length(censored), length(ch.mask))
+    for (i, k) in enumerate(censored)
+        rows[i, k] = 1 / (ch.σ * level[k])
+    end
+    return rows
+end
 # the leading rows the misfit check scores (the AR rows; the extra rows are not unit-power residuals)
 misfit_rows(ch::Channel) = size(whitening(ch), 1)
+misfit_rows(ch::CensoredHumidity) = size(whitening_rows(noise_mask(ch), ch.σ, ch.ρ), 1)
 whitening(ch::PitProbe) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::SurfaceIR) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::HumiditySensor) = whitening_rows(ch.mask, ch.σ, ch.ρ)
@@ -397,9 +428,121 @@ whitening(ch::FuelScale) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::BarkLightness) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::WetBulb) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::StaticReading) = fill(1 / ch.σ, 1, 1)
+# the AR rows over the uncensored samples (the chain hops over a censored stretch as over a gap), then one
+# independent row per censored sample: "the true value was at least the cap", weighted like a reading
+whitening(ch::CensoredHumidity) = vcat(whitening_rows(noise_mask(ch), ch.σ, ch.ρ), extra_rows(ch, ones(length(ch.mask))))
 
 rawdata(ch::StaticReading) = ch.data === nothing ? nothing : [ch.data]
 rawdata(ch::Channel) = ch.data
+
+# --- the registry's interface, one place: labels, restriction to a window, a new noise, the resolution floor ---
+channel_label(::PitProbe) = "pit"
+channel_label(::MeatProbe) = "meat probe"
+channel_label(::SurfaceIR) = "surface IR"
+channel_label(::HumiditySensor) = "humidity"
+channel_label(::CensoredHumidity) = "humidity (censored)"
+channel_label(::MassScale) = "scale"
+channel_label(::FuelScale) = "fuel scale"
+channel_label(::BarkLightness) = "bark L*"
+channel_label(::WetBulb) = "wet bulb"
+channel_label(ch::StaticReading) = "static " * string(ch.latent)
+
+# a channel restricted to the readings at times where `keep` is true
+restrict(ch::PitProbe, keep) = PitProbe(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
+restrict(ch::SurfaceIR, keep) = SurfaceIR(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
+restrict(ch::HumiditySensor, keep) = HumiditySensor(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
+restrict(ch::CensoredHumidity, keep) = CensoredHumidity(ch.σ, ch.ρ, ch.mask .& keep, ch.cap, ch.s, ch.data)
+restrict(ch::MassScale, keep) = MassScale(ch.σ, ch.ρ, ch.mask .& keep, ch.shape_latent, ch.data)
+restrict(ch::MeatProbe, keep) = MeatProbe(ch.s_fixed, ch.depth_fixed, ch.depth_latent, ch.σ, ch.ρ, ch.mask .& keep, ch.data)
+restrict(ch::FuelScale, keep) = FuelScale(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
+restrict(ch::BarkLightness, keep) = BarkLightness(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
+restrict(ch::WetBulb, keep) = WetBulb(ch.σ, ch.ρ, ch.mask .& keep, ch.p_atm, ch.a_psy, ch.data)
+restrict(ch::StaticReading, keep) = ch
+
+# a channel on the sub-grid `idx` (its mask and data cut to it): the filter's interval
+_cut(::Nothing, idx) = nothing
+_cut(d::AbstractVector, idx) = d[idx]
+window(ch::PitProbe, idx) = PitProbe(ch.σ, ch.ρ, ch.mask[idx], _cut(ch.data, idx))
+window(ch::SurfaceIR, idx) = SurfaceIR(ch.σ, ch.ρ, ch.mask[idx], _cut(ch.data, idx))
+window(ch::HumiditySensor, idx) = HumiditySensor(ch.σ, ch.ρ, ch.mask[idx], _cut(ch.data, idx))
+window(ch::CensoredHumidity, idx) = CensoredHumidity(ch.σ, ch.ρ, ch.mask[idx], ch.cap, ch.s, _cut(ch.data, idx))
+window(ch::MassScale, idx) = MassScale(ch.σ, ch.ρ, ch.mask[idx], ch.shape_latent, _cut(ch.data, idx))
+window(ch::MeatProbe, idx) = MeatProbe(ch.s_fixed, ch.depth_fixed, ch.depth_latent, ch.σ, ch.ρ, ch.mask[idx], _cut(ch.data, idx))
+window(ch::FuelScale, idx) = FuelScale(ch.σ, ch.ρ, ch.mask[idx], _cut(ch.data, idx))
+window(ch::BarkLightness, idx) = BarkLightness(ch.σ, ch.ρ, ch.mask[idx], _cut(ch.data, idx))
+window(ch::WetBulb, idx) = WetBulb(ch.σ, ch.ρ, ch.mask[idx], ch.p_atm, ch.a_psy, _cut(ch.data, idx))
+window(ch::StaticReading, idx) = ch
+
+# the same channel with a new noise (the discrepancy's marginal sd and correlation per grid step)
+with_noise(ch::PitProbe, σ, ρ) = PitProbe(σ, ρ, ch.mask, ch.data)
+with_noise(ch::SurfaceIR, σ, ρ) = SurfaceIR(σ, ρ, ch.mask, ch.data)
+with_noise(ch::HumiditySensor, σ, ρ) = HumiditySensor(σ, ρ, ch.mask, ch.data)
+with_noise(ch::CensoredHumidity, σ, ρ) = CensoredHumidity(σ, ρ, ch.mask, ch.cap, ch.s, ch.data)
+with_noise(ch::MassScale, σ, ρ) = MassScale(σ, ρ, ch.mask, ch.shape_latent, ch.data)
+with_noise(ch::MeatProbe, σ, ρ) = MeatProbe(ch.s_fixed, ch.depth_fixed, ch.depth_latent, σ, ρ, ch.mask, ch.data)
+with_noise(ch::FuelScale, σ, ρ) = FuelScale(σ, ρ, ch.mask, ch.data)
+with_noise(ch::BarkLightness, σ, ρ) = BarkLightness(σ, ρ, ch.mask, ch.data)
+with_noise(ch::WetBulb, σ, ρ) = WetBulb(σ, ρ, ch.mask, ch.p_atm, ch.a_psy, ch.data)
+with_noise(ch::StaticReading, σ, ρ) = ch
+
+"""
+    white_floor(ch) -> σ_w
+
+The instrument's own white noise, its resolution: what remains of a reading's error once the AR(1)
+discrepancy is a state of the filter's block (`Sequential`). A tenth of a kelvin for a thermometer, ten
+pascals for a humidity sensor, five grams for a scale, half an L* unit for a colorimeter.
+"""
+white_floor(::PitProbe) = 0.1
+white_floor(::MeatProbe) = 0.1
+white_floor(::SurfaceIR) = 0.1
+white_floor(::WetBulb) = 0.1
+white_floor(::HumiditySensor) = 10.0
+white_floor(::CensoredHumidity) = 10.0
+white_floor(::MassScale) = 0.005
+white_floor(::FuelScale) = 0.005
+white_floor(::BarkLightness) = 0.5
+white_floor(ch::StaticReading) = ch.σ
+
+"""
+    Sequential(channel, disc, σ_w)
+
+A channel read by the filter: its AR(1) discrepancy is the state `disc` of the block (the reading is the physics
+plus that state plus white noise at the instrument's floor `σ_w`), so its rows are white at `σ_w` and the
+correlation lives in the state's transition (`sequential.jl`). The cap of a censored channel applies to the
+physics plus the discrepancy, as the sensor sees it. Everything else is the wrapped channel's.
+"""
+struct Sequential{C<:Channel} <: Channel
+    ch::C
+    disc::Int
+    σ_w::Float64
+end
+Base.getproperty(s::Sequential, f::Symbol) = f in (:ch, :disc, :σ_w) ? getfield(s, f) : getproperty(getfield(s, :ch), f)
+function predict(s::Sequential, S, J, z, prior, lay)
+    r, Jr = predict_raw(s.ch, S, J, z, prior, lay)
+    r = r .+ z[s.disc]
+    Jr = copy(Jr); Jr[:, s.disc] .+= 1
+    return censor(s.ch, r, Jr)
+end
+"The wrapped channel's data with the unobserved points (masked off, so they enter every row with weight zero) made finite: a pilot fills its arrays as the samples arrive and leaves NaN where none has."
+function rawdata(s::Sequential)
+    y = rawdata(s.ch)
+    y === nothing && return nothing
+    return [isfinite(v) ? v : 0.0 for v in y]
+end
+noise_mask(s::Sequential) = noise_mask(s.ch)
+misfit_rows(s::Sequential) = count(noise_mask(s.ch))
+channel_label(s::Sequential) = channel_label(s.ch) * ", sequential"
+restrict(s::Sequential, keep) = Sequential(restrict(s.ch, keep), s.disc, s.σ_w)
+window(s::Sequential, idx) = Sequential(window(s.ch, idx), s.disc, s.σ_w)
+with_noise(s::Sequential, σ, ρ) = Sequential(with_noise(s.ch, σ, ρ), s.disc, s.σ_w)
+white_floor(s::Sequential) = s.σ_w
+"White rows at the floor over the channel's uncensored samples, then its censored samples' one-sided rows at the same floor."
+function whitening(s::Sequential)
+    nm = noise_mask(s.ch)
+    rows = zeros(count(nm), length(nm))
+    for (i, k) in enumerate(findall(nm)); rows[i, k] = 1 / s.σ_w; end
+    return vcat(rows, extra_rows(s.ch, fill(s.σ_w / s.ch.σ, length(nm))))
+end
 
 """
     assemble(channels, z, S, J, prior, lay) -> (a, B, w)

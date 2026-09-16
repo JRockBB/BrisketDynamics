@@ -20,7 +20,7 @@
 # width is second order for a 115-point noise series; the misfit check's
 # hat-matrix trace says how much of a channel the fit absorbs).
 
-export NoisePrior, noise_priors_from_file, ar1_posterior, estimate_noise, with_noise, residual_runs
+export NoisePrior, noise_priors_from_file, ar1_posterior, ar1_noise, estimate_noise, residual_runs
 
 """
     NoisePrior(σ_mean, σ_sd, ρ_mean, ρ_sd; floor=0.0)
@@ -77,7 +77,7 @@ end
         else
             x[k] ~ AR(x_prev, θ, γ) where {meta = ARMeta(Univariate, 1, ARsafe())}
         end
-        r[k] ~ Normal(mean = x[k], var = ε)
+        r[k] ~ Normal(mean = x[k], var = ε[k])              # the residual observes the process through a known noise (per sample: a filter's own prediction error)
         x_prev = x[k]
     end
 end
@@ -92,19 +92,26 @@ end
 end
 
 """
-    ar1_posterior(runs, prior; iters=30, ε_rel=0.05) -> (σ, ρ, σ_sd, ρ_sd, θ, γ)
+    ar1_posterior(runs, prior; iters=30, ε_rel=0.05, eps=nothing) -> (σ, ρ, σ_sd, ρ_sd, θ, γ)
 
 The AR node's posterior on one channel's residual runs (a vector of
 vectors, raw units): the marginal sd and correlation with their delta-method
-widths, and the raw posteriors of θ and γ.
+widths, and the raw posteriors of θ and γ. `eps`, runs of per-sample
+variances, is the known noise the residuals observe the process through
+(a filter's prediction error at each sample, so the belief's own
+uncertainty is not read as the instrument's); without it a small
+fraction of the prior's sd (the residual is the process).
 """
-function ar1_posterior(runs::AbstractVector{<:AbstractVector}, prior::NoisePrior; iters::Int=30, ε_rel::Float64=0.05)
+function ar1_posterior(runs::AbstractVector{<:AbstractVector}, prior::NoisePrior; iters::Int=30, ε_rel::Float64=0.05, eps=nothing)
     r = reduce(vcat, [collect(Float64, run) for run in runs])
     starts = reduce(vcat, [[i == 1 for i in eachindex(run)] for run in runs])
+    ε0 = (ε_rel * prior.σ_mean)^2
+    εv = eps === nothing ? fill(ε0, length(r)) : max.(reduce(vcat, [collect(Float64, e) for e in eps]), ε0)
+    length(εv) == length(r) || throw(ArgumentError("one known variance per residual"))
     ap = _ar_prior(prior)
     res = infer(model = ar1_chain(starts = starts, θ_mean = ap.θ_mean, θ_var = ap.θ_var,
                                   γ_shape = ap.γ_shape, γ_rate = ap.γ_rate,
-                                  x0_var = prior.σ_mean^2, ε = (ε_rel * prior.σ_mean)^2),
+                                  x0_var = prior.σ_mean^2, ε = εv),
                 data = (r = r,), constraints = ar1_constraints(),
                 initialization = ar1_init(ap.θ_mean, ap.θ_var, ap.γ_shape, ap.γ_rate),
                 iterations = iters, returnvars = (θ = KeepLast(), γ = KeepLast()))
@@ -129,6 +136,21 @@ function residual_runs(ch::Channel, S, J, z, prior, lay)
 end
 
 """
+    ar1_noise(runs, gap, np::NoisePrior; kw...) -> (σ, ρ, post)
+
+The AR(1) noise of a series sampled every `gap` grid steps, from its runs, with the prior `np` (per grid step):
+the AR node sees the channel's own spacing, so the prior and the posterior on ρ are rescaled to and from the
+grid step; the applied sd respects the prior's floor.
+"""
+function ar1_noise(runs::AbstractVector{<:AbstractVector}, gap::Int, np::NoisePrior; eps=nothing, kw...)
+    g = max(gap, 1)
+    np_g = NoisePrior(np.σ_mean, np.σ_sd, clamp(np.ρ_mean, 0.0, 0.999)^g, np.ρ_sd * g * max(np.ρ_mean, 1e-3)^(g - 1); floor=np.floor)
+    post = ar1_posterior(runs, np_g; eps, kw...)
+    ρ_step = clamp(post.ρ, 0.0, 0.999)^(1 / g)      # back to the grid step
+    return (σ=max(post.σ, np.floor), ρ=ρ_step, post=post)
+end
+
+"""
     estimate_noise(ch, S, J, z, prior, lay, np::NoisePrior; kw...) -> (σ, ρ, post)
 
 The channel's AR(1) noise from its residuals at `z`, with the prior;
@@ -140,21 +162,5 @@ function estimate_noise(ch::Channel, S, J, z, prior, lay, np::NoisePrior; kw...)
     if count(noise_mask(ch)) < 3
         return (σ=ch.σ, ρ=ch.ρ, post=(σ=ch.σ, ρ=ch.ρ, σ_sd=np.σ_sd, ρ_sd=np.ρ_sd, θ=nothing, γ=nothing))
     end
-    g = channel_gap(noise_mask(ch))
-    # the AR node sees the channel's own spacing; its prior and posterior on ρ are per grid step
-    np_g = NoisePrior(np.σ_mean, np.σ_sd, clamp(np.ρ_mean, 0.0, 0.999)^g, np.ρ_sd * g * max(np.ρ_mean, 1e-3)^(g - 1); floor=np.floor)
-    post = ar1_posterior(residual_runs(ch, S, J, z, prior, lay), np_g; kw...)     # de-levelled for a Levelled channel
-    ρ_step = clamp(post.ρ, 0.0, 0.999)^(1 / g)      # back to the grid step
-    return (σ=max(post.σ, np.floor), ρ=ρ_step, post=post)
+    return ar1_noise(residual_runs(ch, S, J, z, prior, lay), channel_gap(noise_mask(ch)), np; kw...)     # de-levelled for a Levelled channel
 end
-
-# the same channel with a new whitening
-with_noise(ch::PitProbe, σ, ρ) = PitProbe(σ, ρ, ch.mask, ch.data)
-with_noise(ch::SurfaceIR, σ, ρ) = SurfaceIR(σ, ρ, ch.mask, ch.data)
-with_noise(ch::HumiditySensor, σ, ρ) = HumiditySensor(σ, ρ, ch.mask, ch.data)
-with_noise(ch::MassScale, σ, ρ) = MassScale(σ, ρ, ch.mask, ch.shape_latent, ch.data)
-with_noise(ch::MeatProbe, σ, ρ) = MeatProbe(ch.s_fixed, ch.depth_fixed, ch.depth_latent, σ, ρ, ch.mask, ch.data)
-with_noise(ch::FuelScale, σ, ρ) = FuelScale(σ, ρ, ch.mask, ch.data)
-with_noise(ch::BarkLightness, σ, ρ) = BarkLightness(σ, ρ, ch.mask, ch.data)
-with_noise(ch::WetBulb, σ, ρ) = WetBulb(σ, ρ, ch.mask, ch.p_atm, ch.a_psy, ch.data)
-with_noise(ch::StaticReading, σ, ρ) = ch

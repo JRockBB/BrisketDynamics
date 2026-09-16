@@ -76,7 +76,7 @@ function estimate(s::Schedule, readings, z_prev)
            HumiditySensor(nz["humidity"]["sigma"], nz["humidity"]["rho"], keep; data=readings["humidity"]),
            MassScale(nz["mass"]["sigma"], nz["mass"]["rho"], keep; data=readings["mass"])]
     ph = Physics1D(area_latent=AREA, events=schedule_events(s))
-    res = solve_map_channels(chs, prior, d; c0=z_prev, physics=ph, engine=:graph, verbose=false)
+    res = solve_map_channels(chs, prior, d; c0=z_prev, physics=ph, verbose=false)
     return res.z, res.cov, res.misfit.total, d
 end
 draws(z, V, rng) = (Lc = cholesky(Symmetric(V)).L; [z .+ Lc * randn(rng, length(z)) for _ in 1:N_DRAWS])

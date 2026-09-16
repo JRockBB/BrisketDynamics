@@ -130,28 +130,6 @@ end
     @test c[lay7.offsets[m_r] + 1] == z0[ir]
 end
 
-@testset "the plan from the smoother's history" begin
-    lay = DriftLayout(17, [(iu, [i2, i4]), (ir, [i4])])
-    PLAN_GRID = collect(0.0:600.0:30 * 3600.0)
-    zc = vcat(z0, [z0[iu], z0[iu], z0[ir]])                         # copies equal to the base: the constant cook
-    hist = plan_history(zc, lay, t, PLAN_GRID, sites)
-    @test hist.edges == [searchsortedlast(PLAN_GRID, t[i2] + 1e-9), searchsortedlast(PLAN_GRID, t[i4] + 1e-9)] && length(hist.θs) == 2 && length(hist.φs) == 2
-    @test hist.θs[1] == hist.θs[2] && hist.φs[1] == hist.φs[2]
-    @test plan_history(zc, DriftLayout(17, []), t, PLAN_GRID, sites) === nothing
-    s = Schedule(PLAN_GRID; u0=0.15); s.t_now = 6 * 3600.0; s.u[PLAN_GRID .<= s.t_now] .= 0.15
-    dp = estimator_setup(PLAN_GRID, fill(0.15, length(PLAN_GRID)), pit, cfg, prior_phys, names)
-    f = free_set(s); mζ, _ = plan_prior(f, s)
-    y0 = plan_outputs_rh(z0, mζ, f, s, dp)
-    y1 = plan_outputs_rh(z0, mζ, f, s, dp; history=hist)
-    @test maximum(abs.(y1 .- y0) ./ (abs.(y0) .+ 1e-2)) < 0.02          # equal copies: the same cook
-    zd = vcat(z0, [z0[iu] + 0.4, z0[iu] + 0.4, z0[ir]])
-    hd = plan_history(zd, lay, t, PLAN_GRID, sites)
-    @test hd.θs[1] == hist.θs[1] && hd.φs[2] != hist.φs[2]
-    y2 = plan_outputs_rh(z0, mζ, f, s, dp; history=hd)                  # a leakier past, the same future: a different cook
-    @test maximum(abs.(y2 .- y0) ./ (abs.(y0) .+ 1e-2)) > 0.005
-    @test all(isfinite, ForwardDiff.jacobian(v -> E.goal_residuals(plan_outputs_rh(z0, v, f, s, dp; history=hd), PlanGoals()), mζ))
-end
-
 @testset "the smoother with no moving site is the batch fit" begin
     cal = noise_priors_from_file(joinpath(REPO, "data", "calibration", "noise_prior_real.json"))
     tostep(np, from_dt) = (a = dt / from_dt; NoisePrior(np.σ_mean, np.σ_sd, np.ρ_mean^a, np.ρ_sd * a * np.ρ_mean^(a - 1); floor=np.floor))

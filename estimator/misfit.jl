@@ -16,17 +16,7 @@
 # leaves a small shrinkage bias, and the lag-1 statistic ignores the hat
 # matrix), which is the right precision for a warning light.
 
-export misfit, channel_label
-
-channel_label(::PitProbe) = "pit"
-channel_label(::MeatProbe) = "meat probe"
-channel_label(::SurfaceIR) = "surface IR"
-channel_label(::HumiditySensor) = "humidity"
-channel_label(::MassScale) = "scale"
-channel_label(::FuelScale) = "fuel scale"
-channel_label(::BarkLightness) = "bark L*"
-channel_label(::WetBulb) = "wet bulb"
-channel_label(ch::StaticReading) = "static " * string(ch.latent)
+export misfit
 
 # the per-block statistics on a residual vector and its hat-matrix diagonal
 function _block_stats(r::AbstractVector, h::AbstractVector)

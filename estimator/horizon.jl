@@ -3,14 +3,18 @@
 # and irreversible after, a one-sided floor at serve in place of a
 # Gaussian goal. Included by BrisketEstimator after iterated.jl.
 #
-# The past is data. Every replan solves the whole cook from the start
-# with the executed damper log and the executed events as inputs, and
-# only the future carries decisions; the decisions live in seconds on
-# one long grid, and the duration is the serve time at which the
+# The past is the filter's. A replan solves the FUTURE from the state the
+# filter holds (`plan_solve` with `state`: the meat fields, the bark and
+# ring, the pit's state as initial conditions, the ignited fraction), and
+# the objective's backward-looking terms (the lethality integrals, the
+# bark-burn term, the fuel loaded) come from the filter's own integrals
+# (`Past`); nothing is re-cooked. Without a state (the first plan, a test)
+# the whole cook is solved from the start. The decisions live in seconds
+# on one long grid, and the duration is the serve time at which the
 # outcomes are read (interpolated on the grid). The free set shrinks as
 # events commit: after the pull only the serve time is free.
 
-export plan_loss, ReplanPolicy, replan_due, posterior_kl, stable_events, cook_outputs, objective_terms, executed_du
+export plan_loss, ReplanPolicy, replan_due, stable_events, cook_outputs, objective_terms, executed_du
 export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper, N_KNOTS, resample_knots, T_SERVE_MAX, N_BAND, draw_residual, plan_residual, sigma_draws,
        schedule_events, plan_outputs_rh, plan_solve, plan_trajectories, plan_predictive, replan_on_graph, commit!, execute_damper!, PlanGoals
 
@@ -229,7 +233,7 @@ Base.@kwdef struct PlanGoals
 end
 
 """
-    cook_outputs(o, t, Δu, t_pull, t_add, t_serve, cfg, g) -> y
+    cook_outputs(o, t, Δu, t_pull, t_add, t_serve, cfg, g; past=nothing) -> y
 
 What the app's quality objective reads from one cook, from a monolith
 output `o` on the grid `t` [s]: collagen conversion at the center at
@@ -242,9 +246,12 @@ chimney, priced at the pull), the damper differences `Δu`, and the
 lethality integrals on the surface and the core to serve
 [60 °C-equivalent s]. Every quantity at serve is read at `t_serve` on
 the grid, the integrals with a smooth horizon at `t_serve`, so the plan
-can move the serve.
+can move the serve. With `past` (the filter's `Past`), `o` is the future
+from the filter's state and the backward-looking terms (the lethality
+integrals, the burn term's integrals as point-equivalents on this grid,
+the fuel loaded at the start) come from before `t[1]`.
 """
-function cook_outputs(o, t, Δu, t_pull, t_add, t_serve, cfg, g)
+function cook_outputs(o, t, Δu, t_pull, t_add, t_serve, cfg, g; past=nothing)
     at(y, tq) = _interp_t(y, t, tq)
     wfv = fv_weights(size(o.W_field, 1))
     wret = [dot(wfv, view(o.W_field, :, k)) / cfg.W0 for k in axes(o.W_field, 2)]
@@ -255,35 +262,50 @@ function cook_outputs(o, t, Δu, t_pull, t_add, t_serve, cfg, g)
     sp(x) = x > 30 ? x : log1p(exp(x))
     horizon = [lg((t_serve - tk) / 600.0) for tk in t]                              # inside the cook, smoothly
     in_pit = [horizon[k] * (1 - lg((t[k] - t_pull) / DELTA_PULL_S)) for k in eachindex(t)]
-    surf_term = sum(in_pit[k] * sp((o.Tsurf[k] - g.t_surf_max) / g.dT_soft)^2 for k in eachindex(t)) / sum(in_pit)
+    surf_num = sum(in_pit[k] * sp((o.Tsurf[k] - g.t_surf_max) / g.dT_soft)^2 for k in eachindex(t))
+    surf_den = sum(in_pit)
+    m_fuel0 = o.m_fuel[1]
+    leth0_s, leth0_c = 0.0, 0.0
+    if past !== nothing
+        dt_g = length(t) > 1 ? (t[end] - t[1]) / (length(t) - 1) : 600.0          # the past's time integrals as this grid's point sums
+        surf_num += past.surf_num / dt_g
+        surf_den += past.surf_den / dt_g
+        m_fuel0 = past.m0
+        leth0_s, leth0_c = past.leth_s, past.leth_c
+    end
+    surf_term = surf_num / surf_den
     m_added = g.m_chimney * lg((t_pull - t_add) / TAU_ADD_S)
-    fuel_frac = (o.m_fuel[1] + m_added - at(o.m_fuel, t_pull)) / g.m0_ref
-    leth(T) = sum((t[k + 1] - t[k]) * (horizon[k] * 10^((T[k] - g.leth_t_ref) / g.leth_z) +
-                                        horizon[k + 1] * 10^((T[k + 1] - g.leth_t_ref) / g.leth_z)) / 2 for k in 1:(length(t) - 1))
+    fuel_frac = (m_fuel0 + m_added - at(o.m_fuel, t_pull)) / g.m0_ref
+    leth(T, l0) = l0 + sum((t[k + 1] - t[k]) * (horizon[k] * 10^((T[k] - g.leth_t_ref) / g.leth_z) +
+                                                 horizon[k + 1] * 10^((T[k + 1] - g.leth_t_ref) / g.leth_z)) / 2 for k in 1:(length(t) - 1))
     return vcat([at(view(o.C_field, 1, :), t_serve), W, at(o.l_star, t_serve), at(o.Tcore, t_serve), at(o.bark_s, t_serve),
-                 juiciness, surf_term, fuel_frac], Δu, [leth(o.Tsurf), leth(o.Tcore)])
+                 juiciness, surf_term, fuel_frac], Δu, [leth(o.Tsurf, leth0_s), leth(o.Tcore, leth0_c)])
 end
 const DELTA_PULL_S = 300.0     # the pull blend, as brisket_app/control.py
 const TAU_ADD_S = 300.0        # the chimney dump duration, as brisket_app/control.py
 
 """
-    plan_outputs_rh(z, ζ, f, s, d; goals, history=nothing) -> y (see `cook_outputs`)
+    plan_outputs_rh(z, ζ, f, s, d; goals, state=nothing) -> y (see `cook_outputs`)
 
-The plan's outcomes at latents `z` (physics, area) and plan `ζ`, the
-whole cook solved from the start with the executed schedule and the
-plan's future. With a `history` (`plan_history`: the segment edges on
-`s.t` and the physics blocks in force before each), the past is solved
-in segments at the values that were in force then, the state handed
-off exactly, and `z` governs from the last edge on: the plan starts
-from the state the smoother says the cook is in, not from a history
-re-cooked with today's values.
+The plan's outcomes at latents `z` (physics, area) and plan `ζ`. With a `state` (`state_now` of the filter:
+the plant's state at its grid point, the ignited fraction, the past's integrals) the future is solved from
+that state on the grid from there, and the past enters through its integrals: the plan starts from the state
+the filter says the cook is in, and nothing is re-cooked. Without one the whole cook is solved from the start
+with the executed schedule and the plan's future.
 """
-function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), history=nothing)
-    o, p, t_add = plan_solve(z, ζ, f, s, d; history)
-    return cook_outputs(o, s.t, diff(p.u), p.t_pull, t_add, p.t_serve, d.cfg, goals)
+function plan_outputs_rh(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), state=nothing)
+    o, p, t_add, tg = plan_solve(z, ζ, f, s, d; state)
+    return cook_outputs(o, tg, diff(p.u), p.t_pull, t_add, p.t_serve, d.cfg, goals; past=state === nothing ? nothing : state.past)
 end
-"The plan's cook solved at latents `z`: the output `o`, the decoded plan and the add time (`ADD_NEVER` when none)."
-function plan_solve(z, ζ, f::FreeSet, s::Schedule, d::GateData; history=nothing)
+"The plan grid a solve runs on: the whole grid, or from the state's grid point on."
+plan_grid(s::Schedule, state) = state === nothing ? s.t : s.t[state.k:end]
+"""
+The plan's cook solved at latents `z`: the output `o`, the decoded plan, the add time (`ADD_NEVER` when none) and
+the grid the output is on. With a `state`, the solve starts at the state's grid point from its initial
+conditions (`handoff`'s contract) with the ignited fraction in place of a0, the executed events at their
+absolute times (a wrap before the start applies from the first step; an add before it is in the fuel state).
+"""
+function plan_solve(z, ζ, f::FreeSet, s::Schedule, d::GateData; state=nothing)
     x = from_z(z[1:N_PHYS], d.prior[1:N_PHYS])
     A = length(z) >= 16 ? exp(z[16]) : d.cfg.A_meat
     p = decode_plan(ζ, f, s)
@@ -295,40 +317,56 @@ function plan_solve(z, ζ, f::FreeSet, s::Schedule, d::GateData; history=nothing
           t_spritz=sp === nothing ? BrisketDynamics.SPRITZ_NEVER : sp.t,
           dt_spritz=sp === nothing ? 3600.0 : sp.dt, m_spritz=sp === nothing ? 0.05 : sp.m)
     θ, φ = x[1:N_THETA], x[(N_THETA + 1):N_PHYS]
-    o = history === nothing ? monolith_solve(θ, φ, u, s.t, s.t; kw...) :
-        solve_segments(vcat(history.θs, [θ]), vcat(history.φs, [φ]), u, s.t, history.edges; kw...)
-    return o, p, t_add
+    state === nothing && return monolith_solve(θ, φ, u, s.t, s.t; kw...), p, t_add, s.t
+    abs(s.t[state.k] - state.t) < 1e-6 || throw(ArgumentError("the state's time ($(state.t) s) is not the schedule's grid point $(state.k) ($(s.t[state.k]) s)"))
+    tg = s.t[state.k:end]
+    φs = vcat(φ[1:6], [state.ignited])
+    o = monolith_solve(θ, φs, u[state.k:end], tg, tg; kw..., state.ics...)
+    return o, p, t_add, tg
 end
 
 """
-    plan_trajectories(z, ζ, f, s, d; goals, history) -> vcat(Tpit, Tcore, Tsurf, y)
+    plan_trajectories(z, ζ, f, s, d; goals, state) -> vcat(Tpit, Tcore, Tsurf, y)
 
-The plan's pit, core and surface temperatures on `s.t` and its outcomes (`cook_outputs`), stacked: what the
-belief at `z` says the cook will do.
+The plan's pit, core and surface temperatures on the plan grid and its outcomes (`cook_outputs`), stacked:
+what the belief at `z` says the cook will do.
 """
-function plan_trajectories(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), history=nothing)
-    o, p, t_add = plan_solve(z, ζ, f, s, d; history)
-    y = cook_outputs(o, s.t, diff(p.u), p.t_pull, t_add, p.t_serve, d.cfg, goals)
+function plan_trajectories(z, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), state=nothing)
+    o, p, t_add, tg = plan_solve(z, ζ, f, s, d; state)
+    y = cook_outputs(o, tg, diff(p.u), p.t_pull, t_add, p.t_serve, d.cfg, goals; past=state === nothing ? nothing : state.past)
     return vcat(o.Tpit, o.Tcore, o.Tsurf, y)
 end
 
-"""
-    plan_predictive(z, V, ζ, f, s, d; goals, history) -> (t, Tpit, Tcore, Tsurf, y)
+# the state as a function of a block vector [z; x], so the plan's uncertainty carries the state's
+function _state_of(v, state)
+    lay = state.lay
+    ics, a = unpack_state(v[(lay.n_z + 1):(lay.n_z + lay.n_state)], lay)
+    return (k=state.k, t=state.t, ics=ics, ignited=clamp(a, 1e-6, 1 - 1e-6), past=state.past, lay=lay)
+end
 
-What the belief `(z, V)` predicts the cook will do under plan `ζ`: the pit, core and surface temperatures on
-`s.t` and the outcomes, each as `(mean, sd)`, the mean at the posterior mean and the sd the belief's covariance
-carried through the plan physics (the Jacobian of the trajectories in z at the mean, times V). The temperatures
-the pilot plans on are uncertain by exactly this much; a figure that draws them as lines has dropped it.
 """
-function plan_predictive(z, V, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), history=nothing)
-    g(v) = plan_trajectories(v, ζ, f, s, d; goals, history)
-    m = g(z)
-    J = ForwardDiff.jacobian(g, z, ForwardDiff.JacobianConfig(g, z, ForwardDiff.Chunk{min(length(z), 9)}()))
-    Vs = Matrix(Symmetric(Matrix(V)))
+    plan_predictive(z, V, ζ, f, s, d; goals, state) -> (t, Tpit, Tcore, Tsurf, y)
+
+What the belief predicts the cook will do under plan `ζ`: the pit, core and surface temperatures on the plan
+grid and the outcomes, each as `(mean, sd)`, the mean at the posterior mean and the sd the belief's covariance
+carried through the plan physics (the Jacobian of the trajectories at the mean, times V). Without a state, `z`
+and `V` are the latents'; with one, the belief is the joint of the latents and the state (`state.x`,
+`state.zx_cov`), and the plan is uncertain by both. The temperatures the pilot plans on are uncertain by
+exactly this much; a figure that draws them as lines has dropped it.
+"""
+function plan_predictive(z, V, ζ, f::FreeSet, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), state=nothing)
+    nz = length(z)
+    g = state === nothing ? (v -> plan_trajectories(v, ζ, f, s, d; goals)) :
+        (v -> plan_trajectories(v[1:nz], ζ, f, s, d; goals, state=_state_of(v, state)))
+    v0 = state === nothing ? collect(Float64, z) : vcat(collect(Float64, z), state.x)
+    Vs = Matrix(Symmetric(Matrix(state === nothing ? V : state.zx_cov)))
+    m = g(v0)
+    J = ForwardDiff.jacobian(g, v0, ForwardDiff.JacobianConfig(g, v0, ForwardDiff.Chunk{min(length(v0), 12)}()))
     sd = sqrt.(max.(vec(sum((J * Vs) .* J; dims=2)), 0.0))
-    n = length(s.t)
+    tg = plan_grid(s, state)
+    n = length(tg)
     blk(k) = (mean=m[((k - 1) * n + 1):(k * n)], sd=sd[((k - 1) * n + 1):(k * n)])
-    return (t=s.t, Tpit=blk(1), Tcore=blk(2), Tsurf=blk(3), y=(mean=m[(3n + 1):end], sd=sd[(3n + 1):end]))
+    return (t=tg, Tpit=blk(1), Tcore=blk(2), Tsurf=blk(3), y=(mean=m[(3n + 1):end], sd=sd[(3n + 1):end]))
 end
 
 
@@ -371,8 +409,8 @@ function draw_residual(r, k::Int, n_draws::Int, hedge::Bool)
     k == 1 && return vcat(zero(r[1:N_BAND]), r[(N_BAND + 1):end])
     return vcat(r[1:N_BAND] ./ sqrt(n_draws - 1), zero(r[(N_BAND + 1):end]))
 end
-plan_residual(z, ζ, f::FreeSet, s::Schedule, d::GateData, k::Int, n_draws::Int, hedge::Bool; goals::PlanGoals=PlanGoals(), history=nothing) =
-    draw_residual(goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals, history), goals), k, n_draws, hedge)
+plan_residual(z, ζ, f::FreeSet, s::Schedule, d::GateData, k::Int, n_draws::Int, hedge::Bool; goals::PlanGoals=PlanGoals(), state=nothing) =
+    draw_residual(goal_residuals(plan_outputs_rh(z, ζ, f, s, d; goals, state), goals), k, n_draws, hedge)
 
 """
     sigma_draws(z, V; n_dirs=2) -> [mean, ±1 sd along the widest directions...]
@@ -437,17 +475,17 @@ plan prior, the graph iterator; warm-started at `ζ_init` when given.
 """
 function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), ζ_init=nothing,
                          verbose::Bool=false, iters::Int=30, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0),
-                         scan_damper::Bool=true, hedge::Bool=true, cold_start::Bool=true, history=nothing, plan_sd::Float64=PLAN_SD)
+                         scan_damper::Bool=true, hedge::Bool=true, cold_start::Bool=true, state=nothing, plan_sd::Float64=PLAN_SD)
     f = free_set(s)
     n = length(f)
     N = length(zs)
     mζ, Λζ = plan_prior(f, s; plan_sd)
     c0 = ζ_init === nothing ? copy(mζ) : copy(ζ_init)
     # the residual vector of a plan: goals per draw (the hedge's split when there are several), then the prior
-    resid(ζ) = vcat([plan_residual(z, ζ, f, s, d, k, N, hedge; goals, history) for (k, z) in enumerate(zs)]..., sqrt(Λζ) * (ζ .- mζ))
+    resid(ζ) = vcat([plan_residual(z, ζ, f, s, d, k, N, hedge; goals, state) for (k, z) in enumerate(zs)]..., sqrt(Λζ) * (ζ .- mζ))
     objective(c) = 0.5 * sum(abs2, resid(c))
     # the scan judges candidates by the full J at the mean (one cook each, the goals alone), the solve by the hedged objective
-    objective_scan(c) = 0.5 * sum(abs2, goal_residuals(plan_outputs_rh(zs[1], c, f, s, d; goals, history), goals))
+    objective_scan(c) = 0.5 * sum(abs2, goal_residuals(plan_outputs_rh(zs[1], c, f, s, d; goals, state), goals))
     # the objective is multi-modal: in the wrap, in the damper (a low-and-slow cook and a hot-and-fast one are
     # separate basins, and the solve from the low one never crosses), and nearly flat in the rest; the warm start
     # sits where the last plan left it. A coarse scan, one cook each, picks a second start: the wrap fraction
@@ -492,12 +530,12 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
     end
     # the per-draw affine model of the GOAL RESIDUALS (the hinge included) at c: goal ~ N(res, 1)
     function rebuild!(c)
-        RH_AFFS[] = [(plan_residual(z, c, f, s, d, k, N, hedge; goals, history),
-                      ForwardDiff.jacobian(v -> plan_residual(z, v, f, s, d, k, N, hedge; goals, history), c)) for (k, z) in enumerate(zs)]
+        RH_AFFS[] = [(plan_residual(z, c, f, s, d, k, N, hedge; goals, state),
+                      ForwardDiff.jacobian(v -> plan_residual(z, v, f, s, d, k, N, hedge; goals, state), c)) for (k, z) in enumerate(zs)]
         RH_CENTER[] = copy(c)
     end
     prob = IteratedProblem(:ζ, objective, rebuild!, n)
-    n_out = length(goal_residuals(plan_outputs_rh(zs[1], c0, f, s, d; goals, history), goals))
+    n_out = length(goal_residuals(plan_outputs_rh(zs[1], c0, f, s, d; goals, state), goals))
     g = [zeros(n_out) for _ in 1:length(zs)]
     Σg = Matrix(1.0 * I, n_out, n_out)
     run_infer(Λ_lm, callbacks, its) = infer(model = rh_graph(mζ = mζ, Λζ = Matrix(Λζ), N = length(zs), Σg = Σg),
@@ -516,18 +554,18 @@ function replan_on_graph(zs, s::Schedule, d::GateData; goals::PlanGoals=PlanGoal
 end
 
 # --- when to replan ------------------------------------------------------------------------
-# A replan is a decision, not a cadence. After each posterior update the
-# standing plan is re-evaluated under the new draws (a plant run per
-# draw, no optimisation): its expected loss is what a replan would start
-# from. The replan fires when that loss has risen since the plan was
-# made (the new information changed the plan's value), when a planned
-# event falls due within the lead (it is about to commit and become
-# irreversible: decide it on the freshest posterior), when the misfit
-# check fires (the model is wrong somewhere: the plan's outlook is
-# unreliable), or when a floor interval has passed without one.
+# A replan is a decision, not a cadence. After every update of the belief
+# the standing plan is re-evaluated (a plant run per draw, no
+# optimisation): its expected loss is what a replan would start from.
+# The replan fires when that loss has risen since the plan was made or
+# is high on its own terms (the new information changed the plan's
+# value), when a planned event falls due within the lead (it is about to
+# commit and become irreversible: decide it on the freshest posterior),
+# or when the misfit check fires (the model is wrong somewhere: the
+# plan's outlook is unreliable). Nothing fires on a clock.
 
 """
-    plan_loss(zs, plan, s, d; goals, hedge=true) -> (mean, draws)
+    plan_loss(zs, plan, s, d; goals, hedge=true, state) -> (mean, draws)
 
 The loss of a standing `plan` under the belief draws `zs`, the objective a
 replan minimises without the plan prior: with the hedge, the tail terms at
@@ -536,31 +574,32 @@ without it, the mean over draws of half the squared goal residuals. The
 plan is re-encoded in the current free set (its committed events are
 fixed in `s`). `draws` holds each draw's contribution.
 """
-function plan_loss(zs, plan, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), hedge::Bool=true, history=nothing)
+function plan_loss(zs, plan, s::Schedule, d::GateData; goals::PlanGoals=PlanGoals(), hedge::Bool=true, state=nothing)
     f = free_set(s)
     ζ = encode_plan(plan, f, s)
     N = length(zs)
-    ls = [0.5 * sum(abs2, plan_residual(z, ζ, f, s, d, k, N, hedge; goals, history)) for (k, z) in enumerate(zs)]
+    ls = [0.5 * sum(abs2, plan_residual(z, ζ, f, s, d, k, N, hedge; goals, state)) for (k, z) in enumerate(zs)]
     return (mean=(hedge && N > 1) ? sum(ls) : sum(ls) / N, draws=ls)
 end
 
 """
-    ReplanPolicy(; loss_rise=1.0, misfit_z=3.0, lead=3600.0, floor=4*3600.0)
+    ReplanPolicy(; loss_rise=0.25, loss_high=1.0, misfit_z=3.0, lead=900.0, stable, stable_horizon)
 
 When a replan is due: the standing plan's expected loss has risen by
-`loss_rise` (half-squared-sd units) since it was made; a planned,
-uncommitted event falls due within `lead` seconds; the misfit z-score
-exceeds `misfit_z` (excess residual power only: too little power means
-the noise model is conservative, which does not threaten the plan); or
-`floor` seconds have passed since the last replan.
+`loss_rise` (half-squared-sd units) since it was made, or exceeds
+`loss_high` on its own terms; a planned, uncommitted event falls due
+within `lead` seconds (the time a pitmaster needs to act on a wrap or a
+pull: a quarter hour, a physical lead, not a check interval); or the
+misfit z-score exceeds `misfit_z` (excess innovation power only: too
+little power means the noise model is conservative, which does not
+threaten the plan). No floor interval and no threshold on the belief's
+move: a replan is a decision, never a cadence.
 """
 Base.@kwdef struct ReplanPolicy
     loss_rise::Float64 = 0.25        # in half-J units: the app's J is 0.6 for a good cook, 14 for a ruined one
     loss_high::Float64 = 1.0
-    kl_per_latent::Float64 = 0.25    # the posterior's move since the plan, in nats per latent (a quarter-sd shift of every latent)
     misfit_z::Float64 = 3.0
-    lead::Float64 = 3600.0
-    floor::Float64 = 4 * 3600.0
+    lead::Float64 = 15 * 60.0
     stable::Float64 = 1800.0         # an event a replan moved by less than this commits now ...
     stable_horizon::Float64 = 2 * 3600.0   # ... when it is within this far ahead (a pull committed 7 h out met a plant that ran cooler)
 end
@@ -586,36 +625,18 @@ function stable_events(plan, prev, tol)
 end
 
 """
-    posterior_kl(m_new, V_new, m_old, V_old) -> nats
-
-KL(new ‖ old) between two Gaussian posteriors: how much the belief has
-moved since the plan was made, in nats (one full-sd shift of one latent
-is half a nat; halving every width of a 17-latent posterior is five).
-"""
-function posterior_kl(m_new, V_new, m_old, V_old)
-    n = length(m_new)
-    Vo = Symmetric(Matrix(V_old)); Vn = Symmetric(Matrix(V_new))
-    d = m_old .- m_new
-    return 0.5 * (tr(Vo \ Vn) + dot(d, Vo \ d) - n + logdet(Vo) - logdet(Vn))
-end
-
-"""
-    replan_due(pol, s, plan, L_now, L_plan, t_last, misfit_z; kl=nothing, n_latent=1) -> (due::Bool, reason::Symbol)
+    replan_due(pol, s, plan, L_now, L_plan, misfit_z) -> (due::Bool, reason::Symbol)
 
 Whether to replan now: `plan` is the standing plan (`nothing` before the
-first), `L_now` its expected loss under the current posterior, `L_plan`
-its loss when it was made, `t_last` the time of the last replan,
-`misfit_z` the latest misfit z-score (or `nothing`), `kl` the posterior's
-move since the plan was made in nats (or `nothing`) against a threshold
-of `kl_per_latent` × `n_latent`. The reason is one of
-`:first`, `:event_due`, `:misfit`, `:loss_high` (the standing plan is
-bad on its own terms), `:loss_rise` (worse than when made),
-`:posterior_moved` (the belief the plan was made on is gone), `:floor`,
-`:hold`. A standing plan is scored against itself by `loss_rise`; when
-the posterior tightens that score can fall while a far better plan has
-become available, which `loss_high` and `posterior_moved` catch.
+first), `L_now` its expected loss under the current belief, `L_plan`
+its loss when it was made, `misfit_z` the latest misfit z-score (or
+`nothing`). The reason is one of `:first`, `:event_due`, `:misfit`,
+`:loss_high` (the standing plan is bad on its own terms), `:loss_rise`
+(worse than when made), `:hold`. A standing plan is scored against
+itself by `loss_rise`; when the belief tightens that score can fall
+while a far better plan has become available, which `loss_high` catches.
 """
-function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::Real, t_last::Real, misfit_z; kl=nothing, n_latent::Int=1)
+function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::Real, misfit_z)
     plan === nothing && return (true, :first)
     # only an event still free to move can come due: a standing plan's spritz after the pull has committed is no decision
     f = free_set(s)
@@ -624,12 +645,10 @@ function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::R
     for (t, fr) in zip(events, free)
         !isnan(t) && fr && s.t_now < t <= s.t_now + pol.lead && return (true, :event_due)
     end
-    # one-sided: excess residual power says the model is wrong somewhere; too little says it is conservative
+    # one-sided: excess innovation power says the model is wrong somewhere; too little says it is conservative
     misfit_z !== nothing && misfit_z > pol.misfit_z && return (true, :misfit)
     L_now > pol.loss_high && return (true, :loss_high)
     L_now - L_plan > pol.loss_rise && return (true, :loss_rise)
-    kl !== nothing && kl > pol.kl_per_latent * n_latent && return (true, :posterior_moved)
-    s.t_now - t_last >= pol.floor - 1e-9 && return (true, :floor)
     return (false, :hold)
 end
 

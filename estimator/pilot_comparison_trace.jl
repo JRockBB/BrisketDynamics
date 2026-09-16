@@ -83,6 +83,10 @@ ev_rx = (wrap=Float64(ex["t_wrap_h"]) * 3600, pull=Float64(ex["t_pull_h"]) * 360
          add=ev_or(ex["t_add_h"], NEVER.add / 3600) * 3600, spritz=sp === nothing ? NEVER.spritz : Float64(sp["t_h"]) * 3600,
          dt_spritz=sp === nothing ? 3600.0 : Float64(sp["dt_h"]) * 3600, m_spritz=sp === nothing ? 0.05 : Float64(sp["m"]))
 rx, _ = cook(x_true, x_true[16], u_rx, ev_rx; label="RxInfer pilot")
+# the pilot's belief of its own cook at every update (the filter's records), for the figure's bands
+rows = [r for r in rec["checks"] if r["updated"]]
+rx["belief"] = Dict("t_h" => [r["t_h"] for r in rows], "T_pit_C" => [r["T_pit"] for r in rows], "T_core_C" => [r["T_centre"] for r in rows],
+                    "T_surf_C" => [r["T_surface"] for r in rows])
 
 # --- the MPC: its own parameters, its executed damper and events -------------------------------
 x_mpc = [Float64(mp["params"][n]) for n in NAMES[1:15]]
@@ -106,7 +110,7 @@ dst = joinpath(REPO, "data", "mock", out_name)
 open(dst, "w") do io
     JSON.print(io, Dict("rxinfer" => rx, "mpc" => mc, "mpc_source" => mpc_file, "mpc_variant" => mp["variant"], "mpc_params_file" => mp["params_file"], "mpc_label" => mpc_label,
                         "same_plant" => same_plant, "port_check_max_core_C" => port, "mpc_tesseract_metrics" => mp["metrics"],
-                        "goals" => rec["goals"], "rxinfer_checks" => length(rec["checks"]), "rxinfer_replans" => rec["n_replans"],
+                        "goals" => rec["goals"], "rxinfer_checks" => count(r["updated"] for r in rec["checks"]), "rxinfer_replans" => rec["n_replans"],
                         "rxinfer_wall_s" => sum(c["wall_s"] for c in rec["checks"])))
 end
 println("wrote ", dst)

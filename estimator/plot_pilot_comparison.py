@@ -40,8 +40,16 @@ def style(ax):
 def cook_panel(ax, run, title, t_end):
     style(ax)
     t = np.array(run["t_h"])
-    ax.plot(t, run["T_pit_C"], color=PIT, lw=1.5, label="pit")
-    ax.plot(t, run["T_core_C"], color=CORE, lw=2.2, label="core")
+    # the pilot's belief of its own cook at every update, one band per temperature (the plant's traces over it);
+    # the MPC's panels have no belief: an oracle reads the plant's state
+    b = run.get("belief")
+    if b is not None:
+        tb = np.array(b["t_h"])
+        for key, col in (("T_pit_C", PIT), ("T_core_C", CORE)):
+            mu = np.array([v[0] for v in b[key]]); sd = np.array([v[1] for v in b[key]])
+            ax.fill_between(tb, mu - 2 * sd, mu + 2 * sd, color=col, alpha=0.22, lw=0, label=f"{'pit' if key == 'T_pit_C' else 'core'}: the pilot's belief, ±2 sd")
+    ax.plot(t, run["T_pit_C"], color=PIT, lw=1.5, label="pit, the plant")
+    ax.plot(t, run["T_core_C"], color=CORE, lw=2.2, label="core, the plant")
     ev = run["events_h"]
     above = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
     labels = [("wrap", ev["wrap"], "wrapped"), ("add", ev["add"], "fuel added"), ("spritz", ev["spritz"], "spritz begins"),
@@ -109,8 +117,8 @@ def main():
         row("core at the pull / at serve", lambda m, *_: f"{m['T_pull_C']:.0f} °C / {m['T_serve_C']:.0f} °C"),
         row("pit, mean to the pull / max", lambda m, *_: f"{m['pit_mean_C']:.0f} °C ({m['pit_mean_C'] * 9 / 5 + 32:.0f} °F) / {m['pit_max_C']:.0f} °C"),
         row("water W/W0 at serve", lambda m, *_: f"{m['W_serve']:.3f}  ({100 * m['wet_basis_water_serve']:.0f} %)"),
-        ("what it knows", ["a 17-latent posterior from readings"] + [knows for _, _, _, knows in runs]),
-        ("when it replans", [f"when worth it: {d['rxinfer_replans']} of {d['rxinfer_checks']} checks"] + ["every hour"] * len(mpcs)),
+        ("what it knows", ["the filter's belief: the state, 17 latents, the sensors' discrepancies"] + [knows for _, _, _, knows in runs]),
+        ("when it replans", [f"a decision: {d['rxinfer_replans']} replans over {d['rxinfer_checks']} updates"] + ["every hour"] * len(mpcs)),
     ]
     n_c = len(cols)
     x0, x1 = 0.0, 0.30 if n_c > 2 else 0.36

@@ -168,15 +168,16 @@ end
     # the executed damper's smoothness term: hourly means to the pull
     @test executed_du(GRID, fill(0.2, length(GRID)), 6 * 3600.0) ≈ zeros(5) atol=1e-12
 end
-@testset "the replan trigger: first, event due, misfit, loss rise, floor, hold" begin
+@testset "the replan trigger: first, event due, misfit, loss high, loss rise, hold; never a clock" begin
     s = Schedule(GRID; u0=0.15)
     s.t_now = 4 * 3600.0
     pol = ReplanPolicy()
-    plan = (u=[0.2, 0.3, 0.25], t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.8 * 3600, dt=3600.0, m=0.04), t_add=8.0 * 3600)
-    @test replan_due(pol, s, nothing, 0.0, 0.0, 0.0, nothing) == (true, :first)
-    @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, 0.5) == (true, :event_due)          # the spritz at 4.8 h is due within the hour
+    @test !hasfield(ReplanPolicy, :floor) && !hasfield(ReplanPolicy, :kl_per_latent) && pol.lead == 15 * 60.0
+    plan = (u=[0.2, 0.3, 0.25], t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.2 * 3600, dt=3600.0, m=0.04), t_add=8.0 * 3600)
+    @test replan_due(pol, s, nothing, 0.0, 0.0, nothing) == (true, :first)
+    @test replan_due(pol, s, plan, 0.5, 0.5, 0.5) == (true, :event_due)          # the spritz at 4.2 h is due within the lead
     # the commit rule: an event a replan left within the tolerance commits now, however far ahead
-    prev = (u=plan.u, t_wrap=6.2 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.75 * 3600, dt=3600.0, m=0.04), t_add=9.0 * 3600)
+    prev = (u=plan.u, t_wrap=6.2 * 3600, t_pull=12.0 * 3600, t_serve=14 * 3600, spritz=(t=4.15 * 3600, dt=3600.0, m=0.04), t_add=9.0 * 3600)
     st = stable_events(plan, prev, pol.stable)
     @test Set(st) == Set([:wrap, :spritz, :pull])                  # the add moved an hour, the others under half an hour
     @test stable_events(plan, nothing, pol.stable) == Symbol[]
@@ -187,33 +188,27 @@ end
     done5 = commit!(s5, plan, 3600.0; force=st, force_horizon=pol.stable_horizon)
     @test Set(done5) == Set([:wrap, :spritz]) && isnan(s5.t_pull)                   # the pull at 12 h is eight hours out: not forced
     s.spritz = plan.spritz                                                                   # once committed it no longer triggers
-    @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, 0.5) == (false, :hold)
-    @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, 3.5) == (true, :misfit)
-    @test replan_due(pol, s, plan, 0.5, 0.5, 2 * 3600.0, -3.5) == (false, :hold)           # too little power is conservative, not wrong
-    @test replan_due(pol, s, plan, 0.9, 0.5, 2 * 3600.0, 0.5) == (true, :loss_rise)
-    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5) == (false, :hold)             # a rise under the threshold holds
-    @test replan_due(pol, s, plan, 27.0, 134.5, 2 * 3600.0, 0.5) == (true, :loss_high)      # the loss fell, and the plan is still bad
-    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5; kl=5.0) == (true, :posterior_moved)   # the belief moved five nats
-    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5; kl=0.2) == (false, :hold)
-    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5; kl=3.0, n_latent=17) == (false, :hold)             # under a quarter nat per latent
-    @test replan_due(pol, s, plan, 0.6, 0.5, 2 * 3600.0, 0.5; kl=5.0, n_latent=17) == (true, :posterior_moved)
-    # the KL of a posterior against itself is zero; halving one width and moving one mean by a sd is under a nat
-    V0 = Matrix(Diagonal([1.0, 4.0])); m0 = [0.0, 1.0]
-    @test abs(posterior_kl(m0, V0, m0, V0)) < 1e-12
-    @test 0.3 < posterior_kl([1.0, 1.0], Matrix(Diagonal([0.25, 4.0])), m0, V0) < 1.0
-    @test replan_due(pol, s, plan, 0.5, 0.5, 0.0, 0.5) == (true, :floor)                     # four hours since the last replan
-    s.t_now = 5.2 * 3600.0
-    @test replan_due(pol, s, plan, 0.5, 0.5, 4 * 3600.0, 0.5) == (true, :event_due)          # the wrap at 6 h comes due
+    @test replan_due(pol, s, plan, 0.5, 0.5, 0.5) == (false, :hold)
+    @test replan_due(pol, s, plan, 0.5, 0.5, 3.5) == (true, :misfit)
+    @test replan_due(pol, s, plan, 0.5, 0.5, -3.5) == (false, :hold)           # too little power is conservative, not wrong
+    @test replan_due(pol, s, plan, 0.9, 0.5, 0.5) == (true, :loss_rise)
+    @test replan_due(pol, s, plan, 0.6, 0.5, 0.5) == (false, :hold)             # a rise under the threshold holds
+    @test replan_due(pol, s, plan, 27.0, 134.5, 0.5) == (true, :loss_high)      # the loss fell, and the plan is still bad
+    # no clock: a plan that has stood for hours with a steady belief and no event due is held
+    s.t_now = 5.0 * 3600.0
+    @test replan_due(pol, s, plan, 0.5, 0.5, 0.5) == (false, :hold)
+    s.t_now = 5.8 * 3600.0
+    @test replan_due(pol, s, plan, 0.5, 0.5, 0.5) == (true, :event_due)          # the wrap at 6 h comes due within the quarter hour
     # once the pull has been executed (the meat is out), a standing plan's spritz or add is no decision and cannot come due
     s4 = Schedule(GRID; u0=0.15); s4.t_now = 12.5 * 3600.0; s4.t_pull = 12.0 * 3600.0; s4.t_wrap = 6.0 * 3600.0
-    plan4 = (u=plan.u, t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=16.0 * 3600, spritz=(t=12.8 * 3600, dt=3600.0, m=0.04), t_add=12.9 * 3600)
-    @test replan_due(pol, s4, plan4, 0.5, 0.5, 11.0 * 3600.0, 0.5) == (false, :hold)
-    plan5 = (plan4..., t_serve=13.2 * 3600)
-    @test replan_due(pol, s4, plan5, 0.5, 0.5, 11.0 * 3600.0, 0.5) == (true, :event_due)      # the serve is still free
+    plan4 = (u=plan.u, t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=16.0 * 3600, spritz=(t=12.6 * 3600, dt=3600.0, m=0.04), t_add=12.7 * 3600)
+    @test replan_due(pol, s4, plan4, 0.5, 0.5, 0.5) == (false, :hold)
+    plan5 = (plan4..., t_serve=12.7 * 3600)
+    @test replan_due(pol, s4, plan5, 0.5, 0.5, 0.5) == (true, :event_due)      # the serve is still free
     # a pull committed ahead but not executed leaves the spritz a decision, and it can come due
     s4b = Schedule(GRID; u0=0.15); s4b.t_now = 11.5 * 3600.0; s4b.t_pull = 12.0 * 3600.0; s4b.t_wrap = 6.0 * 3600.0
-    plan4b = (plan4..., spritz=(t=11.8 * 3600, dt=3600.0, m=0.04), t_add=13.0 * 3600)
-    @test replan_due(pol, s4b, plan4b, 0.5, 0.5, 11.0 * 3600.0, 0.5) == (true, :event_due)
+    plan4b = (plan4..., spritz=(t=11.7 * 3600, dt=3600.0, m=0.04), t_add=13.0 * 3600)
+    @test replan_due(pol, s4b, plan4b, 0.5, 0.5, 0.5) == (true, :event_due)
 end
 
 @testset "the standing plan's expected loss under posterior draws" begin

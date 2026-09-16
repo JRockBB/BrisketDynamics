@@ -13,7 +13,7 @@
 # and the estimator's channels for those readings, with the censored
 # humidity as its own channel.
 
-export RealCookNoise, realcook_masks, realcook_readings, CensoredHumidity, lid_windows
+export RealCookNoise, realcook_masks, realcook_readings, lid_windows, Instruments, read_at, clean_at, pit_sd_at, realcook_channels, realcook_noise_priors, lid_open_at
 
 "The instruments' noise: per channel the marginal sd, the correlation TIME [s], and the sampling step [s]."
 Base.@kwdef struct RealCookNoise
@@ -65,9 +65,9 @@ function realcook_masks(t, open, nc::RealCookNoise)
             humidity=every(nc.hum_step) .& .!open, mass=every(nc.mass_step) .& .!open)
 end
 
-# a unit AR(1) on the grid (per-step correlation from the correlation time) scaled by a
-# time-varying level: the marginal sd is exactly sd_t[k] at every sample
-function _ar1_level(rng, t, sd_t, τ)
+# a unit AR(1) on the grid (per-step correlation from the correlation time); scaled by a time-varying level its
+# marginal sd is exactly sd_t[k] at every sample
+function _ar1_unit(rng, t, τ)
     dt = t[2] - t[1]
     ρ = exp(-dt / τ)
     a = zeros(length(t))
@@ -75,7 +75,68 @@ function _ar1_level(rng, t, sd_t, τ)
     for k in 2:length(t)
         a[k] = ρ * a[k - 1] + sqrt(1 - ρ^2) * randn(rng)
     end
-    return sd_t .* a
+    return a
+end
+
+"""
+    Instruments(t, nc, rng)
+
+The mock's instruments on the grid: one unit AR(1) draw per channel at its correlation time (the pit, the core,
+the humidity, the scale, in that order from `rng`), drawn once, so a cook read step by step (`read_at`) reads
+exactly as one read whole (`realcook_readings`); and the instruments' model.
+"""
+struct Instruments
+    nc::RealCookNoise
+    t::Vector{Float64}
+    unit::NamedTuple{(:pit, :core, :humidity, :mass),NTuple{4,Vector{Float64}}}
+end
+Instruments(t, nc::RealCookNoise, rng) = Instruments(nc, collect(Float64, t),
+    (pit=_ar1_unit(rng, t, nc.pit_tau), core=_ar1_unit(rng, t, nc.core_tau), humidity=_ar1_unit(rng, t, nc.hum_tau), mass=_ar1_unit(rng, t, nc.mass_tau)))
+
+"The pit probe's sd at time `t`: the level follows the fire, a bump after the fuel add."
+pit_sd_at(nc::RealCookNoise, t, t_add) = nc.pit_sd * (t_add < 1e8 && t > t_add ? 1 + nc.pit_add_bump * exp(-(t - t_add) / nc.add_tau) : 1.0)
+
+"Whether the lid is open at time `t` under the executed events (the wrap, the pull, the add, the spritz train to the pull)."
+function lid_open_at(t, events::NamedTuple, nc::RealCookNoise)
+    ev = events
+    inwin(te) = te < 1e8 && te <= t < te + nc.lid_open
+    (haskey(ev, :t_wrap) && inwin(ev.t_wrap)) && return true
+    (haskey(ev, :t_pull) && inwin(ev.t_pull)) && return true
+    (haskey(ev, :t_add) && inwin(ev.t_add)) && return true
+    if haskey(ev, :t_spritz) && ev.t_spritz < 1e8
+        tp = haskey(ev, :t_pull) && ev.t_pull < 1e8 ? ev.t_pull : Inf
+        n = floor(Int, (t - ev.t_spritz) / ev.dt_spritz)
+        n >= 0 && ev.t_spritz + n * ev.dt_spritz <= tp && inwin(ev.t_spritz + n * ev.dt_spritz) && return true
+    end
+    return false
+end
+
+"The clean instrument values of a monolith output at save index `k`: the pit, the core probe at `depth` from the top, the vapor pressure, the mass on the scale."
+function clean_at(o, k::Int; A, L, depth)
+    nx = size(o.T_field, 1)
+    w = fv_weights(nx)
+    pos = 1 + (1 - depth / L) * (nx - 1)
+    k0 = clamp(floor(Int, pos), 1, nx - 1); f = pos - k0
+    return (pit=o.Tpit[k], core=(1 - f) * o.T_field[k0, k] + f * o.T_field[k0 + 1, k], humidity=o.pv_pit[k],
+            mass=RHO_DRY_EST * A * L * (1 + dot(w, view(o.W_field, :, k)) + dot(w, view(o.F_field, :, k))))
+end
+
+"""
+    read_at(inst, k, clean, events) -> (readings, present)
+
+The instruments' readings at grid point `k` from the plant's clean values there (`clean_at`) under the executed
+`events`: each channel at its own rate, none while the lid is open, the pit's noise at the fire's level, the
+humidity capped. `present` says which channels sampled.
+"""
+function read_at(inst::Instruments, k::Int, clean::NamedTuple, events::NamedTuple)
+    nc = inst.nc; t = inst.t; dt = t[2] - t[1]
+    at_rate(step) = (k - 1) % max(1, Int(round(step / dt))) == 0
+    open = lid_open_at(t[k], events, nc)
+    t_add = haskey(events, :t_add) ? events.t_add : Inf
+    present = (pit=at_rate(nc.pit_step) && !open, core=at_rate(nc.core_step) && !open, humidity=at_rate(nc.hum_step) && !open, mass=at_rate(nc.mass_step) && !open)
+    readings = (pit=clean.pit + pit_sd_at(nc, t[k], t_add) * inst.unit.pit[k], core=clean.core + nc.core_sd * inst.unit.core[k],
+                humidity=min(clean.humidity + nc.hum_sd * inst.unit.humidity[k], nc.hum_cap), mass=clean.mass + nc.mass_sd * inst.unit.mass[k])
+    return readings, present
 end
 
 """
@@ -85,76 +146,55 @@ The instruments' readings from a monolith output `o` on the grid `t`
 under the executed `events`: the pit probe (its sd bumped after the
 fuel add), the core probe at `depth` from the top, the humidity sensor
 (capped), the scale (ρ_d A L (1 + W̄ + F̄)); each channel's mask and the
-lid-open windows.
+lid-open windows. The same numbers `read_at` gives step by step.
 """
 function realcook_readings(o, t, events::NamedTuple, nc::RealCookNoise, rng; A, L, depth)
     open = lid_windows(t, events, nc)
     masks = realcook_masks(t, open, nc)
-    nx = size(o.T_field, 1)
-    w = fv_weights(nx)
-    pos = 1 + (1 - depth / L) * (nx - 1)
-    k0 = clamp(floor(Int, pos), 1, nx - 1); f = pos - k0
-    core = [(1 - f) * o.T_field[k0, k] + f * o.T_field[k0 + 1, k] for k in axes(o.T_field, 2)]
-    mass = [RHO_DRY_EST * A * L * (1 + dot(w, view(o.W_field, :, k)) + dot(w, view(o.F_field, :, k))) for k in axes(o.W_field, 2)]
-    clean = (pit=collect(o.Tpit), core=core, humidity=collect(o.pv_pit), mass=mass)
-    # the pit's level follows the fire: a bump after the fuel add
-    pit_sd = fill(nc.pit_sd, length(t))
-    if haskey(events, :t_add) && events.t_add < 1e8
-        for k in eachindex(t)
-            t[k] > events.t_add && (pit_sd[k] *= 1 + nc.pit_add_bump * exp(-(t[k] - events.t_add) / nc.add_tau))
-        end
+    inst = Instruments(t, nc, rng)
+    n = length(t)
+    pit = zeros(n); core = zeros(n); hum = zeros(n); mass = zeros(n)
+    cpit = zeros(n); ccore = zeros(n); chum = zeros(n); cmass = zeros(n)
+    for k in 1:n
+        c = clean_at(o, k; A, L, depth)
+        r, _ = read_at(inst, k, c, events)
+        pit[k], core[k], hum[k], mass[k] = r.pit, r.core, r.humidity, r.mass
+        cpit[k], ccore[k], chum[k], cmass[k] = c.pit, c.core, c.humidity, c.mass
     end
-    pit = clean.pit .+ _ar1_level(rng, t, pit_sd, nc.pit_tau)
-    core_r = clean.core .+ _ar1_level(rng, t, fill(nc.core_sd, length(t)), nc.core_tau)
-    hum = min.(clean.humidity .+ _ar1_level(rng, t, fill(nc.hum_sd, length(t)), nc.hum_tau), nc.hum_cap)
-    mass_r = clean.mass .+ _ar1_level(rng, t, fill(nc.mass_sd, length(t)), nc.mass_tau)
-    return (pit=pit, core=core_r, humidity=hum, mass=mass_r), clean, masks, open
+    return (pit=pit, core=core, humidity=hum, mass=mass), (pit=cpit, core=ccore, humidity=chum, mass=cmass), masks, open
 end
 
 """
-    CensoredHumidity(σ, ρ, mask; cap, data)
+    realcook_noise_priors(cal_path, dt) -> Dict{Int,NoisePrior}
 
-The humidity sensor with a saturation cap: a reading at the cap says
-only that the vapor pressure was at least that, so its prediction is
-min(pred, cap), smooth (a softplus of width `s`), and its residual is
-zero whenever the model is above the cap.
+The four real-cook channels' noise priors on a grid of step `dt` [s]: the calibration's posterior for the pit
+and the core probes (`noise_prior_real.json`, identified on a ten-minute grid, its ρ rescaled to the step), the
+instruments' spec for the humidity sensor and the scale, with floors (a sparse channel's sd reads low from a few
+samples). A file written by `next_cook.py` carries the humidity and scale channels too, pooled across the
+cooks flown, and its own floors; they are used when present.
 """
-struct CensoredHumidity <: Channel
-    σ::Float64
-    ρ::Float64
-    mask::Vector{Bool}
-    cap::Float64
-    s::Float64
-    data::Union{Nothing,Vector{Float64}}
+function realcook_noise_priors(cal_path::AbstractString, dt::Real)
+    j = JSON.parsefile(cal_path)
+    cal = noise_priors_from_file(cal_path)
+    grid = Float64(get(j, "grid_s", 600.0))
+    tostep(np, from_dt) = (a = dt / from_dt; NoisePrior(np.σ_mean, np.σ_sd, np.ρ_mean^a, np.ρ_sd * a * np.ρ_mean^(a - 1); floor=np.floor))
+    floors = get(j, "floors", Dict())
+    withfloor(np, name, default) = NoisePrior(np.σ_mean, np.σ_sd, np.ρ_mean, np.ρ_sd; floor=Float64(get(floors, name, default)))
+    hum = haskey(cal, "humidity") ? tostep(withfloor(cal["humidity"], "humidity", 60.0), grid) : NoisePrior(100.0, 100.0, 0.8^(dt / 600), 0.3; floor=60.0)
+    mass = haskey(cal, "mass") ? tostep(withfloor(cal["mass"], "mass", 0.015), grid) : NoisePrior(0.02, 0.02, 0.5^(dt / 1800), 0.3; floor=0.015)
+    return Dict(1 => tostep(cal["pit"], grid), 2 => tostep(cal["core"], grid), 3 => hum, 4 => mass)
 end
-CensoredHumidity(σ, ρ, mask; cap=6500.0, s=50.0, data=nothing) = CensoredHumidity(σ, ρ, collect(Bool, mask), cap, s, data)
-function predict(ch::CensoredHumidity, S, J, z, prior, lay)
-    idx = (lay.opv + 1):(lay.opv + lay.nt)
-    r = copy(S[idx]); Jr = copy(J[idx, :])
-    y = ch.data
-    for k in 1:lay.nt
-        if y !== nothing && y[k] >= ch.cap - 1e-9
-            # censored: min(r, cap) as cap − softplus(cap − r); its slope is logistic((cap − r)/s): one below the cap, zero above
-            x = (ch.cap - r[k]) / ch.s
-            r[k] = ch.cap - ch.s * (x > 30 ? x : log1p(exp(x)))
-            Jr[k, :] .*= 1 / (1 + exp(-x))
-        end
-    end
-    return r, Jr
+
+"""
+    realcook_channels(readings, masks, np; cap, depth_latent) -> Vector{Channel}
+
+The registry's channels for the real-cook instruments, in the order the noise priors index them: the pit probe,
+the meat probe at the latent depth, the censored humidity sensor, the scale; the readings and masks on the full
+grid (a mock filled ahead, or arrays a pilot fills as the samples arrive).
+"""
+function realcook_channels(readings, masks, np::AbstractDict{Int,NoisePrior}; cap::Real, depth_latent::Int)
+    return Channel[PitProbe(np[1].σ_mean, np[1].ρ_mean, Bool.(masks.pit); data=Float64.(readings.pit)),
+                   MeatProbe(np[2].σ_mean, np[2].ρ_mean, Bool.(masks.core); depth_latent, data=Float64.(readings.core)),
+                   CensoredHumidity(np[3].σ_mean, np[3].ρ_mean, Bool.(masks.humidity); cap=Float64(cap), data=Float64.(readings.humidity)),
+                   MassScale(np[4].σ_mean, np[4].ρ_mean, Bool.(masks.mass); data=Float64.(readings.mass))]
 end
-noise_mask(ch::CensoredHumidity) = ch.data === nothing ? ch.mask : ch.mask .& (ch.data .< ch.cap - 1e-9)
-function extra_rows(ch::CensoredHumidity, level)
-    censored = findall(ch.mask .& .!noise_mask(ch))
-    rows = zeros(length(censored), length(ch.mask))
-    for (i, k) in enumerate(censored)
-        rows[i, k] = 1 / (ch.σ * level[k])
-    end
-    return rows
-end
-# the AR rows over the uncensored samples (the chain hops over a censored stretch as over a gap), then one
-# independent row per censored sample: "the true value was at least the cap", weighted like a reading
-whitening(ch::CensoredHumidity) = vcat(whitening_rows(noise_mask(ch), ch.σ, ch.ρ), extra_rows(ch, ones(length(ch.mask))))
-misfit_rows(ch::CensoredHumidity) = size(whitening_rows(noise_mask(ch), ch.σ, ch.ρ), 1)
-channel_label(::CensoredHumidity) = "humidity (censored)"
-restrict(ch::CensoredHumidity, keep) = CensoredHumidity(ch.σ, ch.ρ, ch.mask .& keep, ch.cap, ch.s, ch.data)
-with_noise(ch::CensoredHumidity, σ, ρ) = CensoredHumidity(σ, ρ, ch.mask, ch.cap, ch.s, ch.data)
