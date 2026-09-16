@@ -66,6 +66,16 @@ pit's temperature [K], fuel [kg], pan mass [kg] and temperature [K], the firebox
 and the sd of each at the start (the recipe's meat and pit known to about a kelvin, the loads to a few
 percent). The rates are what the consistency bench earns (NEES of the temperatures and of the latents in their
 bands); the defaults are a starting point, not a result.
+
+`fields` says how a field's noise is spread over its nodes. `:offset` (the default) moves every node of the
+field together: the recipe's meat is uniform to a kelvin as a whole, and a model's error in a diffusion field is
+smooth, so the field's uncertainty is its bulk state and its shape stays the physics'. `:nodes` gives every node
+its own independent width. Independent nodes let an update bend the field between two adjacent nodes to fit a
+probe's own noise, and a probe whose depth is a latent then reads the bend as depth information it never had
+(the whitened depth sensitivity at a first update went from 0 at the prior to 73 at the optimum on the bench's
+seed 7); water diffusion is far too slow to smooth per-node noise between updates, so a water field's surface
+node detaches from the bulk. A tiny per-node jitter (`node_jitter` of the group's width) keeps the covariance
+positive definite under `:offset`.
 """
 Base.@kwdef struct StateNoise
     T::Float64 = 0.5
@@ -92,6 +102,8 @@ Base.@kwdef struct StateNoise
     T_pan0::Float64 = 2.0
     T_fb0::Float64 = 2.0
     ignited0::Float64 = 0.05
+    fields::Symbol = :offset
+    node_jitter::Float64 = 0.003
 end
 function _state_vec(lay::FilterLayout, fields, scalars, ign)
     nx = lay.nx
@@ -103,6 +115,28 @@ state_rates(sn::StateNoise, lay::FilterLayout) =
 "The initial sd of every state entry."
 state_init_sd(sn::StateNoise, lay::FilterLayout) =
     _state_vec(lay, (sn.T0, sn.W0, sn.C0, sn.F0, sn.S0), (sn.bark0, sn.bark0, sn.bark0, sn.T_pit0, sn.m_fuel0, sn.m_pan0, sn.T_pan0, sn.T_fb0), sn.ignited0)
+
+"""
+    state_noise_cov(lay, sn, sd::AbstractVector) -> Matrix
+
+The covariance the per-entry widths `sd` (from `state_rates` scaled by √Δh, or `state_init_sd`) give the state
+block under the noise's structure: under `:offset` every field's nodes share one draw (the block is sd²·11ᵀ plus
+the jitter on its diagonal), the scalars are independent; under `:nodes` everything is diagonal.
+"""
+function state_noise_cov(lay::FilterLayout, sn::StateNoise, sd::AbstractVector)
+    Q = Matrix(Diagonal(Float64.(sd) .^ 2))
+    sn.fields == :nodes && return Q
+    sn.fields == :offset || throw(ArgumentError("StateNoise.fields must be :offset or :nodes, not $(sn.fields)"))
+    for (g, rg) in state_groups(lay)
+        length(rg) > 1 && g in ("T", "W", "C", "F", "S") || continue
+        s = sd[first(rg)]
+        Q[rg, rg] .= s^2
+        for i in rg; Q[i, i] = s^2 * (1 + sn.node_jitter^2); end
+    end
+    return Q
+end
+"The degrees of freedom a group's consistency is scored on: one per node under `:nodes`, one (the bulk) for a field under `:offset`."
+group_dofs(lay::FilterLayout, sn::StateNoise) = Dict(g => (sn.fields == :offset && length(rg) > 1 && g in ("T", "W", "C", "F", "S") ? 1 : length(rg)) for (g, rg) in state_groups(lay))
 
 "The groups of the state block, in `StateNoise`'s order: one rate and one initial width each."
 const STATE_GROUPS = ("T", "W", "C", "F", "S", "bark", "T_pit", "m_fuel", "m_pan", "T_pan", "T_fb", "ignited")
@@ -153,7 +187,8 @@ end
 
 "The `StateNoise` as the file's fields: the rates and the initial sds by group."
 state_noise_dict(sn::StateNoise) = Dict("rates" => Dict(g => getfield(sn, Symbol(g)) for g in STATE_GROUPS),
-                                        "init_sd" => Dict(g => getfield(sn, Symbol(g * "0")) for g in STATE_GROUPS))
+                                        "init_sd" => Dict(g => getfield(sn, Symbol(g * "0")) for g in STATE_GROUPS),
+                                        "fields" => string(sn.fields), "node_jitter" => sn.node_jitter)
 
 """
     load_state_noise(path=STATE_NOISE_FILE; warn=true) -> StateNoise
@@ -172,9 +207,11 @@ function load_state_noise(path::AbstractString=STATE_NOISE_FILE; warn::Bool=true
     got = string(get(get(d, "physics", Dict()), "fingerprint", ""))
     fp = physics_fingerprint()
     got == fp || !warn || @warn "the state noise in $path was earned on physics $got; the tree's is $fp: the rates are stale, rerun estimator/bench_state_noise.py"
-    kw = Dict{Symbol,Float64}()
+    kw = Dict{Symbol,Any}()
     for (k, v) in d["rates"]; kw[Symbol(k)] = Float64(v); end
     for (k, v) in d["init_sd"]; kw[Symbol(k * "0")] = Float64(v); end
+    haskey(d, "fields") && (kw[:fields] = Symbol(d["fields"]))
+    haskey(d, "node_jitter") && (kw[:node_jitter] = Float64(d["node_jitter"]))
     return StateNoise(; kw...)
 end
 
@@ -352,7 +389,7 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
     _, _, h0 = prior_terms(z0, sites)
     P = zeros(lay.n, lay.n)
     for i in 1:n_z; P[i, i] = 1 / h0[i]; end                                  # the latents: the prior's widths
-    for (j, i) in enumerate(state_range(lay)); P[i, i] = state_init_sd(sn, lay)[j]^2; end   # the state: the recipe's, to its own uncertainty
+    P[state_range(lay), state_range(lay)] = state_noise_cov(lay, sn, state_init_sd(sn, lay))   # the state: the recipe's, to its own uncertainty, by the noise's structure
     for c in 1:n_ch; i = disc_index(lay, c); P[i, i] = noise[c].σ_mean^2; end   # the discrepancies: their stationary spread
     past = Past(); past.m0 = o0.m_fuel[1]; past.t = t[1]
     return FilterState(lay, joint, collect(sites), collect(String, names), m, P, collect(Channel, channels), collect(NoisePrior, noise), collect(NoisePrior, noise),
@@ -548,8 +585,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     for (s_i, t_j, var) in st.jumps
         (tw[1] < t_j <= tw[end]) && (Q[s_i, s_i] += var)
     end
-    rates = state_rates(st.sn, lay)
-    for (j, i) in enumerate(state_range(lay)); Q[i, i] = rates[j]^2 * Δh; end
+    Q[state_range(lay), state_range(lay)] = state_noise_cov(lay, st.sn, state_rates(st.sn, lay) .* sqrt(Δh))
     m_new = copy(z_post)
     m_new[state_range(lay)] = L.x_end
     m_new[ignited_index(lay)] = clamp(m_new[ignited_index(lay)], 1e-6, 1 - 1e-6)

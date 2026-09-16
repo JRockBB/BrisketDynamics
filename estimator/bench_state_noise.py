@@ -31,6 +31,7 @@ Run from app/:  uv run python ../estimator/bench_state_noise.py [--cooks 9] [--w
                     [--start file|default] [--rounds tune,fresh] [--smoke]
   --smoke: one worker, one cook, at most two hours, into scratch names (the driver's own check; nothing quoted from it)
   --rounds fresh: the fresh round only, with the file's rates as they are (the check without the correction)
+  --reuse: aggregate a round's records when they all exist instead of running its workers
 """
 from __future__ import annotations
 
@@ -93,12 +94,17 @@ def load_round(files: list[Path]) -> dict:
         raise SystemExit("the round produced no cooks")
     temps = [r for c in cooks for r in c["temps"]]
     out = {"n_cooks": len(cooks), "seeds": seeds, "skipped": skipped, "n_updates": len(temps), "physics": fp, "group_dof": gd,
-           "rates": {g: sn[g] for g in GROUPS}, "init_sd": {g: sn[g + "0"] for g in GROUPS}, "groups": {}}
+           "rates": {g: sn[g] for g in GROUPS}, "init_sd": {g: sn[g + "0"] for g in GROUPS}, "groups": {},
+           "fields": sn.get("fields", "nodes"), "node_jitter": sn.get("node_jitter", 0.0)}
     for g in GROUPS:
         v = np.array([r["nees_g"][g] for r in temps], dtype=float)
         v = v[np.isfinite(v)]
-        out["groups"][g] = {"nees_dof": float(np.mean(v)) if len(v) else float("nan"), "n": int(len(v))}
+        per_cook = [float(np.nanmean([r["nees_g"][g] for r in c["temps"]])) for c in cooks]
+        out["groups"][g] = {"nees_dof": float(np.mean(v)) if len(v) else float("nan"), "n": int(len(v)),
+                            "cook_median": float(np.nanmedian(per_cook)), "cook_max": float(np.nanmax(per_cook))}
     nz = np.array([r["nees_z16"] for r in temps], dtype=float); nT = np.array([r["nees_T"] for r in temps], dtype=float)
+    out["latents_per_cook"] = [float(np.nanmean([r["nees_z16"] for r in c["temps"]]) / 16) for c in cooks]
+    out["temps_per_cook"] = [float(np.nanmean([r["nees_T"] for r in c["temps"]]) / 3) for c in cooks]
     nis = np.array([r["nis"] for r in temps if r["dof"] > 0], dtype=float); dof = np.array([r["dof"] for r in temps if r["dof"] > 0], dtype=float)
     out["latents_nees16"] = float(np.nanmean(nz) / 16); out["temps_nees3"] = float(np.nanmean(nT) / 3)
     out["nis_dof"] = float(np.nansum(nis) / np.sum(dof)) if len(dof) else float("nan")
@@ -125,13 +131,14 @@ def band(n_eff: float, dof: int) -> tuple[float, float]:
 
 def print_round(name: str, r: dict, hours: float) -> None:
     gd = r["group_dof"]; n_eff = r["n_cooks"] * hours
-    print(f"{name}: {r['n_cooks']} cooks (seeds {r['seeds']}), {r['n_updates']} updates; physics {r['physics']}")
-    print(f"  NIS/dof {r['nis_dof']:.2f}; NEES/16 of the latents {r['latents_nees16']:.2f}; NEES/3 of the temperatures {r['temps_nees3']:.2f}")
-    print(f"  {'group':9s} {'rate':>10s} {'init sd':>10s} {'NEES/dof':>9s} {'band (one sample per cook-hour)':>32s}")
+    print(f"{name}: {r['n_cooks']} cooks (seeds {r['seeds']}), {r['n_updates']} updates; physics {r['physics']}; the fields' noise by {r['fields']}")
+    print(f"  NIS/dof {r['nis_dof']:.2f}; NEES/16 of the latents {r['latents_nees16']:.2f} (per cook: " + " ".join(f"{v:.2f}" for v in r["latents_per_cook"]) + ")")
+    print(f"  NEES/3 of the temperatures {r['temps_nees3']:.2f} (per cook: " + " ".join(f"{v:.2f}" for v in r["temps_per_cook"]) + ")")
+    print(f"  {'group':9s} {'rate':>10s} {'init sd':>10s} {'NEES/dof':>9s} {'cook median':>12s} {'cook max':>9s} {'band (one sample per cook-hour)':>32s}")
     for g in GROUPS:
         v = r["groups"][g]; lo, hi = band(n_eff, gd[g])
         flag = "" if lo <= v["nees_dof"] <= hi else ("  too narrow" if v["nees_dof"] > hi else "  too wide")
-        print(f"  {g:9s} {r['rates'][g]:10.4g} {r['init_sd'][g]:10.4g} {v['nees_dof']:9.2f} {lo:18.2f} to {hi:.2f}{flag}")
+        print(f"  {g:9s} {r['rates'][g]:10.4g} {r['init_sd'][g]:10.4g} {v['nees_dof']:9.2f} {v['cook_median']:12.2f} {v['cook_max']:9.2f} {lo:18.2f} to {hi:.2f}{flag}")
     print("  whiteness: " + "; ".join(f"{lab} mean {w['mean']:+.2f} lag-1 {w['lag1']:+.2f} (band +-{w['band']:.2f})" for lab, w in r["whiteness"].items()))
     sys.stdout.flush()
 
@@ -170,6 +177,7 @@ def main() -> None:
     ap.add_argument("--cap", type=float, default=4.0, help="the most a rate moves in the one correction, as a factor either way")
     ap.add_argument("--start", choices=["file", "default"], default="file", help="the tuning round's rates: the file's (if any) or the code's defaults")
     ap.add_argument("--rounds", default="tune,fresh"); ap.add_argument("--smoke", action="store_true")
+    ap.add_argument("--reuse", action="store_true", help="aggregate a round's records if they all exist instead of running its workers (a rerun of the correction or the figures)")
     a = ap.parse_args()
     rounds = a.rounds.split(",")
     if a.smoke:
@@ -186,12 +194,16 @@ def main() -> None:
           f"the tuning round starts from {'the code defaults' if start_file == 'default' else 'data/calibration/' + start_file}; logs in {log_dir}")
     sys.stdout.flush()
     if "tune" in rounds:
-        files = run_workers("tune", tune_seeds, n_per, a.hours, a.prior, start_file, [f"{stem_tune}_{s}.json" for s in tune_seeds], log_dir)
+        names = [f"{stem_tune}_{s}.json" for s in tune_seeds]
+        if a.reuse and all((REPO / "data" / "mock" / nm).exists() for nm in names):
+            files = [REPO / "data" / "mock" / nm for nm in names]; print("  tune: reusing the records " + ", ".join(names))
+        else:
+            files = run_workers("tune", tune_seeds, n_per, a.hours, a.prior, start_file, names, log_dir)
         tune = load_round(files)
         print_round("the tuning round (before the correction)", tune, a.hours)
         rates, init, factors = match(tune, a.cap)
         print("  the correction, each group's factor: " + ", ".join(f"{g} x{factors[g]:.2f}" for g in GROUPS))
-        record = {"rates": rates, "init_sd": init, "units": UNITS,
+        record = {"rates": rates, "init_sd": init, "fields": tune["fields"], "node_jitter": tune["node_jitter"], "units": UNITS,
                   "physics": {"fingerprint": tune["physics"], "commit": git_commit(), "date": dt.date.today().isoformat(),
                               "what": "BrisketEstimator.physics_fingerprint: src/**/*.jl and the filter's own files; the drivers warn when the tree's differs"},
                   "method": "one covariance-matching step on the tuning round: rate and initial width scaled per group by sqrt(NEES/dof) when that widens the belief "
@@ -200,8 +212,10 @@ def main() -> None:
                   "bench": {"cooks_per_round": a.cooks, "hours": a.hours, "prior": a.prior, "cap": a.cap,
                             "tune": {"seeds": tune["seeds"], "skipped": tune["skipped"], "records": [f.name for f in files], "started_from": start_file,
                                      "rates": tune["rates"], "init_sd": tune["init_sd"], "factors": factors,
-                                     "nees_dof": {g: tune["groups"][g]["nees_dof"] for g in GROUPS}, "nis_dof": tune["nis_dof"],
-                                     "latents_nees16": tune["latents_nees16"], "temps_nees3": tune["temps_nees3"], "whiteness": tune["whiteness"]}}}
+                                     "nees_dof": {g: tune["groups"][g]["nees_dof"] for g in GROUPS},
+                                     "nees_dof_cook_median": {g: tune["groups"][g]["cook_median"] for g in GROUPS}, "nees_dof_cook_max": {g: tune["groups"][g]["cook_max"] for g in GROUPS},
+                                     "nis_dof": tune["nis_dof"], "latents_nees16": tune["latents_nees16"], "latents_per_cook": tune["latents_per_cook"],
+                                     "temps_nees3": tune["temps_nees3"], "temps_per_cook": tune["temps_per_cook"], "whiteness": tune["whiteness"]}}}
         rates_out.write_text(json.dumps(record, indent=1), encoding="utf-8")
         print(f"  wrote {rates_out}")
         sys.stdout.flush()
@@ -209,13 +223,19 @@ def main() -> None:
         if not rates_out.exists():
             raise SystemExit(f"no rates file at {rates_out}: run the tuning round first")
         sn_file = rates_out.name if rates_out == RATES_FILE else str(rates_out)      # the worker takes a name in data/calibration or an absolute path
-        files = run_workers("fresh", fresh_seeds, n_per, a.hours, a.prior, sn_file, [f"{stem_fresh}_{s}.json" for s in fresh_seeds], log_dir)
+        names = [f"{stem_fresh}_{s}.json" for s in fresh_seeds]
+        if a.reuse and all((REPO / "data" / "mock" / nm).exists() for nm in names):
+            files = [REPO / "data" / "mock" / nm for nm in names]; print("  fresh: reusing the records " + ", ".join(names))
+        else:
+            files = run_workers("fresh", fresh_seeds, n_per, a.hours, a.prior, sn_file, names, log_dir)
         fresh = load_round(files)
         print_round("the fresh round (the rates as written, seeds never seen)", fresh, a.hours)
         record = json.loads(rates_out.read_text(encoding="utf-8"))
         record.setdefault("bench", {})["fresh"] = {"seeds": fresh["seeds"], "skipped": fresh["skipped"], "records": [f.name for f in files],
-                                                   "nees_dof": {g: fresh["groups"][g]["nees_dof"] for g in GROUPS}, "nis_dof": fresh["nis_dof"],
-                                                   "latents_nees16": fresh["latents_nees16"], "temps_nees3": fresh["temps_nees3"], "whiteness": fresh["whiteness"]}
+                                                   "nees_dof": {g: fresh["groups"][g]["nees_dof"] for g in GROUPS},
+                                                   "nees_dof_cook_median": {g: fresh["groups"][g]["cook_median"] for g in GROUPS}, "nees_dof_cook_max": {g: fresh["groups"][g]["cook_max"] for g in GROUPS},
+                                                   "nis_dof": fresh["nis_dof"], "latents_nees16": fresh["latents_nees16"], "latents_per_cook": fresh["latents_per_cook"],
+                                                   "temps_nees3": fresh["temps_nees3"], "temps_per_cook": fresh["temps_per_cook"], "whiteness": fresh["whiteness"]}
         if fresh["physics"] != record.get("physics", {}).get("fingerprint"):
             print(f"  NOTE: the fresh round ran on physics {fresh['physics']}, the file records {record.get('physics', {}).get('fingerprint')}")
         rates_out.write_text(json.dumps(record, indent=1), encoding="utf-8")

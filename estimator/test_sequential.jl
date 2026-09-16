@@ -84,6 +84,14 @@ end
     @test first.(gr) == collect(STATE_GROUPS) && sort(vcat([collect(r) for (_, r) in gr]...)) == 1:lay.n_state
     @test all(E.state_rates(sn, lay)[first(r)] == getfield(sn, Symbol(g)) && E.state_init_sd(sn, lay)[last(r)] == getfield(sn, Symbol(g * "0")) for (g, r) in gr)
     @test pit_index(lay) - lay.n_z == first(gr[findfirst(x -> first(x) == "T_pit", gr)][2])
+    # the noise's structure: under :offset a field's nodes share one draw (the block is rank one plus the jitter),
+    # the scalars are independent; under :nodes everything is diagonal; both are positive definite
+    Qo = state_noise_cov(lay, sn, E.state_init_sd(sn, lay)); Qn = state_noise_cov(lay, StateNoise(fields=:nodes), E.state_init_sd(sn, lay))
+    rT = gr[1][2]
+    @test Qo[rT[1], rT[2]] == sn.T0^2 && Qo[rT[1], rT[1]] == sn.T0^2 * (1 + sn.node_jitter^2) && Qo[rT[1], gr[2][2][1]] == 0
+    @test Qn == Diagonal(Qn) && Qn[rT[1], rT[1]] == sn.T0^2 && isposdef(Qo) && isposdef(Qn)
+    @test group_dofs(lay, sn)["T"] == 1 && group_dofs(lay, sn)["bark"] == 3 && group_dofs(lay, StateNoise(fields=:nodes))["T"] == lay.nx
+    @test_throws ArgumentError state_noise_cov(lay, StateNoise(fields=:blob), E.state_init_sd(sn, lay))
     # the state-noise file: the fingerprint is stable, the file round-trips, no file means the defaults
     fp = physics_fingerprint()
     @test length(fp) == 12 && fp == physics_fingerprint()
@@ -92,7 +100,7 @@ end
         JSON.print(io, merge(state_noise_dict(StateNoise(T=0.7, W0=0.2)), Dict("physics" => Dict("fingerprint" => fp))))
     end
     sn2 = load_state_noise(tmp; warn=false)
-    @test sn2.T == 0.7 && sn2.W0 == 0.2 && sn2.C == sn.C && sn2.ignited0 == sn.ignited0
+    @test sn2.T == 0.7 && sn2.W0 == 0.2 && sn2.C == sn.C && sn2.ignited0 == sn.ignited0 && sn2.fields == :offset
     @test load_state_noise(tempname() * ".json"; warn=false) == StateNoise()
     rm(tmp)
 end

@@ -113,16 +113,20 @@ for k in 1:n_cooks
     # form (a field block's entries span orders of magnitude), as NEES per degree of freedom
     lay = FilterLayout(size(o.T_field, 1), length(sites), 4)
     groups = state_groups(lay)
-    for (g, rg) in groups; group_dof[g] = length(rg); end
+    gdof = group_dofs(lay, sn)
+    for (g, _) in groups; group_dof[g] = gdof[g]; end
     function nees_corr(e, C)
         s = sqrt.(max.(diag(C), 1e-300))
         F = cholesky(Matrix(Symmetric(C ./ (s * s'))); check=false)
         issuccess(F) ? dot(e ./ s, F \ (e ./ s)) : NaN
     end
+    # a field under :offset carries one draw for its nodes: it is scored on its bulk, the node mean, against the
+    # plant's, one degree of freedom (its shape is the physics', not the noise's); otherwise node by node
     function group_nees(r)
         ics, a = handoff(o, r.k)
         ex = r.x .- pack_state(ics, a, lay)                    # its own name: an `e` here would be the loop's `e`, shared through the closure
-        Dict(g => nees_corr(ex[rg], r.x_cov[rg, rg]) / length(rg) for (g, rg) in groups)
+        Dict(g => (gdof[g] == 1 && length(rg) > 1 ? (v = sum(r.x_cov[rg, rg]) / length(rg)^2; sum(ex[rg]) / length(rg))^2 / v :
+                   nees_corr(ex[rg], r.x_cov[rg, rg]) / length(rg)) for (g, rg) in groups)
     end
     temps = [(zt = truth_at(z0, dd, r.t, events.t_add); ez = r.z .- zt;
               eT = [r.T_pit[1] - o.Tpit[kk(r.t)], r.T_centre[1] - o.Tcore[kk(r.t)], r.T_surface[1] - o.Tsurf[kk(r.t)]];
