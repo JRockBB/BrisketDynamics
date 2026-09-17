@@ -179,31 +179,34 @@ Its structure is fixed by three measured RxInfer behaviours
   burn-rate sensor exists for (a whole-cooker platform scale; on a
   pellet grill the auger duty cycle), the row of the sensor table the
   estimator cannot supply for itself.
-- **The filter on the graph as the pilot's estimator.** The belief is
-  now updated as the measurements arrive (`estimator/src/sequential.jl`:
-  the plant's state in the latent block, the same graph fit per
-  ten-minute slice, the previous posterior carried through the physics
-  as the prior; `docs/results.md`, the drifting-plant pilot entry). The
-  smoother pilot beat the batch pilot on all three drifting plants
-  (0.80 against 0.91 J) once the plan solved the past in the smoother's
-  segments and the planner chose by the goals alone; the filter is the
-  estimator the pilot should fly next. What remains: (i) the state's
-  process noise is a nominal jitter, and the nine-cook coverage says
-  the temperature beliefs are too narrow (median |err|/sd 1.2 to 1.8
-  against 0.67 for a calibrated one): earn it from the coverage the way
-  the noise prior was earned, or carry the model's own error as a
-  state; (ii) the pilot on the filter: the plan from the filtered state
-  at now (`plan_solve` from the state's initial conditions, the past's
-  integrals from the filtered history) instead of the segment history;
-  (iii) the AR whitening restarts at each slice's first sample, a small
-  overcount of information across slices; (iv) the drift rates and the
-  add's jump are a modelling choice (0.05, 0.05, 0.03 per hour; 0.15
-  and 0.10), on a real pit what a second cook's residuals identify;
-  (v) the nine-cook run showed k_m +1.3 sd for every estimator (+0.26 on
-  the constant plant): fresh seeds before it is called a bias; (vi) the
-  constant-plant headline (pilot J 0.84 against the MPC's 0.68 and 0.76,
-  the entry of 2026-09-10) was measured under the planner before the
-  goals-only pick and the guard: one flight refreshes it.
+- **The filter on the graph, after the bench.** The belief is updated
+  at every arrival, carried through the physics by sigma points, and its
+  state widths are earned on a reproducible bench (`docs/results.md`,
+  the entry of 2026-09-16): on nine fresh drifting cooks the
+  temperatures are calibrated (NEES/3 of 1.02) and the latents are 30 to
+  60 % too confident in variance with no cook diverging. What remains:
+  (i) the fuel add: the temperatures' NEES spikes to 2.8 after it and
+  the fire's thermal mass, constant in the belief, is pulled 1.9 sd on
+  every cook; the add's jump variances and the ignited fraction's width
+  through the transient are the numbers, or a jump on the thermal mass
+  at the add; (ii) the innovations are smaller than the belief predicts
+  (NIS/dof 0.56) while the latents are slightly narrow: the noise
+  identification's floors (the humidity's σ sits at its floor on every
+  cook) against the belief's widths, to be read together; (iii) k_m is
+  +0.69 sd (z 2.3) on the fresh seeds where the runs of 2026-09-11 had
+  +1.3: a bias at two sigma, halved, and the real 19-hour log is the next
+  place to look for it; (iv) the channel level rises on a model
+  transient (the pit probe after the add, the humidity after the wrap)
+  as it would on a fault; the dead-reading rule catches a frozen probe,
+  a level that told the two apart would need the other channels'
+  agreement; (v) the drift rates and the add's jump are a modelling
+  choice (0.05, 0.05, 0.03 per hour; 0.15 and 0.10), on a real pit what
+  a second cook's residuals identify; (vi) the pilot flights on the
+  filter (three drifting plants, the fault flight, the constant-plant
+  headline against the MPC, the two-cook learning run) are the next
+  entry; (vii) `test_smoother.jl`'s segmented-physics test fails at that
+  test's own whole-cook solve (an ODE instability at its truth), before
+  and after this work.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it

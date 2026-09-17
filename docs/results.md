@@ -4,6 +4,209 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The filter judged: the bench that earns its widths, and the two defects it found (2026-09-16)
+
+The filter on the graph was rebuilt on 2026-09-12 to update the belief
+at every arrival of a sample, with the plant's state and every
+instrument's discrepancy in the block. This entry is what happened when
+it was judged rather than described: a reproducible bench for the
+state's process noise, the consistency tests it runs, two defects those
+tests found in the estimator itself, and the fixes. Nothing here touches
+the physics; on this bench the plant is the model's own physics, so the
+model error is zero by construction and every inconsistency is the
+estimator's.
+
+**The bench, and why it is a script.** The state's process noise (a
+random-walk rate and an initial width per field group, `StateNoise`) is
+not fit to any reading. It is earned by consistency against the truth
+on the drifting bench: `estimator/python/bench_state_noise.py` runs a
+tuning round on seeds 1 to 9, applies one covariance-matching step per
+group (the rate and the width scaled by the square root of the group's
+NEES per degree of freedom when that widens the belief, by its fourth
+root when it narrows it, capped at a factor four), runs a fresh round on
+seeds 10 to 18 with the corrected rates, and renders the consistency and
+coverage figures from the fresh round only. The rates live in
+`data/calibration/state_noise.json` with the fingerprint of the physics
+sources and the filter's files they were earned on, the commit and both
+rounds' numbers; every driver loads them and warns when the tree has
+moved past the fingerprint, so a change to the physics means one rerun
+of the driver. The question that shaped it was whether tuning rates on
+the bench is overfitting: the rates fit widths, not readings, about two
+dozen numbers against thousands of NEES samples, and the fresh seeds are
+the held-out check; the two real weaknesses are that rounds by eye chase
+the seeds, hence the single fixed-point step, and that a plant that is
+the model's own physics can only price the drift and the numerics,
+hence the rates are stated as a floor: on a real pit the check is NIS and
+whiteness alone.
+
+**What the first round found.** Nine cooks, the filter as rebuilt:
+innovations in band throughout (NIS/dof 0.69, means at zero, lag-one
+autocorrelations inside their bands) and the belief inconsistent against
+the truth on eight of them.
+
+| seed | latents NEES/16 | temperatures NEES/3 | the site carrying it at 14 h |
+|---|---|---|---|
+| 1 | 8.99 | 1.32 | the water diffusivity, 6.3 sd |
+| 2 | 3.14 | 3.91 | the fire's thermal mass, 5.7 sd |
+| 4 | 0.71 | 1.16 | 1.8 sd |
+| 5 | 3.11 | 1.91 | the ignition spread, 4.5 sd |
+| 7 | 24.3 | 66.8 | the probe's depth, 10.3 sd |
+| 8 | 1.37 | 2.13 | the ignition spread, 3.7 sd |
+| pooled, nine | 5.12 | 8.95 | |
+
+A pooled mean hides this: the temperature field's pooled NEES was 0.91
+with one cook at 7, which is why the driver reports per-cook medians and
+maxima. NIS is blind to it because the sensors' noise dominates the
+innovation variance. Two mechanisms, found by opening the records.
+
+**Defect one: the fields' noise manufactured depth information.** On
+seed 7 the probe sits 9 mm into a 37 mm slab where the prior expects 31.
+At the first update, two minutes into the cook, the physics gives the
+depth latent zero sensitivity (the field's tilt across the two nodes the
+probe sits between is 1e-7 K); at the update's optimum the tilt was
+0.23 K, the two nodes having moved −0.33 and −0.10 K to fit the probe's
+own reading, and the whitened depth sensitivity was 73. The belief's
+depth width collapsed from 0.50 to 0.16 with its mean unmoved, and never
+recovered. The cause was the noise's structure: every field node carried
+an independent width, so the update could bend the field between two
+adjacent nodes, and the probe model, which interpolates the field at the
+depth, read the bend as depth. The water field failed the other way,
+its surface node detaching from the bulk because water diffusion is far
+too slow to smooth per-node noise between updates. The fix is
+structural: a field's noise moves the field as a whole
+(`StateNoise.fields = :offset`, commit 75d3f61); the recipe's meat is
+uniform to a kelvin as a whole, and a model's error in a diffusion field
+is smooth. Seed 7's first-update depth width stays at 0.50, its latents'
+NEES/16 runs 1.3 through thirty updates where it ran 21, and the tuning
+round under this fix alone pooled 2.87 on the latents and 1.61 on the
+temperatures.
+
+**Defect two: the linearization at the mean locked seed 1 into the wrong
+regime.** Seed 1's diffusivity truth is 1.4 prior sd above the prior's
+mean. A belief that starts at the mean dries its own surface (0.43 at
+9 h against the plant's 0.77), and in that regime the humidity's slope on
+the diffusivity is steep, 240 Pa per sd on the dry side against under 90
+on the wet side where the truth sits. Every low humidity reading was
+charged to the diffusivity, which went 7 sd low by 10 h with the
+innovations in band, so the misfit check could not see it. Widening the
+water field four and ten times, iterating the update to convergence,
+and the structure fix all left it above 25. The slices' physics is exact
+(a restart from the plant's own state reproduces the plant's water path
+to four digits from the second point of a slice). The remedy is to carry
+the belief through the physics rather than along its tangent (commit
+12c5d48): a fixed whitened antithetic design of 64 points over the
+latent block (in seventeen dimensions the textbook axis points sit four
+sd out on one axis each and probe regimes the belief does not hold); the
+prediction from the points' spread with the state at its conditional
+mean per point, exact for a linear slice; and the update's affine nodes
+from a regression of each channel's readings on the latent steps, with
+the regression's residual per row added to that row's noise, so a
+reading the belief's spread cannot fit with a line is trusted less. The
+graph fit is unchanged; the line search's trials use the plain slice
+under the last inflation, so the cost is nil net (3.4 s per update
+against the tangent's 3.5).
+
+| seed 1 | latents NEES/16 at 9, 10, 11 h | the diffusivity at 10 h | surface water at 10 h (plant 0.70) |
+|---|---|---|---|
+| the tangent | 3.3, 33.2, 30.7 | −7.0 sd | 0.18 ± 0.02 |
+| sigma points in the prediction only | 1.9, 6.7, 6.0 | −5.0 sd | 0.29 ± 0.05 |
+| sigma points in the prediction and the update | 1.03, 0.91, 1.09 | in band | 0.67 ± 0.16 |
+
+Seed 7 under the same runs 0.96, 0.93, 1.21 through thirty updates, and
+its depth moves at the first update, from the prior's −3.47 toward the
+truth's −4.69, because the regression over the depth's own spread finds
+the shallow probe's sensitivity that the tangent at the prior's depth
+cannot.
+
+**The tuning round on the filter as it stands.** Nine cooks, the level
+fixed at one (the bench earns the state's widths; a level reads the
+belief's consistency and cannot be judged before it):
+
+| | first round | after the structure fix | after the sigma points |
+|---|---|---|---|
+| latents NEES/16, pooled | 5.12 | 2.87 | 1.42 |
+| latents per cook | 9.0, 3.1, 24.3, … | 9.5, 4.5, 1.0, 0.9, 2.8, 1.3, 3.2, 1.3, 1.5 | 1.5, 1.7, 1.3, 1.8, 1.2, 1.1, 1.5, 0.9, 1.7 |
+| temperatures NEES/3, pooled | 8.95 | 1.61 | 1.40 |
+| NIS/dof | 0.69 | 0.64 | 0.64 |
+
+The state by group on that round: the temperature field 1.06 (cook median
+0.98), the fuel 1.05, the pit 1.28 (narrow), the water 0.67, the collagen
+0.45 and the bark 0.50 (wide); the pan and firebox scalars near zero,
+unobserved on this bench and not calibrated by it. The correction the
+driver applied: temperature ×1.03, pit ×1.13, fuel ×1.03, water ×0.90,
+collagen ×0.82, bark ×0.84, ignited ×0.72, the firebox and pan scalars
+×0.25 (the cap; they are unobserved).
+
+**The fresh round.** Nine cooks on seeds 10 to 18 the rates had never seen, the rates as
+corrected, the level off:
+
+| | the fresh round |
+|---|---|
+| latents NEES/16, pooled (band 0.74 to 1.30) | 1.59; per cook 1.47, 1.54, 2.66, 2.57, 1.14, 1.57, 0.63, 1.63, 1.09 |
+| temperatures NEES/3, pooled (band 0.46 to 1.75) | 1.02; per cook 0.96, 0.69, 1.22, 0.97, 0.77, 0.64, 0.91, 1.73, 1.26 |
+| NIS/dof | 0.56, inside its band on 50 % of updates |
+| whiteness | means −0.03 to +0.08 on every channel; lag-one 0.03 pit, 0.19 core, 0.13 humidity, −0.01 scale |
+| the state by group | temperature field 1.15 (cook median 0.89), water 0.89, pit 1.15, in band; collagen 0.65, fat 0.23, bark 0.49, fuel 0.58, ignited 0.35, wide; the pan and firebox scalars unobserved |
+| coverage at 14 h | pooled spread 1.44, 88 % of the errors within 2 sd, mean −0.12 |
+
+The temperatures are calibrated: the belief's pit, surface and centre
+widths are right on seeds the rates never saw, with one excursion to
+2.8 in the two hours after the fuel add. The latents are 30 to 60 % too
+confident in variance, uniformly in time, and no cook diverges: the
+worst site on any cook is 3.8 sd (r_max on seed 13), the ridge sites
+aside. The innovations are smaller than the belief predicts (NIS 0.56):
+the belief's prediction of the readings carries more variance than the
+readings show, so the filter is cautious with a reading rather than
+greedy; with the latents slightly narrow at the same time, what remains
+is a disagreement between the belief's own widths and its prediction of
+the readings, which is the noise identification's business (the
+humidity's σ sits at its floor on every cook) rather than the rates'.
+The coverage's k_m mean is +0.69 sd (z 2.3) on the fresh seeds, where
+the nine-cook runs of 2026-09-11 had +1.3 for every estimator: a bias at
+the two-sigma level, halved, and the real log is the next place to look
+for it. The fire's thermal mass is pulled from 0 to −1.9 sd in the two
+hours after the add on every cook, and a0 sits at −1.1 with a spread of
+2.5: the ridge, and the add. Figures:
+[the consistency tests](../figures/estimator/filter_consistency_drift.png),
+[the coverage](../figures/estimator/coverage_realcook_driftgraphfilter.png),
+[the running belief on the drifting mock](../figures/estimator/filter_belief_drift.png).
+The records: `data/mock/coverage_tune_{1,4,7}.json` (the tuning round),
+`data/mock/coverage_filter_{10,13,16}.json` (the fresh round), the rates
+and both rounds' numbers in `data/calibration/state_noise.json`.
+
+**The level compounded.** The whole-cook figure of the belief
+([the running belief](../figures/estimator/filter_belief_drift.png))
+showed the scale distrusted from 2 h to 14 h, its level at 100 by 5 h.
+The record: the scale's second and third readings had NIS/dof 3.9 and
+7.2 (the first reading pins the mass, the next two catch the early
+evaporation the prior gets wrong), and from then the level climbed 2.6,
+6.1, 13, 25, 43, 65, 84, 93 while the NIS at those updates was 0.25 to
+1.3. The level multiplied itself by the window's variance of innovations
+that had been standardized under earlier levels, so two outliers stayed
+in the window and compounded. It is now a direct reading, the square
+root of the smoothed variance of innovations standardized as if the
+level were one, and it is judged on no fewer samples than the noise is
+(commit f8de095). The level still rises on the pit probe right after the
+fuel add and on the humidity in the last hours: those are the model
+surprised by a transient, not a sensor at fault, and the mechanism
+cannot tell the two apart; the dead-reading rule is what catches a
+frozen probe.
+
+**What remains.** The fuel add: after 12 h the temperatures' NEES
+spikes to 2.8 and the fire's thermal mass, a constant site with no
+process noise, is pulled 1.9 sd on every cook, so the belief's model of
+the add (jump variances on the new charge's burn rate and enthalpy, the
+ignited fraction's width through the transient) does not cover what the
+plant does there and the one site that cannot move absorbs it; that is
+a number in the estimator's motion model, the kind the next-cook script
+learns across cooks, or a jump on the fire's thermal mass at the add. The fire's thermal mass and a0 sit
+outside the band on several cooks by identifiability (the ridge), as
+before. The core probe and humidity keep a lag-one autocorrelation near
+0.2. `test_smoother.jl`'s segmented-physics test fails at the plant's
+own solve (an ODE instability at that test's truth), and did so before
+this session. The pilot flights on the filter, the fault flight and the
+learning run are the next entry.
+
 ## The pilot on the drifting plant, and the filter on the graph (2026-09-12)
 
 Three things, in the order they were found. The smoother pilot flew
