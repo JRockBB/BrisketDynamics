@@ -95,7 +95,8 @@ def load_round(files: list[Path]) -> dict:
     temps = [r for c in cooks for r in c["temps"]]
     out = {"n_cooks": len(cooks), "seeds": seeds, "skipped": skipped, "n_updates": len(temps), "physics": fp, "group_dof": gd,
            "rates": {g: sn[g] for g in GROUPS}, "init_sd": {g: sn[g + "0"] for g in GROUPS}, "groups": {},
-           "fields": sn.get("fields", "nodes"), "node_jitter": sn.get("node_jitter", 0.0)}
+           "fields": sn.get("fields", "nodes"), "node_jitter": sn.get("node_jitter", 0.0),
+           "events": {k: sn[k] for k in ("T_event", "T_spritz", "m_add") if k in sn}}
     for g in GROUPS:
         v = np.array([r["nees_g"][g] for r in temps], dtype=float)
         v = v[np.isfinite(v)]
@@ -203,7 +204,7 @@ def main() -> None:
         print_round("the tuning round (before the correction)", tune, a.hours)
         rates, init, factors = match(tune, a.cap)
         print("  the correction, each group's factor: " + ", ".join(f"{g} x{factors[g]:.2f}" for g in GROUPS))
-        record = {"rates": rates, "init_sd": init, "fields": tune["fields"], "node_jitter": tune["node_jitter"], "units": UNITS,
+        record = {"rates": rates, "init_sd": init, "fields": tune["fields"], "node_jitter": tune["node_jitter"], "events": tune["events"], "units": UNITS,
                   "physics": {"fingerprint": tune["physics"], "commit": git_commit(), "date": dt.date.today().isoformat(),
                               "what": "BrisketEstimator.physics_fingerprint: src/**/*.jl and the filter's own files; the drivers warn when the tree's differs"},
                   "method": "one covariance-matching step on the tuning round: rate and initial width scaled per group by sqrt(NEES/dof) when that widens the belief "

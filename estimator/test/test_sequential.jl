@@ -216,6 +216,18 @@ end
     @test r2.T_pit[2] > r20.T_pit[2] && r2.T_centre[2] > r20.T_centre[2] && r2.T_surface[2] > r20.T_surface[2]
     for ch in st.channels; ch.mask[8] = true; end
     @test_throws ArgumentError filter_update!(st, 9)
+    # an event's disturbance: the interval that crosses the add leaves the pit and the fuel wider by the event's
+    # variances than the same interval without it (the transition through the chimney differs a little, so within a fifth)
+    ev_add = (; events..., t_add=t[5])
+    st_e = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q)
+    st_a = filter_init(channels(), t, u, pit, cfg, sites, names, ev_add; noise, area_latent=AREA, q)
+    for s in (st_e, st_a); filter_update!(s, 2); for ch in s.channels; ch.mask[3:7] .= false; end; end
+    r_e = filter_update!(st_e, 7); r_a = filter_update!(st_a, 7)
+    lay_e = st_e.lay
+    @test abs((r_a.T_pit[2]^2 - r_e.T_pit[2]^2) - st_e.sn.T_event^2) < 0.4 * st_e.sn.T_event^2        # the transition through the chimney also moves the pit's variance
+    @test abs((st_a.P[E.fuel_index(lay_e), E.fuel_index(lay_e)] - st_e.P[E.fuel_index(lay_e), E.fuel_index(lay_e)]) - st_e.sn.m_add^2) < 0.2 * st_e.sn.m_add^2
+    @test length(E._event_times(ev_add, t[end])) == length(E._event_times(events, t[end])) && any(te == t[5] && k == :add for (te, k) in E._event_times(ev_add, t[end]))
+    @test load_state_noise(tempname() * ".json"; warn=false).T_event == 5.0
 end
 
 @testset "the plan from the filtered state is the whole cook from the start (the restart contract)" begin

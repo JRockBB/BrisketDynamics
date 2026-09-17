@@ -39,6 +39,8 @@ pit_index(lay::FilterLayout) = lay.n_z + 5 * lay.nx + 4
 centre_index(lay::FilterLayout) = lay.n_z + 1
 surface_index(lay::FilterLayout) = lay.n_z + lay.nx
 ignited_index(lay::FilterLayout) = lay.n_z + lay.n_state
+fuel_index(lay::FilterLayout) = lay.n_z + 5 * lay.nx + 5
+firebox_index(lay::FilterLayout) = lay.n_z + 5 * lay.nx + 8
 "The state block's sites: Gaussian in the raw coordinate (`from_z` is the identity on the \"linear\" family)."
 state_sites(n::Int) = [PriorSite("linear", 0.0, 1.0) for _ in 1:n]
 "The discrepancy sites: the same linear family, in the instrument's units."
@@ -66,6 +68,15 @@ pit's temperature [K], fuel [kg], pan mass [kg] and temperature [K], the firebox
 and the sd of each at the start (the recipe's meat and pit known to about a kelvin, the loads to a few
 percent). The rates are what the consistency bench earns (NEES of the temperatures and of the latents in their
 bands); the defaults are a starting point, not a result.
+
+`T_event`, `T_spritz` and `m_add` are the disturbances an event leaves on the state: the interval that crosses a
+lid-open event (the add, the wrap, the pull, a spritz) adds their variance to the pit's and the firebox's
+temperatures, and the add's to the fuel mass. The belief propagates through such an event blind (the lid's
+window drops the readings) while the pit falls by tens of kelvin in minutes; the one update at the far end then
+carries a large innovation whose attribution over an eight-minute transient is nearly linear in the fire's thermal
+mass, and on the bench that single update moved the thermal mass by 27 % and halved its width on every cook,
+with the belief's other errors (the burn rate, the fuel mass) as the true cause. With the state uncertain after
+the event, the innovation lands on the state and the fire's sites learn from the hour of recovery that follows.
 
 `fields` says how a field's noise is spread over its nodes. `:offset` (the default) moves every node of the
 field together: the recipe's meat is uniform to a kelvin as a whole, and a model's error in a diffusion field is
@@ -104,6 +115,9 @@ Base.@kwdef struct StateNoise
     ignited0::Float64 = 0.05
     fields::Symbol = :offset
     node_jitter::Float64 = 0.003
+    T_event::Float64 = 5.0            # the pit's and the firebox's temperatures after a lid-open event the belief propagated through (the add, the wrap, the pull) [K]
+    T_spritz::Float64 = 1.5           # the same after a spritz [K]
+    m_add::Float64 = 0.15             # the fuel mass after the add: the chimney's mass is not the config's to the gram [kg]
 end
 function _state_vec(lay::FilterLayout, fields, scalars, ign)
     nx = lay.nx
@@ -188,7 +202,8 @@ end
 "The `StateNoise` as the file's fields: the rates and the initial sds by group."
 state_noise_dict(sn::StateNoise) = Dict("rates" => Dict(g => getfield(sn, Symbol(g)) for g in STATE_GROUPS),
                                         "init_sd" => Dict(g => getfield(sn, Symbol(g * "0")) for g in STATE_GROUPS),
-                                        "fields" => string(sn.fields), "node_jitter" => sn.node_jitter)
+                                        "fields" => string(sn.fields), "node_jitter" => sn.node_jitter,
+                                        "events" => Dict("T_event" => sn.T_event, "T_spritz" => sn.T_spritz, "m_add" => sn.m_add))
 
 """
     load_state_noise(path=STATE_NOISE_FILE; warn=true) -> StateNoise
@@ -212,6 +227,7 @@ function load_state_noise(path::AbstractString=STATE_NOISE_FILE; warn::Bool=true
     for (k, v) in d["init_sd"]; kw[Symbol(k * "0")] = Float64(v); end
     haskey(d, "fields") && (kw[:fields] = Symbol(d["fields"]))
     haskey(d, "node_jitter") && (kw[:node_jitter] = Float64(d["node_jitter"]))
+    for (k, v) in get(d, "events", Dict()); kw[Symbol(k)] = Float64(v); end
     return StateNoise(; kw...)
 end
 
@@ -807,6 +823,15 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
         (tw[1] < t_j <= tw[end]) && (Q[s_i, s_i] += var)
     end
     Q[state_range(lay), state_range(lay)] = state_noise_cov(lay, st.sn, state_rates(st.sn, lay) .* sqrt(Δh))
+    # the events' disturbances: a lid-open event the interval crosses leaves the pit's and the firebox's temperatures
+    # uncertain by T_event (T_spritz for a spritz), and the add the fuel mass by m_add (StateNoise)
+    for (t_e, kind) in _event_times(st.events, tw[end])
+        (tw[1] < t_e <= tw[end]) || continue
+        σ = kind == :spritz ? st.sn.T_spritz : st.sn.T_event
+        Q[pit_index(lay), pit_index(lay)] += σ^2
+        Q[firebox_index(lay), firebox_index(lay)] += σ^2
+        kind == :add && (Q[fuel_index(lay), fuel_index(lay)] += st.sn.m_add^2)
+    end
     sigma_ok = size(st.sigma, 1) > 0
     if sigma_ok
         m_new, P_pred = _sigma_prediction(lay, st.sigma, z_post, V_post, L.J_end, d, ph)
@@ -832,6 +857,24 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             z=m_new[1:n_z], z_sd=sd[1:n_z], z_cov=P_new[1:n_z, 1:n_z], disc=m_new[disc_range(lay)], disc_sd=sd[disc_range(lay)],
             noise=[(σ=np.σ_mean, σ_sd=np.σ_sd, ρ=np.ρ_mean, ρ_sd=np.ρ_sd) for np in st.np], level=copy(st.level), faulty=copy(st.faulty),
             misfit=mis, iters=n_it, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov, sigma=sigma_ok)
+end
+
+"The lid-open events of the cook up to `t_end`, each with its kind: the add, the wrap, the pull, and the spritz train to the pull."
+function _event_times(events::NamedTuple, t_end::Float64)
+    out = Tuple{Float64,Symbol}[]
+    set(k) = haskey(events, k) && getfield(events, k) < 1e8
+    set(:t_add) && push!(out, (events.t_add, :add))
+    set(:t_wrap) && push!(out, (events.t_wrap, :wrap))
+    set(:t_pull) && push!(out, (events.t_pull, :pull))
+    if set(:t_spritz)
+        tp = set(:t_pull) ? events.t_pull : t_end
+        ts = events.t_spritz
+        while ts <= min(tp, t_end)
+            push!(out, (ts, :spritz))
+            ts += events.dt_spritz
+        end
+    end
+    return out
 end
 
 "The first grid point after `k0` where any channel has a sample, or `k_to` when none does before it."
