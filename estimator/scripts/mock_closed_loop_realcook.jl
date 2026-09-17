@@ -200,6 +200,7 @@ for k in 2:length(GRID)
             kept = L_new > L_now + 1e-6
             why == :event_due && (stable = stable_events(kept ? plan : r.plan, plan, pol.stable))   # left where it stood: commit it
             kept || (global plan = r.plan)
+            why == :event_due && note_replanned!(s, plan, pol)                                   # one decision per event as it comes due
             global L_plan = kept ? L_now : L_new
             global n_replans += 1
             global pred = predicted(kept ? ζ_init : r.ζ, r.free, stt)

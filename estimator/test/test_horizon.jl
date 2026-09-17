@@ -199,6 +199,11 @@ end
     @test replan_due(pol, s, plan, 0.5, 0.5, 0.5) == (false, :hold)
     s.t_now = 5.8 * 3600.0
     @test replan_due(pol, s, plan, 0.5, 0.5, 0.5) == (true, :event_due)          # the wrap at 6 h comes due within the quarter hour
+    note_replanned!(s, plan, pol)                                                    # replanned for it once: a later update in the same window holds
+    @test replan_due(pol, s, plan, 0.5, 0.5, 0.5) == (false, :hold)
+    plan_moved = (; plan..., t_wrap=plan.t_wrap + 120.0)                             # the plan moved the wrap: it comes due again
+    @test replan_due(pol, s, plan_moved, 0.5, 0.5, 0.5) == (true, :event_due)
+    empty!(s.replanned_for)
     # once the pull has been executed (the meat is out), a standing plan's spritz or add is no decision and cannot come due
     s4 = Schedule(GRID; u0=0.15); s4.t_now = 12.5 * 3600.0; s4.t_pull = 12.0 * 3600.0; s4.t_wrap = 6.0 * 3600.0
     plan4 = (u=plan.u, t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_serve=16.0 * 3600, spritz=(t=12.6 * 3600, dt=3600.0, m=0.04), t_add=12.7 * 3600)

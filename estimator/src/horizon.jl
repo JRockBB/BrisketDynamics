@@ -14,7 +14,7 @@
 # outcomes are read (interpolated on the grid). The free set shrinks as
 # events commit: after the pull only the serve time is free.
 
-export plan_loss, ReplanPolicy, replan_due, stable_events, cook_outputs, objective_terms, executed_du
+export plan_loss, ReplanPolicy, replan_due, note_replanned!, stable_events, cook_outputs, objective_terms, executed_du
 export hinge, Schedule, FreeSet, free_set, plan_prior, decode_plan, encode_plan, plan_damper, N_KNOTS, resample_knots, T_SERVE_MAX, N_BAND, draw_residual, plan_residual, sigma_draws,
        schedule_events, plan_outputs_rh, plan_solve, plan_trajectories, plan_predictive, replan_on_graph, commit!, execute_damper!, PlanGoals
 
@@ -41,9 +41,10 @@ mutable struct Schedule
     t_add::Float64
     spritz::Union{Nothing,NamedTuple{(:t, :dt, :m),NTuple{3,Float64}}}
     t_serve::Float64
+    replanned_for::Dict{Symbol,Float64}   # per event, the planned time the pilot last replanned for as it came due (an event is one decision, not one per update)
 end
 Schedule(t; u0::Float64=0.15, t_serve::Float64=14 * 3600.0) =
-    Schedule(collect(Float64, t), [k == 1 ? u0 : NaN for k in eachindex(t)], 0.0, NaN, NaN, NaN, nothing, t_serve)
+    Schedule(collect(Float64, t), [k == 1 ? u0 : NaN for k in eachindex(t)], 0.0, NaN, NaN, NaN, nothing, t_serve, Dict{Symbol,Float64}())
 
 "Which decisions are free at the schedule's current time: a committed pull fixes its time; an executed pull (the meat out) fixes everything before it."
 struct FreeSet
@@ -640,16 +641,38 @@ function replan_due(pol::ReplanPolicy, s::Schedule, plan, L_now::Real, L_plan::R
     plan === nothing && return (true, :first)
     # only an event still free to move can come due: a standing plan's spritz after the pull has committed is no decision
     f = free_set(s)
-    events = [plan.t_wrap, plan.t_pull, plan.t_add, plan.spritz === nothing ? NaN : plan.spritz.t, plan.t_serve]
-    free = [f.wrap, f.pull, f.add, f.spritz, f.serve]
-    for (t, fr) in zip(events, free)
-        !isnan(t) && fr && s.t_now < t <= s.t_now + pol.lead && return (true, :event_due)
+    for (name, t, fr) in _due_events(s, plan)
+        # an event about to commit is one decision: replanned for once as it enters the lead, and again only if
+        # the standing plan has moved it since (the serve stays free to the end and would otherwise fire at
+        # every update of the last quarter hour)
+        !isnan(t) && fr && s.t_now < t <= s.t_now + pol.lead && get(s.replanned_for, name, NaN) != t && return (true, :event_due)
     end
     # one-sided: excess innovation power says the model is wrong somewhere; too little says it is conservative
     misfit_z !== nothing && misfit_z > pol.misfit_z && return (true, :misfit)
     L_now > pol.loss_high && return (true, :loss_high)
     L_now - L_plan > pol.loss_rise && return (true, :loss_rise)
     return (false, :hold)
+end
+
+"The plan's events by name with whether each is still free: the candidates for coming due."
+function _due_events(s::Schedule, plan)
+    f = free_set(s)
+    return zip((:wrap, :pull, :add, :spritz, :serve),
+               (plan.t_wrap, plan.t_pull, plan.t_add, plan.spritz === nothing ? NaN : plan.spritz.t, plan.t_serve),
+               (f.wrap, f.pull, f.add, f.spritz, f.serve))
+end
+
+"""
+    note_replanned!(s, plan, pol)
+
+After a replan for an event about to commit: every free event of the standing `plan` inside the lead window
+is recorded as replanned for at its planned time, so `replan_due` fires for it again only once the plan moves it.
+"""
+function note_replanned!(s::Schedule, plan, pol::ReplanPolicy)
+    for (name, t, fr) in _due_events(s, plan)
+        !isnan(t) && fr && s.t_now < t <= s.t_now + pol.lead && (s.replanned_for[name] = t)
+    end
+    return s
 end
 
 """
