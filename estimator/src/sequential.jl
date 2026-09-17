@@ -573,7 +573,7 @@ fills it); `q` the process-noise variance rate per hour per latent; `jumps` a ve
 routine update converges in one or two; a large innovation, the first scale reading against a prior area a
 third off, needs the iteration: one step of an exponential overshoots and leaves a covariance that claims
 otherwise);
-`ident_min` the residuals a channel must have before its (σ, ρ) are re-identified (the prior until then);
+`ident_min` the residuals a channel must have before its (σ, ρ) are re-identified (the prior until then) and before its level is judged (one until then);
 `adapt_level` whether each channel's level follows its standardized innovations (off on the bench that earns
 the state's process noise: a level reads the belief's consistency and cannot be judged before the belief is
 consistent; the dead-reading flag stays on); `n_sigma` the sigma points of the prediction (`sigma_design`;
@@ -654,17 +654,19 @@ function _identify!(st::FilterState, c::Int, k::Int)
         st.np[c] = NoisePrior(est.σ, est.post.σ_sd, est.ρ, est.post.ρ_sd; floor=st.np0[c].floor)
         st.t_ident[c] = tk
     end
-    # the level: the smoothed variance of the channel's standardized innovations over its trailing window (the
-    # volatility smoother on a white unit series); the channel's level moves by its square root, so its
-    # discrepancy innovation grows until its innovations are unit again (the adaptive filter's fixed point), and
-    # never falls under half the identified noise. It reads the belief's consistency on that channel, so it is
-    # judged only once the belief is consistent (`adapt_level`).
+    # the level: the smoothed variance, over the channel's trailing window, of its innovations standardized
+    # WITHOUT the level (the volatility smoother on a white unit series); the level is that variance's square
+    # root, a direct reading of how much more the channel's readings carry than the belief at level one can
+    # explain, never under half the identified noise. A level that multiplied itself by the window's variance
+    # compounded: two early outliers standardized under level one stayed in the window and drove the scale's
+    # level to 100 while its later innovations were already unit. It is judged on no fewer samples than the
+    # noise is, and only once the belief is consistent (`adapt_level`).
     e = st.eser[c]
-    if st.adapt_level && length(e) >= 4
+    if st.adapt_level && length(e) >= st.ident_min
         win = e[max(1, length(e) - st.level_window + 1):end]
         vc = volatility_level(win, 0.0, 1.0; w=st.level_w).level[end]^2
         st.vlev[c] = isfinite(vc) ? clamp(vc, 1e-3, 1e4) : 1.0
-        st.level[c] = clamp(st.level[c] * sqrt(st.vlev[c]), 0.5, 100.0)
+        st.level[c] = clamp(sqrt(st.vlev[c]), 0.5, 100.0)
     end
     # the flag: the smoother's level is already a judgement over the trailing window, so a level over the
     # threshold is a sensor whose readings carry more than the belief can explain (a burst, a jump, a reading
@@ -734,7 +736,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     live = [c for c in 1:n_ch if size(whitening(chs[c]), 1) > 0]
     prior_w = FilterPrior(st.joint, m, inv(Symmetric(P)))
     nis, dof, innov = NaN, 0, Dict{Int,Vector{Float64}}()
-    resid = Dict{Int,Float64}(); rvar = Dict{Int,Float64}()
+    resid = Dict{Int,Float64}(); rvar = Dict{Int,Float64}(); efree = Dict{Int,Float64}()
     if isempty(live)
         physics_outputs(m, d, ph)                                         # the transition's Jacobian at the predicted mean
         z_post, V_post, mis, n_it, converged = m, P, nothing, 0, true
@@ -773,6 +775,14 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
                 nr = size(whitening(ch), 1)
                 nr == 0 && continue
                 innov[c] = [(w[i] - a[i]) / sdev[pos[i]] for i in (row + 1):(row + nr) if haskey(pos, i)]
+                # the same innovation standardized as if the level were one: the discrepancy's innovation over the
+                # interval carried (level² − 1) times its own variance, in the row's units, that the level reads
+                if haskey(pos, row + 1)
+                    ρn = clamp(st.np[c].ρ_mean, 0.0, 0.999)^nsteps
+                    σrow = rowscale === nothing ? white_floor(ch) : rowscale[row + 1]
+                    extra = (_effective_level(st, c)^2 - 1) * st.np[c].σ_mean^2 * (1 - ρn^2) / σrow^2
+                    efree[c] = (w[row + 1] - a[row + 1]) / sqrt(max(sdev[pos[row + 1]]^2 - extra, 1e-6))
+                end
                 row += nr
             end
         end
@@ -783,7 +793,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     for c in live
         haskey(resid, c) || continue
         push!(st.dser[c], resid[c]); push!(st.dvar[c], rvar[c]); push!(st.didx[c], k)
-        push!(st.eser[c], haskey(innov, c) && !isempty(innov[c]) ? innov[c][1] : 0.0)
+        push!(st.eser[c], get(efree, c, 0.0))
         _identify!(st, c, k)
     end
     # 4. the prediction of the state to k: through the physics by sigma points over the latents (the tangent at the
