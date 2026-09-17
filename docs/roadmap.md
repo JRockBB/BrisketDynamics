@@ -126,7 +126,7 @@ at serve, in 22.5 h against the MPC's 16 (`docs/results.md`, the pilot
 in a pitmaster's terms).
 Its structure is fixed by three measured RxInfer behaviours
 (per-residual nodes, one latent block, affine relinearization;
-`estimator/test_rules.jl` guards them). What remains, in order:
+`estimator/test/test_rules.jl` guards them). What remains, in order:
 
 - **The exposed area elsewhere.** It is a runtime parameter of the
   monolith now (`A_meat=`) and a latent of the estimator; the Tesseract
@@ -180,7 +180,7 @@ Its structure is fixed by three measured RxInfer behaviours
   pellet grill the auger duty cycle), the row of the sensor table the
   estimator cannot supply for itself.
 - **The filter on the graph as the pilot's estimator.** The belief is
-  now updated as the measurements arrive (`estimator/sequential.jl`:
+  now updated as the measurements arrive (`estimator/src/sequential.jl`:
   the plant's state in the latent block, the same graph fit per
   ten-minute slice, the previous posterior carried through the physics
   as the prior; `docs/results.md`, the drifting-plant pilot entry). The

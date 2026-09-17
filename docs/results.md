@@ -86,7 +86,7 @@ outcomes with their widths.
 **The filter on the graph.** The user's standing point was that the
 belief should be updated as the measurements arrive, and neither the
 hourly batch refit nor the smoother is that. The filter proper
-(`estimator/sequential.jl`) is the same estimator with the plant's
+(`estimator/src/sequential.jl`) is the same estimator with the plant's
 state in the belief: the latent block is the seventeen latents and the
 state `handoff` carries (the meat's temperature, water, collagen, fat
 and salt fields, the bark and the ring, the pit's temperature, fuel,
@@ -160,7 +160,7 @@ ever had, and reports the width of the average. This entry builds the
 plant that moves, two estimators for it, and judges all three by the
 same coverage test, against the truth in force at each hour.
 
-**The drifting plant** (`estimator/drift.jl`, the mock
+**The drifting plant** (`estimator/src/drift.jl`, the mock
 `mock_drift_realcook.jl`). Truths drawn from the pilot's prior as
 before; then u_leak, k_e and h_c walk in the unconstrained coordinate,
 stepping on the hour with sd 0.05, 0.05 and 0.03 per hour, and at the
@@ -350,7 +350,7 @@ effective particles in a hundred (`scratchpad/particle_probe.jl`): in
 bug. A plant solve on the bench costs 0.2 s, so the alternative is a
 chain.
 
-**The chain** (`estimator/ridge.jl`, `ridge_chain`): random-walk
+**The chain** (`estimator/src/ridge.jl`, `ridge_chain`): random-walk
 Metropolis on the exact posterior of the readings (a plant solve per
 step, the identified noise and levels held at their estimates),
 preconditioned by the Gaussian's covariance, the step adapted to a 0.3
@@ -424,13 +424,13 @@ the prior's center and its hourly refits share one noise draw, so a
 persistent offset inside the band is what one draw looks like. The test
 that can say is coverage: truths drawn from the prior the pilot flies
 on, each cook with its own noise draw, the standardized errors pooled.
-`estimator/coverage_realcook.jl` does that on the honest bench (the
+`estimator/scripts/coverage_realcook.jl` does that on the honest bench (the
 monolith on the two-minute grid under the real-cook schedule, read by
 the real-cook instruments at their rates, the noise identified, the
 humidity censored, two-hourly refits to the pull), truths drawn from
 `prior_next_cook.json` (Gaussian in log for the lognormal sites, a beta
 draw in logit for the bounded ones, the probe kept inside the meat);
-`estimator/plot_coverage.py` pools them. Twenty-one cooks, three
+`estimator/python/plot_coverage.py` pools them. Twenty-one cooks, three
 workers, none skipped, eight to thirteen minutes each; records
 `data/mock/coverage_realcook_{1,8,15}.json`, the summary
 `data/mock/coverage_summary.json`, the figure
@@ -509,7 +509,7 @@ bench against the same three cooks, and the pilot went from J 0.97 to
 0.84.
 
 **The calibration's chain as the next cook's prior**
-(`estimator/export_chain_prior.py`, `data/calibration/prior_next_cook.json`;
+(`estimator/python/export_chain_prior.py`, `data/calibration/prior_next_cook.json`;
 the loop takes the prior file as its first argument). The chain's
 marginals are not Gaussian (`figures/calibration/corner_nuts_real.png`: a0 and
 ρ_core piled at a boundary, m_conv and r_max skewed, the dH_eff to r_max
@@ -651,7 +651,7 @@ its cook lengths of 12 to 24 h scores 0.689, 0.643, 0.632, 0.626,
 32.7: on this physics a dark bark is available at any cook length, and
 the pilot's solver was sitting in the basin where it is not.
 
-**The fix, in the planner.** Three things (`estimator/horizon.jl`):
+**The fix, in the planner.** Three things (`estimator/src/horizon.jl`):
 - the decision space is the app's: its full plan searches cook lengths
   of 12 to 24 h, so the serve is bounded at 24 h through the coordinates
   themselves (the pull a logit fraction of now to the bound, the rest a
@@ -694,7 +694,7 @@ at the last replan it predicted collagen 0.933, water 0.432, bark 33.3,
 serve 77.8 °C against the plant's 0.951, 0.435, 34.2, 77.8.
 
 **The MPC without its oracle** (`app/src/brisket_app/mpc.py`
-`run_cook(theta_model=...)`, `estimator/run_mpc_mock1d.py --model-params`;
+`run_cook(theta_model=...)`, `estimator/python/run_mpc_mock1d.py --model-params`;
 record `data/control/mpc_mock1d_calmodel.json`, trace
 `mpc_mock1d_calmodel_traces_mpc_nominal_trace.json`): the same MPC with
 the calibration's parameters (`map_real.json`) as its model and the
@@ -708,7 +708,7 @@ of wall for a 16-h cook. Against the oracle's 0.680 (wrap 8.1 h, pull
 late and undershot the band) and juiciness. Port checks: the Julia core
 within 1.37 °C of the Tesseract's over the cook; the app's own
 evaluation of the executed cooks 0.970 (pilot) and 0.646 (oracle MPC)
-against the Julia 0.971 and 0.680 (`estimator/objective_crosscheck.py`).
+against the Julia 0.971 and 0.680 (`estimator/python/objective_crosscheck.py`).
 
 **The scoreboard** (`figures/estimator/pilot_comparison.png`, one plant,
 one objective):
@@ -780,7 +780,7 @@ loops score the plant's cook the same way (`executed_du` for the
 smoothness term, as the app's `executed_objective`). Tests hold the
 terms against the app's formulas at chosen points.
 
-**The port check** (`estimator/objective_crosscheck.py`, record
+**The port check** (`estimator/python/objective_crosscheck.py`, record
 `data/mock/objective_crosscheck.json`): each executed schedule run
 open-loop through the app's own cook (the Tesseract) and scored by
 `mpc.executed_objective`, against the Julia objective on the Julia
@@ -1142,7 +1142,7 @@ plan was made under above 2 nats; one full-sd shift of one latent is
 half a nat). The closed loop under these goals and this policy
 follows; the app's MPC on the same brisket after it.
 
-**The closed loop under these goals** (`estimator/mock_closed_loop_realcook.jl`,
+**The closed loop under these goals** (`estimator/scripts/mock_closed_loop_realcook.jl`,
 record `data/mock/closed_loop_realcook.json`, figure
 `figures/estimator/closed_loop_realcook.png`; the policy now has six
 conditions and the record carries the posterior's move per check):
@@ -1213,7 +1213,7 @@ Reading it:
   band (0.90 to 0.95, no cost inside) accepts 0.947 and stops hours
   earlier. That is the comparison below.
 
-**Against the MPC, on one brisket** (`estimator/run_mpc_mock1d.py`,
+**Against the MPC, on one brisket** (`estimator/python/run_mpc_mock1d.py`,
 `export_mpc_trace.py`, `pilot_comparison_trace.jl`, record
 `data/mock/pilot_comparison.json`, figure
 `figures/estimator/pilot_comparison.png`). The app's MPC
@@ -1381,7 +1381,7 @@ a two-hour clock. This entry makes the plant read like a real cook,
 makes the estimator model what it reads, and lets it decide when a
 replan is worth making.
 
-**The plant** (`estimator/realcook.jl`, `mock_realcook.jl`, record
+**The plant** (`estimator/src/realcook.jl`, `mock_realcook.jl`, record
 `data/mock/mock_realcook.json`). The matched mock on a two-minute grid
 over 30 h with the schedule the plan block found (wrap 11 h, spritz
 from 8.5 h every 1.6 h at 46 g, fuel add 12 h, pull 15.7 h). Each
@@ -1415,7 +1415,7 @@ rows; a censored sample is one, weighted like a reading) and
 `misfit_rows` (the rows the misfit check scores). With them the
 humidity's sd came out at 94 ± 25 Pa.
 
-**The noise level as a process** (`estimator/volatility.jl`). Given the
+**The noise level as a process** (`estimator/src/volatility.jl`). Given the
 AR node's ρ, the innovations η_k = e_k − ρ e_{k−1} are white with
 variance s_k²(1 − ρ²) when the level s moves slowly, and their
 cumulative sum is a random walk whose increments have that variance:
@@ -1432,9 +1432,9 @@ a residual power of 9.8 inside the stretch, the levelled one 0.91
 overall. On the real-cook mock's pit residual at the truth the level
 after the fuel add reads 2.0 against 2.4 in the first quarter hour,
 1.64 against 1.74 in the next half hour, 1.04 against 1.12 after that,
-in one second for 877 samples (`estimator/test_volatility.jl`).
+in one second for 877 samples (`estimator/test/test_volatility.jl`).
 
-**The stream on the real-cook plant** (`estimator/mock_stream_realcook.jl`,
+**The stream on the real-cook plant** (`estimator/scripts/mock_stream_realcook.jl`,
 record `data/mock/mock_realcook_stream.json`, figure
 `figures/estimator/realcook_stream.png`): two-hourly refits to the pull
 on the graph engine, every channel levelled, the noise carried from
@@ -1477,7 +1477,7 @@ expectation. Reading it:
   their noise round; a rejected step under the tolerance is now
   convergence, as in the outer engine.
 
-**The replan as a decision** (`estimator/horizon.jl`: `plan_loss`,
+**The replan as a decision** (`estimator/src/horizon.jl`: `plan_loss`,
 `ReplanPolicy`, `replan_due`). The question raised was whether the
 reactive graph could make replanning intelligent rather than periodic.
 Replanning on every posterior update is the wrong reading of that: a
@@ -1496,11 +1496,11 @@ the misfit check reports excess residual power (the model is wrong
 somewhere; the plan's outlook is unreliable; too little power means
 the noise model is conservative, which threatens nothing, and on this
 plant the core's floor keeps that side firing all cook), or when four
-hours have passed without one (`estimator/test_horizon.jl`, seven
+hours have passed without one (`estimator/test/test_horizon.jl`, seven
 testsets).
 
 **The closed loop on the real-cook plant**
-(`estimator/mock_closed_loop_realcook.jl`, record
+(`estimator/scripts/mock_closed_loop_realcook.jl`, record
 `data/mock/closed_loop_realcook.json`, figure
 `figures/estimator/closed_loop_realcook.png`). The plant above, read
 by its instruments; every hour the estimator refits on the graph
@@ -1597,7 +1597,7 @@ ends at 0.025. Reading it:
 
 ## The receding horizon on the graph: the pilot without hardware (2026-09-08)
 
-`estimator/horizon.jl` closes the plan block into a pilot. The past is
+`estimator/src/horizon.jl` closes the plan block into a pilot. The past is
 data: every replan solves the whole cook from the start with the
 executed damper log and the executed events as inputs, and only the
 future carries decisions, in seconds on one long grid, with the
@@ -1610,12 +1610,12 @@ at serve became a one-sided floor, a softplus hinge per posterior draw
 that costs nothing above 65 °C and half the squared shortfall below it,
 the expected shortfall over the draws. The estimator's slab physics
 takes the executed events as inputs like the damper log. Unit tests
-(`estimator/test_horizon.jl`) hold the hinge, the free set, the
+(`estimator/test/test_horizon.jl`) hold the hinge, the free set, the
 encode/decode round trip with the ordering wrap < pull < serve and
 spritz, fuel add before the pull, the commit rule, the executed damper
 preserved, and the plan physics at the truth with every event on.
 
-`estimator/mock_closed_loop.jl` then runs the pilot on the matched mock
+`estimator/scripts/mock_closed_loop.jl` then runs the pilot on the matched mock
 plant with nothing but readings: every two hours the plant has run the
 executed schedule and produced pit, core, humidity and scale readings
 (its AR(1) noise pre-drawn on the grid), the estimator refits on the
@@ -1678,7 +1678,7 @@ estimator's Jacobian if the pilot is to pay for learning the fire.
 
 ## The full decision set on the graph (2026-09-08)
 
-The planning experiment's block had three decisions. `estimator/plan_block.jl`
+The planning experiment's block had three decisions. `estimator/scripts/plan_block.jl`
 puts the full set on the graph: three damper knots in fractional time,
 the wrap, the pull, the duration, the spritz (start, interval, dose)
 and a fuel addition, ten unconstrained latents of one plan block with
@@ -1744,7 +1744,7 @@ Reading it:
 The planning experiment's diagnosis was that RxInfer's delta node
 expands at the inbound messages' means and offers no expansion point,
 so iterated linearization has to be supplied from outside. It can be
-supplied from inside `infer`, and now is (`estimator/iterated.jl`). The
+supplied from inside `infer`, and now is (`estimator/src/iterated.jl`). The
 model stays exactly affine (the estimator's Affine object, which the
 built-in Linearization rule handles exactly wherever it expands), and
 two facts of the batch loop carry the iteration: the data are re-fed
@@ -1761,8 +1761,8 @@ on a rejected move, lowered on an accepted full one. One `infer` call is
 the whole solve; a final pass with the damping released gives the
 posterior at the converged center.
 
-Two gates (`estimator/test_iterated.jl`) and a regression
-(`estimator/test_engine.jl`):
+Two gates (`estimator/test/test_iterated.jl`) and a regression
+(`estimator/test/test_engine.jl`):
 
 | problem | reference | on the graph |
 |---|---|---|
@@ -1786,7 +1786,7 @@ is what that hook would do.
 ## Planning as inference in RxInfer: the experiment, and the decision (2026-09-08)
 
 The question was whether the pilot's uncertainty-aware planner should be
-a factor graph. The bounded experiment (`estimator/plan_experiment.jl`
+a factor graph. The bounded experiment (`estimator/scripts/plan_experiment.jl`
 and `plan_experiment_outer.jl`, record `data/mock/plan_experiment.json`):
 a plan ζ of two damper knots (before and after 6 h) and the pull time,
 the monolith solved from the start of the matched mock cook per
@@ -1899,7 +1899,7 @@ Reading it:
 
 ## Noise as graph structure: the AR node, and what it taught about priors (2026-09-08)
 
-`estimator/noise.jl`: a channel's AR(1) discrepancy is RxInfer's AR
+`estimator/src/noise.jl`: a channel's AR(1) discrepancy is RxInfer's AR
 node now, not a fixed whitening. The residual process of a channel,
 r_k = y_k − pred_k(ẑ), is one AR chain per contiguous run of the mask
 (a lid lift breaks the chain) with the coefficient θ and the innovation
@@ -1910,10 +1910,10 @@ noise through the whitening, and the two alternate (fit the physics at
 the current whitening, the AR node on the residuals at the mode, refit)
 until the noise stops moving; the stream carries one batch's estimate
 into the next. The prior is the calibration's posterior in data form
-(`estimator/export_noise_prior.py` writes the real cook's NUTS moments,
+(`estimator/python/export_noise_prior.py` writes the real cook's NUTS moments,
 σ_eff = σ + floor, to `data/calibration/noise_prior_real.json`; the
 loader turns them into the AR node's Normal on θ and moment-matched
-Gamma on γ). `estimator/test_noise.jl`: a synthetic AR(1) at the cook's
+Gamma on γ). `estimator/test/test_noise.jl`: a synthetic AR(1) at the cook's
 length is recovered within its posterior width, a run split by a lid
 lift agrees with the unsplit series, a strong wrong prior is overridden
 by 115 points, the posterior narrows with the series. The node's
@@ -1938,7 +1938,7 @@ convergence at the jitter floor, and the noise is estimated only on a
 converged fit. The gate's reference run reproduces the calibration's MAP
 unchanged (0.33 sd, F 133.12).
 
-`estimator/gate_noise_real.jl`, the real cook (record
+`estimator/scripts/gate_noise_real.jl`, the real cook (record
 `data/calibration/estimator_gate_noise_result.json`):
 
 | start and prior | pit σ (calibration 1.54) | pit ρ (0.831) | core σ (1.70) | core ρ (0.947) | MAP vs calibration, max / median sd | residual power |
@@ -1947,7 +1947,7 @@ unchanged (0.33 sd, F 133.12).
 | the calibration's prior, started at its means | 1.26 ± 0.13 | 0.758 ± 0.045 | 1.27 ± 0.16 | 0.934 ± 0.015 | 0.87 / 0.22 | 1.20 |
 | fixed calibration noise (reference, no AR node) | | | | | 0.33 / 0.05 | 0.93 |
 
-`estimator/mock_stream_noise.jl` streams `mock_plant.jl --altnoise`,
+`estimator/scripts/mock_stream_noise.jl` streams `mock_plant.jl --altnoise`,
 the slab plant with a noisier pit probe, a quieter and less correlated
 core probe, a worse humidity sensor and a better scale, every channel
 starting at its prior's means (records
@@ -2003,7 +2003,7 @@ Reading it:
 ## The 2-D physics behind the registry: the cylinder read by its own engine (2026-09-08)
 
 The channel registry now takes its physics as an argument
-(`estimator/physics2d.jl`): `Physics1D` is the monolith slab with the
+(`estimator/src/physics2d.jl`): `Physics1D` is the monolith slab with the
 exposed area as a latent, `Physics2D` the axisymmetric engine, a
 cylinder of radius exp(z_R) and height 2 L on the engine's grid with
 its fixed convective coefficient. Both build ONE stacked output, so
@@ -2019,7 +2019,7 @@ Jacobian rather than an explicit factor, which the sensor table
 confirms to 4.5e-6. The latents are the fifteen physics with L as the
 half-height and m_conv unused (the engine has no draft exponent; its
 column is zero and it keeps its prior), plus the radius (LogNormal,
-30 %, a 10 cm median) and the probe depth. `estimator/test_physics2d.jl`
+30 %, a 10 cm median) and the probe depth. `estimator/test/test_physics2d.jl`
 holds the stacks to their plants: at the true latents the 1-D stack
 reproduces the monolith mock's clean readings through every channel to
 the adaptive solver's tolerance (2e-6 to 6e-5) and the 2-D stack the
@@ -2036,7 +2036,7 @@ NaN objective compared as "not worse" and was accepted. The line search
 treats a non-finite objective as a worse step now, and the axis
 sampling propagates a blown-up solve instead of throwing.
 
-`estimator/mock_stream_2d.jl` streams both plants through the cylinder
+`estimator/scripts/mock_stream_2d.jl` streams both plants through the cylinder
 engine; with the slab-physics runs of the earlier entries this closes
 the square (records `data/mock/mock_2d_phys2d_stream.json` and
 `mock_1d_phys2d_stream.json`, figures
@@ -2091,7 +2091,7 @@ The misfit check's first ask on the cylinder plant was a geometry latent.
 The cheapest one is a shape factor on the scale's mass bookkeeping,
 m = s ρ_d A L (1 + W̄ + F̄) with s = 1 for a slab and πR²H / (A L) for a
 cylinder (`MassScale(...; shape_latent=)`, prior LogNormal(0, 0.3)).
-`estimator/mock_stream_shape.jl` streams the two scale-bearing channel
+`estimator/scripts/mock_stream_shape.jl` streams the two scale-bearing channel
 sets on both plants with that eighteenth latent and the misfit check
 recorded per batch; the figures are `figures/estimator/stream_mock_1d_shape.png`
 and `figures/estimator/stream_mock_2d_shape.png`, the records
@@ -2136,7 +2136,7 @@ Reading it:
 
 ## The misfit check: a confident posterior arrives with its own warning (2026-09-08)
 
-`estimator/misfit.jl`: every refit reports, per channel and in total,
+`estimator/src/misfit.jl`: every refit reports, per channel and in total,
 two statistics of its whitened residuals r = w − a(ẑ). The residual
 power Σr² against its expectation n − tr(H), with H = B V Bᵀ from the
 graph's posterior covariance so the fit's own absorption is charged to
@@ -2144,11 +2144,11 @@ each channel, as a χ² z-score; and the lag-1 autocorrelation as a
 z-score (sd 1/√n for white residuals). Both are approximate (a fixed
 truth under a proper prior leaves a small shrinkage bias, and the
 autocorrelation ignores the hat matrix), which is the right precision
-for a warning light. `estimator/test_misfit.jl` checks them where the
+for a warning light. `estimator/test/test_misfit.jl` checks them where the
 answer is known: white least-squares residuals over 400 draws sit in
 the band with the exact degrees of freedom, and a slow structured error
 lights both statistics on its own channel only. The check is attached
-to every solve and stream record; `estimator/misfit_stream.jl` scores a
+to every solve and stream record; `estimator/scripts/misfit_stream.jl` scores a
 stored run, and `figures/estimator/misfit.png` draws it against the
 cook hour for the two mock plants (matched against cylinder, the
 humidity-plus-scale set solid, pit + core dashed).
@@ -2194,7 +2194,7 @@ Reading it:
 
 ## Streaming estimator on mock plants: watch it work, watch it fail (2026-09-08)
 
-`estimator/stream.jl` is the streaming form of the gate's graph: at every
+`estimator/src/stream.jl` is the streaming form of the gate's graph: at every
 hour of the cook a FULL-HISTORY refit of the 17 latents (15 physics, the
 exposed area, the core probe's depth) on every reading so far, with the
 original prior, warm-started at the previous hour's posterior mean. Not a
@@ -2207,7 +2207,7 @@ Three to fourteen outer steps and 20 to 110 s per hourly batch on a
 10-minute reading grid; a 19-batch cook with three channel sets takes
 about 35 minutes.
 
-`estimator/mock_plant.jl` builds the plants and `estimator/mock_stream.jl`
+`estimator/scripts/mock_plant.jl` builds the plants and `estimator/scripts/mock_stream.jl`
 runs the sets. The truth is the calibrated MAP with a deliberate cut
 into the water-budget map's retention corner (h_c times 0.6, L times 2),
 an exposed area of 0.18 m² against a prior median of 0.12, the core probe
@@ -2302,7 +2302,7 @@ sensor suite.
 
 ## Sensor value on the calibrated cook: the channel registry (2026-09-08)
 
-`estimator/channels.jl` is the sensor registry the estimator design
+`estimator/src/channels.jl` is the sensor registry the estimator design
 asked for: every channel is a measurement operator on ONE stacked
 monolith output (pit and surface temperature, the temperature, water and
 fat fields over time, the pit vapor pressure) with its own AR(1) or iid
@@ -2318,7 +2318,7 @@ later the same day, a fuel scale under the firebox (the pit's fuel
 state), a bark colorimeter on L* (the model's lightness map of its bark
 states) and a wet-bulb probe (the psychrometer equation solved on the
 pit temperature and vapor pressure, its Jacobian by implicit
-differentiation; `estimator/test_channels.jl` checks the map against
+differentiation; `estimator/test/test_channels.jl` checks the map against
 ForwardDiff). Ambient and rest-environment readings are inputs of the
 physics, not measurement operators, and enter through the configs. The exposed
 area became a runtime parameter of the monolith for this (an optional
@@ -2331,7 +2331,7 @@ Fisher widths to 4.5e-5 (the whitened Jacobian rows to 1.3e-4, the
 documented last-bit jitter of the adaptive solve under a different
 chunk).
 
-`estimator/sensor_value.jl` then answers "what does a sensor buy" from
+`estimator/scripts/sensor_value.jl` then answers "what does a sensor buy" from
 the Fisher information at the MAP, before the instrument exists: the
 exposed area (prior 0.12 m², 30 %) and the core probe's depth (median
 0.8 L, 30 %, since nobody hits the exact center) are the 16th and 17th
@@ -2420,7 +2420,7 @@ resolves next to the package on Julia 1.11.9 with no conflicts;
 deterministic nodes take the solves under ForwardDiff, constants and
 data pass into them, the AR node exists. Three behaviours of its
 deterministic (delta) node under `Linearization`, each measured on
-linear cases where the exact posterior is known (`estimator/test_rules.jl`
+linear cases where the exact posterior is known (`estimator/test/test_rules.jl`
 keeps them measured), fix the graph's structure:
 
 1. A node with more outputs than latent inputs silently returns the
@@ -2448,11 +2448,11 @@ pass equalled one Gauss–Newton step exactly; twelve graph solves took
 singular forward output covariance, and iterations not moving the
 linearization point.
 
-**Step 2, the gate on the real cook.** `estimator/export_gate_data.py`
+**Step 2, the gate on the real cook.** `estimator/python/export_gate_data.py`
 writes everything `run_gn_map.py` sees — the resampled log, the
 whitening operator of the masked AR(1) likelihood at the MAP's noise
 parameters, the priors, the MAP, the Gauss–Newton Hessian and its
-inverse — and `estimator/gate_real_cook.jl` rebuilds the objective as a
+inverse — and `estimator/scripts/gate_real_cook.jl` rebuilds the objective as a
 graph: one 15-dimensional latent block in the unconstrained space, a
 prior node that is the local quadratic of −log p(z) at the
 linearization point (exact for the LogNormal sites, the logit-Beta
