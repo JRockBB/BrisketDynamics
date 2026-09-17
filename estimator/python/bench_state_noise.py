@@ -32,6 +32,8 @@ Run from app/:  uv run python ../estimator/python/bench_state_noise.py [--cooks 
   --smoke: one worker, one cook, at most two hours, into scratch names (the driver's own check; nothing quoted from it)
   --rounds fresh: the fresh round only, with the file's rates as they are (the check without the correction)
   --reuse: aggregate a round's records when they all exist instead of running its workers
+  --variant NAME: a bench variant (records variant_NAME_<round>_<seed>.json, figures tagged _NAME, the rates file untouched)
+  --truth-gaussian: the bounded-family sites' truths drawn from the Laplace Gaussian (the family test; use with --variant)
 """
 from __future__ import annotations
 
@@ -59,12 +61,12 @@ def git_commit() -> str:
         return "unknown"
 
 
-def run_workers(label: str, seed0s: list[int], n_per: int, hours: float, prior: str, sn_file: str, out_names: list[str], log_dir: Path) -> list[Path]:
+def run_workers(label: str, seed0s: list[int], n_per: int, hours: float, prior: str, sn_file: str, out_names: list[str], log_dir: Path, truths: str = "chain") -> list[Path]:
     """The bench workers in parallel, one Julia process per seed block; their logs in log_dir."""
     procs = []
     for s, out in zip(seed0s, out_names):
         log = open(log_dir / f"{label}_{s}.log", "w", encoding="utf-8")
-        cmd = ["julia", "--project=estimator", "estimator/scripts/coverage_filter.jl", prior, str(n_per), str(s), out, str(hours), "0", sn_file]
+        cmd = ["julia", "--project=estimator", "estimator/scripts/coverage_filter.jl", prior, str(n_per), str(s), out, str(hours), "0", sn_file, "64", truths]
         print(f"  {label}: seeds {s}..{s + n_per - 1} -> data/mock/{out}  ({' '.join(cmd)})")
         procs.append((s, out, subprocess.Popen(cmd, cwd=REPO, stdout=log, stderr=subprocess.STDOUT), log))
     sys.stdout.flush()
@@ -179,6 +181,8 @@ def main() -> None:
     ap.add_argument("--start", choices=["file", "default"], default="file", help="the tuning round's rates: the file's (if any) or the code's defaults")
     ap.add_argument("--rounds", default="tune,fresh"); ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--reuse", action="store_true", help="aggregate a round's records if they all exist instead of running its workers (a rerun of the correction or the figures)")
+    ap.add_argument("--variant", default="", help="a named variant: its own records and figures, the rates file untouched")
+    ap.add_argument("--truth-gaussian", action="store_true", help="the bounded-family sites' truths from the Laplace Gaussian (the family test)")
     a = ap.parse_args()
     rounds = a.rounds.split(",")
     if a.smoke:
@@ -187,8 +191,11 @@ def main() -> None:
     tune_seeds = [a.tune_seed0 + i * n_per for i in range(a.workers)]
     fresh_seeds = [a.fresh_seed0 + i * n_per for i in range(a.workers)]
     stem_tune, stem_fresh = ("bench_smoke_tune", "bench_smoke_fresh") if a.smoke else ("coverage_tune", "coverage_filter")
-    rates_out = (REPO / "scratchpad" / "state_noise_smoke.json") if a.smoke else RATES_FILE
-    log_dir = REPO / "scratchpad" / ("bench_state_noise_smoke" if a.smoke else "bench_state_noise")
+    if a.variant:
+        stem_tune, stem_fresh = f"variant_{a.variant}_tune", f"variant_{a.variant}_filter"   # a stem the main figures' glob does not match
+    rates_out = (REPO / "scratchpad" / "state_noise_smoke.json") if a.smoke else (REPO / "scratchpad" / f"state_noise_{a.variant}.json" if a.variant else RATES_FILE)
+    log_dir = REPO / "scratchpad" / ("bench_state_noise_smoke" if a.smoke else f"bench_state_noise_{a.variant}" if a.variant else "bench_state_noise")
+    truths = "gaussian" if a.truth_gaussian else "chain"
     log_dir.mkdir(parents=True, exist_ok=True)
     start_file = "default" if (a.start == "default" or not RATES_FILE.exists()) else RATES_FILE.name
     print(f"the state-noise bench: {a.cooks} cooks per round in {a.workers} workers, {a.hours:g} h each, prior {a.prior}; rounds {rounds}; "
@@ -199,7 +206,7 @@ def main() -> None:
         if a.reuse and all((REPO / "data" / "mock" / nm).exists() for nm in names):
             files = [REPO / "data" / "mock" / nm for nm in names]; print("  tune: reusing the records " + ", ".join(names))
         else:
-            files = run_workers("tune", tune_seeds, n_per, a.hours, a.prior, start_file, names, log_dir)
+            files = run_workers("tune", tune_seeds, n_per, a.hours, a.prior, start_file, names, log_dir, truths)
         tune = load_round(files)
         print_round("the tuning round (before the correction)", tune, a.hours)
         rates, init, factors = match(tune, a.cap)
@@ -221,6 +228,8 @@ def main() -> None:
         print(f"  wrote {rates_out}")
         sys.stdout.flush()
     if "fresh" in rounds:
+        if a.variant and not rates_out.exists():
+            rates_out = RATES_FILE                                                    # a variant's fresh round runs on the rates as earned
         if not rates_out.exists():
             raise SystemExit(f"no rates file at {rates_out}: run the tuning round first")
         sn_file = rates_out.name if rates_out == RATES_FILE else str(rates_out)      # the worker takes a name in data/calibration or an absolute path
@@ -228,10 +237,12 @@ def main() -> None:
         if a.reuse and all((REPO / "data" / "mock" / nm).exists() for nm in names):
             files = [REPO / "data" / "mock" / nm for nm in names]; print("  fresh: reusing the records " + ", ".join(names))
         else:
-            files = run_workers("fresh", fresh_seeds, n_per, a.hours, a.prior, sn_file, names, log_dir)
+            files = run_workers("fresh", fresh_seeds, n_per, a.hours, a.prior, sn_file, names, log_dir, truths)
         fresh = load_round(files)
         print_round("the fresh round (the rates as written, seeds never seen)", fresh, a.hours)
         record = json.loads(rates_out.read_text(encoding="utf-8"))
+        if a.variant:                                                                 # a variant records its numbers beside the rates, never in them
+            rates_out = REPO / "scratchpad" / f"state_noise_{a.variant}.json"
         record.setdefault("bench", {})["fresh"] = {"seeds": fresh["seeds"], "skipped": fresh["skipped"], "records": [f.name for f in files],
                                                    "nees_dof": {g: fresh["groups"][g]["nees_dof"] for g in GROUPS},
                                                    "nees_dof_cook_median": {g: fresh["groups"][g]["cook_median"] for g in GROUPS}, "nees_dof_cook_max": {g: fresh["groups"][g]["cook_max"] for g in GROUPS},
@@ -241,7 +252,7 @@ def main() -> None:
             print(f"  NOTE: the fresh round ran on physics {fresh['physics']}, the file records {record.get('physics', {}).get('fingerprint')}")
         rates_out.write_text(json.dumps(record, indent=1), encoding="utf-8")
         print(f"  wrote {rates_out}")
-        render(f"{stem_fresh}_*.json", "_smoke" if a.smoke else "", log_dir)
+        render(f"{stem_fresh}_*.json", "_smoke" if a.smoke else (f"_{a.variant}" if a.variant else ""), log_dir)
     print("done")
 
 
