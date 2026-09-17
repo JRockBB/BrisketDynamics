@@ -201,12 +201,29 @@ Its structure is fixed by three measured RxInfer behaviours
   a level that told the two apart would need the other channels'
   agreement; (v) the drift rates and the add's jump are a modelling
   choice (0.05, 0.05, 0.03 per hour; 0.15 and 0.10), on a real pit what
-  a second cook's residuals identify; (vi) the pilot flights on the
-  filter (three drifting plants, the fault flight, the constant-plant
-  headline against the MPC, the two-cook learning run) are the next
-  entry; (vii) `test_smoother.jl`'s segmented-physics test fails at that
-  test's own whole-cook solve (an ODE instability at its truth), before
-  and after this work.
+  a second cook's residuals identify, and the belief's walks on seed 1
+  gave half those rates; (vi) `test_smoother.jl`'s segmented-physics
+  test fails at that test's own whole-cook solve (an ODE instability at
+  its truth), before and after this work.
+- **The pilot on the filter, after its flights** (`docs/results.md`, the
+  entry of 2026-09-17). The belief's bands hug the plant on every
+  flight and the outcomes are not better than the smoother pilot's
+  (J 0.805, 0.858, 0.987 against 0.794, 0.790, 0.815) and worse on the
+  constant plant (1.123 against the batch pilot's 0.844 and the MPC's
+  0.68 and 0.76). What to open: (i) the fire-side belief on the constant
+  plant: the thermal mass +5.1 sd, the loss coefficient and the charge's
+  enthalpy +2.0, with confidence, and the plan chose a 278 °F pit under
+  them that burned the bark; the batch estimator on the same plant had a
+  median 0.8 sd; whether the damper scan should carry the belief's spread
+  on the fire rather than its mean; (ii) seed 3 held a pull five hours too
+  late for eight hours without a loss trigger firing: which latents the
+  belief had wrong mid-cook against the smoother's, from the record;
+  (iii) the state's widths were earned with every channel present; on
+  the fault flight the centre drifted 5 K low over five hours inside a
+  ±3.4 K band once the core probe froze: a width that grows when a
+  channel goes dark, as a bench configuration; (iv) the two-cook learning
+  run needs a mock that holds the cooker across seeds, since the pool's
+  shared role assumes one cooker and the bench's seeds each draw one.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it

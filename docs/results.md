@@ -4,6 +4,100 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The pilot on the filter: four flights, the headline, and what the plan makes of a calibrated belief (2026-09-17)
+
+The filter judged consistent on the bench (the entry of 2026-09-16) flew
+the pilot: three drifting plants, the fault flight, and the constant
+plant against the MPC. The estimator did what the bench said it would;
+the outcomes say the plan is now the thing to look at.
+
+**The flights.** The same planner and trigger as the smoother and batch
+flights of 2026-09-12, the level on, the state's widths from the bench:
+
+| drifting plant | filter pilot | smoother pilot | batch pilot |
+|---|---|---|---|
+| seed 1 | **0.805** (wrap 9.4 h, pull 13.3 h at 93 °C, serve 14.8 h) | 0.794 | 0.876 |
+| seed 2 | 0.858 (wrap 9.9 h, pull 15.0 h at 91 °C, serve 20.0 h) | 0.790 | 0.873 |
+| seed 3 | 0.987 (wrap 9.0 h, pull 18.4 h at 93 °C, serve 19.0 h) | 0.815 | 0.983 |
+
+The belief's pit, surface and centre bands hug the plant on every flight
+([seed 1](../figures/estimator/closed_loop_realcook_drift_filter.png),
+[seed 2](../figures/estimator/closed_loop_realcook_drift_filter_s2.png),
+[seed 3](../figures/estimator/closed_loop_realcook_drift_filter_s3.png)),
+so the difference from the smoother pilot is not the state. On seed 3
+the plan's pull jumped from 12.7 h to 18.4 h at the two replans right
+after the fuel add (the plan's value low outright, with the pit at
+100 °C and recovering), and the pilot then held that plan for eight and
+a half hours without a loss trigger firing, while the plant's collagen
+reached 0.985 at the pull: over-tender, and a pale bark from the long
+wrap. The standing plan is re-scored from the filtered state at every
+update, so for the loss to sit still the belief's prediction of the
+collagen at 18.4 h must have stayed inside the band until late; the
+belief's own prediction at the last replan matched the plant (0.99), so
+the prediction came right too late for the trigger. Which latents the
+belief had wrong mid-cook on that plant, against the smoother's, is the
+question the next session opens with the record. Seed 2's serve at
+20.0 h after a 15.0 h pull is the planner's choice of a five-hour rest,
+and the misfit check fired six times on that plant around the add.
+
+**The trigger, once per event.** The fault flight's log showed the
+event rule firing at every update of the last quarter hour, each replan
+rejected by the guard: the serve stays free to the end, and the rule
+asked again at every update inside the lead window. That was a clock in
+disguise. The schedule now remembers the planned time it replanned an
+event for, and the rule fires again only when the plan moves it (commit
+2e0c3b3); the four flights ran before the fix, and their event counts
+(5, 12, 10 and 11) include the repeats.
+
+**The fault flight.** Seed 1 with the core probe stuck at its last
+reading from 8 h
+([figure](../figures/estimator/closed_loop_realcook_drift_filter_fault.png)):
+the dead-reading rule flags the probe within five samples and the belief's
+centre runs on the physics and the other channels. Over the next five
+hours it drifts 5 K below the plant inside a band of ±3.4 K, the pull at
+12.9 h comes at a plant core of 97 °C against a believed 92, the meat is
+over-tender (collagen 0.99), and a 270 °F pit burns the bark: J 1.262.
+The fault is isolated as asked; what the flight shows is that the state's
+widths, earned with the core probe present, are too narrow for a cook
+without it. A width that grew when a channel went dark would be the
+honest belief, and it is the bench's next configuration.
+
+**The headline on the constant plant.** The pilot on the filter over the constant
+plant of `mock_1d.json`, the flight that refreshes the headline of
+2026-09-10 (the batch pilot's J 0.844 against the MPC's 0.68 flown as an
+oracle and 0.76 with the calibration's parameters), lands at **J 1.123**
+([figure](../figures/estimator/closed_loop_realcook_filter.png)): a
+278 °F pit, wrapped at 8.6 h, pulled at 11.8 h at 95 °C, served at
+13.3 h; the bark burned (0.30) and the meat over-tender (0.10, collagen
+0.976 at serve after 0.865 at the pull). The belief's temperature bands
+hug the plant throughout, and the plan's predicted outcome at the last
+replan is close to the plant's, so this is not the state and not the
+prediction at the end: it is the plan choosing a hot, fast cook under a
+belief whose fire sites are wrong with confidence. At the end the
+fire's thermal mass is +5.1 sd from the truth, the pit's loss
+coefficient +2.0, the charge's enthalpy +2.0, the flat's thickness
++1.5. On the drifting bench the fire's ridge sat outside the band by
+identifiability; on this plant it drove the damper. The headline is
+therefore worse than the batch pilot's, and the README says so. What
+to open next is the fire-side belief on the constant plant against the
+batch estimator's on the same plant (which had a median 0.8 sd), and
+whether the plan's damper scan should carry the belief's spread on the
+fire rather than its mean.
+
+**Learning across cooks.** `next_cook.py` on the seed-1 record wrote the
+pooled prior (`prior_next_cook_2.json`), the noise prior with the
+between-cook spreads measured (`noise_prior_next.json`), and the drift
+rates from the belief's walks: 0.025, 0.025 and 0.015 per hour for the
+leak, the evaporation coefficient and the surface coefficient, against
+the plant's 0.05, 0.05 and 0.03, so the belief follows half the walk,
+which is what latents 30 to 60 % too confident would do. The two-cook
+flight was not flown: the pool's shared role assumes the same cooker
+across cooks, and the bench's seeds each draw a new cooker with the
+meat, so a prior learned on seed 1's cooker would be wrong on seed 2's
+by construction (under it the constant mock's fire sites sit 18 to 25
+prior sd out). A mock that holds the cooker across seeds is the run
+that tests the learning, and is the next item.
+
 ## The filter judged: the bench that earns its widths, and the two defects it found (2026-09-16)
 
 The filter on the graph was rebuilt on 2026-09-12 to update the belief

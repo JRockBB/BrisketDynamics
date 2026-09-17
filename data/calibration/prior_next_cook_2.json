@@ -1,0 +1,148 @@
+{
+ "names": [
+  "D_eff",
+  "k_m",
+  "h_c",
+  "L",
+  "k_mult",
+  "k_e",
+  "a_myosin",
+  "m_conv",
+  "C_th",
+  "UA",
+  "r_max",
+  "dH_eff",
+  "u_leak",
+  "k_spread",
+  "a0"
+ ],
+ "prior": [
+  {
+   "name": "D_eff",
+   "family": "lognormal",
+   "p1": -18.54024076928169,
+   "p2": 0.29718106907986963
+  },
+  {
+   "name": "k_m",
+   "family": "lognormal",
+   "p1": -6.179399565413109,
+   "p2": 0.25704605326866853
+  },
+  {
+   "name": "h_c",
+   "family": "lognormal",
+   "p1": 2.2529335544588167,
+   "p2": 0.2875967448329569
+  },
+  {
+   "name": "L",
+   "family": "lognormal",
+   "p1": -3.5154023036585667,
+   "p2": 0.253481242077507
+  },
+  {
+   "name": "k_mult",
+   "family": "lognormal",
+   "p1": 0.0853717774699374,
+   "p2": 0.27857788879268586
+  },
+  {
+   "name": "k_e",
+   "family": "lognormal",
+   "p1": -4.967351658946425,
+   "p2": 0.4511369735605075
+  },
+  {
+   "name": "a_myosin",
+   "family": "lognormal",
+   "p1": -1.872469128825237,
+   "p2": 0.28100700968483305
+  },
+  {
+   "name": "m_conv",
+   "family": "beta",
+   "p1": 6.832020287679607,
+   "p2": 11.228157554891375
+  },
+  {
+   "name": "C_th",
+   "family": "lognormal",
+   "p1": 10.61366513777372,
+   "p2": 0.03830627405484747
+  },
+  {
+   "name": "UA",
+   "family": "lognormal",
+   "p1": 4.725076775430174,
+   "p2": 0.07787193885307549
+  },
+  {
+   "name": "r_max",
+   "family": "lognormal",
+   "p1": -7.332756313520146,
+   "p2": 0.06314956719975941
+  },
+  {
+   "name": "dH_eff",
+   "family": "lognormal",
+   "p1": 18.42891518295188,
+   "p2": 0.07694300137209004
+  },
+  {
+   "name": "u_leak",
+   "family": "beta",
+   "p1": 53.208324911832,
+   "p2": 837.2700215204376
+  },
+  {
+   "name": "k_spread",
+   "family": "lognormal",
+   "p1": -7.502707563037676,
+   "p2": 1.1521954900401918
+  },
+  {
+   "name": "a0",
+   "family": "beta",
+   "p1": 17.54458327122569,
+   "p2": 1.0867244232248647
+  }
+ ],
+ "source": "nuts_mono_samples_real.npz + closed_loop_drift_filter.json",
+ "tau2": 0.04,
+ "tau2_estimated": false,
+ "n_cooks": 2,
+ "measured": {},
+ "measured_sd": 0.1,
+ "roles": {
+  "D_eff": "partial",
+  "k_m": "partial",
+  "h_c": "partial",
+  "L": "partial",
+  "k_mult": "partial",
+  "k_e": "partial",
+  "a_myosin": "partial",
+  "m_conv": "partial",
+  "C_th": "shared",
+  "UA": "shared",
+  "r_max": "shared",
+  "dH_eff": "shared",
+  "u_leak": "shared",
+  "k_spread": "partial",
+  "a0": "partial"
+ },
+ "drift": {
+  "sd_per_hour": {
+   "u_leak": 0.025,
+   "k_e": 0.025,
+   "h_c": 0.015
+  },
+  "jump_log_sd": {
+   "r_max": 0.15,
+   "dH_eff": 0.1
+  },
+  "from_records": [
+   "closed_loop_drift_filter.json"
+  ]
+ }
+}

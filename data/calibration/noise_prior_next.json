@@ -1,0 +1,49 @@
+{
+ "source": "noise_prior_real.json + closed_loop_drift_filter.json: the cooks' noise posteriors pooled, the spread between cooks measured",
+ "sigma_floor_K": 1.2,
+ "grid_s": 600.0,
+ "floors": {
+  "pit": 1.2,
+  "core": 1.2,
+  "humidity": 60.0,
+  "mass": 0.015
+ },
+ "channels": {
+  "pit": {
+   "sigma_mean": 1.3121959270548103,
+   "sigma_sd": 0.16580441078280939,
+   "rho_mean": 0.7325357702520332,
+   "rho_sd": 0.07074755664797461,
+   "n_cooks": 2,
+   "between_sigma_sd": 0.0,
+   "between_rho_sd": 0.04529574129988293
+  },
+  "core": {
+   "sigma_mean": 1.4267422889941854,
+   "sigma_sd": 0.32066202025909685,
+   "rho_mean": 0.9105649500220461,
+   "rho_sd": 0.046152018371263114,
+   "n_cooks": 2,
+   "between_sigma_sd": 0.29767850349969716,
+   "between_rho_sd": 0.03605465511381113
+  },
+  "humidity": {
+   "sigma_mean": 68.81996152022741,
+   "sigma_sd": 21.544323154920768,
+   "rho_mean": 0.8920013506147605,
+   "rho_sd": 0.3053681146908178,
+   "n_cooks": 1,
+   "between_sigma_sd": 0.0,
+   "between_rho_sd": 0.0
+  },
+  "mass": {
+   "sigma_mean": 0.015,
+   "sigma_sd": 0.0013212028829931632,
+   "rho_mean": 0.0,
+   "rho_sd": 0.0,
+   "n_cooks": 1,
+   "between_sigma_sd": 0.0,
+   "between_rho_sd": 0.0
+  }
+ }
+}
