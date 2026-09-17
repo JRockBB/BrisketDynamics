@@ -748,7 +748,15 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     for (c, ch) in enumerate(st.channels)
         ch.mask[k] && rawdata(ch) !== nothing && !isfinite(rawdata(ch)[k]) && throw(ArgumentError("channel $c has a sample at grid point $k but no finite reading"))
     end
-    chs = Channel[Sequential(restrict(window(ch, idx), keep), disc_index(lay, c), white_floor(ch)) for (c, ch) in enumerate(st.channels)]
+    # a lid-open event inside the interval: the reading that ends it sees the state after the event, while the block
+    # holds the state before it propagated through the event as if exact; the event's disturbance reaches the pit
+    # probe's row here, as white noise on the reading, and the state for what follows in the prediction
+    σ_ev = 0.0
+    for (t_e, kind) in _event_times(st.events, tw[end])
+        (tw[1] < t_e <= tw[end]) && (σ_ev = sqrt(σ_ev^2 + (kind == :spritz ? st.sn.T_spritz : st.sn.T_event)^2))
+    end
+    chs = Channel[Sequential(restrict(window(ch, idx), keep), disc_index(lay, c), ch isa PitProbe ? sqrt(white_floor(ch)^2 + σ_ev^2) : white_floor(ch))
+                  for (c, ch) in enumerate(st.channels)]
     live = [c for c in 1:n_ch if size(whitening(chs[c]), 1) > 0]
     prior_w = FilterPrior(st.joint, m, inv(Symmetric(P)))
     nis, dof, innov = NaN, 0, Dict{Int,Vector{Float64}}()
