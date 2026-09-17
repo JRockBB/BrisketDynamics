@@ -4,6 +4,130 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The fuel add: the one update that broke the fire's belief, and the bench and flights after its fix (2026-09-17, later)
+
+The entry above left one estimator defect named and unresolved: after
+the fuel add, the fire's thermal mass was pulled off the truth on every
+cook, down by 1.9 sd on the bench, up to +5 sd on the constant plant,
+with the width collapsing. This entry is what it was, the fix, and the
+bench and the flights rerun on it.
+
+**What it was.** Seed 10 of the bench, opened update by update through
+the add at 12.0 h. At 11.97 h the belief's thermal mass sits on the
+truth, 10.76 ± 0.12 against 10.76. The lid opens for the chimney and the
+readings drop for eight minutes, during which the plant's pit falls
+15 K. The single update at 12.10 h carries an innovation of 3.4 sd
+(NIS/dof 5.9), and it moves the thermal mass to 10.45 ± 0.06: 27 % in
+one step, the width halved. Over an eight-minute transient the pit's
+drop is nearly linear in the thermal mass, so the regression over the
+sigma points saw no residual and trusted the row fully, while the
+belief's real errors at that moment were elsewhere (its burn rate 38 %
+high, its fuel mass 7 % low). A constant site with no process noise has
+no way back. On the constant plant the same step, with the other errors
+of the other sign, sent the thermal mass up.
+
+**The fix, in two halves.** The honest description of the belief after
+an event it propagated blind is that its state is uncertain: the pit's
+and the firebox's temperatures by a few kelvin, the fuel mass by a
+fraction of a chimney. `StateNoise` gains those disturbances (`T_event`
+5 K at the add, the wrap and the pull, `T_spritz` 1.5 K, `m_add`
+0.15 kg) and the interval that crosses an event adds their variance to
+the state (commit 98becaf). That alone changed nothing at the update
+that mattered, and the probe showed why: the update fits the reading at
+the far end of the interval with the state before the event in the
+block, propagated through the event inside the graph as if exact, and
+the state's disturbance only enters the prediction that follows. So the
+event's variance is also placed where that update can see it, as white
+noise on the pit probe's row of the interval that crosses the event
+(commit 28da3db). With both, seed 10's thermal mass holds at
+10.70 ± 0.15 through the add (the update's innovation 0.97 sd, NIS/dof
+0.81) and stays within 0.4 sd to 14 h, the charge's enthalpy on the
+truth. The lesson is general for this filter: process noise added in
+the prediction never softens the update of the interval it belongs to;
+an event's uncertainty must reach the reading that ends the interval.
+
+**The bench, rerun.** Both rounds again on the fixed filter, the tuning round
+starting from the previous file's rates:
+
+| | tuning round (seeds 1 to 9) | fresh round (seeds 10 to 18) |
+|---|---|---|
+| latents NEES/16, pooled | 1.33 (per cook 0.74 to 1.85) | 2.24; per cook 1.28, 1.54, **9.02**, 2.53, 1.10, 1.49, 0.59, 1.57, 1.07 |
+| temperatures NEES/3, pooled | 1.39 | 1.25; per cook 0.97, 0.69, 3.45, 0.88, 0.77, 0.61, 0.89, 1.71, 1.26 |
+| NIS/dof | 0.60 | 0.54 |
+| the fire's thermal mass at 14 h, coverage | | mean −0.12, spread 0.67, flat through the add |
+| coverage at 14 h, all sites | | pooled spread 1.37, 91 % within 2 sd, mean 0.00 |
+| the state by group | | temperature field 1.46 (cook median 0.92, one cook 5.39), water 0.94, pit 1.08, collagen 0.79 |
+
+The add is fixed: the fire's thermal mass no longer moves at 12 h on any
+cook (it fell to −1.9 sd there before), the latents' NEES no longer
+steps there, the temperatures' spike after the add is brief and lands
+back in band within twenty minutes, and the coverage of every site at
+14 h improved to 91 % within two sd with zero mean. The tuning round's
+nine cooks all sit between 0.74 and 1.85 on the latents. The fresh
+round's pooled 2.24 is one cook: seed 12, at 9.02, whose latents' NEES
+goes from 1.7 to 13 across the two updates at 0.50 and 0.53 h, the
+scale's second reading, and stays there, with the probe's depth, the
+ignition spread, the convective multiplier, the myosin site and the
+area all two to three sd off from then on; that plant's truth sits 1.5
+to 2 prior sd out on five sites at once (the surface coefficient, the
+evaporation coefficient, the ignition spread, the thermal mass). Without
+it the fresh round's latents pool at 1.4. Opened update by update, seed 12
+is a third mechanism, and not the iteration cap: run to convergence the
+update gives the same numbers to the digit, because the iterations never
+converge. At the scale's second reading the first Gauss-Newton step
+overshoots on a truth that far out, the line search's trial solves
+diverge in the physics (the collagen field and the bark go non-finite
+at the trial centres), the step that is accepted is a bad one, and the
+next two pit and core updates meet a corrupted state (NIS/dof 12 and
+49) and lock the latents where they are. It is the same class as every
+failure of these two days, a linear step on a far truth, now at the
+first hour on one cook in nine. The remedy that fits is a trust region on
+the update, no site moving beyond its own current width in one update,
+so that a reading the belief cannot linearize is absorbed over the
+updates that follow; it changes the update everywhere and needs the bench
+again, so it is the next item rather than this entry's. Figures:
+[the consistency tests](../figures/estimator/filter_consistency_drift.png),
+[the coverage](../figures/estimator/coverage_realcook_driftgraphfilter.png).
+
+**The flights, rerun.** The same five flights as the entry above, the once-per-event trigger, the
+rates the bench just wrote, the level on:
+
+| flight | before the add fix | after | the smoother pilot | the batch pilot |
+|---|---|---|---|---|
+| drifting seed 1 | 0.805 | 0.876 (a 252 °F pit, wrap 9.8 h, pull 15.8 h at 93 °C, serve 16.3 h; the bark pale, L* 35) | 0.794 | 0.876 |
+| drifting seed 2 | 0.858 | 0.846 (270 °F, wrap 9.3 h, pull 13.9 h at 93 °C, serve 14.9 h) | 0.790 | 0.873 |
+| drifting seed 3 | 0.987 | 1.112 (264 °F, wrap 9.2 h, pull 13.6 h at 94 °C, serve 17.6 h after a four-hour rest; over-tender, pale, some burn) | 0.815 | 0.983 |
+| seed 1, core probe stuck from 8 h | 1.262 | 1.338 (pull 16.6 h at a plant core of 97 °C against a believed 91) | | |
+| the constant plant, the headline | 1.123 | **0.868** (260 °F, wrap 10.3 h, pull 16.1 h at 90 °C, serve 16.9 h; no burn, collagen 0.955, L* 30) | | 0.844; the MPC 0.68 and 0.76 |
+
+The constant plant is the flight the add fix was for, and it lands where
+the batch pilot did: the fire's sites end within 1.3 sd of the truth
+(the thermal mass +0.8, the pit's loss coefficient +0.1, the charge's
+enthalpy +0.5; median 0.62 over every site), the plan no longer chooses
+the hot pit, and the bark does not burn. The README's headline is
+updated to it. On the drifting plants the belief's bands hug the plant
+on all three flights
+([seed 1](../figures/estimator/closed_loop_realcook_drift_filter.png),
+[seed 2](../figures/estimator/closed_loop_realcook_drift_filter_s2.png),
+[seed 3](../figures/estimator/closed_loop_realcook_drift_filter_s3.png),
+[the constant plant](../figures/estimator/closed_loop_realcook_filter.png)),
+and the outcomes still sit above the smoother pilot's, seed 3 by a wide
+margin: its plan committed a pull at 13.6 h and a serve four hours
+later, and the meat over-tenderized in the rest. Every one of the six
+to nine replans per flight is now an event coming due once or the
+plan's value moving; the seven rejected replans in a row at the serve are
+gone. The fault flight
+([figure](../figures/estimator/closed_loop_realcook_drift_filter_fault.png))
+is unchanged in kind: the frozen probe is flagged within five samples,
+and the belief's centre runs 6 K below the plant over the eight hours
+without it, inside a band that does not cover it, so the pull comes at
+97 °C. The widths were earned with every channel present, and a width
+that grows when a channel goes dark remains the bench's next
+configuration. What the flights say together has not changed: the
+estimator holds, and the plan is where the cook is won or lost; seed 3's
+held plan and the fault flight's late pull are the two records to open
+next.
+
 ## The pilot on the filter: four flights, the headline, and what the plan makes of a calibrated belief (2026-09-17)
 
 The filter judged consistent on the bench (the entry of 2026-09-16) flew

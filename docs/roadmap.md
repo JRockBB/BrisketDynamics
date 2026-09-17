@@ -179,51 +179,51 @@ Its structure is fixed by three measured RxInfer behaviours
   burn-rate sensor exists for (a whole-cooker platform scale; on a
   pellet grill the auger duty cycle), the row of the sensor table the
   estimator cannot supply for itself.
-- **The filter on the graph, after the bench.** The belief is updated
-  at every arrival, carried through the physics by sigma points, and its
-  state widths are earned on a reproducible bench (`docs/results.md`,
-  the entry of 2026-09-16): on nine fresh drifting cooks the
-  temperatures are calibrated (NEES/3 of 1.02) and the latents are 30 to
-  60 % too confident in variance with no cook diverging. What remains:
-  (i) the fuel add: the temperatures' NEES spikes to 2.8 after it and
-  the fire's thermal mass, constant in the belief, is pulled 1.9 sd on
-  every cook; the add's jump variances and the ignited fraction's width
-  through the transient are the numbers, or a jump on the thermal mass
-  at the add; (ii) the innovations are smaller than the belief predicts
-  (NIS/dof 0.56) while the latents are slightly narrow: the noise
+- **The filter on the graph, after the bench and the add.** The belief
+  is updated at every arrival, carried through the physics by sigma
+  points, its state widths earned on a reproducible bench, and an event
+  it propagates through blind leaves the state uncertain where the
+  reading that ends the interval can see it (`docs/results.md`, the
+  entries of 2026-09-16 and 2026-09-17). On nine fresh drifting cooks the
+  temperatures are calibrated (NEES/3 of 1.25), the fire's thermal mass
+  no longer moves at the add, 91 % of the errors sit within two sd, and
+  eight of nine cooks run 0.6 to 2.5 on the latents. What remains:
+  (i) one fresh cook in nine (seed 12) locks at the scale's second
+  reading: a truth 1.5 to 2 prior sd out on five sites, the first step
+  overshoots, the trial solves diverge in the physics and the accepted
+  step corrupts the state; a trust region on the update (no site beyond
+  its own current width per update) is the fix to try, and it needs the
+  bench again; (ii) the innovations are smaller than the belief predicts
+  (NIS/dof 0.54) while the latents are 30 to 60 % narrow: the noise
   identification's floors (the humidity's σ sits at its floor on every
-  cook) against the belief's widths, to be read together; (iii) k_m is
-  +0.69 sd (z 2.3) on the fresh seeds where the runs of 2026-09-11 had
-  +1.3: a bias at two sigma, halved, and the real 19-hour log is the next
-  place to look for it; (iv) the channel level rises on a model
-  transient (the pit probe after the add, the humidity after the wrap)
-  as it would on a fault; the dead-reading rule catches a frozen probe,
-  a level that told the two apart would need the other channels'
-  agreement; (v) the drift rates and the add's jump are a modelling
-  choice (0.05, 0.05, 0.03 per hour; 0.15 and 0.10), on a real pit what
-  a second cook's residuals identify, and the belief's walks on seed 1
-  gave half those rates; (vi) `test_smoother.jl`'s segmented-physics
-  test fails at that test's own whole-cook solve (an ODE instability at
-  its truth), before and after this work.
+  cook) against the belief's widths; (iii) k_m is +0.7 sd (z 2.3) on the
+  fresh seeds where the runs of 2026-09-11 had +1.3: a bias at two sigma,
+  halved; (iv) the channel level rises on a model transient as it would
+  on a fault; the dead-reading rule catches a frozen probe; (v) the drift
+  rates and the add's jump are a modelling choice (0.05, 0.05, 0.03 per
+  hour; 0.15 and 0.10), on a real pit what a second cook's residuals
+  identify, and the belief's walks on seed 1 gave half those rates;
+  (vi) `test_smoother.jl`'s segmented-physics test fails at that test's
+  own whole-cook solve (an ODE instability at its truth), before and
+  after this work.
 - **The pilot on the filter, after its flights** (`docs/results.md`, the
-  entry of 2026-09-17). The belief's bands hug the plant on every
-  flight and the outcomes are not better than the smoother pilot's
-  (J 0.805, 0.858, 0.987 against 0.794, 0.790, 0.815) and worse on the
-  constant plant (1.123 against the batch pilot's 0.844 and the MPC's
-  0.68 and 0.76). What to open: (i) the fire-side belief on the constant
-  plant: the thermal mass +5.1 sd, the loss coefficient and the charge's
-  enthalpy +2.0, with confidence, and the plan chose a 278 °F pit under
-  them that burned the bark; the batch estimator on the same plant had a
-  median 0.8 sd; whether the damper scan should carry the belief's spread
-  on the fire rather than its mean; (ii) seed 3 held a pull five hours too
-  late for eight hours without a loss trigger firing: which latents the
-  belief had wrong mid-cook against the smoother's, from the record;
-  (iii) the state's widths were earned with every channel present; on
-  the fault flight the centre drifted 5 K low over five hours inside a
-  ±3.4 K band once the core probe froze: a width that grows when a
-  channel goes dark, as a bench configuration; (iv) the two-cook learning
-  run needs a mock that holds the cooker across seeds, since the pool's
-  shared role assumes one cooker and the bench's seeds each draw one.
+  entries of 2026-09-17). The belief's bands hug the plant on every
+  flight; the constant-plant headline is J 0.868 (the batch pilot's
+  0.844, the MPC's 0.68 and 0.76) with the fire's sites within 1.3 sd
+  and no burn; the drifting plants give 0.876, 0.846, 1.112 against the
+  smoother pilot's 0.794, 0.790, 0.815. What to open: (i) seed 3: a pull
+  committed at 13.6 h with a serve four hours later, the meat
+  over-tenderized in the rest, held without a loss trigger firing; which
+  latents the belief had wrong mid-cook against the smoother's, from the
+  record; (ii) the state's widths were earned with every channel
+  present; on the fault flight the centre runs 6 K low over eight hours
+  inside a band that does not cover it once the core probe freezes, and
+  the pull comes at 97 °C: a width that grows when a channel goes dark,
+  as a bench configuration; (iii) the two-cook learning run needs a mock
+  that holds the cooker across seeds, since the pool's shared role
+  assumes one cooker and the bench's seeds each draw one; (iv) the bark
+  comes out pale (L* 35) on two of the three drifting flights: the wrap's
+  timing against the appearance term.
 - **The two engines' bark.** The Julia plant's bark is 0.9 L* paler
   than the Tesseract's on the same cook (the core agrees within 1.4 °C);
   the port check on the objective's appearance term shows it. Find it
