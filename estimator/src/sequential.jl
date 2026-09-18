@@ -603,7 +603,7 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
     n_z = length(sites); n_ch = length(channels)
     length(noise) == n_ch || throw(ArgumentError("one NoisePrior per channel ($(length(noise)) for $n_ch channels)"))
     length(names) == n_z || throw(ArgumentError("one name per site"))
-    z0 = z_center.(sites)
+    z0 = [z_moments(p)[1] for p in sites]                                  # the belief's mean: each family's mean in its coordinate
     xp0 = from_z(z0[1:N_PHYS], sites[1:N_PHYS])
     A0 = area_latent > 0 ? exp(z0[area_latent]) : cfg.A_meat
     o0 = monolith_solve(xp0[1:N_THETA], xp0[(N_THETA + 1):N_PHYS], [isnan(u[1]) ? 0.15 : u[1], isnan(u[2]) ? 0.15 : u[2]], t[1:2], t[1:2];
@@ -612,9 +612,8 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
     lay = FilterLayout(length(ics0.T0f), n_z, n_ch)
     joint = vcat(sites, state_sites(lay.n_state), disc_sites(n_ch))
     m = vcat(z0, pack_state(ics0, a0, lay), zeros(n_ch))
-    _, _, h0 = prior_terms(z0, sites)
     P = zeros(lay.n, lay.n)
-    for i in 1:n_z; P[i, i] = 1 / h0[i]; end                                  # the latents: the prior's widths
+    for i in 1:n_z; P[i, i] = z_moments(sites[i])[2]; end                     # the latents: each family's variance in its coordinate
     P[state_range(lay), state_range(lay)] = state_noise_cov(lay, sn, state_init_sd(sn, lay))   # the state: the recipe's, to its own uncertainty, by the noise's structure
     for c in 1:n_ch; i = disc_index(lay, c); P[i, i] = noise[c].σ_mean^2; end   # the discrepancies: their stationary spread
     past = Past(); past.m0 = o0.m_fuel[1]; past.t = t[1]

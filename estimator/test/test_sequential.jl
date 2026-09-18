@@ -228,6 +228,17 @@ end
     @test abs((st_a.P[E.fuel_index(lay_e), E.fuel_index(lay_e)] - st_e.P[E.fuel_index(lay_e), E.fuel_index(lay_e)]) - st_e.sn.m_add^2) < 0.2 * st_e.sn.m_add^2
     @test length(E._event_times(ev_add, t[end])) == length(E._event_times(events, t[end])) && any(te == t[5] && k == :add for (te, k) in E._event_times(ev_add, t[end]))
     @test load_state_noise(tempname() * ".json"; warn=false).T_event == 5.0
+    # the families' moments in z: the digamma and trigamma at known values, a lognormal's own, a beta's against draws
+    @test abs(E._digamma(1.0) + 0.5772156649) < 1e-9 && abs(E._trigamma(1.0) - pi^2 / 6) < 1e-9 && abs(E._digamma(10.0) - 2.2517525890667) < 1e-9
+    @test z_moments(PriorSite("lognormal", -3.2, 0.1)) == (-3.2, 0.1^2)
+    pb = sites[names .== "a0"][1]
+    rngb = MersenneTwister(11)
+    zd = [(f = E._beta_rand(rngb, pb.p1, pb.p2); log(f / (1 - f))) for _ in 1:200_000]
+    mb, vb = z_moments(pb)
+    @test abs(mb - sum(zd) / length(zd)) < 0.02 && abs(sqrt(vb) - sqrt(sum((zd .- mb) .^ 2) / length(zd))) < 0.02
+    st_m = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q)
+    ia = findfirst(==("a0"), names)
+    @test st_m.m[ia] == mb && st_m.P[ia, ia] == vb && st_m.m[4] == sites[4].p1 && st_m.P[4, 4] == sites[4].p2^2
 end
 
 @testset "the plan from the filtered state is the whole cook from the start (the restart contract)" begin

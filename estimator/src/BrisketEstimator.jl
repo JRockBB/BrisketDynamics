@@ -37,7 +37,7 @@ export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRI
 export FilterLayout, PhysicsState, pack_state, unpack_state, state_sites, disc_sites, sequential_filter, pit_index, centre_index, surface_index
 export FilterState, StateNoise, Past, filter_init, filter_update!, filter_advance!, state_range, disc_range, disc_index, state_now, innovation_misfit
 export STATE_GROUPS, STATE_NOISE_FILE, state_groups, group_dofs, state_noise_cov, physics_fingerprint, state_noise_dict, load_state_noise, sigma_design
-export GateData, load_gate, from_z, to_z, dx_dz, z_center, prior_terms, physics_mean, physics_mean_jac,
+export GateData, load_gate, from_z, to_z, dx_dz, z_center, z_moments, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, islogbeta, islinear, logistic,
        latent_block, read_sites, draw_truth, FAMILIES
 
@@ -117,6 +117,38 @@ _betalike(p::PriorSite) = isbeta(p) || islogbeta(p)    # the prior is a Beta on 
 
 "The prior's centre in z: the Gaussian's mean, or the logit of a Beta's mean (a/(a+b))."
 z_center(p::PriorSite) = _betalike(p) ? log(p.p1 / p.p2) : p.p1
+
+"The digamma function by the recurrence to x ≥ 6 and the asymptotic series (to 1e-10)."
+function _digamma(x::Real)
+    r = 0.0
+    while x < 6; r -= 1 / x; x += 1; end
+    f = 1 / (x * x)
+    return r + log(x) - 0.5 / x - f * (1 / 12 - f * (1 / 120 - f * (1 / 252 - f * (1 / 240 - f / 132))))
+end
+"The trigamma function, the same way."
+function _trigamma(x::Real)
+    r = 0.0
+    while x < 6; r += 1 / (x * x); x += 1; end
+    f = 1 / (x * x)
+    return r + 1 / x + 0.5 * f + f / x * (1 / 6 - f * (1 / 30 - f * (1 / 42 - f / 30)))
+end
+
+"""
+    z_moments(p::PriorSite) -> (mean, var)
+
+The family's mean and variance in the transformed coordinate: a lognormal or linear site's own; a beta or
+logbeta site's logit moments, ψ(a) − ψ(b) and ψ'(a) + ψ'(b). The filter's belief starts from these, the
+Gaussian closest to the family in its coordinate, rather than from the curvature at the mode: a beta with b
+near one has an upper tail that is exponential in the logit (the ignition fraction's toward a fully lit
+start), which the curvature at the mode understates (the Laplace width 0.99 against the draws' 1.19 for a0)
+and which no local quadratic can carry (its curvature there is zero, and an exact prior in the update blew
+the posterior width up); matching the moments is what a Gaussian can do, and it scores unit NEES against the
+family's own draws by construction.
+"""
+function z_moments(p::PriorSite)
+    _betalike(p) || return (p.p1, p.p2^2)
+    return (_digamma(p.p1) - _digamma(p.p2), _trigamma(p.p1) + _trigamma(p.p2))
+end
 
 "The sites of a prior file's `prior` list (`prior_next_cook.json`, the gate file)."
 read_sites(list) = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"]), Float64(get(p, "p3", 0.0)), Float64(get(p, "p4", 1.0))) for p in list]
