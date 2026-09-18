@@ -179,33 +179,50 @@ Its structure is fixed by three measured RxInfer behaviours
   burn-rate sensor exists for (a whole-cooker platform scale; on a
   pellet grill the auger duty cycle), the row of the sensor table the
   estimator cannot supply for itself.
-- **The filter on the graph, after the bench and the add.** The belief
-  is updated at every arrival, carried through the physics by sigma
-  points, its state widths earned on a reproducible bench, and an event
-  it propagates through blind leaves the state uncertain where the
-  reading that ends the interval can see it (`docs/results.md`, the
-  entries of 2026-09-16 and 2026-09-17). On nine fresh drifting cooks the
-  temperatures are calibrated (NEES/3 of 1.25), the fire's thermal mass
-  no longer moves at the add, 91 % of the errors sit within two sd, and
-  eight of nine cooks run 0.6 to 2.5 on the latents. What remains:
-  (i) one fresh cook in nine (seed 12) locks at the scale's second
-  reading: a truth 1.5 to 2 prior sd out on five sites, the first step
-  overshoots, the trial solves diverge in the physics and the accepted
-  step corrupts the state; a trust region on the update (no site beyond
-  its own current width per update) is the fix to try, and it needs the
-  bench again; (ii) the innovations are smaller than the belief predicts
-  (NIS/dof 0.54) while the latents are 30 to 60 % narrow: the noise
-  identification's floors (the humidity's σ sits at its floor on every
-  cook) against the belief's widths; (iii) k_m is +0.7 sd (z 2.3) on the
-  fresh seeds where the runs of 2026-09-11 had +1.3: a bias at two sigma,
-  halved; (iv) the channel level rises on a model transient as it would
-  on a fault; the dead-reading rule catches a frozen probe; (v) the drift
-  rates and the add's jump are a modelling choice (0.05, 0.05, 0.03 per
-  hour; 0.15 and 0.10), on a real pit what a second cook's residuals
-  identify, and the belief's walks on seed 1 gave half those rates;
-  (vi) `test_smoother.jl`'s segmented-physics test fails at that test's
-  own whole-cook solve (an ODE instability at its truth), before and
-  after this work.
+- **The filter on the graph, after the bench, the add and the families.**
+  The belief is updated at every arrival, carried through the physics by
+  sigma points, its state widths earned on a reproducible bench, an
+  event it propagates through blind leaves the state uncertain where
+  the reading that ends the interval can see it, and it starts from
+  each family's moments in its own coordinate (`docs/results.md`, the
+  entries of 2026-09-16 and 2026-09-17). On nine fresh drifting cooks on
+  that start the temperatures are calibrated (NEES/3 of 0.92), the
+  temperature field, the water and the pit are in band, 93 % of the
+  errors sit within two sd, and every cook runs 0.6 to 2.4 on the
+  latents (pooled 1.34 against a band to 1.24). What remains: (i) the
+  bounded families' tails: a truth 2.3 to 2.5 prior sd into a beta's or
+  logbeta's tail (the burn rate, the mixing, the ignition fraction) ends
+  3 to 5 posterior sd out, the belief narrowed to half the prior's width
+  with its mean left near the prior's; with the same sites' truths drawn
+  Gaussian the same cooks are calibrated to the digit, so it is the
+  Gaussian in the logit against the family's exponential tail; the fix
+  that fits the graph is the normal-score coordinate for the bounded
+  families (z = Φ⁻¹(F(x)), exactly Gaussian under the prior), which
+  touches every estimator's `from_z`, `dx_dz` and `prior_terms` and
+  needs the bench again; the ignition fraction's upper tail is not
+  identifiable in any coordinate; (ii) seed 12's lock at the scale's
+  second reading (a first step that overshoots, the trial solves
+  diverging in the physics, the accepted step corrupting the state) no
+  longer fires on the moment-matched start, but the step is unchanged:
+  a trust region on the update (no site beyond its own current width
+  per update) is still the fix to try; (iii) the innovations are smaller
+  than the belief predicts (NIS/dof 0.48) and the core probe's
+  innovations keep a lag-one autocorrelation of 0.16 against a band of
+  0.10: the noise identification's floors (the humidity's σ sits at its
+  floor on every cook) and the core's discrepancy state against the
+  belief's widths; (iv) k_m is +0.7 sd (z 2.3) on the fresh seeds where
+  the runs of 2026-09-11 had +1.3: a bias at two sigma, halved; (v) the
+  channel level rises on a model transient as it would on a fault; the
+  dead-reading rule catches a frozen probe; (vi) the drift rates and the
+  add's jump are a modelling choice (0.05, 0.05, 0.03 per hour; 0.15 and
+  0.10), on a real pit what a second cook's residuals identify, and the
+  belief's walks on seed 1 gave half those rates; (vii) the rates in
+  `data/calibration/state_noise.json` were earned on the Laplace start
+  and their fingerprint no longer matches the tree's, so every load
+  warns: the bench (both rounds) and the five flights on the committed
+  filter, with a go; (viii) `test_smoother.jl`'s segmented-physics test
+  fails at that test's own whole-cook solve (an ODE instability at its
+  truth), before and after this work.
 - **The pilot on the filter, after its flights** (`docs/results.md`, the
   entries of 2026-09-17). The belief's bands hug the plant on every
   flight; the constant-plant headline is J 0.868 (the batch pilot's

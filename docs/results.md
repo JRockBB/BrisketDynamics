@@ -4,6 +4,139 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## The bounded families: the moving sites tracked, the Gaussian belief tested against the families' own draws, and the belief started from their moments (2026-09-17, night)
+
+Two questions were put to the bench above: whether the filter uses the
+calibration's families for the latents, four of which are not Gaussian
+(the ignition fraction, the convective mixing and the leak are betas,
+the burn rate a logbeta), and whether the sites that move by design are
+being read as constants. This entry answers both from the fresh records
+and records the fix the first answer led to.
+
+**The moving sites track.** Five latents move: the leak and the two
+surface coefficients walk with process noise at the plant's rates, and
+the burn rate and the charge's enthalpy jump at the add. Their
+standardized error against the truth in force, edge by edge over the
+nine fresh cooks of the entry above (the spread over cooks / the mean):
+
+| site | 2 h | 6 h | 10 h | 14 h | the truth's walk by 14 h (sd over cooks, in z) |
+|---|---|---|---|---|---|
+| u_leak | 1.18 / +0.3 | 1.27 / 0.0 | 1.55 / −0.3 | 1.36 / −0.2 | 0.18 |
+| k_e | 1.17 / −0.4 | 1.19 / −0.1 | 1.02 / 0.0 | 1.03 / +0.1 | 0.22 |
+| h_c | 1.22 / +0.1 | 0.78 / +0.1 | 0.73 / +0.1 | 0.80 / +0.2 | 0.08 |
+| r_max | 1.61 / +0.4 | 1.92 / +0.4 | 1.87 / +0.4 | 1.97 / +0.3 | 0.14 |
+| dH_eff | 1.19 / +0.3 | 1.18 / +0.3 | 1.24 / +0.4 | 1.35 / +0.5 | 0.07 |
+| pooled, the five movers | 1.25 | 1.26 | 1.29 | 1.30 | |
+| pooled, the eleven constants | 1.24 | 1.24 | 1.25 | 1.23 | |
+
+The movers pool at the constants' spread at every edge and their
+spreads do not grow with the walk; the two that sit wide, the leak and
+the burn rate, are wide from the first edge, before the truth has moved
+a tenth of a sd. Their width is not a tracking failure. Both are
+bounded-family sites.
+
+**The family test.** The filter's belief is a Gaussian in each site's
+transformed coordinate (the log, or the logit of the fraction), started
+at the family's mode with the curvature there, the Laplace width.
+Whether that is what leaves the bounded sites wide is a question the
+bench can ask directly: the fresh round rerun with the four bounded
+sites' truths redrawn from the Laplace Gaussian the filter starts from,
+everything else in each cook the same draw (`bench_state_noise.py
+--variant gausstruth --truth-gaussian`; the worker's ninth argument). If
+the filter's arithmetic were at fault the sites would stay wide; if the
+family's shape is what the Gaussian cannot hold, they would come in.
+
+| the standardized error at 14 h over nine cooks, spread / mean | family | the chain's truths | the Gaussian's truths |
+|---|---|---|---|
+| a0, the ignition fraction | beta(17.5, 1.09) | 2.48 / −0.97 | 0.89 / −0.06 |
+| m_conv, the convective mixing | beta(4.8, 4.1) | 1.96 / −0.46 | 0.85 / +0.52 |
+| r_max, the burn rate | logbeta(7.2, 11.8) | 1.97 / +0.29 | 0.95 / +0.16 |
+| u_leak, the leak | beta(17.6, 16.7) | 1.36 / −0.18 | 1.07 / −0.45 |
+| all sites, spread and within 2 sd | | 1.26, 92 % | 0.99, 97 % |
+| the latents' NEES/16 | | 2.24 | 1.46 |
+
+They come in: with Gaussian truths the four sites sit at 0.85 to 1.07
+and the pooled coverage is calibrated to the digit (spread 0.99, 97 %
+within two sd) on the same rates, the same physics and the same cooks.
+The filter's Gaussian in the logit is what cannot reach the families'
+tails. Figures:
+[the family test's coverage](../figures/estimator/coverage_realcook_driftgraphfilter_gausstruth.png),
+[its consistency tests](../figures/estimator/filter_consistency_drift_gausstruth.png).
+
+**Where the Laplace width is wrong.** For a beta whose second parameter
+is near one, the ignition fraction's beta(17.5, 1.09), the density in
+the logit has an upper tail that is exponential (toward a fully lit
+start), and the curvature at the mode understates it: the Laplace sd is
+0.99 in the logit where the family's own variance gives 1.23, and the
+family's mean sits four tenths of a sd above its mode. The first fix
+tried carried the family exactly in every update, its own gradient and
+curvature at each iterate in place of the Gaussian's (an
+`exact_family_prior`, not kept): in the tail the family's curvature is
+zero, a site the readings do not constrain there gets a posterior with
+no width at all, and a0's blew up; a Gaussian cannot carry a one-sided
+flat posterior in any case. What a Gaussian can do is match the
+family's moments, so the belief now starts from each family's mean and
+variance in its own coordinate (`z_moments`: ψ(a) − ψ(b) and
+ψ'(a) + ψ'(b) for the betas, a lognormal's own), which scores unit NEES
+against the family's own draws before any reading by construction
+(commit a3b66c2; the test checks it against 200 000 draws).
+
+**The fresh round on the moment-matched start** (`--variant mmprior`,
+the chain's truths, the rates as earned, seeds 10 to 18):
+
+| | the Laplace start | the moment-matched start |
+|---|---|---|
+| latents NEES/16, pooled; per cook | 2.24; 1.28, 1.54, 9.02, 2.53, 1.10, 1.49, 0.59, 1.57, 1.07 | 1.34; 1.18, 1.47, 2.35, 2.41, 0.96, 1.36, 0.58, 0.73, 1.05 |
+| temperatures NEES/3 | 1.25 | 0.92 |
+| NIS/dof | 0.52 | 0.48 |
+| all sites at 14 h, spread and within 2 sd | 1.26, 92 % | 1.23 (1.17 without a0), 93 % |
+| a0, m_conv, r_max, u_leak at 14 h, spread | 2.48, 1.96, 1.97, 1.36 | 2.00, 1.68, 1.88, 1.33 |
+| the state by group, NEES/dof | temperature field 1.46, water 0.94, pit 1.08 | 1.07, 0.79, 1.11 |
+
+Every pooled number moved the right way; the temperatures, the
+temperature field, the water and the pit are inside their bands, and
+the latents pool at 1.34 against a band that ends at 1.24. Seed 12 no
+longer locks (9.02 to 2.35): its start moved, mostly the ignition
+fraction's, and the scale's second reading no longer sends the first
+step off; the step that did it is unchanged, so the trust region stays
+on the list. The bounded sites moved a tenth to a third of the way to
+the Gaussian control and no further, and the misses are the same cooks
+as before: the truths that sit 2.3 to 2.5 prior sd into a family's tail
+(the ignition fraction on seed 10 at +2.3, the burn rate on seeds 13
+and 15 at −2.4 and +2.3, the mixing on seeds 11 and 13 at +2.5 and
+−2.3). On each the belief narrows to half the prior's width (0.45 to
+0.76 of it) while its mean moves at most a third of the way to the
+truth, so a truth 2.3 prior sd out ends 3 to 5 posterior sd out. The
+transform saturates toward the bound (the fraction's slope in the logit
+goes to zero), the readings' information about the coordinate is what
+it is at the belief's centre and not at the truth, and the Gaussian's
+quadratic tail pulls where the family's exponential one would let go.
+The family's draws put a truth that far out more often than a Gaussian
+of the same variance does (the logit of a beta has positive excess
+kurtosis), which is why matching the moments, right within a sd, leaves
+the tails. Figures:
+[the coverage on the moment-matched start](../figures/estimator/coverage_realcook_driftgraphfilter_mmprior.png),
+[the consistency tests](../figures/estimator/filter_consistency_drift_mmprior.png).
+The whiteness is as it was: the pit, humidity and scale rows are white;
+the core probe's innovations keep a lag-one autocorrelation of 0.16
+against a band of 0.10 (0.20 on the Laplace round).
+
+**What follows.** The fix that fits the graph's families is the
+coordinate: a bounded site carried in its normal score, z = Φ⁻¹(F(x))
+with F the family's own distribution function, is exactly Gaussian
+under its prior, so the belief's start is the family and its tails are
+Gaussian by construction, the moment matching made exact; the physics
+sees x = F⁻¹(Φ(z)) and the sigma points carry the map's curvature. It
+changes `from_z`, `dx_dz` and `prior_terms` for the beta and logbeta
+families for every estimator on the graph, and it needs the bench
+again. It will not reach the ignition fraction's upper tail: a start at
+0.998 and one at 0.96 read the same to the pit probe, so no coordinate
+identifies it from above, and a0 stays excluded from the latents'
+count. The moment-matched start is committed; the rates file was earned
+with the Laplace start and its fingerprint now differs from the tree's,
+so every load warns until the bench is rerun on the committed filter.
+The bench and the five flights on it wait for a go.
+
 ## The fuel add: the one update that broke the fire's belief, and the bench and flights after its fix (2026-09-17, later)
 
 The entry above left one estimator defect named and unresolved: after
