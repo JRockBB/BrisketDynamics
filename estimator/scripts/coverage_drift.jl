@@ -42,7 +42,7 @@ idx = blk.idx
 # the drift the plant walks with (drift.jl), and the process noise the smoother is told (the same: the test is of
 # the estimators' mechanism, not of guessing the rates)
 q = zeros(length(sites)); for (nm, sd) in DRIFT_SD_PER_HOUR; q[idx[nm]] = sd^2; end
-moving = smoother_moving(idx, events.t_add)
+moving = smoother_moving(idx, events.t_add; sites)
 
 cooks = Any[]; skipped = Int[]
 dst = joinpath(REPO, "data", "mock", out_name)
@@ -57,7 +57,7 @@ for k in 1:n_cooks
     seed = seed0 + k - 1
     rng = MersenneTwister(2000 + seed)
     z0 = draw_truth(rng, sites; depth=DEPTH)
-    dd = DriftDraw(rng, idx)
+    dd = DriftDraw(rng, idx; sites)
     seg_edges, blocks = drift_segments(t, z0, dd, events.t_add)
     xs = [from_z(z, sites) for z in blocks]
     A, depth = xs[1][AREA], xs[1][DEPTH]

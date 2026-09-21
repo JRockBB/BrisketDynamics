@@ -8,35 +8,43 @@
 # draws are made once per seed, so the same plant answers every schedule the pilot executes on it; the plant
 # is solved in segments (segments.jl) with a boundary on every hour and at the add.
 
-const DRIFT_SD_PER_HOUR = Dict("u_leak" => 0.05, "k_e" => 0.05, "h_c" => 0.03)   # random walks in z, sd per hour
-const JUMP_LOG_SD = Dict("r_max" => 0.15, "dH_eff" => 0.10)                     # the add's charge: log-sd about the first charge
+const DRIFT_SD_PER_HOUR = Dict("u_leak" => 0.05, "k_e" => 0.05, "h_c" => 0.03)   # random walks, sd per hour, stated in the logit of a fraction or the log
+const JUMP_LOG_SD = Dict("r_max" => 0.15, "dH_eff" => 0.10)                     # the add's charge: the same, about the first charge
+
+"A rates dict by site name, carried into each site's own coordinate by `drift_scale` when `sites` are given (the constants above are stated in the logit of a bounded site's fraction, the log of a positive one)."
+_in_coord(rates, sites, idx) = Dict{String,Float64}(String(k) => Float64(v) * (sites === nothing ? 1.0 : drift_scale(sites[idx[String(k)]])) for (k, v) in rates)
 
 """
-    drift_rates(file) -> (sd_per_hour, jump_log_sd)
+    drift_rates(file; sites=nothing, idx=nothing) -> (sd_per_hour, jump_log_sd)
 
 The rates the FILTER is told: the prior file's `drift` field when earlier cooks have identified them
-(`next_cook.py` writes it from the beliefs' walks), else the modelling choice above. The plant keeps its own.
+(`next_cook.py` writes it from the beliefs' walks), else the modelling choice above; in each site's own
+coordinate when `sites` and `idx` are given (a site carried in its normal score walks by the same amount in
+x). The plant keeps its own (`DriftDraw`, the same scale).
 """
-function drift_rates(file::AbstractDict)
-    haskey(file, "drift") || return (sd_per_hour=DRIFT_SD_PER_HOUR, jump_log_sd=JUMP_LOG_SD)
-    d = file["drift"]
-    return (sd_per_hour=Dict(String(k) => Float64(v) for (k, v) in d["sd_per_hour"]),
-            jump_log_sd=Dict(String(k) => Float64(v) for (k, v) in get(d, "jump_log_sd", JUMP_LOG_SD)))
+function drift_rates(file::AbstractDict; sites=nothing, idx=nothing)
+    d = get(file, "drift", nothing)
+    sd = d === nothing ? DRIFT_SD_PER_HOUR : d["sd_per_hour"]
+    jp = d === nothing ? JUMP_LOG_SD : get(d, "jump_log_sd", JUMP_LOG_SD)
+    return (sd_per_hour=_in_coord(sd, sites, idx), jump_log_sd=_in_coord(jp, sites, idx))
 end
 
 """
-    DriftDraw(rng, idx; n_hours=30)
+    DriftDraw(rng, idx; n_hours=30, sites=nothing)
 
 The plant's draws: for every drifting site its increment at each hour boundary, for every jump site its jump
-at the add, all in z; `idx` maps a site's name to its index in the latent block.
+at the add, all in z; `idx` maps a site's name to its index in the latent block. With `sites` the rates are
+carried into each site's own coordinate (`drift_scale`); the standard draws are the same either way, so a
+seed's plant walks by the same amount in x whichever coordinate carries a bounded site.
 """
 struct DriftDraw
     inc::Dict{Int,Vector{Float64}}
     jump::Dict{Int,Float64}
 end
-function DriftDraw(rng::AbstractRNG, idx::AbstractDict; n_hours::Int=30)
-    inc = Dict{Int,Vector{Float64}}(idx[nm] => DRIFT_SD_PER_HOUR[nm] .* randn(rng, n_hours) for nm in sort(collect(keys(DRIFT_SD_PER_HOUR))))
-    jump = Dict{Int,Float64}(idx[nm] => JUMP_LOG_SD[nm] * randn(rng) for nm in sort(collect(keys(JUMP_LOG_SD))))
+function DriftDraw(rng::AbstractRNG, idx::AbstractDict; n_hours::Int=30, sites=nothing)
+    sd = _in_coord(DRIFT_SD_PER_HOUR, sites, idx); jp = _in_coord(JUMP_LOG_SD, sites, idx)
+    inc = Dict{Int,Vector{Float64}}(idx[nm] => sd[nm] .* randn(rng, n_hours) for nm in sort(collect(keys(sd))))
+    jump = Dict{Int,Float64}(idx[nm] => jp[nm] * randn(rng) for nm in sort(collect(keys(jp))))
     return DriftDraw(inc, jump)
 end
 
@@ -94,15 +102,16 @@ function solve_drifting(z0, dd::DriftDraw, sites, u, t; pit::PitConfig, cfg::Mea
 end
 
 """
-    smoother_moving(idx, t_add) -> moving
+    smoother_moving(idx, t_add; sites=nothing) -> moving
 
 The smoother's moving-site spec for this plant: the drift sites with the plant's own rates, and once the add
 is set (`t_add` finite and before `ADD_NEVER`) the jump sites at the add with the plant's jump variance.
 """
-function smoother_moving(idx::AbstractDict, t_add)
-    drift = Any[(idx[nm], :drift, DRIFT_SD_PER_HOUR[nm]^2) for nm in sort(collect(keys(DRIFT_SD_PER_HOUR)))]
+function smoother_moving(idx::AbstractDict, t_add; sites=nothing)
+    sd = _in_coord(DRIFT_SD_PER_HOUR, sites, idx); jp = _in_coord(JUMP_LOG_SD, sites, idx)
+    drift = Any[(idx[nm], :drift, sd[nm]^2) for nm in sort(collect(keys(sd)))]
     if isfinite(t_add) && t_add < BrisketDynamics.ADD_NEVER
-        append!(drift, [(idx[nm], :jump, (float(t_add), JUMP_LOG_SD[nm]^2)) for nm in sort(collect(keys(JUMP_LOG_SD)))])
+        append!(drift, [(idx[nm], :jump, (float(t_add), jp[nm]^2)) for nm in sort(collect(keys(jp)))])
     end
     return drift
 end

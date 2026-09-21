@@ -86,7 +86,8 @@ def skewness(v):
 def fit_site(name, x, fam, role, tau2, skew_logbeta=SKEW_LOGBETA):
     """One site's prior in the graph's families from samples `x` of its value: a beta by moments for a bounded
     site, a logbeta where a positive site's log samples are skewed, else a lognormal from the log moments; a
-    partial site widened by tau2 in the unconstrained coordinate."""
+    partial site widened by tau2 in the unconstrained coordinate. A bounded site is carried in its normal score
+    (`coord`): the estimator's Gaussian belief is then exactly the family under the prior, tails included."""
     x = np.asarray(x, dtype=float)
     if fam == "beta":
         a, b = beta_moments(x)
@@ -94,7 +95,7 @@ def fit_site(name, x, fam, role, tau2, skew_logbeta=SKEW_LOGBETA):
             v = logit_var_beta(a, b)
             c = v / (v + tau2)                       # scale the concentration: the logit variance grows by tau2
             a, b = c * a, c * b
-        return {"name": name, "family": "beta", "p1": float(a), "p2": float(b)}
+        return {"name": name, "family": "beta", "p1": float(a), "p2": float(b), "coord": "score"}
     lx = np.log(x)
     if abs(skewness(lx)) > skew_logbeta:
         lo, hi = float(lx.min()), float(lx.max())
@@ -106,7 +107,7 @@ def fit_site(name, x, fam, role, tau2, skew_logbeta=SKEW_LOGBETA):
             v = logit_var_beta(a, b)
             c = v / (v + tau2)
             a, b = c * a, c * b
-        return {"name": name, "family": "logbeta", "p1": float(a), "p2": float(b), "p3": lo, "p4": hi}
+        return {"name": name, "family": "logbeta", "p1": float(a), "p2": float(b), "p3": lo, "p4": hi, "coord": "score"}
     mu, sd = float(np.mean(lx)), float(np.std(lx))
     if role == "partial":
         sd = float(np.sqrt(sd ** 2 + tau2))

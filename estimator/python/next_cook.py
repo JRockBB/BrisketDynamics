@@ -43,9 +43,17 @@ CHANNELS = ("pit", "core", "humidity", "mass")
 NOISE_FLOORS = {"pit": None, "core": None, "humidity": 60.0, "mass": 0.015}
 
 
+def is_score(p):
+    """A bounded site the estimator carries in its normal score (`coord`: the pilot's prior file), under which its
+    prior is exactly N(0, 1); the calibration's chain and the pool stay in the logit of the fraction."""
+    return p["family"] in ("beta", "logbeta") and p.get("coord") == "score"
+
+
 def prior_precision(p, z):
     """The prior's curvature at z in the unconstrained coordinate (the graph's local quadratic): the Gaussian's
-    precision, or the logit-Beta's (a+b) s (1-s)."""
+    precision, the logit-Beta's (a+b) s (1-s), or one for a site in its score."""
+    if is_score(p):
+        return 1.0
     if p["family"] in ("beta", "logbeta"):
         s = 1 / (1 + np.exp(-z))
         return (p["p1"] + p["p2"]) * s * (1 - s)
@@ -53,9 +61,35 @@ def prior_precision(p, z):
 
 
 def prior_center(p):
+    if is_score(p):
+        return 0.0
     if p["family"] in ("beta", "logbeta"):
         return float(np.log(p["p1"] / p["p2"]))
     return float(p["p1"])
+
+
+def coord_scale(p):
+    """drift.jl's `drift_scale`: the score's slope on the logit at the prior's centre for a site in its score, one
+    otherwise; the drift's rates are stated in the logit and carried into each site's coordinate by it."""
+    if not is_score(p):
+        return 1.0
+    from scipy.stats import beta, norm
+    f0 = float(beta.ppf(0.5, p["p1"], p["p2"]))
+    return float(f0 * (1 - f0) * beta.pdf(f0, p["p1"], p["p2"]) / norm.pdf(0.0))
+
+
+def to_pool_coord(mean, cov, names15, psites):
+    """A record's Gaussian in the pool's coordinate (the chain's: the logit of a bounded site's fraction): a site the
+    filter carried in its score is mapped through the score, its width by the score's slope on the logit at the mean."""
+    from scipy.stats import beta, norm
+    mean = np.array(mean, dtype=float); s = np.ones(len(names15))
+    for i, n in enumerate(names15):
+        p = psites[n]
+        if is_score(p):
+            f = float(np.clip(beta.ppf(norm.cdf(mean[i]), p["p1"], p["p2"]), 1e-12, 1 - 1e-12))
+            s[i] = norm.pdf(mean[i]) / beta.pdf(f, p["p1"], p["p2"]) / (f * (1 - f))     # dlogit/dscore = (df/dscore) / (f (1 - f))
+            mean[i] = float(np.log(f / (1 - f)))
+    return mean, s[:, None] * cov * s[None, :]
 
 
 def record_gaussian(rec, names15):
@@ -88,7 +122,7 @@ def record_gaussian(rec, names15):
     lam_lik = V @ np.diag(np.maximum(w, floor)) @ V.T                 # a site the cook did not inform keeps a wide likelihood
     eta = lam_post @ z15 - lam_prior @ mu_prior
     cov_lik = np.linalg.inv(lam_lik)
-    return cov_lik @ eta, 0.5 * (cov_lik + cov_lik.T)
+    return to_pool_coord(cov_lik @ eta, 0.5 * (cov_lik + cov_lik.T), names15, psites)
 
 
 def chain_gaussian(chain, names15, lit):
@@ -161,11 +195,14 @@ def pooled_noise(chain_noise, records, dt_record):
 
 def drift_rates(records):
     """The moving sites' random-walk rates from the beliefs' hourly increments across the records: the increments'
-    variance net of the estimation noise (method of moments), floored at half the modelling choice."""
+    variance net of the estimation noise (method of moments), floored at half the modelling choice; stated in the
+    logit of a fraction as drift.jl states them (a belief's walk in a site's score divided by `coord_scale`)."""
     rates = {}
     for n in MOVING:
         vs = []
         for rec in records:
+            prior = json.loads((REPO / "data" / "calibration" / rec["prior_file"]).read_text())
+            sc = coord_scale({p["name"]: p for p in prior["prior"]}[n])
             j = list(rec["names"]).index(n)
             rows = [r for r in rec["checks"] if r["updated"]]
             hours = {}
@@ -176,8 +213,8 @@ def drift_rates(records):
             if len(hs) < 4:
                 continue
             z = np.array([hours[h]["posterior_z"][j] for h in hs]); sd = np.array([hours[h]["posterior_sd"][j] for h in hs])
-            inc = np.diff(z) / np.diff(np.array(hs, dtype=float))
-            vs.append(max(float(np.var(inc)) - float(np.mean(sd ** 2)), 0.0))
+            inc = np.diff(z) / np.diff(np.array(hs, dtype=float)) / sc
+            vs.append(max(float(np.var(inc)) - float(np.mean((sd / sc) ** 2)), 0.0))
         rates[n] = float(np.sqrt(max(np.mean(vs) if vs else 0.0, (0.5 * DRIFT_CHOICE[n]) ** 2)))
     return rates
 

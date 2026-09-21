@@ -59,7 +59,7 @@ x_true = Float64.(m["truth"]["x"])
 θ_true, φ_true, A_true, depth_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
 L_true = θ_true[4]
 z_true0 = vcat(to_z(x_true[1:15], prior_phys), log(A_true), log(depth_true))
-dd = DRIFT_SEED > 0 ? DriftDraw(MersenneTwister(2000 + DRIFT_SEED), idx) : nothing     # the plant's drift, drawn once
+dd = DRIFT_SEED > 0 ? DriftDraw(MersenneTwister(2000 + DRIFT_SEED), idx; sites) : nothing     # the plant's drift, drawn once, in the sites' coordinates
 "The plant's latent block in force just before `te` (what a belief at `te` is scored against)."
 truth_now(te, t_add) = dd === nothing ? z_true0 : truth_at(z_true0, dd, te, t_add)
 "The plant's drift for the record: the seed, the rates and the block in force from every hour under the schedule's add."
@@ -116,7 +116,7 @@ chnames = ["pit", "core", "humidity", "mass"]
 empty = (pit=fill(NaN, length(GRID)), core=fill(NaN, length(GRID)), humidity=fill(NaN, length(GRID)), mass=fill(NaN, length(GRID)))
 nomask = (pit=falses(length(GRID)), core=falses(length(GRID)), humidity=falses(length(GRID)), mass=falses(length(GRID)))
 chs = realcook_channels(empty, nomask, np0; cap=nc.hum_cap, depth_latent=DEPTH)
-dr = drift_rates(blk.file)     # the moving sites' rates the filter is told: earlier cooks' (next_cook.py) or the modelling choice
+dr = drift_rates(blk.file; sites, idx)     # the moving sites' rates the filter is told, in the sites' coordinates: earlier cooks' (next_cook.py) or the modelling choice
 q = zeros(n_z); for (nm, sd) in dr.sd_per_hour; q[idx[nm]] = sd^2; end
 "The filter's jumps under the executed schedule: the add's charge at the add, the probe's depth at the wrap (a re-seat)."
 function filter_jumps(s::Schedule)

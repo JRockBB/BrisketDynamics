@@ -29,6 +29,7 @@ using Random
 using JSON
 using Printf
 using SHA
+using SpecialFunctions: erfc, erfcinv, beta_inc, beta_inc_inv, logbeta
 using BrisketDynamics
 
 export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, solve_segments
@@ -38,21 +39,28 @@ export FilterLayout, PhysicsState, pack_state, unpack_state, state_sites, disc_s
 export FilterState, StateNoise, Past, filter_init, filter_update!, filter_advance!, state_range, disc_range, disc_index, state_now, innovation_misfit
 export STATE_GROUPS, STATE_NOISE_FILE, state_groups, group_dofs, state_noise_cov, physics_fingerprint, state_noise_dict, load_state_noise, sigma_design
 export GateData, load_gate, from_z, to_z, dx_dz, z_center, z_moments, prior_terms, physics_mean, physics_mean_jac,
-       objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, islogbeta, islinear, logistic,
+       objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, islogbeta, islinear, isscore, drift_scale, logistic,
        latent_block, read_sites, draw_truth, FAMILIES
 
 const N_THETA = 8
 const N_PHYS = 15
 
 """
-    PriorSite(family, p1, p2[, p3, p4])
+    PriorSite(family, p1, p2[, p3, p4]; coord=:logit)
 
 A site of the latent block in its family, the transform z -> x and the prior in one:
 - `"lognormal"`: x = exp(z), z ~ N(p1, p2²) (a positive site);
-- `"beta"`: x = logistic(z), x ~ Beta(p1, p2) (a bounded site, the prior exact in the logit);
-- `"logbeta"`: x = exp(p3 + (p4 − p3) logistic(z)), the fraction ~ Beta(p1, p2) (a positive site whose
+- `"beta"`: the fraction x ~ Beta(p1, p2) (a bounded site);
+- `"logbeta"`: x = exp(p3 + (p4 − p3) f), the fraction f ~ Beta(p1, p2) (a positive site whose
   calibration chain is skewed: bounded in the log to [p3, p4], the skew in the Beta);
 - `"linear"`: x = z, z ~ N(p1, p2²) (a plant state in the filter's block, in its own units).
+
+A bounded site's coordinate is `coord`: `:logit` (f = logistic(z), the prior the Beta's own density in the
+logit: the calibration's coordinate, the gate's) or `:score` (f = F⁻¹(Φ(z)) with F the Beta's distribution
+function, the normal score, under which the prior is exactly N(0, 1); the pilot's prior file carries its
+bounded sites so, `export_chain_prior.py`). A Gaussian belief in the logit holds a Beta's exponential tail as
+a quadratic and leaves a truth two prior sd into the tail three to five posterior sd out; in the score the
+family's tails are the Gaussian's by construction (`docs/results.md`, the entry of 2026-09-17, night).
 """
 struct PriorSite
     family::String
@@ -60,9 +68,12 @@ struct PriorSite
     p2::Float64
     p3::Float64
     p4::Float64
-    function PriorSite(family::AbstractString, p1::Real, p2::Real, p3::Real=0.0, p4::Real=1.0)
+    coord::Symbol
+    function PriorSite(family::AbstractString, p1::Real, p2::Real, p3::Real=0.0, p4::Real=1.0; coord::Symbol=:logit)
         family in FAMILIES || throw(ArgumentError("unknown prior family \"$family\" (one of $(join(FAMILIES, ", ")))"))
-        return new(String(family), Float64(p1), Float64(p2), Float64(p3), Float64(p4))
+        coord in (:logit, :score) || throw(ArgumentError("a site's coordinate is :logit or :score, not :$coord"))
+        coord == :score && !(family in ("beta", "logbeta")) && throw(ArgumentError("the normal score is a bounded family's coordinate, not a $family site's"))
+        return new(String(family), Float64(p1), Float64(p2), Float64(p3), Float64(p4), coord)
     end
 end
 const FAMILIES = ("lognormal", "beta", "logbeta", "linear")
@@ -113,10 +124,11 @@ end
 isbeta(p::PriorSite) = p.family == "beta"
 islogbeta(p::PriorSite) = p.family == "logbeta"
 islinear(p::PriorSite) = p.family == "linear"          # a state entry in a filter's block: Gaussian in its own coordinate, no transform
-_betalike(p::PriorSite) = isbeta(p) || islogbeta(p)    # the prior is a Beta on a fraction f = logistic(z)
+_betalike(p::PriorSite) = isbeta(p) || islogbeta(p)    # the prior is a Beta on a fraction f of the site's coordinate
+isscore(p::PriorSite) = p.coord == :score             # a bounded site carried in its normal score (see `PriorSite`)
 
-"The prior's centre in z: the Gaussian's mean, or the logit of a Beta's mean (a/(a+b))."
-z_center(p::PriorSite) = _betalike(p) ? log(p.p1 / p.p2) : p.p1
+"The prior's centre in z: the Gaussian's mean, the logit of a Beta's a/(a+b), or zero for a site in its score."
+z_center(p::PriorSite) = _betalike(p) ? (isscore(p) ? 0.0 : log(p.p1 / p.p2)) : p.p1
 
 "The digamma function by the recurrence to x ≥ 6 and the asymptotic series (to 1e-10)."
 function _digamma(x::Real)
@@ -147,11 +159,12 @@ family's own draws by construction.
 """
 function z_moments(p::PriorSite)
     _betalike(p) || return (p.p1, p.p2^2)
+    isscore(p) && return (0.0, 1.0)                                                  # the score: standard normal by construction
     return (_digamma(p.p1) - _digamma(p.p2), _trigamma(p.p1) + _trigamma(p.p2))
 end
 
 "The sites of a prior file's `prior` list (`prior_next_cook.json`, the gate file)."
-read_sites(list) = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"]), Float64(get(p, "p3", 0.0)), Float64(get(p, "p4", 1.0))) for p in list]
+read_sites(list) = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"]), Float64(get(p, "p3", 0.0)), Float64(get(p, "p4", 1.0)); coord=Symbol(get(p, "coord", "logit"))) for p in list]
 
 """
     latent_block(prior_path, cfg; area_sd=0.3, depth_frac=0.8, depth_sd=0.5)
@@ -181,12 +194,12 @@ end
 """
     draw_truth(rng, sites; depth=0, thickness=4) -> z
 
-A truth drawn from the sites' prior, in z (Gaussian for the lognormal and linear sites, a Beta draw in the logit for
-the beta and logbeta sites); with `depth` > 0 the probe's depth is kept inside the meat (under 0.9 of the
+A truth drawn from the sites' prior, in z (Gaussian for the lognormal and linear sites, a Beta draw of the fraction
+in the site's coordinate, the logit or the score, for the beta and logbeta sites); with `depth` > 0 the probe's depth is kept inside the meat (under 0.9 of the
 thickness at site `thickness`).
 """
 function draw_truth(rng::AbstractRNG, sites::AbstractVector{PriorSite}; depth::Int=0, thickness::Int=4)
-    z = [_betalike(p) ? (f = _beta_rand(rng, p.p1, p.p2); log(f / (1 - f))) : p.p1 + p.p2 * randn(rng) for p in sites]
+    z = [_betalike(p) ? (f = _beta_rand(rng, p.p1, p.p2); isscore(p) ? _score_of_fraction(f, p.p1, p.p2) : log(f / (1 - f))) : p.p1 + p.p2 * randn(rng) for p in sites]
     depth > 0 && (z[depth] = min(z[depth], log(0.9 * from_z(z[thickness], sites[thickness]))))
     return z
 end
@@ -230,26 +243,77 @@ function prior_quadratic(c, prior; damping::Float64=0.0)
 end
 logistic(v) = 1 / (1 + exp(-v))
 
+# --- the normal score of a Beta: f = F⁻¹(Φ(z)), under which the prior is exactly N(0, 1) ------------------------
+const SCORE_MAX = 8.0     # beyond eight score sd the fraction is held at its value there (Φ(±8) sits 6e-16 from 0 and 1)
+"The fraction and its complement at score `z` under Beta(a, b): the inverse regularized incomplete beta at Φ(z), Φ and 1 − Φ both carried for the tails."
+function _score_pair(z::Real, a, b)
+    zc = clamp(z, -SCORE_MAX, SCORE_MAX)
+    p = 0.5 * erfc(-zc / sqrt(2.0)); q = 0.5 * erfc(zc / sqrt(2.0))
+    return beta_inc_inv(a, b, p, q)
+end
+"df/dz at score `z`: φ(z) over the Beta's density at f, in logs (zero beyond ±SCORE_MAX, where the fraction is held)."
+function _score_slope(z, a, b, f, y)
+    (abs(z) > SCORE_MAX || f <= 0 || y <= 0) && return zero(f)
+    return exp(-0.5 * z^2 - 0.5 * log(2π) - ((a - 1) * log(f) + (b - 1) * log(y) - logbeta(a, b)))
+end
+# under ForwardDiff: the value from the inverse beta, the derivative by the slope, through any nesting
+function _score_pair(z::ForwardDiff.Dual{T}, a, b) where {T}
+    zv = ForwardDiff.value(z)
+    f, y = _score_pair(zv, a, b)
+    s = _score_slope(zv, a, b, f, y); pz = ForwardDiff.partials(z)
+    return (ForwardDiff.Dual{T}(f, pz * s), ForwardDiff.Dual{T}(y, pz * (-s)))
+end
+_score_fraction(z, a, b) = _score_pair(z, a, b)[1]
+"The score under Beta(a, b) of a fraction `f`: Φ⁻¹ of the regularized incomplete beta, from whichever tail is the smaller."
+function _score_of_fraction(f::Real, a, b)
+    fc = clamp(f, 1e-12, 1 - 1e-12)
+    p, q = beta_inc(a, b, fc, 1 - fc)
+    z = p <= 0.5 ? -sqrt(2.0) * erfcinv(2p) : sqrt(2.0) * erfcinv(2q)
+    return clamp(z, -SCORE_MAX, SCORE_MAX)
+end
+"df/dz of a bounded site's fraction at `v`: the logistic's slope, or the score's."
+function _frac_slope(v, p::PriorSite)
+    if isscore(p)
+        f, y = _score_pair(v, p.p1, p.p2)
+        return _score_slope(v, p.p1, p.p2, f, y)
+    end
+    s = logistic(v); return s * (1 - s)
+end
+_fraction(v, p::PriorSite) = isscore(p) ? _score_fraction(v, p.p1, p.p2) : logistic(v)
+
 "The constrained value of one site at `v` in z (see `PriorSite`)."
 function from_z(v, p::PriorSite)
-    isbeta(p) && return logistic(v)
-    islogbeta(p) && return exp(p.p3 + (p.p4 - p.p3) * logistic(v))
+    isbeta(p) && return _fraction(v, p)
+    islogbeta(p) && return exp(p.p3 + (p.p4 - p.p3) * _fraction(v, p))
     islinear(p) && return v
     return exp(v)
 end
 "dx/dz of one site at `v`."
 function dx_dz(v, p::PriorSite)
-    isbeta(p) && (s = logistic(v); return s * (1 - s))
-    islogbeta(p) && (s = logistic(v); return from_z(v, p) * (p.p4 - p.p3) * s * (1 - s))
+    isbeta(p) && return _frac_slope(v, p)
+    islogbeta(p) && return from_z(v, p) * (p.p4 - p.p3) * _frac_slope(v, p)
     islinear(p) && return one(v)
     return exp(v)
 end
 "The unconstrained coordinate of one site's value `x` (the inverse of `from_z`)."
 function to_z(x, p::PriorSite)
-    isbeta(p) && return log(x / (1 - x))
-    islogbeta(p) && (f = clamp((log(x) - p.p3) / (p.p4 - p.p3), 1e-9, 1 - 1e-9); return log(f / (1 - f)))
+    isbeta(p) && return isscore(p) ? _score_of_fraction(x, p.p1, p.p2) : log(x / (1 - x))
+    islogbeta(p) && (f = clamp((log(x) - p.p3) / (p.p4 - p.p3), 1e-9, 1 - 1e-9); return isscore(p) ? _score_of_fraction(f, p.p1, p.p2) : log(f / (1 - f)))
     islinear(p) && return x
     return log(x)
+end
+"""
+    drift_scale(p::PriorSite) -> Float64
+
+The factor that carries a rate stated in the logit of a bounded site's fraction (drift.jl's constants, a prior
+file's `drift` field) into the site's own coordinate: one for a site carried in the logit or the log, and for a
+site in its score the score's slope on the logit at the prior's centre, so that the plant walks and jumps by the
+same amount in x whichever coordinate the belief carries the site in.
+"""
+function drift_scale(p::PriorSite)
+    (_betalike(p) && isscore(p)) || return 1.0
+    f, y = _score_pair(0.0, p.p1, p.p2)
+    return f * y / _score_slope(0.0, p.p1, p.p2, f, y)      # dz/dlogit = (dz/df)(df/dlogit) = f(1 − f) / (df/dz)
 end
 from_z(z, prior) = [from_z(v, p) for (v, p) in zip(z, prior)]
 dx_dz(z, prior) = [dx_dz(v, p) for (v, p) in zip(z, prior)]
@@ -260,7 +324,7 @@ to_z(x::AbstractVector, prior::AbstractVector) = [to_z(v, p) for (v, p) in zip(x
 
 −log p(z), its gradient and diagonal Hessian in the unconstrained space:
 Gaussian for the LogNormal and linear sites; for Beta(a, b) sites (and the
-logbeta's fraction) the logit-Jacobian form −a·log σ(z) − b·log(1 − σ(z)).
+logbeta's fraction) the logit-Jacobian form −a·log σ(z) − b·log(1 − σ(z)) in the logit, ½z² in the score.
 Identical to `brisket_app.monolith.prior_terms` on the calibration's families.
 """
 function prior_terms(z, prior)
@@ -269,12 +333,16 @@ function prior_terms(z, prior)
     g = zeros(T, length(z))
     h = zeros(T, length(z))
     for (i, (v, p)) in enumerate(zip(z, prior))
-        if _betalike(p)
+        if _betalike(p) && !isscore(p)
             a, b = p.p1, p.p2
             s = logistic(v)
             f += -a * log(s) - b * log(1 - s)
             g[i] = -a * (1 - s) + b * s
             h[i] = (a + b) * s * (1 - s)
+        elseif _betalike(p)                                          # the score: standard normal, exactly
+            f += 0.5 * v^2
+            g[i] = v
+            h[i] = one(T)
         else
             m, sd = p.p1, p.p2
             f += 0.5 * ((v - m) / sd)^2

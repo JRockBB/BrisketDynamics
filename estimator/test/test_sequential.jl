@@ -35,7 +35,8 @@ noise = [np[i] for i in 1:4]
 
 @testset "the families: transforms, priors, the block declared once" begin
     lb = PriorSite("logbeta", 3.0, 5.0, -9.0, -8.0)
-    for p in (PriorSite("lognormal", -1.0, 0.3), PriorSite("beta", 4.0, 2.0), lb, PriorSite("linear", 300.0, 2.0))
+    ps = PriorSite("beta", 4.0, 2.0; coord=:score); lbs = PriorSite("logbeta", 3.0, 5.0, -9.0, -8.0; coord=:score)
+    for p in (PriorSite("lognormal", -1.0, 0.3), PriorSite("beta", 4.0, 2.0), lb, PriorSite("linear", 300.0, 2.0), ps, lbs)
         for v in (-1.3, 0.0, 0.7)
             x = from_z(v, p)
             @test abs(to_z(x, p) - v) < 1e-9
@@ -44,7 +45,17 @@ noise = [np[i] for i in 1:4]
     end
     @test exp(-9.0) < from_z(-3.0, lb) < from_z(3.0, lb) < exp(-8.0)                  # bounded in the log range
     @test abs(from_z(z_center(lb), lb) - exp(-9.0 + 3 / 8)) < 1e-12                    # the centre is the Beta's mean fraction
-    for p in (PriorSite("beta", 4.0, 2.0), lb, PriorSite("lognormal", -1.0, 0.3))
+    # the score: its centre is the Beta's median, it is bounded, it inverts, it is held beyond eight sd, its prior is N(0, 1)
+    @test isscore(ps) && !isscore(lb) && z_center(ps) == 0.0 && z_moments(lbs) == (0.0, 1.0)
+    @test abs(from_z(0.0, ps) - 0.6862) < 1e-3 && exp(-9.0) < from_z(-3.0, lbs) < from_z(3.0, lbs) < exp(-8.0)
+    @test abs(E._score_of_fraction(E._score_fraction(1.7, 4.0, 2.0), 4.0, 2.0) - 1.7) < 1e-9
+    @test from_z(9.0, ps) == from_z(8.0, ps) && dx_dz(9.0, ps) == 0.0
+    @test prior_terms([1.3], [ps]) == (0.5 * 1.3^2, [1.3], [1.0])
+    @test_throws ArgumentError PriorSite("lognormal", 0.0, 1.0; coord=:score)
+    @test_throws ArgumentError PriorSite("beta", 1.0, 1.0; coord=:probit)
+    pu = sites[names .== "u_leak"][1]                                                    # the pilot's prior carries its bounded sites in the score
+    @test isscore(pu) && abs(drift_scale(pu) * sqrt(z_moments(PriorSite("beta", pu.p1, pu.p2))[2]) - 1) < 0.1 && drift_scale(sites[1]) == 1.0
+    for p in (PriorSite("beta", 4.0, 2.0), lb, PriorSite("lognormal", -1.0, 0.3), ps, lbs)
         for v in (-0.4, 1.1)
             f, g, h = prior_terms([v], [p])
             fg(w) = prior_terms(w, [p])[1]
@@ -231,14 +242,18 @@ end
     # the families' moments in z: the digamma and trigamma at known values, a lognormal's own, a beta's against draws
     @test abs(E._digamma(1.0) + 0.5772156649) < 1e-9 && abs(E._trigamma(1.0) - pi^2 / 6) < 1e-9 && abs(E._digamma(10.0) - 2.2517525890667) < 1e-9
     @test z_moments(PriorSite("lognormal", -3.2, 0.1)) == (-3.2, 0.1^2)
-    pb = sites[names .== "a0"][1]
+    pb = sites[names .== "a0"][1]                                     # the pilot's a0 in its score; the same family in the logit for the moments
+    pl = PriorSite("beta", pb.p1, pb.p2)
     rngb = MersenneTwister(11)
-    zd = [(f = E._beta_rand(rngb, pb.p1, pb.p2); log(f / (1 - f))) for _ in 1:200_000]
-    mb, vb = z_moments(pb)
+    fd = [E._beta_rand(rngb, pb.p1, pb.p2) for _ in 1:200_000]
+    zd = log.(fd ./ (1 .- fd))
+    mb, vb = z_moments(pl)
     @test abs(mb - sum(zd) / length(zd)) < 0.02 && abs(sqrt(vb) - sqrt(sum((zd .- mb) .^ 2) / length(zd))) < 0.02
+    zs = [to_z(f, pb) for f in fd]                                    # the same draws' scores: standard normal
+    @test abs(sum(zs) / length(zs)) < 0.02 && abs(sqrt(sum(zs .^ 2) / length(zs)) - 1) < 0.02
     st_m = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q)
     ia = findfirst(==("a0"), names)
-    @test st_m.m[ia] == mb && st_m.P[ia, ia] == vb && st_m.m[4] == sites[4].p1 && st_m.P[4, 4] == sites[4].p2^2
+    @test st_m.m[ia] == 0.0 && st_m.P[ia, ia] == 1.0 && st_m.m[4] == sites[4].p1 && st_m.P[4, 4] == sites[4].p2^2
 end
 
 @testset "the plan from the filtered state is the whole cook from the start (the restart contract)" begin

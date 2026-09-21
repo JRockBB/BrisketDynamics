@@ -175,7 +175,7 @@ const REPO_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 "The state-noise file the bench writes and every driver reads."
 const STATE_NOISE_FILE = joinpath(REPO_ROOT, "data", "calibration", "state_noise.json")
 "The filter's own sources, fingerprinted with the physics: a change to any of them means the rates must be re-earned."
-const FILTER_FILES = ("sequential.jl", "channels.jl", "noise.jl", "volatility.jl", "realcook.jl", "drift.jl", "segments.jl", "iterated.jl")
+const FILTER_FILES = ("BrisketEstimator.jl", "sequential.jl", "channels.jl", "noise.jl", "volatility.jl", "realcook.jl", "drift.jl", "segments.jl", "iterated.jl")
 
 """
     physics_fingerprint(; repo=REPO_ROOT) -> String

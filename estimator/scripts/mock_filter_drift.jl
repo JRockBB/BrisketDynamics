@@ -38,7 +38,7 @@ if fault_h > 0                                                    # the core pro
     readings.core[kf:end] .= readings.core[kf]
 end
 chs = realcook_channels(readings, masks, np0; cap=nc.hum_cap, depth_latent=DEPTH)
-dr = drift_rates(blk.file)
+dr = drift_rates(blk.file; sites, idx)
 q = zeros(length(sites)); for (nm, sd) in dr.sd_per_hour; q[idx[nm]] = sd^2; end
 jumps = [(idx[nm], events.t_add, sd^2) for (nm, sd) in dr.jump_log_sd]
 println("the filter on the drifting mock (seed ", m["drift"]["seed"], ") to ", t_end_h, " h, updates on arrival; prior ", prior_file,
@@ -59,9 +59,10 @@ function z_true_at(te)
     vcat(to_z(xx[1:N_PHYS], prior_phys), z_extra)
 end
 # the plant's surface: the field's surface node from a re-solve of the plant (the mock keeps the probe traces only)
-z0_plant = to_z(x_true[1:N_PHYS], prior_phys)
+gate_sites = read_sites(JSON.parsefile(joinpath(REPO, "data", "calibration", "estimator_gate_real.json"))["prior"])   # the mock's own coordinate (mock_drift_realcook.jl walks the plant in the gate's families)
+z0_plant = to_z(x_true[1:N_PHYS], gate_sites)
 dd = DriftDraw(MersenneTwister(Int(m["drift"]["seed"])), idx)
-o = solve_drifting(z0_plant, dd, prior_phys, u, t; pit, cfg, A_meat=x_true[16], events...)
+o = solve_drifting(z0_plant, dd, gate_sites, u, t; pit, cfg, A_meat=x_true[16], events...)
 th = [r.t / 3600 for r in recs]
 errs = [(r.z .- z_true_at(r.t)) ./ r.z_sd for r in recs]
 for i in eachindex(recs)

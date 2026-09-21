@@ -55,7 +55,7 @@ edges = unique(vcat(3600.0 .* collect(2:2:floor(Int, edges_to_h)), [3600.0 * edg
 nc = RealCookNoise()
 np0 = realcook_noise_priors(joinpath(REPO, "data", "calibration", "noise_prior_real.json"), dt)
 noise = [np0[i] for i in 1:4]
-dr = drift_rates(blk.file)     # the rates the filter is told (the plant walks with drift.jl's own; the same by default: the test is of the mechanism)
+dr = drift_rates(blk.file; sites, idx)     # the rates the filter is told, in the sites' coordinates (the plant walks with drift.jl's own; the same by default: the test is of the mechanism)
 q = zeros(length(sites)); for (nm, sd) in dr.sd_per_hour; q[idx[nm]] = sd^2; end
 jumps = [(idx[nm], events.t_add, sd^2) for (nm, sd) in dr.jump_log_sd]
 sn = sn_file == "default" ? StateNoise() : load_state_noise(isabspath(sn_file) ? sn_file : joinpath(REPO, "data", "calibration", sn_file))
@@ -67,7 +67,7 @@ dst = joinpath(REPO, "data", "mock", out_name)
 save() = open(dst, "w") do io
     JSON.print(io, Dict("plant" => "monolith (1-D) in segments, parameters drifting (drift.jl); real-cook instruments", "names" => allnames,
                         "prior_file" => prior_file, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped,
-                        "drift" => Dict("sd_per_hour" => DRIFT_SD_PER_HOUR, "jump_log_sd" => JUMP_LOG_SD), "q" => q,
+                        "drift" => Dict("sd_per_hour" => dr.sd_per_hour, "jump_log_sd" => dr.jump_log_sd, "stated" => "in the logit of a fraction or the log, carried into each site's coordinate by drift_scale"), "q" => q,
                         "state_noise" => Dict(string(k) => getfield(sn, k) for k in fieldnames(StateNoise)), "state_noise_file" => sn_file,
                         "physics" => fingerprint, "adapt_level" => adapt_level, "groups" => collect(STATE_GROUPS), "group_dof" => group_dof, "n_sigma" => n_sigma,
                         "truths" => truths))
@@ -82,14 +82,14 @@ for k in 1:n_cooks
     seed = seed0 + k - 1
     rng = MersenneTwister(2000 + seed)
     z0 = draw_truth(rng, sites; depth=DEPTH)
-    if truths == "gaussian"                                           # the bounded sites from the Laplace Gaussian, on a draw of their own
+    if truths == "gaussian"                                           # the bounded sites from the Laplace Gaussian, on a draw of their own (a site in its score: its own family)
         rng_g = MersenneTwister(4000 + seed)
         _, _, h0 = prior_terms(z_center.(sites), sites)
         for (i, p) in enumerate(sites)
             E._betalike(p) && (z0[i] = z_center(p) + randn(rng_g) / sqrt(h0[i]))
         end
     end
-    dd = DriftDraw(rng, idx)
+    dd = DriftDraw(rng, idx; sites)
     seg_edges, blocks = drift_segments(t, z0, dd, events.t_add)
     xs = [from_z(z, sites) for z in blocks]
     A, depth = xs[1][AREA], xs[1][DEPTH]
