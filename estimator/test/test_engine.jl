@@ -1,7 +1,10 @@
 # The graph engine against the stored streaming record: the first three
 # hourly batches of the matched mock's humidity-plus-scale set must land
-# on the record's posterior (means within a tenth of a width; the record
-# was made by the retired outer-loop engine, whose fixed point is the same).
+# on the record's posterior (means within a tenth of a width). The record
+# was first made by the retired outer-loop engine, whose fixed point is the
+# same; since 2026-09-22 it is the graph engine's own run on the regenerated
+# mock (mock_stream.jl), so this is the regression that the solve, the
+# channels and the mock have not moved.
 #
 # Run:  julia --project=estimator estimator/test/test_engine.jl
 using Pkg

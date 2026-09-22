@@ -35,7 +35,9 @@ jobs:
 
   estimator-tests:
     # the RxInfer estimator suite (estimator/test), every file its own process, in shards balanced by the
-    # files' wall times (estimator/test/runtests.jl prints them) so each shard sits under the job limit
+    # files' wall times (estimator/test/runtests.jl prints them; 2026-09-22 on a loaded laptop: sequential 844 s,
+    # segments 661, smoother 607, iterated 593, horizon 459, engine 457, ridge 437, realcook 235, physics2d 134,
+    # rates 91, volatility 81, rules 64, noise 51, channels 34, misfit 31) so each shard sits near twenty minutes
     name: Estimator shard ${{ matrix.shard.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -46,10 +48,10 @@ jobs:
       fail-fast: false
       matrix:
         shard:
-          - { name: sequential, files: "test_sequential.jl" }
-          - { name: planner, files: "test_horizon.jl test_iterated.jl test_smoother.jl" }
-          - { name: misfit, files: "test_misfit.jl test_physics2d.jl test_ridge.jl" }
-          - { name: channels, files: "test_channels.jl test_engine.jl test_noise.jl test_rates.jl test_realcook.jl test_rules.jl test_segments.jl test_volatility.jl" }
+          - { name: sequential, files: "test_sequential.jl test_rates.jl test_rules.jl test_volatility.jl test_channels.jl test_misfit.jl" }
+          - { name: segments, files: "test_segments.jl test_smoother.jl" }
+          - { name: planner, files: "test_iterated.jl test_horizon.jl test_noise.jl" }
+          - { name: engine, files: "test_engine.jl test_ridge.jl test_realcook.jl test_physics2d.jl" }
     steps:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3
