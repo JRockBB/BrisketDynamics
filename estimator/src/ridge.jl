@@ -14,7 +14,7 @@
     ridge_chain(channels, prior, d, ph, z, V; k=length(z), steps=2000, burn=steps ÷ 4, scale=2.4 / sqrt(k), rng, thin=20)
 
 The belief sampled by random-walk Metropolis on the exact posterior of the registry's readings under
-`channels` (whitened as they stand: the identified noise and levels are fixed), the proposal shaped by the
+`channels` (including censored-normal survival terms; the identified noise and levels are fixed), the proposal shaped by the
 Gaussian posterior `(z, V)` and its step adapted to a 0.3 acceptance during the burn-in. With `k` below
 the dimension only the Gaussian's `k` widest directions move (a cheap truncation for tests); by default
 every direction does. Returns the chain's mean and covariance (the Gaussian's where a direction did not
@@ -23,18 +23,15 @@ direction.
 """
 function ridge_chain(channels, prior, d::GateData, ph::Physics, z, V; k::Int=length(z), steps::Int=2000, burn::Int=steps ÷ 4,
                      scale::Float64=2.4 / sqrt(k), rng=MersenneTwister(1), thin::Int=20)
-    S0, J0, lay = physics_outputs(z, d, ph)
-    _, _, w = assemble(channels, z, S0, J0, prior, lay)
-    ok = .!isnan.(w)
     function logpost(zz)
-        S = try
-            physics_stack(zz, d, ph)[1]
+        S, lay = try
+            physics_stack(zz, d, ph)
         catch err
             err isa InterruptException && rethrow()
             return -Inf
         end
-        a = assemble(channels, zz, S, J0, prior, lay)[1]
-        val = -0.5 * sum(abs2, (w .- a)[ok]) - prior_terms(zz, prior)[1]     # not `lp`: a closure assigning to the
+        val = -likelihood_objective(channels, zz, S, prior, lay, ph) -
+              prior_terms(zz, prior)[1]                                      # not `lp`: a closure assigning to the
         return isfinite(val) ? val : -Inf                                     # chain's `lp` would overwrite it
     end
     F = eigen(Symmetric(Matrix(V)))

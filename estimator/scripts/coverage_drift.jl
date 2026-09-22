@@ -56,11 +56,12 @@ flush(stdout)
 for k in 1:n_cooks
     seed = seed0 + k - 1
     rng = MersenneTwister(2000 + seed)
-    z0 = draw_truth(rng, sites; depth=DEPTH)
+    z0 = draw_truth(rng, sites)
     dd = DriftDraw(rng, idx; sites)
     seg_edges, blocks = drift_segments(t, z0, dd, events.t_add)
     xs = [from_z(z, sites) for z in blocks]
-    A, depth = xs[1][AREA], xs[1][DEPTH]
+    A, depth_fraction = xs[1][AREA], xs[1][DEPTH]
+    depth = probe_depth(xs[1][4], depth_fraction)
     t0 = time()
     o = try
         solve_segments([x[1:8] for x in xs], [x[9:15] for x in xs], u, t, seg_edges; pit, cfg, A_meat=A, events...)
@@ -69,7 +70,7 @@ for k in 1:n_cooks
         @printf("cook %d (seed %d): the plant failed (%s); skipped\n", k, seed, sprint(showerror, err)[1:min(end, 80)]); push!(skipped, seed); save(); continue
     end
     all(isfinite, o.Tcore) || (@printf("cook %d (seed %d): the plant is not finite; skipped\n", k, seed); push!(skipped, seed); save(); continue)
-    readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=xs[1][4], depth=depth)
+    readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=xs[1][4], depth=depth, cfg)
     # the batch estimator
     chs = realcook_channels(readings, masks, np; cap=nc.hum_cap, depth_latent=DEPTH)
     d = estimator_setup(t, u, pit, cfg, prior_phys, names)

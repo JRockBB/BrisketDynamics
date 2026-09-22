@@ -2,9 +2,9 @@
 # mask has its own spacing and drops the lid-open windows; the lid
 # windows follow every event including each spritz; the pit noise level
 # rises after the fuel add and decays; the humidity reading never
-# exceeds the cap; the censored channel predicts min(pred, cap) with a
-# zero residual and zero slope where the model is above the cap and the
-# plain prediction where the reading is below it.
+# exceeds the cap; capped samples use the exact normal survival
+# likelihood while RxInfer receives its score-and-curvature-matched
+# local Gaussian site.
 #
 # Run:  julia --project=estimator estimator/test/test_realcook.jl
 using Pkg
@@ -15,6 +15,14 @@ using .BrisketEstimator
 using BrisketDynamics
 using LinearAlgebra, Random, Statistics, Test
 const E = BrisketEstimator
+
+struct _StaticHumidityPhysics <: E.Physics
+    stack::Vector{Float64}
+    lay::OutputLayout
+end
+E.physics_stack(z, d, ph::_StaticHumidityPhysics) = (ph.stack, ph.lay)
+E.physics_outputs(z, d, ph::_StaticHumidityPhysics) =
+    (ph.stack, zeros(length(ph.stack), length(z)), ph.lay)
 
 t = collect(0.0:120.0:20 * 3600.0)
 nc = RealCookNoise()
@@ -59,12 +67,38 @@ end
     data = [6000.0, 6500.0, 6500.0, 6300.0, 6500.0]            # readings 2, 3 and 5 at the cap
     ch = CensoredHumidity(100.0, 0.8, trues(nt); cap=6500.0, data=data)
     r, Jr = E.predict(ch, S, J, zeros(2), PriorSite[], lay)
-    @test r[1] == 6000.0 && Jr[1, 1] == 1.0                     # below the cap: the plain prediction
-    @test r[4] == 6400.0 && Jr[4, 1] == 1.0
-    @test abs(r[3] - 6500.0) < 1.0 && Jr[3, 1] < 0.01           # the model above the cap: residual ≈ 0, slope ≈ 0
-    @test abs(r[5] - 6500.0) < 1.0 && Jr[5, 1] < 0.01
-    @test 6450.0 < r[2] < 6500.0 && 0.1 < Jr[2, 1] < 0.99         # just above the cap: the smooth corner
+    @test r == pv && all(Jr[:, 1] .== 1.0)                     # prediction remains the latent uncapped reading
     @test E.channel_label(ch) == "humidity (censored)"
     @test size(E.whitening(ch), 1) == nt
+
+    a, B, w = E.assemble([ch], zeros(2), S, J, PriorSite[], lay)
+    row = 3                                                     # two uncensored AR rows, then capped sample 2
+    ε = 0.1
+    f(x) = E._censored_normal_nll(x, ch.cap, ch.σ)
+    g_fd = (f(pv[2] + ε) - f(pv[2] - ε)) / (2ε)
+    h_fd = (f(pv[2] + ε) - 2f(pv[2]) + f(pv[2] - ε)) / ε^2
+    @test B[row, 1] * (a[row] - w[row]) ≈ g_fd rtol=2e-6 atol=1e-10
+    @test B[row, 1]^2 ≈ h_fd rtol=2e-5 atol=1e-10
+
+    lay1 = OutputLayout(1, 1)
+    S1 = zeros(length(lay1)); S1[lay1.opv + 1] = 6600.0
+    ch1 = CensoredHumidity(100.0, 0.0, trues(1); cap=6500.0, data=[6500.0])
+    loss = E.likelihood_objective([ch1], zeros(1), S1, PriorSite[], lay1, nothing)
+    @test loss ≈ f(6600.0) rtol=1e-12
+    @test f(6000.0) > f(6500.0) > f(7000.0)                    # evidence is one-sided, not a squared hinge
+    extreme = E._censored_normal_site(0.0, 6500.0, 10.0)
+    @test isfinite(E._censored_normal_nll(0.0, 6500.0, 10.0)) &&
+          isfinite(extreme.pseudo) && extreme.root_precision > 0
+
+    # The ordinary RxInfer solve conditions the discrepancy state before
+    # clipping; this is the graph path used by the sequential estimator.
+    stack = zeros(length(lay1)); stack[lay1.opv + 1] = 6400.0
+    ph = _StaticHumidityPhysics(stack, lay1)
+    d = estimator_setup([0.0, 1.0], [0.0, 0.0], PitConfig(), MeatConfig(), PriorSite[], String[])
+    sites = state_sites(1)
+    prior = FilterPrior(sites, [0.0], reshape([1e-4], 1, 1), reshape([100.0], 1, 1))
+    sq = E.Sequential(ch1, 1, 10.0)
+    fit = solve_map_channels([sq], prior, d; c0=[0.0], physics=ph, iters=20, tol=1e-6, ftol=1e-8)
+    @test fit.converged && fit.z[1] > 50.0 && sqrt(fit.cov[1, 1]) < 100.0
 end
 println("test_realcook.jl: done")

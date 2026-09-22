@@ -1,8 +1,8 @@
 # The streaming estimator with a shape-factor latent on the scale: the
 # thing the misfit check asks for on the cylinder plant. Same plants,
 # readings, hourly batches and channel sets (the two with a scale) as
-# mock_stream.jl, one more latent — the log shape factor s of the mass
-# bookkeeping m = s ρ_d A L (1 + W̄ + F̄), prior LogNormal(0, 0.3), truth 1
+# mock_stream.jl, one more latent — the log shape factor s of the
+# composition-conserving mass bookkeeping, prior LogNormal(0, 0.3), truth 1
 # for the slab plant and πR²H / (A L) for the cylinder — and the misfit
 # check recorded per batch.
 #
@@ -25,14 +25,13 @@ u = Float64.(m["u"])
 meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
 d = estimator_setup(t, u, pit, cfg, prior_phys, names)
 
-# estimator-only latents: the exposed area, the core probe's depth, the shape factor
-L_med = exp(prior_phys[4].p1)
+# estimator-only latents: exposed area, bounded probe-depth fraction, shape factor
 extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3),
-         LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5),
+         LatentSpec("core_depth_fraction", probe_depth_site()),
          LatentSpec("shape", "lognormal", 0.0, 0.3)]
 prior = vcat(prior_phys, [e.site for e in extra])
 allnames = vcat(names, [e.name for e in extra])
@@ -43,7 +42,7 @@ is2d = occursin("2-D", String(m["plant"]))
 R_CYL, H_CYL = 0.135, 0.078                   # mock_plant.jl's cylinder
 s_true = is2d ? π * R_CYL^2 * H_CYL / (x_true[AREA] * x_true[4]) : 1.0
 x_true = vcat(x_true, s_true)
-z_true = [isbeta(p) ? log(x / (1 - x)) : log(x) for (x, p) in zip(x_true, prior)]
+z_true = [to_z(x, p) for (x, p) in zip(x_true, prior)]
 @printf("plant: %s  shape factor truth %.3f\n", m["plant"], s_true)
 
 rd = m["readings"]

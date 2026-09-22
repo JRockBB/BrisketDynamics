@@ -5,7 +5,7 @@
 # a few outer steps. Included by BrisketEstimator.
 #
 # The graph is the gate's: one latent block, one affine node per whitened
-# residual, the local-quadratic prior node; the readings come from the
+# residual or local censored-likelihood site, the local-quadratic prior node; the readings come from the
 # channel registry (channels.jl). Static readings (rulers, scales before
 # the cook) are present from the first batch.
 
@@ -44,8 +44,6 @@ function graph_posterior_affine(c, a, B, w, prior; bp_iters::Int=20, damping::Fl
     m, V = mean_cov(r.posteriors[:z])
     return collect(m), Matrix(V)
 end
-
-_objective(a, w, z, prior) = 0.5 * sum(abs2, w .- a) + prior_terms(z, prior)[1]
 
 """
     solve_map_channels(channels, prior, d; c0, area_latent, iters, tol, verbose)

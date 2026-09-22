@@ -78,15 +78,17 @@ def _init():
     jl.seval("using BrisketDynamics")
     jl.seval(
         """
-        function _mono_kw(abstol, reltol, tpit0, t_amb, m0, t0, T0f, W0f, C0f, F0f,
-                          Sf0, b0, s0, r0, rest_t, rest_h, rest_eps, rest_eta,
-                          n_shrink, afr, y_w, pan, omega, n_meat)
+        function _mono_kw(abstol, reltol, tpit0, t_amb, m0, mpan0, Tpan0, Tfb0,
+                          latch0, Cfb, UAfb, cduct, t0, T0f, W0f, C0f, F0f, Sf0,
+                          b0, s0, r0, rest_t, rest_h, rest_eps, rest_eta, n_shrink,
+                          afr, y_w, pan, omega, n_meat)
             cfg = MeatConfig(T0=t0, T_rest=rest_t, h_rest=rest_h, ε_rest=rest_eps,
                              η_rest=rest_eta, n_shrink=n_shrink, n_meat=n_meat)
-            pit = PitConfig(T_amb=t_amb, Tpit0=tpit0, m0=m0)
+            pit = PitConfig(T_amb=t_amb, Tpit0=tpit0, m0=m0, m_pan0=mpan0,
+                            T_pan0=Tpan0, C_fb=Cfb, UA_fb=UAfb, c_duct=cduct)
             hum = Humidity(afr=afr, y_w=y_w, pan_kg_s=pan, omega_amb=omega)
             return (; cfg, pit, hum, abstol, reltol, T0f, W0f, C0f, F0f, Ssalt0f=Sf0,
-                    B0=b0, S0=s0, R0=r0)
+                    B0=b0, S0=s0, R0=r0, LATCH0=latch0, mpan0, Tpan0, Tfb0)
         end
         # t_f > 0 switches to duration (fractional-time) mode: utk/tsave and
         # the event times are fractions of the cook length t_f, and t_f is
@@ -120,7 +122,7 @@ def _init():
                     o.l_star, o.juiciness, o.fat_rendered, o.l_thick, o.pv_pit,
                     o.pv_base, o.evap_w, o.drip_w, o.drip_f, o.T_field[:, end],
                     o.W_field[:, end], o.F_field[:, end], o.ring[end], o.spritz_w,
-                    o.salt_field[:, end])
+                    o.salt_field[:, end], o.m_pan, o.T_pan, o.T_firebox, o.wrap_latch)
         end
         # python column layout (1-based): 1..b core, b+1..b+6 event tail,
         # b+7 t_f, b+8 t_salt, b+9 t_trig, b+10 dt_add
@@ -304,6 +306,22 @@ class InputSchema(BaseModel):
     tpit0: float = Field(default=293.15, description="Initial pit temperature [K]")
     t_amb: float = Field(default=293.15, description="Ambient temperature [K]")
     m0: float = Field(default=7.0, description="Initial charcoal load [kg]")
+    m_pan0: float = Field(default=0.0, description="Initial/handed-off pan water [kg]")
+    t_pan0: float = Field(
+        default=293.15, description="Initial/handed-off pan temperature [K]"
+    )
+    t_firebox0: float = Field(
+        default=float("nan"),
+        description="Initial/handed-off firebox temperature [K]; NaN = pit temperature",
+    )
+    wrap_latch0: float = Field(
+        default=0.0, description="Initial/handed-off trigger-wrap latch in [0, 1]"
+    )
+    c_fb: float = Field(default=2.0e4, description="Firebox thermal mass [J/K]")
+    ua_fb: float = Field(default=12.0, description="Firebox ambient loss [W/K]")
+    c_duct: float = Field(
+        default=0.0, description="Firebox-to-chamber draft conductance [W/K]"
+    )
     t0_meat: float = Field(default=281.15, description="Initial meat temperature [K]")
     t_field0: Array[(None,), Float64] = Field(
         default_factory=list, description="Initial T field (len nx) or empty"
@@ -421,6 +439,18 @@ class OutputSchema(BaseModel):
     spritz_w: Array[(), Float64] = Field(
         description="Spritz water absorbed by the meat (dry-basis mean); the rest flashed off"
     )
+    m_pan: Array[(None,), Float64] = Field(
+        description="Pan-water mass [kg] (handoff)"
+    )
+    t_pan: Array[(None,), Float64] = Field(
+        description="Pan-water temperature [K] (handoff)"
+    )
+    t_firebox: Array[(None,), Float64] = Field(
+        description="Firebox temperature [K] (handoff)"
+    )
+    wrap_latch: Array[(None,), Float64] = Field(
+        description="Trigger-wrap latch in [0, 1] (handoff)"
+    )
 
 
 SOFT_FAIL = os.environ.get("BRISKET_SOFT_FAIL", "0") == "1"
@@ -491,6 +521,13 @@ def _packed(inputs: InputSchema):
         float(inputs.tpit0),
         float(inputs.t_amb),
         float(inputs.m0),
+        float(inputs.m_pan0),
+        float(inputs.t_pan0),
+        float(inputs.t_firebox0),
+        float(inputs.wrap_latch0),
+        float(inputs.c_fb),
+        float(inputs.ua_fb),
+        float(inputs.c_duct),
         float(inputs.t0_meat),
         _own(inputs.t_field0),
         _own(inputs.w_field0),
@@ -609,6 +646,10 @@ def apply(inputs: InputSchema) -> OutputSchema:
             0.0,
             0.0,
             zx,
+            z,
+            np.full(nt, _SENTINEL_T),
+            np.full(nt, _SENTINEL_T),
+            z,
         ]
     keys = (
         "tpit",
@@ -638,6 +679,10 @@ def apply(inputs: InputSchema) -> OutputSchema:
         "ring",
         "spritz_w",
         "salt_field_final",
+        "m_pan",
+        "t_pan",
+        "t_firebox",
+        "wrap_latch",
     )
     return OutputSchema(**dict(zip(keys, vals, strict=True)))
 
@@ -660,6 +705,7 @@ def abstract_eval(abstract_inputs):
     out["salt_field_final"] = vec(NX)
     out["ring"] = sc
     out["spritz_w"] = sc
+    out.update({k: vec(nt) for k in ("m_pan", "t_pan", "t_firebox", "wrap_latch")})
     return out
 
 

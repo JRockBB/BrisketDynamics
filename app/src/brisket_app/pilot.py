@@ -4,15 +4,18 @@ This is `mpc.run_cook`'s control loop lifted out of simulation and wired
 to the :mod:`pit_io` contract: the pilot READS the pit (temps, fan duty,
 setpoint) and COMMANDS setpoints; the pit's own PID does the fan. Wrap
 and pull are re-planned live (chimney/spritz ride along at fixed given
-times in this version); on hardware they are ADVISORIES a human executes
-— the pilot journals the call and, where the backend supports it (the
-sim, the mock), executes it itself.
+times in this version). Events remain pending until explicitly acknowledged
+by a human or by a backend hook; the sim and mock backends execute all four
+modeled events themselves.
 
 State estimation, per executed segment:
 - the model plant (CookState) advances under the MEASURED fan duty — the
   meat fields, fuel and bark states are model-propagated;
 - the pit temperature state is then snapped to the MEASURED pit (the
   sensor is truth for the one state it measures);
+- the launch-time food reading seeds the initially uniform meat temperature;
+  subsequent food readings are journaled for shadow validation but are not
+  assimilated by this Python pilot; the RxInfer estimator remains separate;
 - the ambient belief is a scalar Kalman filter (mpc.AmbientKF) on the
   pit innovation (measured minus model-predicted segment end). With a
   FORECAST the filter becomes feedforward + feedback: the predict step
@@ -28,14 +31,14 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 
 from . import mpc
 from .control import ControlConfig
-from .coupled import HR, CookGrids
+from .coupled import HR
 from .pit_io import PitStatus
 
 K2F = lambda k: (float(k) - 273.15) * 9.0 / 5.0 + 32.0
@@ -51,7 +54,8 @@ class PilotConfig:
     sp_min_K: float = 340.0  # setpoint command clamp
     sp_max_K: float = 420.0
     sp_push_eps_K: float = 0.6  # push only when the reference moved
-    auto_events: bool = True  # execute wrap/pull where the backend can
+    auto_events: bool = True  # execute modeled events where the backend can
+    shadow_mode: bool = False  # never send setpoints or invoke backend event hooks
     wall_pace: float = 0.0  # wall s per sim s (0 = free-run lockstep)
 
 
@@ -83,6 +87,7 @@ class Pilot:
         incumbent: dict | None = None,
         rest: dict | None = None,
         forecast_fn=None,
+        event_ack=None,
         journal: Journal | None = None,
         log=print,
     ):
@@ -93,6 +98,7 @@ class Pilot:
         self.cc = cc or ControlConfig()
         self.rest = rest
         self.forecast = forecast_fn  # t [s] -> T_amb [K], or None
+        self.event_ack = event_ack  # (event, elapsed_s) -> bool; human acknowledgement
         self.j = journal or Journal(None)
         self.log = log
         inc = incumbent or {}
@@ -109,11 +115,21 @@ class Pilot:
         self.last_pull_cand = self.t_pull
         self.wrapped = False
         self.pulled = False
+        self.added = False
+        self.spritzing = False
         self.t_wrap_exec = None
         self.t_pull_exec = None
+        self.t_add_exec = None
+        self.t_spritz_exec = None
+        self.pending_events: set[str] = set()
         self.wrap_candidates: list[tuple] = []
         self.pull_candidates: list[tuple] = []
         s0 = self.pit.read()
+        self._pit_time_origin = float(s0.t)
+        if not np.isfinite(self._pit_time_origin):
+            raise RuntimeError("pit returned a non-finite initial timestamp")
+        self._last_pit_elapsed = 0.0
+        s0 = self._elapsed_status(s0)
         self.state = mpc.CookState.fresh(
             tpit0=s0.tpit_K,
             t0_meat=s0.tcore_K if s0.tcore_K else 281.15,
@@ -134,6 +150,28 @@ class Pilot:
             fc = float(self.forecast(t_new))
             self.kf.x += fc - self._fc_last
             self._fc_last = fc
+
+    def _elapsed_status(self, status: PitStatus) -> PitStatus:
+        """Put a backend timestamp on the cook's elapsed-time clock."""
+        t_elapsed = float(status.t) - self._pit_time_origin
+        if not np.isfinite(t_elapsed):
+            raise RuntimeError("pit returned a non-finite timestamp")
+        if not np.isfinite(status.tpit_K):
+            raise RuntimeError("pit returned a non-finite pit temperature")
+        if not np.isfinite(status.fan_avg_pct) or not 0.0 <= status.fan_avg_pct <= 100.0:
+            raise RuntimeError(
+                f"pit returned invalid average fan duty {status.fan_avg_pct!r}"
+            )
+        if t_elapsed < self._last_pit_elapsed - 1e-6:
+            raise RuntimeError(
+                f"pit clock moved backward: {t_elapsed:.3f} < "
+                f"{self._last_pit_elapsed:.3f} elapsed seconds"
+            )
+        self._last_pit_elapsed = max(self._last_pit_elapsed, t_elapsed)
+        tcore = status.tcore_K
+        if tcore is not None and not np.isfinite(tcore):
+            tcore = None
+        return replace(status, t=self._last_pit_elapsed, tcore_K=tcore)
 
     # --- one replan -----------------------------------------------------------
     def replan(self, t_remaining: float):
@@ -162,8 +200,20 @@ class Pilot:
         tp_fixed = 1.0e9 if self.cc.opt_pull else (
             max(0.0, self.t_pull - t0) if self.t_pull is not None else 1.0e9
         )
-        ta_fixed = max(0.0, self.t_add - t0) if self.t_add is not None else 1.0e9
-        ts_fixed = max(0.0, self.t_spritz - t0) if self.t_spritz is not None else 1.0e9
+        ta_fixed = (
+            self.t_add_exec - t0
+            if self.added
+            else max(0.0, self.t_add - t0)
+            if self.t_add is not None
+            else 1.0e9
+        )
+        ts_fixed = (
+            self.t_spritz_exec - t0
+            if self.spritzing
+            else max(0.0, self.t_spritz - t0)
+            if self.t_spritz is not None
+            else 1.0e9
+        )
         u_plan, grids, hist = mpc.plan(
             self.theta,
             self.phi,
@@ -202,22 +252,47 @@ class Pilot:
         self.j.write(
             "replan", t=t0, J=float(hist["best_loss"]),
             t_wrap=self.t_wrap, t_pull=self.t_pull,
+            t_add=self.t_add, t_spritz=self.t_spritz,
+            dt_spritz=self.dt_spritz, spritz_dose=self.spritz_dose,
             u=[round(float(v), 4) for v in u_plan],
         )
         return u_plan, grids
 
     # --- predicted pit under the plan = setpoint reference --------------------
+    def _event_offset(self, planned, done: bool, executed):
+        if done and executed is not None:
+            return float(executed - self.state.t)
+        if planned is not None:
+            return float(planned - self.state.t)
+        return 1.0e9
+
+    def _executed_event_offset(self, done: bool, executed):
+        return (
+            float(executed - self.state.t)
+            if done and executed is not None
+            else 1.0e9
+        )
+
     def predict_segment(self, u_plan, grids, dt_seg):
         n = max(3, round(dt_seg / self.cfg.dt_status) + 1)
         tt = np.linspace(0.0, dt_seg, n)
         u_seg = np.interp(tt, grids.u_tknots, u_plan)
-        tw = (
-            (self.t_wrap_exec - self.state.t) if self.wrapped
-            else 1.0e9
+        tw = self._event_offset(self.t_wrap, self.wrapped, self.t_wrap_exec)
+        tp = self._event_offset(self.t_pull, self.pulled, self.t_pull_exec)
+        ta = self._event_offset(self.t_add, self.added, self.t_add_exec)
+        ts = self._event_offset(
+            self.t_spritz, self.spritzing, self.t_spritz_exec
         )
         _, seg = mpc.advance_plant(
             self.state, u_seg, dt_seg, self.theta, self.phi,
-            self.ambient(self.state.t), t_wrap_seg=tw, rest=self.rest,
+            self.ambient(self.state.t),
+            t_wrap_seg=tw,
+            t_pull_seg=tp,
+            t_add_seg=ta,
+            t_spritz_seg=ts,
+            dt_spritz_seg=self.dt_spritz,
+            spritz_dose_seg=self.spritz_dose,
+            rest=self.rest,
         )
         tpit = np.asarray(seg["tpit"])
         t_ref = np.linspace(0.0, dt_seg, len(tpit))
@@ -235,19 +310,25 @@ class Pilot:
                 np.interp(t_local, sp_t, sp_K),
                 self.cfg.sp_min_K, self.cfg.sp_max_K,
             ))
-            if last_sp is None or abs(sp - last_sp) > self.cfg.sp_push_eps_K:
+            if (
+                not self.cfg.shadow_mode
+                and (last_sp is None or abs(sp - last_sp) > self.cfg.sp_push_eps_K)
+            ):
                 self.pit.set_setpoint(sp)
                 last_sp = sp
-            s: PitStatus = self.pit.read()
+            prior_elapsed = self._last_pit_elapsed
+            s: PitStatus = self._elapsed_status(self.pit.read())
             t_local = s.t - t0
             meas["t"].append(s.t)
             meas["tpit"].append(s.tpit_K)
             meas["tcore"].append(s.tcore_K)
             meas["u"].append(s.fan_avg_pct / 100.0)
-            # live advisories: wrap / pull when due
-            for name, t_ev, fired_attr, exec_attr in (
-                ("wrap", self.t_wrap, "wrapped", "t_wrap_exec"),
-                ("pull", self.t_pull, "pulled", "t_pull_exec"),
+            # live advisories for every event represented in the plant
+            for name, t_ev, fired_attr in (
+                ("wrap", self.t_wrap, "wrapped"),
+                ("pull", self.t_pull, "pulled"),
+                ("add", self.t_add, "added"),
+                ("spritz", self.t_spritz, "spritzing"),
             ):
                 if (
                     t_ev is not None
@@ -257,8 +338,21 @@ class Pilot:
                     self._advise(name, s.t)
             if self.pulled:
                 break
-            if self.cfg.wall_pace > 0:
+            if (
+                self.cfg.wall_pace > 0
+                and t_local < dt_seg - 1e-6
+                and not self.pulled
+            ):
                 time.sleep(self.cfg.dt_status * self.cfg.wall_pace)
+            elif (
+                self.cfg.wall_pace <= 0
+                and s.t <= prior_elapsed + 1e-6
+                and t_local < dt_seg - 1e-6
+                and not self.pulled
+            ):
+                # A real clock may not advance during a fast HTTP poll. Avoid
+                # a request-spin even when a direct API caller left free-run on.
+                time.sleep(self.cfg.dt_status)
         self.j.write(
             "segment", t0=t0,
             t=[round(v, 1) for v in meas["t"]],
@@ -271,17 +365,63 @@ class Pilot:
         return meas
 
     def _advise(self, name: str, t_now: float):
+        if name in self.pending_events:
+            return
         msg = f"ADVISORY at {t_now / HR:.2f} h: {name.upper()} the meat now"
         self.log(f"  {msg}")
+        self.pending_events.add(name)
         executed = False
-        if self.cfg.auto_events:
+        acknowledged = False
+        source = "pending"
+        if self.cfg.auto_events and not self.cfg.shadow_mode:
             hook = getattr(self.pit, f"execute_{name}", None)
             if hook is not None:
-                hook(t_now)
+                if name == "spritz":
+                    hook(
+                        t_now,
+                        dt_spritz=self.dt_spritz,
+                        spritz_dose=self.spritz_dose,
+                    )
+                else:
+                    hook(t_now)
                 executed = True
-        setattr(self, "wrapped" if name == "wrap" else "pulled", True)
-        setattr(self, f"t_{name}_exec", t_now)
-        self.j.write("advisory", event=name, t=t_now, executed=executed)
+                acknowledged = True
+                source = "backend"
+        if not acknowledged and self.event_ack is not None:
+            acknowledged = bool(self.event_ack(name, t_now))
+            source = "human" if acknowledged else "pending"
+            if not acknowledged:
+                # A declined/deferred prompt is offered again on the next
+                # status sample; silent backends stay pending without spam.
+                self.pending_events.discard(name)
+        if acknowledged:
+            self.acknowledge_event(name, t_now, source=source)
+        self.j.write(
+            "advisory",
+            event=name,
+            t=t_now,
+            executed=executed,
+            acknowledged=acknowledged,
+            source=source,
+        )
+
+    def acknowledge_event(self, name: str, t_now: float, source: str = "external"):
+        """Record explicit human/backend acknowledgement of a modeled event."""
+        attrs = {
+            "wrap": ("wrapped", "t_wrap_exec"),
+            "pull": ("pulled", "t_pull_exec"),
+            "add": ("added", "t_add_exec"),
+            "spritz": ("spritzing", "t_spritz_exec"),
+        }
+        if name not in attrs:
+            raise ValueError(f"unknown pilot event {name!r}")
+        fired_attr, time_attr = attrs[name]
+        setattr(self, fired_attr, True)
+        setattr(self, time_attr, float(t_now))
+        self.pending_events.discard(name)
+        self.j.write(
+            "event_acknowledged", event=name, t=float(t_now), source=source
+        )
 
     # --- estimator ------------------------------------------------------------
     def assimilate(self, meas, dt_seg, tpit_pred_end):
@@ -289,15 +429,16 @@ class Pilot:
         u_meas = np.asarray(meas["u"], dtype=float)
         if u_meas.size < 2:
             u_meas = np.full(2, u_meas[0] if u_meas.size else 0.5)
-        tw = 1.0e9
-        if self.wrapped:
-            tw = self.t_wrap_exec - self.state.t
-        tp = 1.0e9
-        if self.pulled:
-            tp = self.t_pull_exec - self.state.t
+        tw = self._executed_event_offset(self.wrapped, self.t_wrap_exec)
+        tp = self._executed_event_offset(self.pulled, self.t_pull_exec)
+        ta = self._executed_event_offset(self.added, self.t_add_exec)
+        ts = self._executed_event_offset(self.spritzing, self.t_spritz_exec)
         self.state, _ = mpc.advance_plant(
             self.state, u_meas, dt_seg, self.theta, self.phi,
             self.ambient(self.state.t), t_wrap_seg=tw, t_pull_seg=tp,
+            t_add_seg=ta, t_spritz_seg=ts,
+            dt_spritz_seg=self.dt_spritz,
+            spritz_dose_seg=self.spritz_dose,
             rest=self.rest,
         )
         tpit_meas = float(meas["tpit"][-1])
@@ -317,6 +458,11 @@ class Pilot:
     def run(self) -> dict:
         cfg = self.cfg
         self.j.write("start", t_f=cfg.t_f, dt_replan=cfg.dt_replan,
+                     pit_time_origin=self._pit_time_origin,
+                     shadow_mode=cfg.shadow_mode,
+                     estimator_mode="pit-snap+ambient-kf",
+                     food_probe_initializes_state=True,
+                     food_probe_assimilated_after_start=False,
                      theta=list(map(float, self.theta)),
                      phi=list(map(float, self.phi)))
         while self.state.t < cfg.t_f - 1e-6 and not self.pulled:
@@ -333,16 +479,24 @@ class Pilot:
             )
             meas = self.execute_segment(dt_seg, sp_t, sp_K)
             dt_exec = (meas["t"][-1] - self.state.t) if meas["t"] else dt_seg
-            self.assimilate(meas, max(dt_exec, 1.0), sp_K[-1])
+            tpit_pred_exec = float(np.interp(dt_exec, sp_t, sp_K))
+            self.assimilate(meas, max(dt_exec, 1.0), tpit_pred_exec)
         self.j.write(
             "end", t=self.state.t, wrapped=self.wrapped, pulled=self.pulled,
+            added=self.added, spritzing=self.spritzing,
             t_wrap_exec=self.t_wrap_exec, t_pull_exec=self.t_pull_exec,
+            t_add_exec=self.t_add_exec, t_spritz_exec=self.t_spritz_exec,
         )
         return {
             "t_end": self.state.t,
+            "shadow_mode": cfg.shadow_mode,
             "wrapped": self.wrapped,
             "t_wrap_exec": self.t_wrap_exec,
             "pulled": self.pulled,
             "t_pull_exec": self.t_pull_exec,
+            "added": self.added,
+            "t_add_exec": self.t_add_exec,
+            "spritzing": self.spritzing,
+            "t_spritz_exec": self.t_spritz_exec,
             "t_amb_belief": self.kf.x,
         }

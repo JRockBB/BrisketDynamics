@@ -406,26 +406,31 @@ function surface_heat_rest(Ts, cfg::MeatConfig)
 end
 
 """
-    surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig)
+    surface_fluxes_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig)
 
-Pull-blended evaporative mass flux: in the pit (`pl = 0`) the wrap-blended
+Pull-blended surface mass fluxes. In the pit (`pl = 0`) the wrap-blended
 [`evap_flux_fb`](@ref) into the pit's humidity (`pv_base`, mixing `c`); at
 rest (`pl = 1`) the mostly blocked rest evaporation into room air, whose
 mass-transfer coefficient follows the heat–mass analogy `k_m·h_rest/h_c`.
-Shared by the RHS and the observables so the two can never disagree.
+The returned `j_pit` is the pull-gated flux entering the pit, and `pv_pit`
+is the corresponding chamber vapor pressure. Shared by the RHS and every
+observable so skin, salt, wrap, pull, and vapor feedback cannot diverge.
 
 # Returns
-- `j::Number`: Evaporative mass flux [kg m⁻² s⁻¹].
+- `NamedTuple`: total `j`, pit-entering `j_pit`, and `pv_pit`.
 """
-function surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig, f_aw=1.0)
-    # skin barrier in series with the boundary layer (both branches); the
-    # RHS and every observable pass through here, so they cannot disagree
-    k_m = isinf(cfg.k_skin) ? k_m : 1 / (1 / k_m + 1 / cfg.k_skin)
-    return (1 - pl) *
-           evap_flux_fb(Ts, Ws, (1 - cfg.η_evap * s) * k_m, pv_base, c, cfg, f_aw) +
-           pl * (1 - cfg.η_rest) *
-           evap_flux(Ts, Ws, k_m * cfg.h_rest / h_c, cfg.p_v_rest, cfg, f_aw)
+function surface_fluxes_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig, f_aw=1.0)
+    k_eff = isinf(cfg.k_skin) ? k_m : 1 / (1 / k_m + 1 / cfg.k_skin)
+    j_pit = (1 - pl) *
+            evap_flux_fb(Ts, Ws, (1 - cfg.η_evap * s) * k_eff, pv_base, c, cfg, f_aw)
+    j_rest = pl * (1 - cfg.η_rest) *
+             evap_flux(Ts, Ws, k_eff * cfg.h_rest / h_c, cfg.p_v_rest, cfg, f_aw)
+    return (j=j_pit + j_rest, j_pit, pv_pit=pv_base + c * j_pit)
 end
+
+"Total pull-blended evaporative mass flux; see [`surface_fluxes_blended`](@ref)."
+surface_j_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig, f_aw=1.0) =
+    surface_fluxes_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg, f_aw).j
 
 """
     mixing_coefficient(a_area, imair, cfg::MeatConfig[, A_meat])
@@ -1253,14 +1258,11 @@ function meat_solve(
     g_fac = ((Mts * af) ./ cfg.g_ref) .^ θ[8]
     h_ts, km_ts = θ[3] .* g_fac, θ[2] .* g_fac
     f_aw_ts = 1 ./ (1 .+ cfg.k_aw .* max.(A[5nx, :], 0.0))
-    j_evap = surface_j_blended.(
+    fluxes = surface_fluxes_blended.(
         Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg), f_aw_ts
     )
-    # the pit vapor pressure the surface saw: base plus the meat's own vapor
-    pv_pit =
-        pv_base_ts .+
-        c_ts .*
-        evap_flux_fb.(Tsurf, Wsurf, (1 .- cfg.η_evap .* s_ts) .* km_ts, pv_base_ts, c_ts, Ref(cfg))
+    j_evap = getproperty.(fluxes, :j)
+    pv_pit = getproperty.(fluxes, :pv_pit)
     dts = diff(collect(float.(tsave)))
     ja = j_evap .* a_ts
     evap_w = sum((ja[1:(end - 1)] .+ ja[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
@@ -1293,6 +1295,7 @@ function meat_solve(
         salt_field=A[(4nx + 1):5nx, :],
         salt_mean=vec(fv_weights(nx)' * A[(4nx + 1):5nx, :]) ./ (nx - 1),
         wrap_latch=A[5nx + 4, :],
+        wrap_effective=s_ts,
         t=collect(float.(tsave)),
     )
 end

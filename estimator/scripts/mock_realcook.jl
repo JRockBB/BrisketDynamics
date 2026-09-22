@@ -20,8 +20,9 @@ meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
 x_true = Float64.(m["truth"]["x"])
-θ_true, φ_true, A_true, depth_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
+θ_true, φ_true, A_true, depth_fraction_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
 L_true = θ_true[4]
+depth_true = probe_depth(L_true, depth_fraction_true)
 
 GRID = collect(0.0:120.0:30 * 3600.0)
 # the executed damper: the mock's 10-minute log, linearly interpolated onto the fine grid, held after its end
@@ -33,7 +34,7 @@ nc = RealCookNoise()
 
 o = monolith_solve(θ_true, φ_true, u, GRID, GRID; pit, cfg, A_meat=A_true, events...)
 rng = MersenneTwister(23)
-readings, clean, masks, lid = realcook_readings(o, GRID, events, nc, rng; A=A_true, L=L_true, depth=depth_true)
+readings, clean, masks, lid = realcook_readings(o, GRID, events, nc, rng; A=A_true, L=L_true, depth=depth_true, cfg)
 @printf("grid %d points at %.0f s; samples: pit %d, core %d, humidity %d (%d at the cap), scale %d; lid-open points %d\n",
         length(GRID), GRID[2], count(masks.pit), count(masks.core), count(masks.humidity),
         count(readings.humidity[masks.humidity] .>= nc.hum_cap - 1e-9), count(masks.mass), count(lid))

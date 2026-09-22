@@ -22,17 +22,15 @@ mask_core = Bool.(raw["mask_core"])
 nz = raw["noise"]
 σp, ρp, σc, ρc = nz["sigma_pit_eff"], nz["rho_pit"], nz["sigma_core_eff"], nz["rho_core"]
 nt = length(d.t)
-L_map = exp(d.z_map[4])
 
 # latents: the 15 physics sites + the exposed area (prior median the
-# config's 0.12 m², 30 %) + the core probe's depth from the surface
-# (prior median 0.8 L, 30 % — "about the middle")
+# config's 0.12 m², 30 %) + the bounded core-probe depth fraction
 A_cfg = d.cfg.A_meat
 extra = [LatentSpec("A_meat", "lognormal", log(A_cfg), 0.3),
-         LatentSpec("core_depth", "lognormal", log(0.8 * L_map), 0.3)]
+         LatentSpec("core_depth_fraction", probe_depth_site())]
 prior = vcat(d.prior, [e.site for e in extra])
 names = vcat(d.names, [e.name for e in extra])
-z = vcat(d.z_map, [log(A_cfg), log(0.8 * L_map)])
+z = vcat(d.z_map, [log(A_cfg), z_center(extra[2].site)])
 AREA = length(z) - 1
 DEPTH = length(z)
 
@@ -66,7 +64,7 @@ scale_cont = MassScale(0.02, 0.5, full; area_latent=AREA)      # 20 g, every 10 
 scale_ends = MassScale(0.02, 0.0, ends; area_latent=AREA)      # before / after only
 ruler = StaticReading(4, 0.003)                                # 3 mm on the half-thickness
 footprint = StaticReading(AREA, 0.01)                          # 0.01 m² (~8 %) on the exposed area
-depth_ruler = StaticReading(DEPTH, 0.003)                      # the insertion depth measured
+depth_ruler = ProbeDepthReading(DEPTH, 0.003)                  # physical insertion depth measured to 3 mm
 fuel = FuelScale(0.05, 0.5, full)                              # a load cell under the firebox, 50 g
 hourly = falses(nt); hourly[1:6:end] .= true
 bark = BarkLightness(3.0, 0.8, hourly)                         # a colorimeter on the bark, 3 L*, hourly
@@ -139,7 +137,7 @@ out = Dict(
     "noise" => Dict("sigma_pit" => σp, "rho_pit" => ρp, "sigma_core" => σc, "rho_core" => ρc,
                     "humidity_Pa" => 100.0, "ir_K" => 2.0, "scale_kg" => 0.02, "ruler_m" => 0.003),
     "second_probe_depth_m" => 0.010,
-    "core_depth_prior" => Dict("median_m" => 0.8 * L_map, "sd_log" => 0.3),
+    "core_depth_fraction_prior" => Dict("mean" => 0.8, "concentration" => 10.0),
     "area_prior" => Dict("median_m2" => A_cfg, "sd_log" => 0.3, "footprint_ruler_m2" => 0.01),
 )
 dst = joinpath(REPO, "data", "calibration", "sensor_value_real.json")

@@ -73,7 +73,7 @@ function physics_stack(z, d::GateData, ph::PhysicsDrift)
     A = ph.area_latent > 0 ? exp(z[ph.area_latent]) : d.cfg.A_meat
     o = solve_segments([x[1:N_THETA] for x in xs], [x[(N_THETA + 1):N_PHYS] for x in xs], d.u, d.t, edges;
                        pit=d.pit, cfg=d.cfg, A_meat=A, abstol=d.abstol, reltol=d.reltol, ph.events...)
-    return _stack_1d(o, A, xs[1][4]), OutputLayout(size(o.T_field, 1), n)
+    return _stack_1d(o, A, xs[1][4], d.cfg), OutputLayout(size(o.T_field, 1), n)
 end
 function physics_outputs(z, d::GateData, ph::PhysicsDrift)
     g(v) = physics_stack(v, d, ph)[1]

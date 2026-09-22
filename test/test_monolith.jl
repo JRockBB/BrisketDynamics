@@ -50,6 +50,44 @@ const MONO_PIT = PitConfig(; T_amb=300.0)
     @info "wall: monolith $(round(t_mono; digits=3)) s, Picard K=2 $(round(t_pic; digits=3)) s"
 end
 
+@testset "monolith: complete receding-horizon state handoff" begin
+    θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
+    half = 2 * 3600.0
+    ts_half = collect(0.0:600.0:half)
+    ts_full = collect(0.0:600.0:(2half))
+    u_half = fill(0.5, 4)
+    u_full = fill(0.5, 8)
+    utk_half = collect(range(0.0, half; length=length(u_half)))
+    utk_full = collect(range(0.0, 2half; length=length(u_full)))
+    pit = PitConfig(; T_amb=300.0, m_pan0=1.5, c_duct=60.0)
+    ic = (; Tpit0=300.0, mpan0=1.5, Tpan0=290.0, Tfb0=450.0, LATCH0=0.6)
+
+    whole = monolith_solve(θ, φ, u_full, utk_full, ts_full; pit, ic...)
+    first = monolith_solve(θ, φ, u_half, utk_half, ts_half; pit, ic...)
+    φ2 = copy(φ)
+    φ2[7] = first.ignited[end]
+    second = monolith_solve(
+        θ, φ2, u_half, utk_half, ts_half; pit,
+        T0f=first.T_field[:, end], W0f=first.W_field[:, end],
+        C0f=first.C_field[:, end], F0f=first.F_field[:, end],
+        Ssalt0f=first.salt_field[:, end], B0=first.bark_b[end],
+        S0=first.bark_s[end], R0=first.ring[end],
+        LATCH0=first.wrap_latch[end], Tpit0=first.Tpit[end],
+        mfuel0=first.m_fuel[end], mpan0=first.m_pan[end],
+        Tpan0=first.T_pan[end], Tfb0=first.T_firebox[end],
+    )
+
+    @test first.m_pan[end] < ic.mpan0
+    @test first.T_firebox[end] != ic.Tfb0
+    @test first.wrap_latch[end] ≈ ic.LATCH0 atol=1e-10
+    @test second.Tcore[end] ≈ whole.Tcore[end] atol=0.3
+    @test second.Tpit[end] ≈ whole.Tpit[end] atol=0.3
+    @test second.m_pan[end] ≈ whole.m_pan[end] rtol=2e-3 atol=2e-4
+    @test second.T_pan[end] ≈ whole.T_pan[end] atol=0.2
+    @test second.T_firebox[end] ≈ whole.T_firebox[end] atol=0.2
+    @test second.wrap_latch[end] ≈ whole.wrap_latch[end] atol=1e-8
+end
+
 @testset "monolith: forward-mode Jacobian vs finite differences" begin
     θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
     f = o -> vcat(o.Tpit, o.Tcore)
@@ -114,6 +152,34 @@ end
     trig = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
                           T_wrap_trigger=330.0)
     @test trig.w_retained > base.w_retained + 0.005
+    k_latched = findfirst(>(0.9), trig.wrap_latch)
+    @test k_latched !== nothing
+    k = something(k_latched)
+    cfg = MeatConfig()
+    alg = BrisketDynamics._pit_algebra(
+        MONO_U[1], trig.m_fuel[k], trig.ignited[k], φ[3], φ[5], MONO_PIT, Humidity()
+    )
+    _, n_a, v0 = BrisketDynamics.shrink_exponents(cfg)
+    V = BrisketDynamics.specific_volume.(
+        view(trig.W_field, :, k), view(trig.F_field, :, k), Ref(cfg)
+    )
+    a_area = (sum(BrisketDynamics.fv_weights(length(V)) .* V) / ((length(V) - 1) * v0))^n_a
+    c_mix = BrisketDynamics.mixing_coefficient(a_area, inv(alg[3]), cfg)
+    g_fac = (alg[1] / cfg.g_ref)^θ[8]
+    f_aw = inv(1 + cfg.k_aw * max(trig.salt_field[end, k], 0.0))
+    fl = BrisketDynamics.surface_fluxes_blended(
+        trig.Tsurf[k], trig.W_field[end, k], θ[3] * g_fac, θ[2] * g_fac,
+        trig.wrap_effective[k], BrisketDynamics.pull_blend(MONO_TSAVE[k], 1.0e9, cfg),
+        trig.pv_base[k], c_mix, cfg, f_aw,
+    )
+    @test trig.j_evap[k] ≈ fl.j rtol = 1e-12
+    @test trig.pv_pit[k] ≈ fl.pv_pit rtol = 1e-12
+    @test trig.q_meat[k] ≈ cfg.A_meat * cfg.n_meat * a_area *
+                              BrisketDynamics.surface_q_pit_blended(
+                                  trig.Tpit[k], trig.Tsurf[k], θ[3] * g_fac,
+                                  trig.wrap_effective[k],
+                                  BrisketDynamics.pull_blend(MONO_TSAVE[k], 1.0e9, cfg), cfg,
+                              ) rtol = 1e-12
 
     # a finite split interval feeds the fire repeatedly
     splits = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,

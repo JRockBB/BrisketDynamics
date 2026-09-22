@@ -83,6 +83,7 @@ struct Levelled{C<:Channel} <: Channel
     level::Vector{Float64}
 end
 Base.getproperty(l::Levelled, f::Symbol) = f in (:ch, :level) ? getfield(l, f) : getproperty(getfield(l, :ch), f)
+_censored_base(l::Levelled) = _censored_base(l.ch)
 predict(l::Levelled, S, J, z, prior, lay) = predict(l.ch, S, J, z, prior, lay)
 rawdata(l::Levelled) = rawdata(l.ch)
 channel_label(l::Levelled) = channel_label(l.ch) * ", levelled"

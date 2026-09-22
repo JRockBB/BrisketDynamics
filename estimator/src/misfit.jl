@@ -36,22 +36,25 @@ end
 The misfit check on the assembled (whitened) residuals `w − a` with the
 affine rows `B` and the posterior covariance `V`: one record per channel
 in registry order (channels with no rows are skipped, as `assemble`
-skips them) and one for every row together. Each record carries the row
-count, the residual power, its effective degrees of freedom, the χ²
-z-score and the lag-1 autocorrelation with its z-score.
+skips them) and one for all Gaussian residual rows together. Local
+survival-likelihood sites are not χ² residuals and are excluded. Each
+record carries the row count, the residual power, its effective degrees
+of freedom, the χ² z-score and the lag-1 autocorrelation with its z-score.
 """
 function misfit(channels, a, B, w, V)
     r = w .- a
     h = [dot(view(B, i, :), V, view(B, i, :)) for i in axes(B, 1)]   # diag(B V Bᵀ)
     out = NamedTuple[]
+    scored = Int[]
     row = 0
     for ch in channels
         nr = size(whitening(ch), 1)
         nr == 0 && continue
         idx = (row + 1):(row + misfit_rows(ch))        # the AR rows; a channel's extra rows are not scored
+        append!(scored, idx)
         push!(out, (name=channel_label(ch), _block_stats(view(r, idx), view(h, idx))...))
         row += nr
     end
     row == length(r) || throw(ArgumentError("channel rows ($row) do not cover the residual ($(length(r)))"))
-    return (channels=out, total=(name="total", _block_stats(r, h)...))
+    return (channels=out, total=(name="total", _block_stats(view(r, scored), view(h, scored))...))
 end

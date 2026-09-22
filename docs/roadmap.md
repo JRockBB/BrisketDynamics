@@ -16,7 +16,7 @@ guarantee.
 - **C1 — Fly the pilot on a real pit.** The pilot is built and validated
   against the mock HeaterMeter, with a live forecast feedforward
   (`docs/results.md`); what remains needs an actual cook: shadow mode
-  first (`brisket pilot --wall-pace 1 --advisory-only` at real
+  first (`brisket pilot --shadow` at real
   hardware), then executed-quality scoring on hardware (today it is
   model-estimated — a real pit has no ground-truth juiciness).
 - **C2 — The ~$150 instrument package + data flywheel.** The sensor-value
@@ -111,8 +111,11 @@ sensor (`docs/results.md`, the 2026-09-07 and 2026-09-08 estimator
 entries). The physics is the operator's choice; the check says within an
 hour whether it was right. Since 2026-09-09 the estimator reads like a
 real cook: channels at their own rates with gap-aware whitening, a
-censored humidity channel whose readings at the cap are one-sided rows
-outside the AR chain, every channel's noise level a process on the
+censored humidity channel whose readings at the cap are normal-survival
+factors (connected to the sequential AR discrepancy state before
+clipping), probe insertion depth as a bounded fraction of current
+thickness, the sequential plant state in softplus/logit coordinates with
+square-root covariance prediction, every channel's noise level a process on the
 graph (RxInfer's GCV node on the innovations; the pit's level follows
 the fire), and the replan a decision rather than a cadence (the standing
 plan's expected loss, absolute and against the loss it was made at, the

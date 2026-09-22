@@ -11,7 +11,8 @@ exercised with no hardware:
 
 plus sim-only extensions (a real pit has a human instead):
 
-  POST /sim/wrap  /sim/pull  -> execute the irreversible event now
+  POST /sim/wrap  /sim/pull  /sim/add  /sim/spritz
+                              -> execute the modeled event now
   GET  /sim/traj             -> full plant trajectories (analysis)
 
 The plant free-runs in lockstep: each status GET advances one dt_step.
@@ -113,6 +114,16 @@ def main():
             elif self.path.startswith("/sim/pull"):
                 pit.t_pull_exec = pit.state.t
                 self._send(200, "pulled", "text/plain")
+            elif self.path.startswith("/sim/add"):
+                pit.execute_add(pit.state.t)
+                self._send(200, "fuel added", "text/plain")
+            elif self.path.startswith("/sim/spritz"):
+                pit.execute_spritz(
+                    pit.state.t,
+                    dt_spritz=float(form.get("dt_spritz", [3600.0])[0]),
+                    spritz_dose=float(form.get("spritz_dose", [0.05])[0]),
+                )
+                self._send(200, "spritzing", "text/plain")
             else:
                 self._send(404, "not found", "text/plain")
 

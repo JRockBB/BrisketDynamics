@@ -27,7 +27,7 @@ import json
 import time
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -111,8 +111,8 @@ class HeaterMeterClient:
 class MockHMClient(HeaterMeterClient):
     """HeaterMeterClient plus the mock server's sim-only event hooks."""
 
-    def _post(self, path: str):
-        body = urllib.parse.urlencode({"apikey": self.apikey}).encode()
+    def _post(self, path: str, **fields):
+        body = urllib.parse.urlencode({"apikey": self.apikey, **fields}).encode()
         req = urllib.request.Request(self.base + path, data=body, method="POST")
         with urllib.request.urlopen(req, timeout=self.timeout) as r:
             r.read()
@@ -122,6 +122,21 @@ class MockHMClient(HeaterMeterClient):
 
     def execute_pull(self, t_now: float) -> None:
         self._post("/sim/pull")
+
+    def execute_add(self, t_now: float) -> None:
+        self._post("/sim/add")
+
+    def execute_spritz(
+        self,
+        t_now: float,
+        dt_spritz: float = 3600.0,
+        spritz_dose: float = 0.05,
+    ) -> None:
+        self._post(
+            "/sim/spritz",
+            dt_spritz=dt_spritz,
+            spritz_dose=spritz_dose,
+        )
 
     def traj(self) -> dict:
         return self._get("/sim/traj")
@@ -180,6 +195,10 @@ class SimPit:
         # irreversible events, set by the pilot when the human acts
         self.t_wrap_exec: float | None = None
         self.t_pull_exec: float | None = None
+        self.t_add_exec: float | None = None
+        self.t_spritz_exec: float | None = None
+        self.dt_spritz = 3600.0
+        self.spritz_dose = 0.05
 
     def _step_once(self):
         st = self.state
@@ -188,6 +207,12 @@ class SimPit:
         self.fan_avg = self._avg_a * self.fan_avg + (1 - self._avg_a) * self.u
         tw = (self.t_wrap_exec - st.t) if self.t_wrap_exec is not None else 1.0e9
         tp = (self.t_pull_exec - st.t) if self.t_pull_exec is not None else 1.0e9
+        ta = (self.t_add_exec - st.t) if self.t_add_exec is not None else 1.0e9
+        ts = (
+            (self.t_spritz_exec - st.t)
+            if self.t_spritz_exec is not None
+            else 1.0e9
+        )
         u_seg = np.full(2, 0.0 if tp < 0 else self.u)
         self.state, seg = self._advance(
             st,
@@ -198,6 +223,10 @@ class SimPit:
             float(self.t_amb_fn(st.t + self.dt_step / 2)),
             t_wrap_seg=tw,
             t_pull_seg=tp,
+            t_add_seg=ta,
+            t_spritz_seg=ts,
+            dt_spritz_seg=self.dt_spritz,
+            spritz_dose_seg=self.spritz_dose,
         )
         self.traj["t"].append(self.state.t)
         self.traj["tpit"].append(float(self.state.tpit0))
@@ -233,6 +262,19 @@ class SimPit:
 
     def execute_pull(self, t_now: float) -> None:
         self.t_pull_exec = self.state.t
+
+    def execute_add(self, t_now: float) -> None:
+        self.t_add_exec = self.state.t
+
+    def execute_spritz(
+        self,
+        t_now: float,
+        dt_spritz: float = 3600.0,
+        spritz_dose: float = 0.05,
+    ) -> None:
+        self.t_spritz_exec = self.state.t
+        self.dt_spritz = float(dt_spritz)
+        self.spritz_dose = float(spritz_dose)
 
     # --- v14-shaped dict for the mock HTTP server (Fahrenheit) ---------------
     def status_dict(self) -> dict:

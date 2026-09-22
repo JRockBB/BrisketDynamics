@@ -30,22 +30,21 @@ events = (t_wrap=Float64(ev["t_wrap"]), t_pull=Float64(ev["t_pull"]), t_add=Floa
           dt_spritz=Float64(ev["dt_spritz"]), m_spritz=Float64(ev["m_spritz"]))
 nc = RealCookNoise()
 idx = Dict(n => i for (i, n) in enumerate(names))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]   # the families give the unconstrained coordinate
-tz(x, p) = isbeta(p) ? log(x / (1 - x)) : log(x)
-fz(v, p) = isbeta(p) ? 1 / (1 + exp(-v)) : exp(v)
-z0 = [tz(x0[i], prior_phys[i]) for i in 1:N_PHYS]
+prior_phys = read_sites(gate["prior"])   # preserves bounds and score/logit coordinates
+z0 = [to_z(x0[i], prior_phys[i]) for i in 1:N_PHYS]
 
 # the drift: random walks stepping on the hour on the sites that move on a real pit, the add's charge at the add (drift.jl)
 dd = DriftDraw(MersenneTwister(seed), idx)
 edges, blocks = drift_segments(t, z0, dd, events.t_add)
-xs = [[fz(z[i], prior_phys[i]) for i in 1:N_PHYS] for z in blocks]
+xs = [[from_z(z[i], prior_phys[i]) for i in 1:N_PHYS] for z in blocks]
 θs = [xx[1:8] for xx in xs]; φs = [xx[9:15] for xx in xs]
-A_true, depth_true, L_true = x0[16], x0[17], x0[4]
+A_true, depth_fraction_true, L_true = x0[16], x0[17], x0[4]
+depth_true = probe_depth(L_true, depth_fraction_true)
 o = solve_segments(θs, φs, u, t, edges; pit, cfg, A_meat=A_true, events...)
 rng_r = MersenneTwister(1000 + seed)
-readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng_r; A=A_true, L=L_true, depth=depth_true)
+readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng_r; A=A_true, L=L_true, depth=depth_true, cfg)
 hours = collect(0.0:1.0:29.0)
-x_by_hour = [[fz(z[i], prior_phys[i]) for i in 1:N_PHYS] for z in [truth_at(z0, dd, h * 3600, events.t_add; from=true) for h in hours]]
+x_by_hour = [[from_z(z[i], prior_phys[i]) for i in 1:N_PHYS] for z in [truth_at(z0, dd, h * 3600, events.t_add; from=true) for h in hours]]
 @printf("drift mock (seed %d): %d segments; u_leak %.3f -> %.3f, k_e %.2e -> %.2e, h_c %.2f -> %.2f; the add's charge r_max %.2e -> %.2e, dH_eff %.3e -> %.3e; core at the pull %.1f C\n",
         seed, length(edges) + 1, xs[1][idx["u_leak"]], xs[end][idx["u_leak"]], xs[1][idx["k_e"]], xs[end][idx["k_e"]], xs[1][idx["h_c"]], xs[end][idx["h_c"]],
         xs[1][idx["r_max"]], xs[end][idx["r_max"]], xs[1][idx["dH_eff"]], xs[end][idx["dH_eff"]], clean.core[searchsortedlast(t, events.t_pull)] - 273.15)

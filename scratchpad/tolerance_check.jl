@@ -9,7 +9,7 @@ m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_realcook.json"))
 gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "prior_next_cook.json"))
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"])); cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 d = estimator_setup(t, u, pit, cfg, prior_phys, String.(gate["names"]))
 println("estimator tolerances: abstol ", d.abstol, " reltol ", d.reltol)
 ev = m["events"]

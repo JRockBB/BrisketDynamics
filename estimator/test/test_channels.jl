@@ -17,6 +17,44 @@ using ForwardDiff, LinearAlgebra, Random, Test
 const E = BrisketEstimator
 γ = 6.62e-4 * BrisketDynamics.P_ATM
 
+@testset "scale mass counts each composition once" begin
+    cfg = MeatConfig()
+    A, L = 0.18, 0.04
+    m_raw = meat_mass_1d(cfg.W0, cfg.F0, A, L, cfg)
+    @test m_raw ≈ E.RHO_DRY_EST * A * L * (1 + cfg.W0)
+    m_rendered = meat_mass_1d(cfg.W0, 0.0, A, L, cfg)
+    @test m_raw - m_rendered ≈ E.RHO_DRY_EST * A * L * cfg.η_drain * cfg.F0
+    @test ForwardDiff.derivative(W -> meat_mass_1d(W, cfg.F0, A, L, cfg), cfg.W0) ≈ E.RHO_DRY_EST * A * L
+    @test ForwardDiff.derivative(F -> meat_mass_1d(cfg.W0, F, A, L, cfg), cfg.F0) ≈ E.RHO_DRY_EST * A * L * cfg.η_drain
+end
+
+@testset "probe depth is a bounded fraction of thickness" begin
+    lay = OutputLayout(4, 1)
+    S = zeros(length(lay))
+    S[(lay.oT + 1):(lay.oT + 4)] .= [330.0, 340.0, 350.0, 360.0]
+    J = zeros(length(lay), 5)
+    depth_site = probe_depth_site()
+    prior = vcat([PriorSite("lognormal", 0.0, 1.0) for _ in 1:4], [depth_site])
+    z = zeros(5); z[4] = log(0.04); z[5] = to_z(0.8, depth_site)
+    ch = MeatProbe(1.0, 0.0, trues(1); depth_latent=5)
+    r, Jr = E.predict(ch, S, J, z, prior, lay)
+    @test r[1] ≈ 336.0 && Jr[1, 4] == 0.0
+    ε = 1e-5
+    f(v) = E.predict(ch, S, J, vcat(z[1:4], v), prior, lay)[1][1]
+    @test Jr[1, 5] ≈ (f(z[5] + ε) - f(z[5] - ε)) / (2ε) rtol=1e-6
+    @test probe_depth(exp(z[4]), from_z(z[5], depth_site)) ≈ 0.032
+    @test 0 < from_z(-8.0, depth_site) < from_z(8.0, depth_site) < 1
+    depth_reading = ProbeDepthReading(5, 0.003)
+    rd, Jd = E.predict(depth_reading, S, J, z, prior, lay)
+    fd(j) = (E.predict(depth_reading, S, J, z .+ ε .* (1:5 .== j), prior, lay)[1][1] -
+             E.predict(depth_reading, S, J, z .- ε .* (1:5 .== j), prior, lay)[1][1]) / (2ε)
+    @test rd[1] ≈ 0.032
+    @test Jd[1, 4] ≈ fd(4) rtol=1e-7
+    @test Jd[1, 5] ≈ fd(5) rtol=1e-7
+    stale = vcat(prior[1:4], [PriorSite("lognormal", log(0.032), 0.5)])
+    @test_throws ArgumentError E.predict(ch, S, J, z, stale, lay)
+end
+
 @testset "wet bulb: the psychrometer equation is solved" begin
     for (T, pv) in ((383.15, 8.0e3), (373.15, 3.0e3), (393.15, 15.0e3), (360.0, 1.0e3))
         Tw, fp = E.wet_bulb(T, pv, γ)

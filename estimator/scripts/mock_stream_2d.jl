@@ -26,26 +26,25 @@ u = Float64.(m["u"])
 meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
 d = estimator_setup(t, u, pit, cfg, prior_phys, names)
 
-x_phys = Float64.(m["truth"]["x"])            # 15 physics, the area, the depth
-A_true, depth_true, L_true = x_phys[16], x_phys[17], x_phys[4]
+x_phys = Float64.(m["truth"]["x"])            # 15 physics, area, depth fraction
+A_true, depth_fraction_true, L_true = x_phys[16], x_phys[17], x_phys[4]
 has_geom = haskey(m, "geometry")
 # the radius: the plant's when it is a cylinder, else the cylinder of height 2L with the slab's exposed area
 R_true = has_geom ? Float64(m["geometry"]["R"]) : (-2L_true + sqrt((2L_true)^2 + 2 * A_true / π)) / 2
 nr, nz = has_geom ? (Int(m["geometry"]["nr"]), Int(m["geometry"]["nz"])) : (16, 14)
 ph = Physics2D(radius_latent=16, nr=nr, nz=nz, h=30.0, n_meat=1.0, nx_line=nz)
 
-L_med = exp(prior_phys[4].p1)
 extra = [LatentSpec("R", "lognormal", log(0.10), 0.3),                  # a prior radius of 10 cm
-         LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5)]
+         LatentSpec("core_depth_fraction", probe_depth_site())]
 prior = vcat(prior_phys, [e.site for e in extra])
 allnames = vcat(names, [e.name for e in extra])
 RAD, DEPTH = 16, 17
-x_true = vcat(x_phys[1:15], R_true, depth_true)
-z_true = [isbeta(p) ? log(x / (1 - x)) : log(x) for (x, p) in zip(x_true, prior)]
+x_true = vcat(x_phys[1:15], R_true, depth_fraction_true)
+z_true = [to_z(x, p) for (x, p) in zip(x_true, prior)]
 @printf("plant: %s  read by the 2-D engine (%dx%d); radius truth %.4f m%s\n", m["plant"], nr, nz, R_true,
         has_geom ? "" : " (the equivalent cylinder's)")
 

@@ -56,9 +56,10 @@ sn = load_state_noise()                            # the state's process noise a
 
 # --- the plant: the mock's truth, stepped with its state handed off, read like a real cook ------------
 x_true = Float64.(m["truth"]["x"])
-θ_true, φ_true, A_true, depth_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
+θ_true, φ_true, A_true, depth_fraction_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
 L_true = θ_true[4]
-z_true0 = vcat(to_z(x_true[1:15], prior_phys), log(A_true), log(depth_true))
+depth_true = probe_depth(L_true, depth_fraction_true)
+z_true0 = vcat(to_z(x_true[1:15], prior_phys), log(A_true), to_z(depth_fraction_true, sites[DEPTH]))
 dd = DRIFT_SEED > 0 ? DriftDraw(MersenneTwister(2000 + DRIFT_SEED), idx; sites) : nothing     # the plant's drift, drawn once, in the sites' coordinates
 "The plant's latent block in force just before `te` (what a belief at `te` is scored against)."
 truth_now(te, t_add) = dd === nothing ? z_true0 : truth_at(z_true0, dd, te, t_add)

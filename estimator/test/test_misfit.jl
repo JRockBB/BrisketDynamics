@@ -48,4 +48,11 @@ end
 @testset "misfit: rows must cover the residual" begin
     @test_throws ArgumentError misfit(chs[1:2], zeros(n1 + n2 + 1), B, zeros(n1 + n2 + 1), V)
 end
+
+@testset "misfit: censored likelihood sites are not Gaussian residuals" begin
+    ch = CensoredHumidity(1.0, 0.0, trues(2); cap=1.0, data=[0.0, 1.0])
+    mis = misfit([ch], zeros(2), zeros(2, 1), [2.0, 100.0], zeros(1, 1))
+    @test mis.channels[1].n == 1 && mis.channels[1].ss == 4.0
+    @test mis.total.n == 1 && mis.total.ss == 4.0
+end
 println("test_misfit.jl: done")

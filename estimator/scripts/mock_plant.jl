@@ -31,7 +31,8 @@ x_map = from_z(d.z_map, d.prior)
 φ_true = x_map[9:15]
 L_true = θ_true[4]
 A_true = 1.5 * d.cfg.A_meat
-depth_true = 0.8 * L_true                     # from the top face
+depth_fraction_true = 0.8
+depth_true = probe_depth(L_true, depth_fraction_true)      # from the top face
 RHO_D = 320.0
 W0, F0 = d.cfg.W0, d.cfg.F0
 noise = Dict("pit" => (nz["sigma_pit_eff"], nz["rho_pit"]),
@@ -67,8 +68,8 @@ end
 
 interp1(v, pos) = (i = clamp(floor(Int, pos), 1, length(v) - 1); λ = pos - i; (1 - λ) * v[i] + λ * v[i + 1])
 
-truth = Dict("names" => vcat(d.names, ["A_meat", "core_depth"]),
-             "x" => vcat(θ_true, φ_true, [A_true, depth_true]))
+truth = Dict("names" => vcat(d.names, ["A_meat", "core_depth_fraction"]),
+             "x" => vcat(θ_true, φ_true, [A_true, depth_fraction_true]))
 base = Dict("t" => t, "u" => u, "meta" => raw["meta"], "truth" => truth,
             "noise" => Dict(k => Dict("sigma" => v[1], "rho" => v[2]) for (k, v) in noise))
 
@@ -84,7 +85,7 @@ clean1 = Dict(
     "core" => [interp1(o.T_field[:, k], pos) for k in 1:nt],
     "humidity" => collect(o.pv_pit),
     "ir" => collect(o.Tsurf),
-    "mass" => [RHO_D * A_true * L_true * (1 + dot(w, o.W_field[:, k]) + dot(w, o.F_field[:, k])) for k in 1:nt],
+    "mass" => [meat_mass_1d(dot(w, o.W_field[:, k]), dot(w, o.F_field[:, k]), A_true, L_true, d.cfg) for k in 1:nt],
 )
 rng = MersenneTwister(11)
 mock1 = merge(base, Dict("plant" => "monolith (1-D)", "clean" => clean1, "readings" => noisy(rng, clean1)))
@@ -111,7 +112,7 @@ clean2 = Dict(
     "core" => [interp1(o2.T_field[1, :, k], posz) for k in 1:nt],
     "humidity" => collect(o2.pv_pit),
     "ir" => [o2.T_field[1, nzc, k] for k in 1:nt],
-    "mass" => [RHO_D * sum(vol .* (1 .+ o2.W_field[:, :, k] .+ F0)) for k in 1:nt],
+    "mass" => [RHO_D * sum(vol .* meat_mass_factor.(o2.W_field[:, :, k], F0, Ref(d.cfg))) for k in 1:nt],
 )
 rng = MersenneTwister(12)
 mock2 = merge(base, Dict("plant" => "2-D axisymmetric (structural mismatch)", "clean" => clean2,

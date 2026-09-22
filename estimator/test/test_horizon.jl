@@ -111,11 +111,11 @@ end
     meta = m["meta"]
     pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
     cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-    prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+    prior_phys = read_sites(gate["prior"])
     s = Schedule(GRID; u0=0.15)
     d = estimator_setup(GRID, fill(0.15, length(GRID)), pit, cfg, prior_phys, String.(gate["names"]))
     x = Float64.(m["truth"]["x"])
-    z = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x[1:15], prior_phys)], log(x[16]))
+    z = vcat([to_z(v, p) for (v, p) in zip(x[1:15], prior_phys)], log(x[16]))
     f = free_set(s)
     mζ, _ = plan_prior(f, s)
     y = plan_outputs_rh(z, mζ, f, s, d)
@@ -223,11 +223,11 @@ end
     meta = m["meta"]
     pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
     cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-    prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+    prior_phys = read_sites(gate["prior"])
     s = Schedule(GRID; u0=0.15)
     d = estimator_setup(GRID, fill(0.15, length(GRID)), pit, cfg, prior_phys, String.(gate["names"]))
     x = Float64.(m["truth"]["x"])
-    z = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x[1:15], prior_phys)], log(x[16]))
+    z = vcat([to_z(v, p) for (v, p) in zip(x[1:15], prior_phys)], log(x[16]))
     f = free_set(s)
     mζ, _ = plan_prior(f, s)
     plan = decode_plan(mζ, f, s)

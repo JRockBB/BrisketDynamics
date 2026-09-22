@@ -112,13 +112,13 @@ function lid_open_at(t, events::NamedTuple, nc::RealCookNoise)
 end
 
 "The clean instrument values of a monolith output at save index `k`: the pit, the core probe at `depth` from the top, the vapor pressure, the mass on the scale."
-function clean_at(o, k::Int; A, L, depth)
+function clean_at(o, k::Int; A, L, depth, cfg::MeatConfig=MeatConfig())
     nx = size(o.T_field, 1)
     w = fv_weights(nx)
     pos = 1 + (1 - depth / L) * (nx - 1)
     k0 = clamp(floor(Int, pos), 1, nx - 1); f = pos - k0
     return (pit=o.Tpit[k], core=(1 - f) * o.T_field[k0, k] + f * o.T_field[k0 + 1, k], humidity=o.pv_pit[k],
-            mass=RHO_DRY_EST * A * L * (1 + dot(w, view(o.W_field, :, k)) + dot(w, view(o.F_field, :, k))))
+            mass=meat_mass_1d(dot(w, view(o.W_field, :, k)), dot(w, view(o.F_field, :, k)), A, L, cfg))
 end
 
 """
@@ -145,10 +145,10 @@ end
 The instruments' readings from a monolith output `o` on the grid `t`
 under the executed `events`: the pit probe (its sd bumped after the
 fuel add), the core probe at `depth` from the top, the humidity sensor
-(capped), the scale (ρ_d A L (1 + W̄ + F̄)); each channel's mask and the
-lid-open windows. The same numbers `read_at` gives step by step.
+(capped), and the composition-conserving scale mass; each channel's mask
+and the lid-open windows. The same numbers `read_at` gives step by step.
 """
-function realcook_readings(o, t, events::NamedTuple, nc::RealCookNoise, rng; A, L, depth)
+function realcook_readings(o, t, events::NamedTuple, nc::RealCookNoise, rng; A, L, depth, cfg::MeatConfig=MeatConfig())
     open = lid_windows(t, events, nc)
     masks = realcook_masks(t, open, nc)
     inst = Instruments(t, nc, rng)
@@ -156,7 +156,7 @@ function realcook_readings(o, t, events::NamedTuple, nc::RealCookNoise, rng; A, 
     pit = zeros(n); core = zeros(n); hum = zeros(n); mass = zeros(n)
     cpit = zeros(n); ccore = zeros(n); chum = zeros(n); cmass = zeros(n)
     for k in 1:n
-        c = clean_at(o, k; A, L, depth)
+        c = clean_at(o, k; A, L, depth, cfg)
         r, _ = read_at(inst, k, c, events)
         pit[k], core[k], hum[k], mass[k] = r.pit, r.core, r.humidity, r.mass
         cpit[k], ccore[k], chum[k], cmass[k] = c.pit, c.core, c.humidity, c.mass
@@ -189,8 +189,8 @@ end
     realcook_channels(readings, masks, np; cap, depth_latent) -> Vector{Channel}
 
 The registry's channels for the real-cook instruments, in the order the noise priors index them: the pit probe,
-the meat probe at the latent depth, the censored humidity sensor, the scale; the readings and masks on the full
-grid (a mock filled ahead, or arrays a pilot fills as the samples arrive).
+the meat probe at the latent bounded depth fraction, the censored humidity sensor, the scale; the readings and
+masks on the full grid (a mock filled ahead, or arrays a pilot fills as the samples arrive).
 """
 function realcook_channels(readings, masks, np::AbstractDict{Int,NoisePrior}; cap::Real, depth_latent::Int)
     return Channel[PitProbe(np[1].σ_mean, np[1].ρ_mean, Bool.(masks.pit); data=Float64.(readings.pit)),

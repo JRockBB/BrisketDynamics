@@ -13,15 +13,16 @@
 # wider marginal. No fallback branches.
 #
 # Latent vector: the 15 physics latents (unconstrained, as in the gate)
-# followed by estimator-only latents (a probe's depth, ...), each with a
+# followed by estimator-only latents (a probe's depth fraction, ...), each with a
 # PriorSite; channels address extras by index.
 
 using LinearAlgebra
 
-export Channel, PitProbe, MeatProbe, SurfaceIR, HumiditySensor, CensoredHumidity, MassScale, StaticReading,
+export Channel, PitProbe, MeatProbe, SurfaceIR, HumiditySensor, CensoredHumidity, MassScale, StaticReading, ProbeDepthReading,
        FuelScale, BarkLightness, WetBulb, Sequential,
        LatentSpec, physics_outputs, physics_stack, assemble, fisher_cov, contiguous_runs,
-       whitening_rows, OutputLayout, restrict, window, with_noise, channel_label, white_floor, noise_mask
+       whitening_rows, OutputLayout, restrict, window, with_noise, channel_label, white_floor, noise_mask,
+       meat_mass_factor, meat_mass_1d
 
 struct OutputLayout
     nx::Int
@@ -153,12 +154,14 @@ Meat probe at a position inside the half-slab, read from the temperature
 field by linear interpolation in the material coordinate. `s` is the
 fraction of the half-thickness from the CENTER (0 = center, 1 = surface);
 either fixed, or `1 − depth/L` with `depth` [m from the surface] fixed
-or the latent `depth_latent` (LogNormal site, so depth = exp(z)).
+or `1 − fraction` with the bounded Beta site at `depth_latent`. The
+latent's physical insertion depth is therefore `L * fraction` and is always
+inside the meat.
 """
 struct MeatProbe <: Channel
     s_fixed::Float64            # NaN when depth-parametrized
     depth_fixed::Float64        # NaN when the depth is a latent
-    depth_latent::Int           # 0 when not a latent
+    depth_latent::Int           # bounded depth-fraction site; 0 when fixed
     σ::Float64
     ρ::Float64
     mask::Vector{Bool}
@@ -187,8 +190,8 @@ HumiditySensor(σ, ρ, mask; data=nothing) = HumiditySensor(σ, ρ, collect(Bool
 
 """
 Meat mass on a scale [kg] at the log times in `mask`: the physics' own
-mass bookkeeping (the stack's mass block: ρ_d A L (1 + W̄ + F̄) for the
-slab, the volume integral for the cylinder; purge and rendered fat
+composition bookkeeping (non-fat solids, unrendered fat, retained rendered
+fat, and water over the dry-matter reference volume; purge and drained fat
 leave), times a shape factor s = exp(z[shape_latent]) when
 `shape_latent` is given (s = 1 for a slab; for a cylinder read with the
 slab physics s = πR²H / (A L)), so a plant that is not a slab can keep
@@ -252,14 +255,25 @@ struct StaticReading <: Channel
 end
 StaticReading(latent, σ; data=nothing) = StaticReading(latent, σ, data)
 
+"A physical insertion-depth reading `L * fraction`, coupling thickness and the bounded fraction site."
+struct ProbeDepthReading <: Channel
+    fraction_latent::Int
+    thickness_latent::Int
+    σ::Float64
+    data::Union{Nothing,Float64}
+end
+ProbeDepthReading(fraction_latent, σ; thickness_latent=L_INDEX, data=nothing) =
+    ProbeDepthReading(fraction_latent, thickness_latent, σ, data)
+
 """
     CensoredHumidity(σ, ρ, mask; cap, s, data)
 
 The humidity sensor with a saturation cap: a reading at the cap says
-only that the vapor pressure was at least that, so its prediction is
-min(pred, cap), smooth (a softplus of width `s`), and its residual is
-zero whenever the model is above the cap. A capped sample leaves the AR
-chain (`noise_mask`) and enters as one independent one-sided row.
+only that the latent noisy reading was at least that. Uncapped samples
+remain in the Gaussian AR chain; each capped sample contributes the exact
+normal survival likelihood `P(Y ≥ cap | prediction, σ)` and an independent
+local Gaussian site in the RxInfer update. `s` is retained only for
+serialized/API compatibility with older configurations.
 """
 struct CensoredHumidity <: Channel
     σ::Float64
@@ -273,6 +287,14 @@ CensoredHumidity(σ, ρ, mask; cap=6500.0, s=50.0, data=nothing) = CensoredHumid
 
 const RHO_DRY_EST = 320.0     # thermophysics.RHO_DRY
 const L_INDEX = 4             # θ[4] = L in the physics block
+
+"Mass remaining per kg of initial dry matter: non-fat solids, unrendered fat, retained rendered fat, and water."
+meat_mass_factor(W, F, cfg::MeatConfig) =
+    (1 - cfg.F0) + F + (1 - cfg.η_drain) * (cfg.F0 - F) + W
+
+"Scale mass of the 1-D half slab from its dry-matter reference volume."
+meat_mass_1d(W, F, A, L, cfg::MeatConfig) =
+    RHO_DRY_EST * A * L * meat_mass_factor(W, F, cfg)
 
 # material-coordinate mean weights (half cells at the ends): fv_mean
 fv_weights(nx) = (w = ones(nx); w[1] = 0.5; w[end] = 0.5; w ./ (nx - 1))
@@ -297,11 +319,16 @@ function predict(ch::MeatProbe, S, J, z, prior, lay)
     L = exp(z[L_INDEX])
     if !isnan(ch.s_fixed)
         s, ds_dzL, ds_dzd = ch.s_fixed, 0.0, 0.0
+    elseif ch.depth_latent > 0
+        p = prior[ch.depth_latent]
+        isbeta(p) || throw(ArgumentError("a latent meat-probe depth must use a bounded beta fraction site"))
+        fraction = from_z(z[ch.depth_latent], p)
+        s, ds_dzL, ds_dzd = 1 - fraction, 0.0, -dx_dz(z[ch.depth_latent], p)
     else
-        depth = ch.depth_latent > 0 ? exp(z[ch.depth_latent]) : ch.depth_fixed
+        depth = ch.depth_fixed
         s = 1 - depth / L
         ds_dzL = depth / L                       # d s / d log L
-        ds_dzd = ch.depth_latent > 0 ? -depth / L : 0.0   # d s / d log depth
+        ds_dzd = 0.0
     end
     sc = clamp(s, 0.0, 1.0)
     pos = 1 + sc * (nx - 1)
@@ -380,28 +407,23 @@ function predict(ch::StaticReading, S, J, z, prior, lay)
     Jr = zeros(1, length(z)); Jr[1, ch.latent] = dx_dz(z[ch.latent], p)
     return [x], Jr
 end
-# the censored humidity: the raw vapor pressure rows, then the cap applied to the prediction (a channel with a
-# discrepancy state in the block adds the state before the cap: `Sequential`)
+function predict(ch::ProbeDepthReading, S, J, z, prior, lay)
+    pL, pf = prior[ch.thickness_latent], prior[ch.fraction_latent]
+    isbeta(pf) || throw(ArgumentError("a probe-depth reading requires a bounded beta fraction site"))
+    L, fraction = from_z(z[ch.thickness_latent], pL), from_z(z[ch.fraction_latent], pf)
+    Jr = zeros(1, length(z))
+    Jr[1, ch.thickness_latent] = fraction * dx_dz(z[ch.thickness_latent], pL)
+    Jr[1, ch.fraction_latent] = L * dx_dz(z[ch.fraction_latent], pf)
+    return [probe_depth(L, fraction)], Jr
+end
+# the censored humidity's latent, uncapped vapor-pressure prediction (a
+# `Sequential` channel adds its discrepancy before the likelihood is formed)
 function predict_raw(ch::CensoredHumidity, S, J, z, prior, lay)
     idx = (lay.opv + 1):(lay.opv + lay.nt)
     return copy(S[idx]), copy(J[idx, :])
 end
-"The cap on a censored channel's predicted rows: min(r, cap) as cap − softplus(cap − r); its slope is logistic((cap − r)/s): one below the cap, zero above."
-function censor(ch::CensoredHumidity, r, Jr)
-    y = ch.data
-    y === nothing && return r, Jr
-    for k in eachindex(r)
-        if y[k] >= ch.cap - 1e-9
-            x = (ch.cap - r[k]) / ch.s
-            r[k] = ch.cap - ch.s * (x > 30 ? x : log1p(exp(x)))
-            Jr[k, :] .*= 1 / (1 + exp(-x))
-        end
-    end
-    return r, Jr
-end
-predict(ch::CensoredHumidity, S, J, z, prior, lay) = censor(ch, predict_raw(ch, S, J, z, prior, lay)...)
+predict(ch::CensoredHumidity, S, J, z, prior, lay) = predict_raw(ch, S, J, z, prior, lay)
 predict_raw(ch::Channel, S, J, z, prior, lay) = predict(ch, S, J, z, prior, lay)
-censor(ch::Channel, r, Jr) = (r, Jr)
 
 # the samples whose residuals are the channel's noise process (a censored reading is not one)
 noise_mask(ch::Channel) = ch.mask
@@ -428,11 +450,13 @@ whitening(ch::FuelScale) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::BarkLightness) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::WetBulb) = whitening_rows(ch.mask, ch.σ, ch.ρ)
 whitening(ch::StaticReading) = fill(1 / ch.σ, 1, 1)
-# the AR rows over the uncensored samples (the chain hops over a censored stretch as over a gap), then one
-# independent row per censored sample: "the true value was at least the cap", weighted like a reading
+whitening(ch::ProbeDepthReading) = fill(1 / ch.σ, 1, 1)
+# the AR rows over the uncensored samples (the batch chain hops over a censored stretch as over a gap), then
+# one placeholder row per censored sample; `_affine_rows` turns each placeholder into a survival-likelihood site
 whitening(ch::CensoredHumidity) = vcat(whitening_rows(noise_mask(ch), ch.σ, ch.ρ), extra_rows(ch, ones(length(ch.mask))))
 
 rawdata(ch::StaticReading) = ch.data === nothing ? nothing : [ch.data]
+rawdata(ch::ProbeDepthReading) = ch.data === nothing ? nothing : [ch.data]
 rawdata(ch::Channel) = ch.data
 
 # --- the registry's interface, one place: labels, restriction to a window, a new noise, the resolution floor ---
@@ -446,6 +470,7 @@ channel_label(::FuelScale) = "fuel scale"
 channel_label(::BarkLightness) = "bark L*"
 channel_label(::WetBulb) = "wet bulb"
 channel_label(ch::StaticReading) = "static " * string(ch.latent)
+channel_label(::ProbeDepthReading) = "probe insertion depth"
 
 # a channel restricted to the readings at times where `keep` is true
 restrict(ch::PitProbe, keep) = PitProbe(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
@@ -458,6 +483,7 @@ restrict(ch::FuelScale, keep) = FuelScale(ch.σ, ch.ρ, ch.mask .& keep, ch.data
 restrict(ch::BarkLightness, keep) = BarkLightness(ch.σ, ch.ρ, ch.mask .& keep, ch.data)
 restrict(ch::WetBulb, keep) = WetBulb(ch.σ, ch.ρ, ch.mask .& keep, ch.p_atm, ch.a_psy, ch.data)
 restrict(ch::StaticReading, keep) = ch
+restrict(ch::ProbeDepthReading, keep) = ch
 
 # a channel on the sub-grid `idx` (its mask and data cut to it): the filter's interval
 _cut(::Nothing, idx) = nothing
@@ -472,6 +498,7 @@ window(ch::FuelScale, idx) = FuelScale(ch.σ, ch.ρ, ch.mask[idx], _cut(ch.data,
 window(ch::BarkLightness, idx) = BarkLightness(ch.σ, ch.ρ, ch.mask[idx], _cut(ch.data, idx))
 window(ch::WetBulb, idx) = WetBulb(ch.σ, ch.ρ, ch.mask[idx], ch.p_atm, ch.a_psy, _cut(ch.data, idx))
 window(ch::StaticReading, idx) = ch
+window(ch::ProbeDepthReading, idx) = ch
 
 # the same channel with a new noise (the discrepancy's marginal sd and correlation per grid step)
 with_noise(ch::PitProbe, σ, ρ) = PitProbe(σ, ρ, ch.mask, ch.data)
@@ -484,6 +511,7 @@ with_noise(ch::FuelScale, σ, ρ) = FuelScale(σ, ρ, ch.mask, ch.data)
 with_noise(ch::BarkLightness, σ, ρ) = BarkLightness(σ, ρ, ch.mask, ch.data)
 with_noise(ch::WetBulb, σ, ρ) = WetBulb(σ, ρ, ch.mask, ch.p_atm, ch.a_psy, ch.data)
 with_noise(ch::StaticReading, σ, ρ) = ch
+with_noise(ch::ProbeDepthReading, σ, ρ) = ch
 
 """
     white_floor(ch) -> σ_w
@@ -502,6 +530,7 @@ white_floor(::MassScale) = 0.005
 white_floor(::FuelScale) = 0.005
 white_floor(::BarkLightness) = 0.5
 white_floor(ch::StaticReading) = ch.σ
+white_floor(ch::ProbeDepthReading) = ch.σ
 
 """
     Sequential(channel, disc, σ_w)
@@ -521,7 +550,7 @@ function predict(s::Sequential, S, J, z, prior, lay)
     r, Jr = predict_raw(s.ch, S, J, z, prior, lay)
     r = r .+ z[s.disc]
     Jr = copy(Jr); Jr[:, s.disc] .+= 1
-    return censor(s.ch, r, Jr)
+    return r, Jr
 end
 "The wrapped channel's data with the unobserved points (masked off, so they enter every row with weight zero) made finite: a pilot fills its arrays as the samples arrive and leaves NaN where none has."
 function rawdata(s::Sequential)
@@ -536,12 +565,84 @@ restrict(s::Sequential, keep) = Sequential(restrict(s.ch, keep), s.disc, s.σ_w)
 window(s::Sequential, idx) = Sequential(window(s.ch, idx), s.disc, s.σ_w)
 with_noise(s::Sequential, σ, ρ) = Sequential(with_noise(s.ch, σ, ρ), s.disc, s.σ_w)
 white_floor(s::Sequential) = s.σ_w
-"White rows at the floor over the channel's uncensored samples, then its censored samples' one-sided rows at the same floor."
+"White rows at the floor over the uncensored samples, then placeholders for survival sites at the same floor."
 function whitening(s::Sequential)
     nm = noise_mask(s.ch)
     rows = zeros(count(nm), length(nm))
     for (i, k) in enumerate(findall(nm)); rows[i, k] = 1 / s.σ_w; end
     return vcat(rows, extra_rows(s.ch, fill(s.σ_w / s.ch.σ, length(nm))))
+end
+
+_censored_base(::Channel) = nothing
+_censored_base(ch::CensoredHumidity) = ch
+_censored_base(ch::Sequential) = _censored_base(ch.ch)
+
+# Stable standard-normal lower-tail functions. A capped reading y=cap is
+# generated by Y=min(Y*, cap), Y*~Normal(μ,σ), hence contributes
+# -log P(Y*≥cap) = -log Φ((μ-cap)/σ).
+function _normal_logcdf(z::Real)
+    x = -Float64(z) / sqrt(2.0)
+    return z < 0 ? log(0.5) + log(erfcx(x)) - x^2 : log(0.5 * erfc(x))
+end
+function _inverse_mills(z::Real)
+    zf = Float64(z)
+    return zf < 0 ? sqrt(2 / π) / erfcx(-zf / sqrt(2.0)) :
+           exp(-0.5 * zf^2 - 0.5 * log(2π) - _normal_logcdf(zf))
+end
+_censored_normal_nll(μ::Real, cap::Real, σ::Real) =
+    -_normal_logcdf((Float64(μ) - Float64(cap)) / Float64(σ))
+
+"Local Gaussian site matching the exact censored-normal score and curvature at `μ`."
+function _censored_normal_site(μ::Real, cap::Real, σ::Real)
+    σf = Float64(σ)
+    σf > 0 || throw(ArgumentError("censored-normal σ must be positive"))
+    z = (Float64(μ) - Float64(cap)) / σf
+    λ = _inverse_mills(z)
+    d = z + λ
+    h = λ * d / σf^2
+    if !(isfinite(h) && h > eps(Float64) && isfinite(d) && d > 0)
+        return (root_precision=0.0, pseudo=Float64(μ))
+    end
+    return (root_precision=sqrt(h), pseudo=Float64(μ) + σf / d)
+end
+
+"Affine graph rows, with capped samples replaced by local exact-likelihood sites."
+function _affine_rows(ch::Channel, r, Jr, Lw, y)
+    a = Lw * r
+    B = Lw * Jr
+    w = y === nothing ? fill(NaN, size(Lw, 1)) : Lw * y
+    cch = _censored_base(ch)
+    (cch === nothing || y === nothing) && return a, B, w
+    capped = findall(cch.mask .& .!noise_mask(cch))
+    first_capped = size(Lw, 1) - length(capped) + 1
+    for (i, k) in enumerate(capped)
+        row = first_capped + i - 1
+        invσ = abs(Lw[row, k])
+        invσ > 0 || continue
+        site = _censored_normal_site(r[k], cch.cap, inv(invσ))
+        q = site.root_precision
+        a[row] = q * r[k]
+        B[row, :] .= q .* Jr[k, :]
+        w[row] = q * site.pseudo
+    end
+    return a, B, w
+end
+
+"Exact channel negative log likelihood under an already-scaled whitening matrix."
+function _channel_nll(ch::Channel, r, Lw, y)
+    y === nothing && throw(ArgumentError("channel $(channel_label(ch)) has no observations"))
+    cch = _censored_base(ch)
+    cch === nothing && return 0.5 * sum(abs2, Lw * (y .- r))
+    capped = findall(cch.mask .& .!noise_mask(cch))
+    nnormal = size(Lw, 1) - length(capped)
+    loss = nnormal == 0 ? 0.0 :
+           0.5 * sum(abs2, @view(Lw[1:nnormal, :]) * (y .- r))
+    for (i, k) in enumerate(capped)
+        row = nnormal + i
+        invσ = abs(Lw[row, k])
+        invσ > 0 && (loss += _censored_normal_nll(r[k], cch.cap, inv(invσ)))
+    end
+    return loss
 end
 
 """
@@ -550,7 +651,8 @@ end
 Whitened predicted readings `a`, their Jacobian `B` (n_w × n_z) and the
 whitened observations `w` (NaN where a channel carries no data) across
 the registry — the affine node data of the graph at the linearization
-point `z`.
+point `z`. Capped humidity rows are local Gaussian sites whose score and
+curvature equal the exact censored-normal likelihood at `z`.
 """
 function assemble(channels, z, S, J, prior, lay)
     as, Bs, ws = Vector{Float64}[], Matrix{Float64}[], Vector{Float64}[]
@@ -558,12 +660,31 @@ function assemble(channels, z, S, J, prior, lay)
         r, Jr = predict(ch, S, J, z, prior, lay)
         Lw = whitening(ch)
         size(Lw, 1) == 0 && continue
-        push!(as, Lw * r)
-        push!(Bs, Lw * Jr)
         y = rawdata(ch)
-        push!(ws, y === nothing ? fill(NaN, size(Lw, 1)) : Lw * y)
+        a, B, w = _affine_rows(ch, r, Jr, Lw, y)
+        push!(as, a); push!(Bs, B); push!(ws, w)
     end
     return reduce(vcat, as), reduce(vcat, Bs), reduce(vcat, ws)
+end
+
+"""
+    likelihood_objective(channels, z, S, prior, lay, ph)
+
+Exact observation negative log likelihood at a trial centre. In
+particular, capped humidity uses a normal survival probability rather
+than the local Gaussian site used to pass its derivatives through the
+RxInfer affine graph.
+"""
+function likelihood_objective(channels, z, S, prior, lay, ph)
+    loss = 0.0
+    Jzero = zeros(length(S), length(z))
+    for ch in channels
+        Lw = whitening(ch)
+        size(Lw, 1) == 0 && continue
+        r, _ = predict(ch, S, Jzero, z, prior, lay)
+        loss += _channel_nll(ch, r, Lw, rawdata(ch))
+    end
+    return loss
 end
 
 """
@@ -578,9 +699,11 @@ assemble_at(channels, z, S, J, prior, lay, ph) = assemble(channels, z, S, J, pri
 """
     assemble_trial(channels, z, S, prior, lay, ph) -> (a, w)
 
-The whitened predictions and observations at a trial centre of the line search, where only the objective is
-needed: `assemble` without a Jacobian; a physics with sigma points supplies its own (the plain slice at the
-trial centre under the rows' inflation of the last linearization, so a trial costs one solve, not the points).
+The local-Gaussian predictions and observations at a trial centre:
+`assemble` without a Jacobian. This is useful for surrogate diagnostics;
+the nonlinear solver evaluates `likelihood_objective` instead so censored
+rows use their exact survival probability. A physics with sigma points
+supplies its own method under the last linearization's row inflation.
 """
 assemble_trial(channels, z, S, prior, lay, ph) = (r = assemble(channels, z, S, zeros(length(S), length(z)), prior, lay); (r[1], r[3]))
 
@@ -607,3 +730,4 @@ end
 "A prior site for an estimator-only latent, appended after the physics block."
 LatentSpec(name::AbstractString, family::AbstractString, p1::Real, p2::Real) =
     (name=String(name), site=PriorSite(String(family), Float64(p1), Float64(p2)))
+LatentSpec(name::AbstractString, site::PriorSite) = (name=String(name), site=site)

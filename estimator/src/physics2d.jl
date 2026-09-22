@@ -58,17 +58,17 @@ geometry_latents(ph::Physics2D) = [ph.radius_latent]
 
 # --- the 1-D stack ---------------------------------------------------------------
 
-# mass on the scale from the slab's own bookkeeping: ρ_d A L (1 + W̄ + F̄)
-function _mass_1d(o, A, L)
+# mass on the scale from the slab's composition bookkeeping
+function _mass_1d(o, A, L, cfg)
     nx = size(o.T_field, 1)
     w = fv_weights(nx)
-    return [RHO_DRY_EST * A * L * (1 + dot(w, view(o.W_field, :, k)) + dot(w, view(o.F_field, :, k)))
+    return [meat_mass_1d(dot(w, view(o.W_field, :, k)), dot(w, view(o.F_field, :, k)), A, L, cfg)
             for k in axes(o.T_field, 2)]
 end
 
 # the stacked output of a monolith solve at exposed area A and thickness L
-_stack_1d(o, A, L) = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o.F_field), o.pv_pit,
-                          o.m_fuel, o.l_star, _mass_1d(o, A, L))
+_stack_1d(o, A, L, cfg) = vcat(o.Tpit, o.Tsurf, vec(o.T_field), vec(o.W_field), vec(o.F_field), o.pv_pit,
+                               o.m_fuel, o.l_star, _mass_1d(o, A, L, cfg))
 
 function physics_outputs(z, d::GateData, ph::Physics1D)
     zp = z[1:N_PHYS]
@@ -79,9 +79,9 @@ function physics_outputs(z, d::GateData, ph::Physics1D)
         A = exp(z[ph.area_latent])
         v = vcat(x, A)
         g(v) = _stack_1d(monolith_solve(v[1:N_THETA], v[(N_THETA + 1):N_PHYS], d.u, d.t, d.t;
-                                        kw..., A_meat=v[end]), v[end], v[4])
+                                        kw..., A_meat=v[end]), v[end], v[4], d.cfg)
         o = monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw..., A_meat=A)
-        S = _stack_1d(o, A, x[4])
+        S = _stack_1d(o, A, x[4], d.cfg)
         cfgj = ForwardDiff.JacobianConfig(g, v, ForwardDiff.Chunk{length(v)}())
         Jv = ForwardDiff.jacobian(g, v, cfgj)
         Jz = zeros(length(S), length(z))
@@ -91,9 +91,9 @@ function physics_outputs(z, d::GateData, ph::Physics1D)
         A = d.cfg.A_meat
         v = x
         g0(v) = _stack_1d(monolith_solve(v[1:N_THETA], v[(N_THETA + 1):N_PHYS], d.u, d.t, d.t; kw...),
-                          A, v[4])
+                          A, v[4], d.cfg)
         o = monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw...)
-        S = _stack_1d(o, A, x[4])
+        S = _stack_1d(o, A, x[4], d.cfg)
         cfgj = ForwardDiff.JacobianConfig(g0, v, ForwardDiff.Chunk{length(v)}())
         Jv = ForwardDiff.jacobian(g0, v, cfgj)
         Jz = zeros(length(S), length(z))
@@ -110,7 +110,7 @@ function physics_stack(z, d::GateData, ph::Physics1D)
     o = ph.area_latent > 0 ?
         monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw..., A_meat=A) :
         monolith_solve(x[1:N_THETA], x[(N_THETA + 1):end], d.u, d.t, d.t; kw...)
-    return _stack_1d(o, A, x[4]), OutputLayout(size(o.T_field, 1), length(d.t))
+    return _stack_1d(o, A, x[4], d.cfg), OutputLayout(size(o.T_field, 1), length(d.t))
 end
 
 # --- the 2-D stack ---------------------------------------------------------------
@@ -147,14 +147,14 @@ function _cyl_volume(R, Hz, nr, nz)
     return [2π * rV[i] * zw[j] * Δz for i in 1:nr, j in 1:nz]
 end
 
-function _stack_2d(o, R, Hz, nx, F0)
+function _stack_2d(o, R, Hz, nx, cfg)
     nr, nz, nt = size(o.T_field)
     vol = _cyl_volume(R, Hz, nr, nz)
     Tline = _axis_line(o.T_field, Hz, nx)
     Wline = _axis_line(o.W_field, Hz, nx)
     Tv = eltype(Tline)
-    Fline = fill(Tv(F0), nx, nt)
-    mass = [RHO_DRY_EST * sum(vol .* (1 .+ view(o.W_field, :, :, k) .+ F0)) for k in 1:nt]
+    Fline = fill(Tv(cfg.F0), nx, nt)
+    mass = [RHO_DRY_EST * sum(vol .* meat_mass_factor.(view(o.W_field, :, :, k), cfg.F0, Ref(cfg))) for k in 1:nt]
     Tsurf = o.T_field[1, nz, :]
     return vcat(o.Tpit, Tsurf, vec(Tline), vec(Wline), vec(Fline), o.pv_pit, o.m_fuel,
                 zeros(Tv, nt), mass)
@@ -172,9 +172,9 @@ function physics_outputs(z, d::GateData, ph::Physics2D)
     x = from_z(zp, d.prior[1:N_PHYS])
     R = exp(z[ph.radius_latent])
     v = vcat(x, R)
-    g(v) = _stack_2d(_solve_2d(v[1:N_PHYS], v[end], d, ph), v[end], 2 * v[4], ph.nx_line, d.cfg.F0)
+    g(v) = _stack_2d(_solve_2d(v[1:N_PHYS], v[end], d, ph), v[end], 2 * v[4], ph.nx_line, d.cfg)
     o = _solve_2d(x, R, d, ph)
-    S = _stack_2d(o, R, 2 * x[4], ph.nx_line, d.cfg.F0)
+    S = _stack_2d(o, R, 2 * x[4], ph.nx_line, d.cfg)
     cfgj = ForwardDiff.JacobianConfig(g, v, ForwardDiff.Chunk{length(v)}())
     Jv = ForwardDiff.jacobian(g, v, cfgj)
     Jz = zeros(length(S), length(z))
@@ -188,7 +188,7 @@ function physics_stack(z, d::GateData, ph::Physics2D)
     x = from_z(zp, d.prior[1:N_PHYS])
     R = exp(z[ph.radius_latent])
     o = _solve_2d(x, R, d, ph)
-    return _stack_2d(o, R, 2 * x[4], ph.nx_line, d.cfg.F0), OutputLayout(ph.nx_line, length(d.t))
+    return _stack_2d(o, R, 2 * x[4], ph.nx_line, d.cfg), OutputLayout(ph.nx_line, length(d.t))
 end
 
 # the keyword forms keep working: the slab, with or without the area latent

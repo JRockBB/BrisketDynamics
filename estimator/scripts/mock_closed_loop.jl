@@ -26,10 +26,9 @@ gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "estimator_gate_real
 meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
-L_med = exp(prior_phys[4].p1)
-prior = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), 0.3), PriorSite("lognormal", log(0.8 * L_med), 0.5)])
+prior = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), 0.3), probe_depth_site()])
 AREA, DEPTH = 16, 17
 GRID = collect(0.0:600.0:30 * 3600.0)
 Δ = 2 * 3600.0
@@ -38,8 +37,9 @@ goals = PlanGoals()
 
 # --- the plant: the mock's truth --------------------------------------------------------------
 x_true = Float64.(m["truth"]["x"])
-θ_true, φ_true, A_true, depth_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
+θ_true, φ_true, A_true, depth_fraction_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
 L_true = θ_true[4]
+depth_true = probe_depth(L_true, depth_fraction_true)
 nz = m["noise"]
 function ar1_noise(rng, n, σ, ρ)
     e = zeros(n); e[1] = σ * randn(rng)
@@ -63,7 +63,7 @@ function plant_readings(s::Schedule)
     pos = 1 + (1 - depth_true / L_true) * (nx - 1)
     clean = Dict("pit" => collect(o.Tpit), "core" => [interp1(o.T_field[:, k], pos) for k in axes(o.T_field, 2)],
                  "humidity" => collect(o.pv_pit),
-                 "mass" => [E.RHO_DRY_EST * A_true * L_true * (1 + dot(w, o.W_field[:, k]) + dot(w, o.F_field[:, k])) for k in axes(o.W_field, 2)])
+                 "mass" => [meat_mass_1d(dot(w, o.W_field[:, k]), dot(w, o.F_field[:, k]), A_true, L_true, cfg) for k in axes(o.W_field, 2)])
     return Dict(ch => clean[ch] .+ NOISE[ch] for ch in keys(clean)), o
 end
 
@@ -84,10 +84,11 @@ draws(z, V, rng) = (Lc = cholesky(Symmetric(V)).L; [z .+ Lc * randn(rng, length(
 # --- the loop ------------------------------------------------------------------------------------
 s = Schedule(GRID; u0=0.15, t_serve=14 * 3600.0)
 d0 = estimator_setup(GRID, fill(0.15, length(GRID)), pit, cfg, prior_phys, names)
-z = vcat(d0.z0, [log(cfg.A_meat), log(0.8 * L_med)])
+z = vcat(d0.z0, [log(cfg.A_meat), z_center(prior[DEPTH])])
 _, _, h0 = E.prior_terms(z, prior)
 V = Matrix(Diagonal(1 ./ h0))
-z_true = vcat([isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x_true[1:15], prior_phys)], log(A_true), log(depth_true))
+z_true = vcat([to_z(v, p) for (v, p) in zip(x_true[1:15], prior_phys)],
+              log(A_true), to_z(depth_fraction_true, prior[DEPTH]))
 plan_prev = nothing
 record = []
 rng_draws = MersenneTwister(7)
@@ -152,6 +153,6 @@ open(joinpath(REPO, "data", "mock", "closed_loop.json"), "w") do io
                         "executed" => Dict("u" => [isnan(x) ? nothing : x for x in s.u], "t_wrap_h" => nn(s.t_wrap / 3600), "t_pull_h" => nn(s.t_pull / 3600), "t_serve_h" => s.t_serve / 3600,
                                            "spritz" => s.spritz === nothing ? nothing : Dict("t_h" => s.spritz.t / 3600, "dt_h" => s.spritz.dt / 3600, "m" => s.spritz.m),
                                            "t_add_h" => nn(s.t_add / 3600)),
-                        "actual" => Dict(pairs(actual)), "goals" => Dict(String(k) => getfield(goals, k) for k in fieldnames(PlanGoals)), "z_true" => z_true, "names" => vcat(names, ["A_meat", "core_depth"])))
+                        "actual" => Dict(pairs(actual)), "goals" => Dict(String(k) => getfield(goals, k) for k in fieldnames(PlanGoals)), "z_true" => z_true, "names" => vcat(names, ["A_meat", "core_depth_fraction"])))
 end
 println("wrote data/mock/closed_loop.json")

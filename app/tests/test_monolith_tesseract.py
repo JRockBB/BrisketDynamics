@@ -34,7 +34,19 @@ def test_apply_shapes(case):
     tx, inputs, grids = case
     out = tx.apply(inputs)
     nt = grids.nt
-    for k in ("tpit", "tcore", "tsurf", "m_fuel", "bark_s", "l_star", "pv_pit"):
+    for k in (
+        "tpit",
+        "tcore",
+        "tsurf",
+        "m_fuel",
+        "bark_s",
+        "l_star",
+        "pv_pit",
+        "m_pan",
+        "t_pan",
+        "t_firebox",
+        "wrap_latch",
+    ):
         assert np.asarray(out[k]).shape == (nt,) and np.all(np.isfinite(out[k]))
     assert np.asarray(out["c_field_final"]).shape == (40,)
     assert 0.0 < float(out["juiciness"]) < 2.0

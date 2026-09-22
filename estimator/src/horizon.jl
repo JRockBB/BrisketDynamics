@@ -342,7 +342,7 @@ end
 function _state_of(v, state)
     lay = state.lay
     ics, a = unpack_state(v[(lay.n_z + 1):(lay.n_z + lay.n_state)], lay)
-    return (k=state.k, t=state.t, ics=ics, ignited=clamp(a, 1e-6, 1 - 1e-6), past=state.past, lay=lay)
+    return (k=state.k, t=state.t, ics=ics, ignited=a, past=state.past, lay=lay)
 end
 
 """

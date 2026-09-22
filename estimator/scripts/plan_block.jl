@@ -33,10 +33,9 @@ gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "estimator_gate_real
 t = Float64.(m["t"]); u_log = Float64.(m["u"]); meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 d = estimator_setup(t, u_log, pit, cfg, prior_phys, String.(gate["names"]))
-L_med = exp(prior_phys[4].p1)
-prior = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), 0.3), PriorSite("lognormal", log(0.8 * L_med), 0.5)])
+prior = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), 0.3), probe_depth_site()])
 AREA, DEPTH = 16, 17
 
 # --- the posterior at 6 h and its draws (as in the planning experiment) ------------------

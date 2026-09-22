@@ -27,7 +27,7 @@ tt, uu = t[keep], u[keep]
     o3 = solve_segments([θ, θ, θ, θ], [φ, φ, φ, φ], uu, tt, edges; pit, cfg, A_meat=A, events...)
     @test length(o3.t) == length(tt) && size(o3.T_field) == size(o1.T_field)
     nx = size(o1.W_field, 1); w = E.fv_weights(nx)
-    mass(o) = [E.RHO_DRY_EST * A * L * (1 + dot(w, view(o.W_field, :, k)) + dot(w, view(o.F_field, :, k))) for k in axes(o.W_field, 2)]
+    mass(o) = [meat_mass_1d(dot(w, view(o.W_field, :, k)), dot(w, view(o.F_field, :, k)), A, L, cfg) for k in axes(o.W_field, 2)]
     dcore = maximum(abs.(o3.Tcore .- o1.Tcore)); dpit = maximum(abs.(o3.Tpit .- o1.Tpit))
     dmass = maximum(abs.(mass(o3) .- mass(o1))); dpv = maximum(abs.(o3.pv_pit .- o1.pv_pit)); dbark = maximum(abs.(o3.l_star .- o1.l_star))
     println("segmented vs whole: core $(round(dcore; digits=4)) K, pit $(round(dpit; digits=4)) K, mass $(round(dmass * 1000; digits=3)) g, vapor $(round(dpv; digits=2)) Pa, bark $(round(dbark; digits=3)) L*")
@@ -63,11 +63,11 @@ end
 end
 
 @testset "the filter prior: a full Gaussian the graph reads like the families" begin
-    prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+    prior_phys = read_sites(gate["prior"])
     names = String.(gate["names"])
     d = estimator_setup(t, u, pit, cfg, prior_phys, names)
-    L_med = exp(prior_phys[4].p1)
-    extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3), LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5)]
+    extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3),
+             LatentSpec("core_depth_fraction", probe_depth_site())]
     sites = vcat(prior_phys, [e.site for e in extra])
     n = length(sites)
     rng = MersenneTwister(4)
@@ -101,7 +101,7 @@ end
     chs = [PitProbe(sp.σ_mean, sp.ρ_mean, Bool.(mk["pit"]) .& keep2; data=Float64.(rd["pit"])),
            MeatProbe(sc.σ_mean, sc.ρ_mean, Bool.(mk["core"]) .& keep2; depth_latent=n, data=Float64.(rd["core"]))]
     ph = Physics1D(area_latent=n - 1, events=events)
-    z0 = vcat(d.z0, [log(cfg.A_meat), log(0.8 * L_med)])
+    z0 = vcat(d.z0, [log(cfg.A_meat), z_center(sites[end])])
     r1 = solve_map_channels(chs, sites, d; c0=z0, physics=ph, verbose=false)
     sd1 = sqrt.(diag(r1.cov))
     # the families replaced by their own local quadratic at the MAP: the same objective to second order there,

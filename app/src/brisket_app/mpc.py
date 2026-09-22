@@ -35,9 +35,8 @@ from .coupled import HR, CookGrids, coupled_cook
 class CookState:
     """Plant state carried across receding-horizon intervals.
 
-    Fields are the pit state (temperature, fuel, ignited fraction) plus the
-    full meat fields for the state handoff; empty field arrays mean uniform
-    default initial conditions.
+    Fields are the complete pit state plus the full meat fields for the state
+    handoff; empty field arrays mean uniform default initial conditions.
     """
 
     t: float  # elapsed cook time [s]
@@ -49,6 +48,13 @@ class CookState:
     c_field0: np.ndarray
     f_field0: np.ndarray
     t0_meat: float = 281.15
+    mpan0: float = 0.0
+    tpan0: float = 293.15
+    tfb0: float = 293.15
+    wrap_latch0: float = 0.0
+    c_fb: float = 2.0e4
+    ua_fb: float = 12.0
+    c_duct: float = 0.0
     s_field0: np.ndarray = None  # brine state; None = fresh (t_salt applies)
     bark_b0: float = float("nan")  # NaN = fresh (0)
     bark_s0: float = float("nan")
@@ -59,10 +65,40 @@ class CookState:
     cut_h_core: float = 0.0
 
     @classmethod
-    def fresh(cls, tpit0=293.15, m0=7.0, a0=1.0, t0_meat=281.15):
+    def fresh(
+        cls,
+        tpit0=293.15,
+        m0=7.0,
+        a0=1.0,
+        t0_meat=281.15,
+        mpan0=0.0,
+        tpan0=293.15,
+        tfb0=None,
+        wrap_latch0=0.0,
+        c_fb=2.0e4,
+        ua_fb=12.0,
+        c_duct=0.0,
+    ):
         """Cold-start state: ambient pit, full fuel ring, fridge meat."""
         z = np.zeros(0)
-        return cls(0.0, tpit0, m0, a0, z, z, z, z, t0_meat=t0_meat)
+        return cls(
+            0.0,
+            tpit0,
+            m0,
+            a0,
+            z,
+            z,
+            z,
+            z,
+            t0_meat=t0_meat,
+            mpan0=mpan0,
+            tpan0=tpan0,
+            tfb0=tpit0 if tfb0 is None else tfb0,
+            wrap_latch0=wrap_latch0,
+            c_fb=c_fb,
+            ua_fb=ua_fb,
+            c_duct=c_duct,
+        )
 
 
 def _ics(state: CookState, t_amb: float) -> dict:
@@ -70,6 +106,13 @@ def _ics(state: CookState, t_amb: float) -> dict:
     ics = {
         "tpit0": state.tpit0,
         "m0": state.m0,
+        "m_pan0": state.mpan0,
+        "t_pan0": state.tpan0,
+        "t_firebox0": state.tfb0,
+        "wrap_latch0": state.wrap_latch0,
+        "c_fb": state.c_fb,
+        "ua_fb": state.ua_fb,
+        "c_duct": state.c_duct,
         "t_amb": t_amb,
         "t_field0": state.t_field0,
         "w_field0": state.w_field0,
@@ -143,6 +186,13 @@ def advance_plant(
         tpit0=float(sim["tpit"][-1]),
         m0=float(sim["m_fuel"][-1]),
         a0=float(sim["ignited"][-1]),
+        mpan0=float(sim["m_pan"][-1]),
+        tpan0=float(sim["t_pan"][-1]),
+        tfb0=float(sim["t_firebox"][-1]),
+        wrap_latch0=float(sim["wrap_latch"][-1]),
+        c_fb=state.c_fb,
+        ua_fb=state.ua_fb,
+        c_duct=state.c_duct,
         t_field0=np.asarray(sim["t_field_final"]),
         w_field0=np.asarray(sim["w_field_final"]),
         c_field0=np.asarray(sim["c_field_final"]),
@@ -159,7 +209,18 @@ def advance_plant(
         cut_h_core=state.cut_h_core,
     )
     return new, {
-        k: np.asarray(sim[k]) for k in ("tpit", "tcore", "tsurf", "m_fuel", "ignited")
+        k: np.asarray(sim[k])
+        for k in (
+            "tpit",
+            "tcore",
+            "tsurf",
+            "m_fuel",
+            "ignited",
+            "m_pan",
+            "t_pan",
+            "t_firebox",
+            "wrap_latch",
+        )
     }
 
 

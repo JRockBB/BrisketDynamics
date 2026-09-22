@@ -17,11 +17,11 @@ gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "estimator_gate_real
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]; dt = t[2] - t[1]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
 d = estimator_setup(t, u, pit, cfg, prior_phys, names)
-L_med = exp(prior_phys[4].p1)
-extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3), LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5)]
+extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3),
+         LatentSpec("core_depth_fraction", probe_depth_site())]
 prior = vcat(prior_phys, [e.site for e in extra])
 AREA, DEPTH = length(prior) - 1, length(prior)
 ev = m["events"]
@@ -48,9 +48,11 @@ r = recs[end]
     @test size(rc.cov) == (length(r.z), length(r.z)) && eigmin(Symmetric(rc.cov)) > -1e-10
     @test size(rc.directions) == (length(r.z), 2) && length(rc.ess) == 2 && all(rc.ess .>= 1)
     # the draws sit where the posterior has mass: within a few dozen nats of the MAP, never thousands away
-    S0, J0, lay = physics_outputs(r.z, d, ph)
-    _, _, w = assemble(r.channels, r.z, S0, J0, prior, lay); ok = .!isnan.(w)
-    lp(zz) = (S = physics_stack(zz, d, ph)[1]; a = assemble(r.channels, zz, S, J0, prior, lay)[1]; -0.5 * sum(abs2, (w .- a)[ok]) - prior_terms(zz, prior)[1])
+    function lp(zz)
+        S, lay = physics_stack(zz, d, ph)
+        return -E.likelihood_objective(r.channels, zz, S, prior, lay, ph) -
+               prior_terms(zz, prior)[1]
+    end
     lp0 = lp(r.z)
     rel = [lp(zz) - lp0 for zz in rc.draws]
     @test all(rel .> -40) && maximum(rel) < 5

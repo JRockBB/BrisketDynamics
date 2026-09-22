@@ -13,7 +13,11 @@
 # precision is a data matrix the callback scales: a rejected move raises
 # it and keeps the center, an accepted full move lowers it; the callback
 # also halves the move when the full one does not lower the objective
-# (the estimator's line search). One `infer`
+# (the estimator's line search). Moving statistical-linearization weights
+# remain fixed for the complete acceptance test. After acceptance, the
+# callback rebuilds them and immediately evaluates the next surrogate's
+# baseline, so objectives from different weight sets are never compared.
+# One `infer`
 # call is the whole solve; its last marginal is the posterior at the
 # converged center once the damping is released.
 
@@ -38,7 +42,7 @@ const LM_ANCHOR = Ref{Vector{Float64}}(Float64[])
 lm_node(x) = x .- LM_ANCHOR[]                      # the Levenberg-Marquardt node: affine, exact
 
 """
-    iterated_solve(problem, run_infer; c0, iters=40, tol=1e-4, ftol=1e-3, λ0=0.5, verbose=false)
+    iterated_solve(problem, run_infer; c0, iters=40, tol=1e-4, ftol=1e-4, λ0=0.5, verbose=false)
 
 `run_infer(Λ_lm, callbacks)` must call `infer` on the problem's model
 with the LM precision matrix `Λ_lm` passed as DATA and the callbacks
@@ -47,7 +51,7 @@ function only sets the center, evaluates, and reads the posterior back.
 Returns (z, F, cov, hist, converged).
 """
 function iterated_solve(p::IteratedProblem, run_infer; c0, iters::Int=40, tol::Float64=1e-4,
-                        ftol::Float64=1e-3, λ0::Float64=0.5, verbose::Bool=false)
+                        ftol::Float64=1e-4, λ0::Float64=0.5, verbose::Bool=false)
     c = copy(c0)
     LM_ANCHOR[] = copy(c)
     p.rebuild!(c)
@@ -63,6 +67,7 @@ function iterated_solve(p::IteratedProblem, run_infer; c0, iters::Int=40, tol::F
         m = collect(mean(last[]))
         step = m .- c
         # the graph gives the direction; the callback picks the length (the estimator's line search)
+        F_before = Fc
         α = 1.0
         trial(v) = try p.objective(v) catch err; err isa InterruptException ? rethrow() : Inf end
         Fn = norm(step) > 20 ? Inf : trial(c .+ step)
@@ -74,9 +79,10 @@ function iterated_solve(p::IteratedProblem, run_infer; c0, iters::Int=40, tol::F
         if accepted
             c .= c .+ α .* step
             LM_ANCHOR[] = copy(c)
+            dropped = F_before - Fn       # one coherent, frozen-weight surrogate
             p.rebuild!(c)
-            dropped = Fc - Fn
-            Fc = Fn
+            Fc = p.objective(c)            # baseline under the newly rebuilt surrogate
+            isfinite(Fc) || error("non-finite objective after relinearization")
             α == 1.0 && (λ = λ / 3 < λ0 / 10 ? 0.0 : λ / 3)
             if α * norm(step) < tol || dropped < ftol
                 converged[] = true
@@ -90,7 +96,8 @@ function iterated_solve(p::IteratedProblem, run_infer; c0, iters::Int=40, tol::F
             λ > 1e9 && (event.stop_iteration = true)
         end
         Λ_lm .= Matrix((λ + 1e-9) * I, p.n, p.n)
-        push!(hist, (it=event.iteration, F=Fc, step=norm(step), alpha=α, damping=λ, accepted=accepted, wall=time() - t0))
+        push!(hist, (it=event.iteration, F=Fc, F_before, F_trial=Fn, step=norm(step), alpha=α,
+                     damping=λ, accepted=accepted, wall=time() - t0))
         verbose && @printf("    graph it %2d  F %10.4f  |step| %.3g  alpha %.3g  damping %.2g  %s\n", event.iteration, Fc, norm(step), α, λ,
                            accepted ? "accepted" : "rejected")
         verbose && flush(stdout)
@@ -124,21 +131,24 @@ end
     solve_channels_graph(channels, prior, d, ph; c0, iters, tol, ftol, bp_iters, verbose)
 
 The fixed-noise solve of `solve_map_channels` with the graph owning the
-loop (`iterated_solve`): the same affine node per whitened residual, the
-prior's local quadratic and the LM precision as data the loop re-feeds,
-the objective and the line search in the callback. Returns what
+loop (`iterated_solve`): one affine Gaussian node per ordinary residual
+or local censored-likelihood site, the prior's local quadratic and the LM
+precision as data the loop re-feeds, and the exact nonlinear objective and
+line search in the callback. For statistical
+linearization, each line search minimizes one frozen-weight surrogate and
+the reported covariance is conditional on the final surrogate. Returns what
 `_solve_fixed_noise` returns.
 """
-function solve_channels_graph(channels, prior, d::GateData, ph::Physics; c0, iters::Int=40, tol::Float64=1e-4,
-                              ftol::Float64=1e-3, bp_iters::Int=20, verbose::Bool=false)
+function _solve_channels_graph_raw(channels, prior, d::GateData, ph::Physics; c0, iters::Int=40, tol::Float64=1e-4,
+                                   ftol::Float64=1e-3, bp_iters::Int=20, verbose::Bool=false)
     n = length(prior)
     mp = zeros(n); Λp = zeros(n, n)
     w_ref = Ref{Vector{Float64}}(Float64[])
     lay_ref = Ref{Any}(nothing)
     function objective(c)
         S, lay = physics_stack(c, d, ph)
-        a, w = assemble_trial(channels, c, S, prior, lay, ph)
-        return _objective(a, w, c, prior)
+        return likelihood_objective(channels, c, S, prior, lay, ph) +
+               prior_terms(c, prior)[1]
     end
     function rebuild!(c)
         S, J, lay = physics_outputs(c, d, ph)
@@ -159,4 +169,49 @@ function solve_channels_graph(channels, prior, d::GateData, ph::Physics; c0, ite
     a, B = AFF[].a, AFF[].B
     mis = misfit(channels, a, B, w_ref[], r.cov)
     return (z=r.z, mean=r.mean, cov=r.cov, F=r.F, hist=r.hist, misfit=mis, converged=r.converged)
+end
+
+solve_channels_graph(channels, prior, d::GateData, ph::Physics; kw...) =
+    _solve_channels_graph_raw(channels, prior, d, ph; kw...)
+
+# A filter covariance can be almost singular after a deterministic transition. Passing its precision to the
+# graph squares the square root's condition number. With a covariance factor, solve for the standardized
+# coordinate ξ under v = m + Sξ and ξ ~ N(0,I); RxInfer still owns the affine Gaussian update and nonlinear
+# callback loop, while all transformations back to the physical block use triangular products only.
+function solve_channels_graph(channels, prior::FilterPrior, d::GateData, ph::Physics; c0, iters::Int=40,
+                              tol::Float64=1e-4, ftol::Float64=1e-3, bp_iters::Int=20, verbose::Bool=false)
+    prior.S === nothing &&
+        return _solve_channels_graph_raw(channels, prior, d, ph; c0, iters, tol, ftol, bp_iters, verbose)
+
+    n = length(prior)
+    S0 = prior.S
+    to_raw(ξ) = prior.m + S0 * ξ
+    ξ0 = S0 \ (c0 - prior.m)
+    mp = zeros(n)
+    Λp = Matrix{Float64}(I, n, n)
+    w_ref = Ref{Vector{Float64}}(Float64[])
+    function objective(ξ)
+        c = to_raw(ξ)
+        stack, lay = physics_stack(c, d, ph)
+        return likelihood_objective(channels, c, stack, prior, lay, ph) +
+               0.5 * dot(ξ, ξ)
+    end
+    function rebuild!(ξ)
+        c = to_raw(ξ)
+        stack, J, lay = physics_outputs(c, d, ph)
+        a, B, w = assemble_at(channels, c, stack, J, prior, lay, ph)
+        any(isnan, w) && throw(ArgumentError("every channel in a fit must carry data"))
+        AFF[] = Affine(a, B * S0, copy(ξ))
+        w_ref[] = w
+    end
+    prob = IteratedProblem(:z, objective, rebuild!, n)
+    run_infer(Λ_lm, callbacks, its) = infer(model = cook_graph_lm(),
+        data = (w = w_ref[], mp = mp, Λp = Λp, lm_obs = zeros(n), Λ_lm = Λ_lm),
+        meta = GRAPH_META_LM, initialization = init_z(mp, Λp), iterations = its,
+        callbacks = callbacks, returnvars = (z = KeepLast(),))
+    r = iterated_solve(prob, run_infer; c0=ξ0, iters, tol, ftol, verbose)
+    a, Bξ = AFF[].a, AFF[].B
+    mis = misfit(channels, a, Bξ, w_ref[], r.cov)
+    return (z=to_raw(r.z), mean=to_raw(r.mean), cov=Matrix(Symmetric(S0 * r.cov * S0')),
+            F=r.F, hist=r.hist, misfit=mis, converged=r.converged)
 end

@@ -647,8 +647,8 @@ and salt fields, the bark and the ring, the pit's temperature, fuel,
 pan, firebox and ignited fraction); every ten-minute slice is the same
 graph fit as everywhere else (`solve_map_channels` on the graph
 engine, the same channel objects restricted to the slice's samples,
-one node per whitened residual, the censored humidity and the scale
-unchanged, the AR node identifying each channel's noise hourly with
+one node per whitened residual or local censored-normal survival site,
+the scale unchanged, the AR node identifying each channel's noise hourly with
 the last posterior as its prior), under a full-covariance prior that
 is the previous slice's posterior carried through the physics, the
 transition's Jacobian taken from the same ForwardDiff pass the graph
@@ -1954,20 +1954,27 @@ noise at the channel's own spacing with the prior converted to it (ρ^g,
 its width by the slope of that map). The calibration's ten-minute
 priors convert the same way to the two-minute step.
 
-**Censoring.** `CensoredHumidity` predicts min(model, cap) as a smooth
-corner (cap − s·softplus((cap − model)/s), slope logistic((cap −
-model)/s): one below the cap, zero above), so a reading at the cap says
-"the true value was at least the cap" and penalises a model that dips
-below it. The first stream pass kept the censored samples in the AR
-chain and in the noise identification; their near-zero residuals
+**Censoring.** `CensoredHumidity` retains the latent, uncapped
+prediction. An uncapped reading remains in the Gaussian AR residual
+chain; a reading at the cap contributes the normal survival likelihood
+\(-\log\Phi((\mu-\mathrm{cap})/\sigma)\). The iterated RxInfer graph
+receives a local Gaussian site whose score and curvature exactly match
+that likelihood at the current center, while line-search decisions use
+the survival likelihood itself. In the sequential filter, \(\mu\)
+includes the channel's AR discrepancy state before censoring, so a
+capped observation conditions that state and its dependence is carried
+to the next arrival by the discrepancy transition.
+
+The first stream pass kept capped samples in the ordinary AR residual
+chain and noise identification; their near-zero pseudo-residuals
 identified the humidity's sd at 27 Pa against the plant's 100, and a
 channel weighted fourteen times too heavily bent the physics: the
-median latent 1.6 sd from truth, one at 4.2. The registry now has three
-hooks: `noise_mask` (the samples whose residuals are the noise
-process), `extra_rows` (independent rows a channel appends after its AR
-rows; a censored sample is one, weighted like a reading) and
-`misfit_rows` (the rows the misfit check scores). With them the
-humidity's sd came out at 94 ± 25 Pa.
+median latent 1.6 sd from truth, one at 4.2. The batch registry therefore
+keeps capped terms outside the residual AR chain: `noise_mask` selects
+only observed Gaussian residuals, `extra_rows` reserves the capped
+samples' survival sites, and `misfit_rows` excludes those non-Gaussian
+sites from chi-squared diagnostics. The uncapped residuals identified
+the humidity's sd at 94 ± 25 Pa.
 
 **The noise level as a process** (`estimator/src/volatility.jl`). Given the
 AR node's ρ, the innovations η_k = e_k − ρ e_{k−1} are white with
@@ -3750,3 +3757,48 @@ lab route resolved the moisture-physics validation instead (the CET oven
 roast above). Blonder's stall experiments (genuineideas.com; core-temp
 curves at known smoker temps, coarse loss figures) remain a soft
 cross-check option.
+
+## Probe depth is now a bounded thickness fraction (2026-09-22)
+
+The old estimator declared `core_depth` as an independent LogNormal
+distance centered at \(0.8L\). About one third of that prior lay beyond
+the center; `MeatProbe` then clamped those values, while coverage truths
+were separately clipped at \(0.9L\). The inference prior and truth
+generator were therefore different, and the clamped region had zero
+depth sensitivity.
+
+The seventeenth site is now `core_depth_fraction`, a
+Beta(8, 2) fraction in the normal-score coordinate. The physical
+insertion depth is formed jointly as
+\(d=L\,f_d\), and the probe reads material coordinate \(s=1-f_d\).
+The channel differentiates through the bounded-site transform; no
+geometric clamp is reached by prior or posterior draws. `draw_truth`
+samples that same declared prior without a depth-specific truncation.
+The 1-D, 2-D, real-cook, and drifting mock metadata now store the
+fraction rather than a distance.
+
+Coverage and sensor-value artifacts above that name `core_depth` were
+generated under the superseded prior and must not be reused for current
+coverage claims. They require fresh generation after this model change.
+
+## The sequential plant state is constrained by construction (2026-09-22)
+
+The filter no longer places a Gaussian directly on physical water, fat,
+salt, collagen, fuel, pan, bark, temperature, ring, and ignition states.
+It carries positive groups in shifted-softplus coordinates and unit-interval
+groups in scaled-logit coordinates. The RxInfer graph decodes each point
+before the monolith solve and re-encodes the handed-off endpoint, so all
+means, sigma points, and posterior draws satisfy the state domain without
+post-update clipping.
+
+Physical process and event widths are mapped locally into these coordinates.
+Covariance prediction now uses Cholesky factors and QR to combine propagated
+and independent uncertainty; the statistical prediction uses a Cholesky
+conditional solve and explicitly stabilizes the conditional covariance.
+Reported pit, center, and surface temperatures are transformed back to
+physical units. State-aware planning retains the coordinate covariance and
+differentiates through the decode.
+
+This coordinate change invalidates the stored state-noise fingerprint.
+Existing consistency and coverage numbers must be treated as stale until the
+held-out state-noise bench is rerun.

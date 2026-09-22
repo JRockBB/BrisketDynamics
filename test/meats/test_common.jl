@@ -412,6 +412,19 @@ end
         @test isapprox(jfb, (lo + hi) / 2; rtol=1e-9)
     end
 
+    # one shared surface result carries every modifier into both the state
+    # flux and the reported pit vapor pressure
+    Ts, Ws, h, km, pv0, c = 345.0, 1.2, θ[3], θ[2], 3000.0, 5e6
+    fl = BrisketDynamics.surface_fluxes_blended(Ts, Ws, h, km, 0.4, 0.25, pv0, c, cfg, 0.7)
+    @test fl.j == BrisketDynamics.surface_j_blended(Ts, Ws, h, km, 0.4, 0.25, pv0, c, cfg, 0.7)
+    @test fl.pv_pit == pv0 + c * fl.j_pit
+    skin = BrisketDynamics.surface_fluxes_blended(
+        Ts, Ws, h, km, 0.4, 0.25, pv0, c, MeatConfig(; k_skin=1e-6), 0.7
+    )
+    @test abs(skin.j_pit) < abs(fl.j_pit)
+    pulled = BrisketDynamics.surface_fluxes_blended(Ts, Ws, h, km, 0.4, 1.0, pv0, c, cfg, 0.7)
+    @test pulled.j_pit == 0 && pulled.pv_pit == pv0
+
     # a humid pit evaporates less and its plateau sits higher
     dry = meat_solve(θ, Tpit, tk, tk; pv_base_knots=fill(1000.0, n))
     humid = meat_solve(θ, Tpit, tk, tk; pv_base_knots=fill(6000.0, n))

@@ -41,16 +41,24 @@ gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "estimator_gate_real
 t = Float64.(m["t"]); u_log = Float64.(m["u"]); meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 d = estimator_setup(t, u_log, pit, cfg, prior_phys, String.(gate["names"]))
-L_med = exp(prior_phys[4].p1)
-prior = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), 0.3), PriorSite("lognormal", log(0.8 * L_med), 0.5)])
+prior = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), 0.3), probe_depth_site()])
 AREA, DEPTH = 16, 17
 
 # --- the posterior at 6 h, full covariance ------------------------------------
 st = first(s for s in S["sets"] if s["label"] == "pit + core + humidity + scale")
 b6 = first(b for b in st["batches"] if b["t_h"] == 6)
 z6 = Float64.(b6["z"])
+stored_names = String.(S["names"])
+if stored_names[end] == "core_depth"
+    # This historical fixture stores log physical depth. Translate its MAP
+    # into the bounded fraction coordinate; covariance is rebuilt below.
+    fraction = clamp(exp(z6[DEPTH] - z6[4]), eps(Float64), 1 - eps(Float64))
+    z6[DEPTH] = to_z(fraction, prior[DEPTH])
+elseif stored_names[end] != "core_depth_fraction"
+    throw(ArgumentError("unknown stored probe-depth coordinate $(stored_names[end])"))
+end
 rd = m["readings"]; nz_ = m["noise"]
 keep = t .<= 6 * 3600 + 1e-9
 chs = [PitProbe(nz_["pit"]["sigma"], nz_["pit"]["rho"], keep; data=Float64.(rd["pit"])),

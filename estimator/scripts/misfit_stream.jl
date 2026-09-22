@@ -23,14 +23,13 @@ u = Float64.(m["u"])
 meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
 d = estimator_setup(t, u, pit, cfg, prior_phys, names)
 
 # the same latents and channels as mock_stream.jl (the rulers' draws included)
-L_med = exp(prior_phys[4].p1)
 extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3),
-         LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5)]
+         LatentSpec("core_depth_fraction", probe_depth_site())]
 prior = vcat(prior_phys, [e.site for e in extra])
 AREA, DEPTH = length(prior) - 1, length(prior)
 x_true = Float64.(m["truth"]["x"])

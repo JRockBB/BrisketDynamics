@@ -7,6 +7,42 @@
 include(joinpath(@__DIR__, "..", "scripts", "plan_experiment_setup.jl"))
 using Test
 
+struct MockMarginalEvent{T}
+    variable_name::Symbol
+    update::T
+end
+mutable struct MockIterationEvent
+    iteration::Int
+    stop_iteration::Bool
+end
+
+@testset "moving surrogates compare trials only under frozen weights" begin
+    weight = Ref(1.0)
+    target = [3.0]
+    objective(c) = 0.5 * weight[] * sum(abs2, c .- target)
+    rebuild!(c) = (weight[] = 1 + abs(c[1]))
+    prob = IteratedProblem(:z, objective, rebuild!, 1)
+    function run_mock(_Λ_lm, callbacks, its)
+        q = nothing
+        for it in 1:its
+            c = E.LM_ANCHOR[]
+            q = MvNormalMeanCovariance(c .+ 0.5 .* (target .- c), ones(1, 1))
+            callbacks.on_marginal_update(MockMarginalEvent(:z, q))
+            if hasproperty(callbacks, :after_iteration)
+                event = MockIterationEvent(it, false)
+                callbacks.after_iteration(event)
+                event.stop_iteration && break
+            end
+        end
+        return q
+    end
+    r = iterated_solve(prob, run_mock; c0=[0.0], tol=1e-5, ftol=1e-6)
+    accepted = filter(h -> h.accepted, r.hist)
+    @test r.converged && !isempty(accepted)
+    @test all(h.F_trial <= h.F_before + 1e-12 for h in accepted)
+    @test any(abs(h.F - h.F_trial) > 1e-6 for h in accepted)
+end
+
 # ---------------------------------------------------------------- the planner on the graph
 const AFFS = Ref{Vector{Tuple{Vector{Float64},Matrix{Float64}}}}(Tuple{Vector{Float64},Matrix{Float64}}[])
 const CENTER = Ref{Vector{Float64}}(zeros(3))

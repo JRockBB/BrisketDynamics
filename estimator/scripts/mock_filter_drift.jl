@@ -52,7 +52,7 @@ recs = sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, ar
 clean = m["clean"]
 x_by_hour = m["truth_by_hour"]["x"]; hours = Float64.(m["truth_by_hour"]["hours"])
 x_true = Float64.(m["truth"]["x"])
-z_extra = [log(x_true[16]), log(x_true[17])]
+z_extra = [log(x_true[16]), to_z(x_true[17], sites[DEPTH])]
 function z_true_at(te)
     k = max(1, findlast(hours .<= te / 3600 - 1e-9))          # the block in force just before te
     xx = Float64.(x_by_hour[k])

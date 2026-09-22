@@ -64,12 +64,26 @@ noise = [np[i] for i in 1:4]
         end
     end
     @test_throws ArgumentError PriorSite("gaussian", 0.0, 1.0)
-    @test length(sites) == 17 && names[16] == "A_meat" && names[17] == "core_depth" && AREA == 16 && DEPTH == 17
-    @test blk.idx["u_leak"] == 13 && blk.idx["a0"] == 15 && sites[13].family == "beta" && sites[1].family == "lognormal"
+    @test length(sites) == 17 && names[16] == "A_meat" && names[17] == "core_depth_fraction" && AREA == 16 && DEPTH == 17
+    @test blk.idx["u_leak"] == 13 && blk.idx["a0"] == 15 && sites[13].family == "beta" &&
+          sites[DEPTH].family == "beta" && isscore(sites[DEPTH]) && sites[1].family == "lognormal"
     @test read_sites([Dict("family" => "logbeta", "p1" => 2, "p2" => 3, "p3" => -1, "p4" => 1)])[1].p4 == 1.0
     @test read_sites([Dict("family" => "beta", "p1" => 2, "p2" => 3)])[1].p3 == 0.0
-    zt = draw_truth(MersenneTwister(3), sites; depth=DEPTH)
-    @test length(zt) == 17 && all(isfinite, zt) && exp(zt[DEPTH]) <= 0.9 * exp(zt[4]) + 1e-12
+    serialized = Dict("family" => "logbeta", "p1" => 2.0, "p2" => 3.0, "p3" => -9.2, "p4" => -7.8, "coord" => "score")
+    loaded = only(read_sites([serialized]))
+    @test (loaded.family, loaded.p1, loaded.p2, loaded.p3, loaded.p4, loaded.coord) ==
+          ("logbeta", 2.0, 3.0, -9.2, -7.8, :score)
+    @test from_z(0.0, loaded) == from_z(0.0, PriorSite("logbeta", 2.0, 3.0, -9.2, -7.8; coord=:score))
+    @test_throws ArgumentError read_sites([Dict("family" => "logbeta", "p1" => 2, "p2" => 3)])
+    zt = draw_truth(MersenneTwister(3), sites)
+    xt = from_z(zt, sites)
+    @test length(zt) == 17 && all(isfinite, zt) && 0 < xt[DEPTH] < 1
+    @test probe_depth(xt[4], xt[DEPTH]) < xt[4]
+    rng_depth = MersenneTwister(31)
+    depth_draws = [from_z(only(draw_truth(rng_depth, [sites[DEPTH]])), sites[DEPTH]) for _ in 1:200]
+    @test all(x -> 0 < x < 1, depth_draws) && abs(sum(depth_draws) / length(depth_draws) - 0.8) < 0.03
+    @test maximum(depth_draws) > 0.9                              # no artificial pile-up or clipping at 0.9 L
+    @test_throws ArgumentError draw_truth(MersenneTwister(3), sites; depth=DEPTH)
 end
 
 @testset "the state block: packing, the linear family, the discrepancies" begin
@@ -79,8 +93,22 @@ end
     @test lay.n_state == 5 * lay.nx + 9 && lay.n == 17 + lay.n_state + 4 && disc_index(lay, 1) == 17 + lay.n_state + 1 && last(disc_range(lay)) == lay.n
     xs = pack_state(ics, a, lay)
     ics2, a2 = unpack_state(xs, lay)
-    @test a2 == a && ics2.T0f == ics.T0f && ics2.Ssalt0f == ics.Ssalt0f && ics2.Tpit0 == ics.Tpit0 && ics2.Tfb0 == ics.Tfb0 && ics2.mfuel0 == ics.mfuel0
-    @test xs[pit_index(lay) - lay.n_z] == ics.Tpit0 && xs[centre_index(lay) - lay.n_z] == ics.T0f[1] && xs[surface_index(lay) - lay.n_z] == ics.T0f[end]
+    @test isapprox(a2, a; atol=2e-8)
+    @test isapprox(ics2.T0f, ics.T0f; atol=2e-8)
+    @test maximum(abs.(ics2.Ssalt0f .- ics.Ssalt0f)) <= 2e-8
+    @test isapprox(ics2.Tpit0, ics.Tpit0; atol=2e-8)
+    @test isapprox(ics2.Tfb0, ics.Tfb0; atol=2e-8)
+    @test isapprox(ics2.mfuel0, ics.mfuel0; atol=2e-8)
+    xp = state_from_coord(xs, lay)
+    @test xp[pit_index(lay) - lay.n_z] ≈ ics.Tpit0 && xp[centre_index(lay) - lay.n_z] ≈ ics.T0f[1] && xp[surface_index(lay) - lay.n_z] ≈ ics.T0f[end]
+    kinds = E.state_kinds(lay)
+    @test all(xp[i] > 0 for i in eachindex(xp) if kinds[i] == :positive)
+    @test all(0 < xp[i] < 1 for i in eachindex(xp) if kinds[i] == :unit)
+    for δ in (-5.0, 5.0)
+        xd = state_from_coord(xs .+ δ, lay)
+        @test all(xd[i] > 0 for i in eachindex(xd) if kinds[i] == :positive)
+        @test all(0 < xd[i] < 1 for i in eachindex(xd) if kinds[i] == :unit)
+    end
     ss = state_sites(lay.n_state)
     v = randn(MersenneTwister(1), lay.n_state)
     @test from_z(v, ss) == v && all(E.dx_dz(v, ss) .== 1)
@@ -103,6 +131,9 @@ end
     @test Qn == Diagonal(Qn) && Qn[rT[1], rT[1]] == sn.T0^2 && isposdef(Qo) && isposdef(Qn)
     @test group_dofs(lay, sn)["T"] == 1 && group_dofs(lay, sn)["bark"] == 3 && group_dofs(lay, StateNoise(fields=:nodes))["T"] == lay.nx
     @test_throws ArgumentError state_noise_cov(lay, StateNoise(fields=:blob), E.state_init_sd(sn, lay))
+    Pl = [2.0 0.3; 0.3 1.0]; Fl = [1.0 0.2; -0.1 0.8]; Ql = Diagonal([0.4, 0.2])
+    @test E._sqrt_propagate(Fl, Pl, Ql) ≈ Fl * Pl * Fl' + Ql rtol=1e-10
+    @test_throws ArgumentError E._stable_cov([1.0 0.0; 0.0 -1.0])
     # the sigma design: exactly zero mean and unit covariance, antithetic, reproducible
     Sg = sigma_design(17, 64, 7)
     @test size(Sg) == (64, 17) && maximum(abs.(sum(Sg, dims=1))) < 1e-10 && maximum(abs.(Sg' * Sg ./ 64 - I)) < 1e-10 && Sg == sigma_design(17, 64, 7)
@@ -138,7 +169,7 @@ end
     @test size(J3) == (length(S3), lay.n) && all(isfinite, J3) && all(J3[:, disc_range(lay)] .== 0)
     L = ph.last[]
     @test length(L.x_end) == lay.n_state && size(L.J_end) == (lay.n_state, lay.n) && all(isfinite, L.J_end) && all(L.J_end[:, disc_range(lay)] .== 0)
-    @test abs(L.x_end[5 * lay.nx + 4] - S3[lay2.oTpit + nt]) < 1e-6           # the end state's pit temperature is the stack's last pit value
+    @test abs(state_from_coord(L.x_end, lay)[5 * lay.nx + 4] - S3[lay2.oTpit + nt]) < 1e-6 # decoded end-state pit equals the stack
     @test maximum(abs.(L.J_end[:, state_range(lay)] .- Matrix(1.0 * I, lay.n_state, lay.n_state))) > 0.01   # the state moves the end state (not the identity)
     @test length(L.o.Tsurf) == nt
     # the channel wrapper on the interval: the discrepancy's column, white rows at the floor, the censored rows at the floor
@@ -155,13 +186,15 @@ end
     idxh = (kh - 1):kh
     sh = Sequential(restrict(window(chs[3], idxh), [false, true]), disc_index(lay, 3), white_floor(chs[3]))
     Wh = E.whitening(sh)
-    @test size(Wh) == (1, 2) && abs(Wh[1, 2] - 1 / 10.0) < 1e-12 && count(E.noise_mask(sh)) == 0     # a capped sample: one one-sided row at the floor, none in the chain
+    @test size(Wh) == (1, 2) && abs(Wh[1, 2] - 1 / 10.0) < 1e-12 && count(E.noise_mask(sh)) == 0     # a capped sample: one survival-site row at the floor, none in the residual chain
 end
 
 @testset "updates on arrival: the belief moves toward the readings, the diagnostics, the record" begin
     q = zeros(length(sites))
     recs = sequential_filter(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, diagnostics=true, t_end=1800.0)
-    @test (nxr = (length(recs[end].x) - 9) ÷ 5; recs[end].x[5 * nxr + 4] == recs[end].T_pit[1] && size(recs[end].x_cov) == (5 * nxr + 9, 5 * nxr + 9))
+    @test (nxr = (length(recs[end].x) - 9) ÷ 5; lr = FilterLayout(nxr, length(sites), 4);
+           state_from_coord(recs[end].x, lr)[5 * nxr + 4] ≈ recs[end].T_pit[1] &&
+           size(recs[end].x_cov) == (5 * nxr + 9, 5 * nxr + 9))
     @test filter_update!(filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q), 2).x === nothing
     # the sigma-point prediction against the tangent on a two-minute slice (nearly linear): the same means to a
     # fraction of a kelvin, widths within a factor, a positive-definite covariance, the latents' block identical
@@ -217,6 +250,18 @@ end
     for ch in st.channels; ch.mask[3:7] .= false; end                                  # the lid open: no samples for five steps
     r2 = filter_update!(st, 7)                                                          # a propagation to the seventh point, no update
     @test !r2.updated && st.k0 == 7 && st.past.t == t[7] && st.past.leth_s > 0
+    xpost = state_from_coord(st.m[state_range(st.lay)], st.lay)
+    kpost = E.state_kinds(st.lay)
+    @test all(xpost[i] > 0 for i in eachindex(xpost) if kpost[i] == :positive)
+    @test all(0 < xpost[i] < 1 for i in eachindex(xpost) if kpost[i] == :unit)
+    @test isposdef(Symmetric(st.P))
+    Lstate = cholesky(Symmetric(st.P[state_range(st.lay), state_range(st.lay)])).L
+    rng_state = MersenneTwister(41)
+    for _ in 1:20
+        xd = state_from_coord(st.m[state_range(st.lay)] + Lstate * randn(rng_state, st.lay.n_state), st.lay)
+        @test all(xd[i] > 0 for i in eachindex(xd) if kpost[i] == :positive)
+        @test all(0 < xd[i] < 1 for i in eachindex(xd) if kpost[i] == :unit)
+    end
     # the state's process noise: the same propagation without the rates is narrower (a damped state relaxes, so
     # the widths need not grow in time; they must exceed the rate-free ones)
     sn0 = StateNoise(T=0.0, W=0.0, C=0.0, F=0.0, S=0.0, bark=0.0, T_pit=0.0, m_fuel=0.0, m_pan=0.0, T_pan=0.0, T_fb=0.0, ignited=0.0)
@@ -235,10 +280,47 @@ end
     for s in (st_e, st_a); filter_update!(s, 2); for ch in s.channels; ch.mask[3:7] .= false; end; end
     r_e = filter_update!(st_e, 7); r_a = filter_update!(st_a, 7)
     lay_e = st_e.lay
-    @test abs((r_a.T_pit[2]^2 - r_e.T_pit[2]^2) - st_e.sn.T_event^2) < 0.4 * st_e.sn.T_event^2        # the transition through the chimney also moves the pit's variance
-    @test abs((st_a.P[E.fuel_index(lay_e), E.fuel_index(lay_e)] - st_e.P[E.fuel_index(lay_e), E.fuel_index(lay_e)]) - st_e.sn.m_add^2) < 0.2 * st_e.sn.m_add^2
+    Δpit_event = r_a.T_pit[2]^2 - r_e.T_pit[2]^2
+    @test Δpit_event > 0
+    @test abs(Δpit_event - st_e.sn.T_event^2) < 0.5 * st_e.sn.T_event^2 # nonlinear transition and coordinate map also move the variance
+    _, Pa = state_physical_moments(st_a.m[state_range(lay_e)], st_a.P[state_range(lay_e), state_range(lay_e)], lay_e)
+    _, Pe = state_physical_moments(st_e.m[state_range(lay_e)], st_e.P[state_range(lay_e), state_range(lay_e)], lay_e)
+    ifuel = E.fuel_index(lay_e) - lay_e.n_z
+    @test abs((Pa[ifuel, ifuel] - Pe[ifuel, ifuel]) - st_e.sn.m_add^2) < 0.2 * st_e.sn.m_add^2
     @test length(E._event_times(ev_add, t[end])) == length(E._event_times(events, t[end])) && any(te == t[5] && k == :add for (te, k) in E._event_times(ev_add, t[end]))
     @test load_state_noise(tempname() * ".json"; warn=false).T_event == 5.0
+    # endpoint process noise belongs to the predicted state before its reading: a precise pit sample after an
+    # event conditions almost all of that event variance, while the same propagation without a sample retains it
+    km = 7
+    seen_mask = falses(length(t)); seen_mask[km] = true
+    pit_seen = PitProbe(1.0, 0.0, seen_mask; data=readings.pit)
+    pit_blind = PitProbe(1.0, 0.0, falses(length(t)); data=readings.pit)
+    np_event = NoisePrior(1e-3, 1e-4, 0.0, 0.05)
+    sn_event = StateNoise(T=0.0, W=0.0, C=0.0, F=0.0, S=0.0, bark=0.0, T_pit=0.0, m_fuel=0.0,
+                          m_pan=0.0, T_pan=0.0, T_fb=0.0, ignited=0.0, T_event=8.0, T_spritz=0.0, m_add=0.0)
+    st_seen = filter_init([pit_seen], t, u, pit, cfg, sites, names, ev_add; noise=[np_event], area_latent=AREA, q, sn=sn_event, n_sigma=0)
+    st_blind = filter_init([pit_blind], t, u, pit, cfg, sites, names, ev_add; noise=[np_event], area_latent=AREA, q, sn=sn_event, n_sigma=0)
+    r_seen = filter_update!(st_seen, km; diagnostics=true)
+    r_blind = filter_update!(st_blind, km; diagnostics=true)
+    @test r_seen.updated && !r_blind.updated
+    @test r_seen.T_pit[2]^2 < 0.2 * r_blind.T_pit[2]^2
+    @test abs(r_seen.T_pit[1] - readings.pit[km]) < 0.5
+    # a failed endpoint fit is diagnostic only: the filter advances with the
+    # predicted belief and does not adapt its residual/noise histories
+    fail_mask = falses(length(t)); fail_mask[2] = true
+    fail_ch = PitProbe(1.0, 0.0, fail_mask; data=readings.pit)
+    predict_ch = PitProbe(1.0, 0.0, falses(length(t)); data=readings.pit)
+    st_fail = filter_init([fail_ch], t, u, pit, cfg, sites, names, events; noise=[np_event], area_latent=AREA,
+                          q, sn=sn0, n_sigma=0, iters=1, retry_iters=0, ftol=-1.0)
+    st_predict = filter_init([predict_ch], t, u, pit, cfg, sites, names, events; noise=[np_event], area_latent=AREA,
+                             q, sn=sn0, n_sigma=0, iters=1, retry_iters=0, ftol=-1.0)
+    r_fail = filter_update!(st_fail, 2)
+    r_predict = filter_update!(st_predict, 2)
+    @test r_fail.attempted && !r_fail.updated && !r_fail.converged
+    @test !r_predict.attempted && !r_predict.updated && r_predict.converged
+    @test st_fail.m ≈ st_predict.m rtol = 1e-10 atol = 1e-10
+    @test st_fail.P ≈ st_predict.P rtol = 1e-10 atol = 1e-10
+    @test isempty(st_fail.dser[1]) && isempty(st_fail.eser[1]) && isempty(st_fail.didx[1])
     # the families' moments in z: the digamma and trigamma at known values, a lognormal's own, a beta's against draws
     @test abs(E._digamma(1.0) + 0.5772156649) < 1e-9 && abs(E._trigamma(1.0) - pi^2 / 6) < 1e-9 && abs(E._digamma(10.0) - 2.2517525890667) < 1e-9
     @test z_moments(PriorSite("lognormal", -3.2, 0.1)) == (-3.2, 0.1^2)
@@ -283,8 +365,14 @@ end
     V = zeros(length(zz) + lay.n_state, length(zz) + lay.n_state)
     for i in 1:length(zz); V[i, i] = 0.05^2; end
     for (j, i) in enumerate((length(zz) + 1):size(V, 1)); V[i, i] = (j <= lay.nx ? 1.0 : 1e-4)^2; end      # the temperature field a kelvin wide
-    st2 = (state..., zx_cov=V)
+    ics_decoded, a_decoded = unpack_state(state.x, lay)
+    state_decoded = (state..., ics=ics_decoded, ignited=a_decoded)
+    y_decoded = plan_outputs_rh(zz, mζ, f, s, d; goals, state=state_decoded)
+    @test maximum(abs.(y_decoded .- y_state) ./ (abs.(y_state) .+ 1e-3)) < 0.02
+    st2 = (state_decoded..., zx_cov=V)
     pr = plan_predictive(zz, V[1:length(zz), 1:length(zz)], mζ, f, s, d; goals, state=st2)
-    @test length(pr.t) == length(tg) && pr.t[1] == t[k] && all(isfinite, pr.Tcore.sd) && pr.Tcore.sd[1] > 0.5 && maximum(abs.(pr.y.mean .- y_state)) < 1e-9
+    @test length(pr.t) == length(tg) && pr.t[1] == t[k]
+    @test all(isfinite, pr.Tcore.sd) && pr.Tcore.sd[1] > 0.5
+    @test maximum(abs.(pr.y.mean .- y_decoded)) < 1e-9
 end
 println("test_sequential.jl: done")

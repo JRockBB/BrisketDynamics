@@ -37,20 +37,14 @@ n_cooks = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 3
 seed0 = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 1
 out_name = length(ARGS) >= 4 ? ARGS[4] : "coverage_realcook_$(seed0).json"
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_realcook.json"))
-gate = JSON.parsefile(joinpath(REPO, "data", "calibration", prior_file))
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]
 dt = t[2] - t[1]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
-names = String.(gate["names"])
+blk = latent_block(joinpath(REPO, "data", "calibration", prior_file), cfg)
+prior, allnames, prior_phys, names = blk.sites, blk.names, blk.prior_phys, blk.phys_names
 d = estimator_setup(t, u, pit, cfg, prior_phys, names)
-L_med = exp(prior_phys[4].p1)
-extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3),
-         LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5)]
-prior = vcat(prior_phys, [e.site for e in extra])
-allnames = vcat(names, [e.name for e in extra])
-AREA, DEPTH = length(prior) - 1, length(prior)
+AREA, DEPTH = blk.area, blk.depth
 ev = m["events"]
 events = (t_wrap=Float64(ev["t_wrap"]), t_pull=Float64(ev["t_pull"]), t_add=Float64(ev["t_add"]),
           t_spritz=Float64(ev["t_spritz"]), dt_spritz=Float64(ev["dt_spritz"]), m_spritz=Float64(ev["m_spritz"]))
@@ -74,24 +68,6 @@ np = Dict(1 => priors["pit"], 2 => priors["core"], 3 => priors["humidity"], 4 =>
 start(p) = (p.σ_mean, p.ρ_mean)
 edges = 3600.0 .* collect(2:2:floor(Int, edges_to_h))
 
-"A draw from Beta(a, b) by the inverse of its distribution function on a grid (no sampling dependency)."
-function beta_rand(rng, a, b)
-    x = range(1e-6, 1 - 1e-6; length=4001)
-    lp = (a - 1) .* log.(x) .+ (b - 1) .* log.(1 .- x)
-    p = exp.(lp .- maximum(lp))
-    c = cumsum(p); c ./= c[end]
-    r = rand(rng)
-    k = clamp(searchsortedfirst(c, r), 2, length(c))
-    return x[k - 1] + (x[k] - x[k - 1]) * (r - c[k - 1]) / max(c[k] - c[k - 1], 1e-300)
-end
-"A truth in z drawn from the prior: Gaussian in log for the lognormal sites, a beta draw in logit for the bounded ones."
-function draw_truth(rng, prior)
-    z = [isbeta(p) ? (x = beta_rand(rng, p.p1, p.p2); log(x / (1 - x))) : p.p1 + p.p2 * randn(rng) for p in prior]
-    z[DEPTH] = min(z[DEPTH], log(0.9 * exp(z[4])))          # the probe sits inside the meat
-    return z
-end
-from_z(z) = [isbeta(p) ? 1 / (1 + exp(-v)) : exp(v) for (v, p) in zip(z, prior)]
-
 cooks = Any[]
 skipped = Int[]
 dst = joinpath(REPO, "data", "mock", out_name)
@@ -107,9 +83,10 @@ flush(stdout)
 for k in 1:n_cooks
     seed = seed0 + k - 1
     rng = MersenneTwister(1000 + seed)
-    z_true = draw_truth(rng, prior)
-    x_true = from_z(z_true)
-    θ, φ, A, depth = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
+    z_true = E.draw_truth(rng, prior)
+    x_true = E.from_z(z_true, prior)
+    θ, φ, A, depth_fraction = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
+    depth = probe_depth(θ[4], depth_fraction)
     t0 = time()
     o = try
         monolith_solve(θ, φ, u, t, t; pit, cfg, A_meat=A, events...)
@@ -120,7 +97,7 @@ for k in 1:n_cooks
     if !all(isfinite, o.Tcore)
         @printf("cook %d (seed %d): the plant is not finite; skipped\n", k, seed); push!(skipped, seed); save(); continue
     end
-    readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=θ[4], depth=depth)
+    readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=θ[4], depth=depth, cfg)
     st(name) = NOISE_MODE == "truth" ? truth_noise[name] : start(priors[name])
     all_chs = Dict("pit" => () -> PitProbe(st("pit")..., Bool.(masks.pit); data=Float64.(readings.pit)),
                    "core" => () -> MeatProbe(st("core")..., Bool.(masks.core); depth_latent=DEPTH, data=Float64.(readings.core)),

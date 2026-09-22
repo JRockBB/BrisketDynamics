@@ -16,10 +16,10 @@ gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "prior_next_cook.jso
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]; dt = t[2] - t[1]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
-L_med = exp(prior_phys[4].p1)
-extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3), LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5)]
+extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3),
+         LatentSpec("core_depth_fraction", probe_depth_site())]
 sites = vcat(prior_phys, [e.site for e in extra]); allnames = vcat(names, [e.name for e in extra])
 AREA, DEPTH = length(sites) - 1, length(sites)
 ev = m["events"]
@@ -28,7 +28,7 @@ keep6 = t .<= 6 * 3600 + 1e-9
 t6, u6 = t[keep6], u[keep6]
 d6 = estimator_setup(t6, u6, pit, cfg, prior_phys, names)
 iu = findfirst(==("u_leak"), allnames); ik = findfirst(==("k_e"), allnames); ir = findfirst(==("r_max"), allnames)
-z0 = vcat(d6.z0, [log(cfg.A_meat), log(0.8 * L_med)])
+z0 = vcat(d6.z0, [log(cfg.A_meat), z_center(sites[end])])
 i2, i4 = findlast(t6 .<= 2 * 3600), findlast(t6 .<= 4 * 3600)
 
 @testset "the stacked layout" begin
@@ -111,7 +111,9 @@ end
     o_d = solve_drifting(z0, dd, sites, u6, t6; pit, cfg, A_meat=exp(z0[AREA]), events...)
     i1 = findlast(t6 .<= 3600)
     @test all(isfinite, o_d.Tpit) && length(o_d.t) == length(t6)
-    @test maximum(abs.(o_d.Tpit[1:i1] .- o_c.Tpit[1:i1])) < 0.05 && maximum(abs.(o_d.Tpit .- o_c.Tpit)) > 0.5
+    dpre = maximum(abs.(o_d.Tpit[1:(i1 - 1)] .- o_c.Tpit[1:(i1 - 1)]))
+    dall = maximum(abs.(o_d.Tpit .- o_c.Tpit))
+    @test dpre < 0.05 && dall > 0.2                         # score-coordinate drift is physical but smaller than the old misread-logit drift
     # the smoother's jump copy starts at the add's grid point once the history runs past it
     d = estimator_setup(t, u, pit, cfg, prior_phys, names)
     mv = smoother_moving(idx, t_add)

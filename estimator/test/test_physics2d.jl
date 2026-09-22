@@ -18,7 +18,7 @@ using ForwardDiff, JSON, LinearAlgebra, Test
 const E = BrisketEstimator
 REPO = normpath(joinpath(@__DIR__, "..", ".."))
 gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "estimator_gate_real.json"))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
 
 function setup(path)
@@ -27,18 +27,19 @@ function setup(path)
     pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
     cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
     d = estimator_setup(t, u, pit, cfg, prior_phys, names)
-    x = Float64.(m["truth"]["x"])            # 15 physics, area, depth
+    x = Float64.(m["truth"]["x"])            # 15 physics, area, depth fraction
     return m, d, x
 end
 
 # z for the physics from x (the truth), plus the estimator-only latents appended
-zphys(x, prior) = [isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x[1:15], prior[1:15])]
+zphys(x, prior) = [to_z(v, p) for (v, p) in zip(x[1:15], prior[1:15])]
 
 @testset "1-D stack reproduces the monolith mock's clean readings" begin
     m, d, x = setup(joinpath(REPO, "data", "mock", "mock_1d.json"))
-    A_true, depth_true = x[16], x[17]
-    z = vcat(zphys(x, prior_phys), log(A_true), log(depth_true))
-    prior = vcat(prior_phys, [PriorSite("lognormal", log(A_true), 0.3), PriorSite("lognormal", log(depth_true), 0.3)])
+    A_true, depth_fraction_true = x[16], x[17]
+    depth_site = probe_depth_site()
+    z = vcat(zphys(x, prior_phys), log(A_true), to_z(depth_fraction_true, depth_site))
+    prior = vcat(prior_phys, [PriorSite("lognormal", log(A_true), 0.3), depth_site])
     S, J, lay = physics_outputs(z, d, Physics1D(area_latent=16))
     @test length(S) == length(lay) == size(J, 1) && size(J, 2) == 17
     full = trues(length(d.t))
@@ -62,10 +63,11 @@ end
 @testset "2-D stack reproduces the cylinder mock's clean readings" begin
     m, d, x = setup(joinpath(REPO, "data", "mock", "mock_2d.json"))
     g = m["geometry"]
-    R_true, depth_true = Float64(g["R"]), x[17]
+    R_true, depth_fraction_true = Float64(g["R"]), x[17]
     ph = Physics2D(radius_latent=16, nr=Int(g["nr"]), nz=Int(g["nz"]), h=30.0, n_meat=1.0, nx_line=Int(g["nz"]))
-    z = vcat(zphys(x, prior_phys), log(R_true), log(depth_true))
-    prior = vcat(prior_phys, [PriorSite("lognormal", log(R_true), 0.3), PriorSite("lognormal", log(depth_true), 0.3)])
+    depth_site = probe_depth_site()
+    z = vcat(zphys(x, prior_phys), log(R_true), to_z(depth_fraction_true, depth_site))
+    prior = vcat(prior_phys, [PriorSite("lognormal", log(R_true), 0.3), depth_site])
     S, lay = physics_stack(z, d, ph)
     @test length(S) == length(lay)
     full = trues(length(d.t))

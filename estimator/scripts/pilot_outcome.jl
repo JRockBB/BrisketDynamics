@@ -26,14 +26,15 @@ meta = m["meta"]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
 blk = latent_block(joinpath(REPO, "data", "calibration", prior_file), cfg)
-prior_phys, allnames, idx = blk.prior_phys, blk.names, blk.idx
+sites, prior_phys, allnames, idx = blk.sites, blk.prior_phys, blk.names, blk.idx
 GRID = collect(0.0:120.0:30 * 3600.0)
 goals = PlanGoals()
 pol = ReplanPolicy()
 nc = RealCookNoise()
 x_true = Float64.(m["truth"]["x"])
-θ_true, φ_true, A_true, depth_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
-z_true0 = vcat(to_z(x_true[1:15], prior_phys), log(A_true), log(depth_true))
+θ_true, φ_true, A_true, depth_fraction_true = x_true[1:8], x_true[9:15], x_true[16], x_true[17]
+depth_true = probe_depth(θ_true[4], depth_fraction_true)
+z_true0 = vcat(to_z(x_true[1:15], prior_phys), log(A_true), to_z(depth_fraction_true, sites[blk.depth]))
 drift = rec["drift"]
 DRIFT_SEED = drift === nothing ? 0 : Int(drift["seed"])
 dd = DRIFT_SEED > 0 ? DriftDraw(MersenneTwister(2000 + DRIFT_SEED), idx) : nothing

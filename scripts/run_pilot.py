@@ -3,7 +3,7 @@
 Backends (--pit):
   sim                       in-process SimPit (calibrated plant + PI)
   http://<heatermeter>      a real HeaterMeter's LinkMeter v14 API —
-                            wrap/pull become console/journal ADVISORIES
+                            modeled events require console acknowledgement
   http://127.0.0.1:8181     scripts/mock_heatermeter.py — the same REST
                             client path, with sim event hooks
 
@@ -14,6 +14,9 @@ as SETPOINTS (the pit's own PID does the fan), assimilates measurements
 (model advance under measured fan duty; ambient Kalman filter on the pit
 innovation, with an optional forecast as feedforward), and journals
 every event as JSONL.
+
+``--shadow`` keeps the complete planning/journaling path active without
+sending setpoints or backend event commands.
 
 Forecast (--forecast): either a JSON file [[hour, T_amb_K], ...] or
 ``openmeteo:LAT,LON`` — a live hourly temperature_2m fetch from the free
@@ -113,10 +116,27 @@ def main():
                          "[[hour, T_amb_K], ...] feedforward")
     ap.add_argument("--journal", default=None)
     ap.add_argument("--out", default=None, help="summary JSON path")
-    ap.add_argument("--wall-pace", type=float, default=0.0,
-                    help="wall s per sim s (0 = free-run; 1 = real time)")
+    ap.add_argument(
+        "--wall-pace",
+        type=float,
+        default=None,
+        help=(
+            "wall s per sim s "
+            "(default: free-run for sim/mock, real time for hardware)"
+        ),
+    )
     ap.add_argument("--advisory-only", action="store_true",
-                    help="never execute events, even where the backend can")
+                    help="never invoke backend event hooks")
+    ap.add_argument(
+        "--shadow",
+        action="store_true",
+        help="plan and journal only; never send setpoints or backend event commands",
+    )
+    ap.add_argument(
+        "--ack-events",
+        action="store_true",
+        help="prompt for event acknowledgement (automatic on real hardware)",
+    )
     # sim-only plant options
     ap.add_argument("--front-t", type=float, default=None,
                     help="sim: cold-front onset [h]")
@@ -138,6 +158,7 @@ def main():
     t_f_plan, inc = load_incumbent(REPO / "data" / "control" / args.plan)
     t_f = args.t_f * HR if args.t_f else t_f_plan
 
+    real_hardware = False
     if args.pit == "sim":
         base = args.t_amb
 
@@ -153,6 +174,7 @@ def main():
     else:
         cls = MockHMClient if "127.0.0.1" in args.pit or "localhost" in args.pit \
             else HeaterMeterClient
+        real_hardware = cls is HeaterMeterClient
         pit = cls(args.pit, apikey=args.apikey, units=args.units)
         v = pit._get("/luci/lm/api/version")
         print(f"pit: {args.pit} (api {v.get('api')}, ucid {v.get('ucid')}, "
@@ -176,15 +198,34 @@ def main():
         replan_iters=args.replan_iters,
         model_t_amb=args.t_amb,
         auto_events=not args.advisory_only,
-        wall_pace=args.wall_pace,
+        shadow_mode=args.shadow,
+        wall_pace=(
+            args.wall_pace
+            if args.wall_pace is not None
+            else (1.0 if real_hardware else 0.0)
+        ),
     )
+
+    def event_ack(name, t_now):
+        answer = input(
+            f"{name.upper()} due at {t_now / HR:.2f} h. "
+            "Confirm completed [y/N]? "
+        )
+        return answer.strip().lower() in {"y", "yes"}
+
     pilot = Pilot(
         pit, theta, phi, cfg,
         cc=ControlConfig(opt_wrap=True, opt_pull=inc["t_pull"] is not None),
         incumbent=inc,
         forecast_fn=forecast_fn,
+        event_ack=event_ack if args.ack_events or real_hardware else None,
         journal=Journal(args.journal),
     )
+    print(
+        "state update: launch food reading seeds the meat; later food readings "
+        "are journal-only (RxInfer estimator runs separately)"
+    )
+    print(f"actuation: {'SHADOW (no commands)' if args.shadow else 'enabled'}")
     print(f"cook: {t_f / HR:.1f} h, replan every {args.dt_replan:.1f} h, "
           f"incumbent wrap {inc['t_wrap'] / HR:.2f} h"
           + (f", pull {inc['t_pull'] / HR:.2f} h" if inc["t_pull"] else ""))

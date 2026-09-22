@@ -1,18 +1,19 @@
 # --- the filter on the graph: the belief over the plant's state, the latents and the instruments' discrepancies,
 # --- updated as each measurement arrives ----------------------------------------------------------------------
 #
-# The latent block is [z (the latents); x (the plant's state at the last update: the meat's temperature, water,
-# collagen, fat and salt fields, the bark and the ring, the pit's temperature, fuel, pan, firebox and ignited
-# fraction, as `handoff` carries them); d (one AR(1) discrepancy per channel: the coloured part of its error, the
-# calibration's noise model as a state)]. An update at grid point k is the same graph fit as every other
-# estimator here: `solve_map_channels` on the graph engine over the registry's channels restricted to the
-# samples at k and wrapped as `Sequential` (the reading is the physics plus the channel's discrepancy plus white
-# noise at the instrument's floor), one node per residual, the censored humidity's one-sided rows, the physics
-# linearized and re-centred by the iterated loop, under a full-covariance Gaussian prior (`FilterPrior`) that is
-# the belief carried to k: the discrepancies through their AR(1) transitions (the level in the innovation), the
-# state through the physics with the transition's Jacobian from the same ForwardDiff pass the graph linearizes
-# with (`PhysicsState`), the latents with their process noise. Where no sample arrives the belief is only
-# propagated. Nothing here runs on a clock: the update happens when a sample arrives; a channel's noise (σ, ρ)
+# The latent block is [z (the latents); x (unconstrained softplus/logit coordinates for the plant's positive and
+# unit-interval state at the current update: the meat's temperature, water, collagen, fat and salt fields, the
+# bark and the ring, the pit's temperature, fuel, pan, firebox and ignited fraction, decoded to `handoff`'s
+# physical contract); d (one AR(1) discrepancy per channel: the coloured part of its error, the
+# calibration's noise model as a state)]. The filter first predicts that block to grid point k: moving latents
+# receive their process noise before the interval's physics, the state is propagated through the physics, state
+# and event disturbances are added at the endpoint, and discrepancies take their AR(1) transitions. The endpoint
+# belief is then the full-covariance Gaussian prior (`FilterPrior`) of the same RxInfer graph fit as every other
+# estimator here: `solve_map_channels` over the registry's samples at k wrapped as `Sequential` (the reading is
+# the endpoint physics plus the channel's discrepancy plus white noise at the instrument's floor), one node per
+# residual and the censored humidity's survival-likelihood site. Thus the reading at k conditions every uncertainty that
+# accumulated before it. Where no sample arrives the belief is only propagated. Nothing here runs on a clock:
+# the update happens when a sample arrives; a channel's noise (σ, ρ)
 # is re-identified on the AR node when its discrepancy series has grown by one correlation time; its level (the
 # GCV volatility smoother on its standardized innovations, against the other channels') whenever it delivers
 # a sample; a level over the threshold, or a reading frozen at its last value, is a sensor the belief has
@@ -41,16 +42,73 @@ surface_index(lay::FilterLayout) = lay.n_z + lay.nx
 ignited_index(lay::FilterLayout) = lay.n_z + lay.n_state
 fuel_index(lay::FilterLayout) = lay.n_z + 5 * lay.nx + 5
 firebox_index(lay::FilterLayout) = lay.n_z + 5 * lay.nx + 8
-"The state block's sites: Gaussian in the raw coordinate (`from_z` is the identity on the \"linear\" family)."
+"The state block's sites: Gaussian in an unconstrained coordinate; `pack_state`/`unpack_state` enforce its physical domain."
 state_sites(n::Int) = [PriorSite("linear", 0.0, 1.0) for _ in 1:n]
 "The discrepancy sites: the same linear family, in the instrument's units."
 disc_sites(n::Int) = state_sites(n)
 
-"The state vector from `handoff`'s initial conditions and the ignited fraction."
-pack_state(ics::NamedTuple, a, lay::FilterLayout) =
-    vcat(ics.T0f, ics.W0f, ics.C0f, ics.F0f, ics.Ssalt0f, [getfield(ics, k) for k in STATE_SCALARS], [a])
-"The initial-condition keywords and the ignited fraction from a state vector (any element type)."
-function unpack_state(x, lay::FilterLayout)
+const STATE_POSITIVE_FLOOR = 1e-8
+const STATE_UNIT_EPS = 1e-8
+_state_softplus(y) = y > 30 ? y : log1p(exp(y))
+_state_invsoftplus(x) = x > 30 ? x : log(expm1(x))
+
+"The coordinate kind of every state entry: positive softplus coordinate or unit-interval logit coordinate."
+function state_kinds(lay::FilterLayout)
+    nx = lay.nx
+    return vcat(fill(:positive, 2nx), fill(:unit, nx), fill(:positive, 2nx),
+                [:positive, :positive, :unit, :positive, :positive, :positive, :positive, :positive, :unit])
+end
+
+function _state_encode(x, kind::Symbol)
+    if kind == :positive
+        floor = oftype(x, STATE_POSITIVE_FLOOR)
+        return _state_invsoftplus(max(x - floor, floor * eps(Float64)))
+    end
+    ε = oftype(x, STATE_UNIT_EPS)
+    q = clamp((x - ε) / (one(x) - 2ε), eps(Float64), 1 - eps(Float64))
+    return log(q / (one(q) - q))
+end
+_state_decode(y, kind::Symbol) =
+    kind == :positive ? oftype(y, STATE_POSITIVE_FLOOR) + _state_softplus(y) :
+    oftype(y, STATE_UNIT_EPS) + (one(y) - 2oftype(y, STATE_UNIT_EPS)) * logistic(y)
+
+"Encode a physical state in the Gaussian filter coordinates."
+state_to_coord(x, lay::FilterLayout) = [_state_encode(v, k) for (v, k) in zip(x, state_kinds(lay))]
+"Decode the Gaussian filter coordinates to a state that is strictly in its physical domain."
+state_from_coord(y, lay::FilterLayout) = [_state_decode(v, k) for (v, k) in zip(y, state_kinds(lay))]
+"The diagonal of ∂ physical state / ∂ filter coordinate."
+function state_decode_jacobian(y, lay::FilterLayout)
+    return [k == :positive ? logistic(v) :
+            (one(v) - 2oftype(v, STATE_UNIT_EPS)) * logistic(v) * (one(v) - logistic(v))
+            for (v, k) in zip(y, state_kinds(lay))]
+end
+
+"Map a physical covariance into local filter coordinates, limiting one interval's coordinate sd for boundary stability."
+function _state_cov_to_coord(Q, y, lay::FilterLayout; max_sd::Float64=3.0)
+    dxdy = state_decode_jacobian(y, lay)
+    d = inv.(max.(dxdy, eps(Float64)))
+    Qy = Matrix(Symmetric((d .* Q) .* d'))
+    sd = sqrt.(max.(diag(Qy), 0.0))
+    scale = min.(1.0, max_sd ./ max.(sd, eps(Float64)))
+    return Matrix(Symmetric((scale .* Qy) .* scale'))
+end
+
+"Decode a state Gaussian by first-order moment propagation, for physical diagnostics."
+function state_physical_moments(y, P, lay::FilterLayout)
+    x = state_from_coord(y, lay)
+    d = state_decode_jacobian(y, lay)
+    return x, Matrix(Symmetric((d .* P) .* d'))
+end
+
+"The filter-coordinate state vector from `handoff`'s physical initial conditions and ignited fraction."
+function pack_state(ics::NamedTuple, a, lay::FilterLayout)
+    x = vcat(ics.T0f, ics.W0f, ics.C0f, ics.F0f, ics.Ssalt0f,
+             [getfield(ics, k) for k in STATE_SCALARS], [a])
+    return state_to_coord(x, lay)
+end
+"The physical initial-condition keywords and ignited fraction decoded from a filter-coordinate state vector."
+function unpack_state(y, lay::FilterLayout)
+    x = state_from_coord(y, lay)
     nx = lay.nx
     f(i) = x[((i - 1) * nx + 1):(i * nx)]
     sc = Dict(k => x[5 * nx + j] for (j, k) in enumerate(STATE_SCALARS))
@@ -62,21 +120,20 @@ end
 """
     StateNoise(; T, W, C, F, S, bark, T_pit, m_fuel, m_pan, T_pan, T_fb, ignited, T0, W0, ...)
 
-The state's process noise and initial widths by field group, in the field's own units: a rate per √hour for
+The state's process noise and initial widths by field group, in physical units: a rate per √hour for
 the temperature field [K], the water [kg/kg], the collagen, fat and salt fields, the bark and ring scalars, the
 pit's temperature [K], fuel [kg], pan mass [kg] and temperature [K], the firebox [K] and the ignited fraction;
 and the sd of each at the start (the recipe's meat and pit known to about a kelvin, the loads to a few
-percent). The rates are what the consistency bench earns (NEES of the temperatures and of the latents in their
-bands); the defaults are a starting point, not a result.
+percent). Each covariance is mapped locally into the state's constrained coordinate, with any one interval's
+coordinate sd capped at three to remain numerically meaningful next to a physical boundary. The rates are what
+the consistency bench earns (NEES of the temperatures and of the latents in their bands); the defaults are a
+starting point, not a result, and a coordinate change requires re-earning them.
 
-`T_event`, `T_spritz` and `m_add` are the disturbances an event leaves on the state: the interval that crosses a
-lid-open event (the add, the wrap, the pull, a spritz) adds their variance to the pit's and the firebox's
-temperatures, and the add's to the fuel mass. The belief propagates through such an event blind (the lid's
-window drops the readings) while the pit falls by tens of kelvin in minutes; the one update at the far end then
-carries a large innovation whose attribution over an eight-minute transient is nearly linear in the fire's thermal
-mass, and on the bench that single update moved the thermal mass by 27 % and halved its width on every cook,
-with the belief's other errors (the burn rate, the fuel mass) as the true cause. With the state uncertain after
-the event, the innovation lands on the state and the fire's sites learn from the hour of recovery that follows.
+`T_event`, `T_spritz` and `m_add` are the disturbances an event leaves on the endpoint state: the interval that
+crosses a lid-open event (the add, the wrap, the pull, a spritz) adds their variance to the pit's and the
+firebox's temperatures, and the add's to the fuel mass. They enter the predicted belief before the endpoint
+reading, so that reading can condition the disturbed state rather than forcing the event's innovation onto a
+constant physical parameter.
 
 `fields` says how a field's noise is spread over its nodes. `:offset` (the default) moves every node of the
 field together: the recipe's meat is uniform to a kelvin as a whole, and a model's error in a diffusion field is
@@ -370,9 +427,9 @@ function assemble_at(channels, z, S, J, prior, lay, ph::PhysicsState)
             Lw[j, :] .*= sqrt(s2 / (s2 + Ω[col]))
             sc[j] = sqrt(s2 + Ω[col])
         end
-        push!(as, Lw * r̄); push!(Bs, Lw * Jr); push!(scales, sc)
         y = rawdata(ch)
-        push!(ws, y === nothing ? fill(NaN, size(Lw, 1)) : Lw * y)
+        a, B, w = _affine_rows(ch, r̄, Jr, Lw, y)
+        push!(as, a); push!(Bs, B); push!(ws, w); push!(scales, sc)
     end
     ph.scale[] = reduce(vcat, scales)
     ph.omega[] = omegas
@@ -382,9 +439,11 @@ end
 """
     assemble_trial(channels, z, S, prior, lay, ph::PhysicsState) -> (a, w)
 
-The objective's assembly at a trial centre under sigma points: the plain slice's readings at the centre, each
-row inflated by the residual of the last linearization (`ph.omega`), so a trial costs one solve. Without a
-design this is `assemble`'s.
+The local-Gaussian assembly at a trial centre under sigma points: the plain
+slice's readings at the centre, each row inflated by the residual of the
+last linearization (`ph.omega`). The nonlinear objective itself is evaluated
+by `likelihood_objective`, including exact censored-normal survival terms.
+Without a design this is `assemble`'s.
 """
 function assemble_trial(channels, z, S, prior, lay, ph::PhysicsState)
     has_sigma(ph) || return (r = assemble(channels, z, S, zeros(length(S), length(z)), prior, lay); (r[1], r[3]))
@@ -402,23 +461,48 @@ function assemble_trial(channels, z, S, prior, lay, ph::PhysicsState)
             s2 = 1 / Lw[j, col]^2
             Lw[j, :] .*= sqrt(s2 / (s2 + Ω[col]))
         end
-        push!(as, Lw * r)
         y = rawdata(ch)
-        push!(ws, y === nothing ? fill(NaN, size(Lw, 1)) : Lw * y)
+        a, _, w = _affine_rows(ch, r, Jzero, Lw, y)
+        push!(as, a); push!(ws, w)
     end
     return reduce(vcat, as), reduce(vcat, ws)
 end
+
+function likelihood_objective(channels, z, S, prior, lay, ph::PhysicsState)
+    sigma = has_sigma(ph)
+    omegas = sigma ? ph.omega[] : nothing
+    sigma && omegas === nothing &&
+        error("a trial centre before any statistical linearization: the rows' inflation is not known yet")
+    Jzero = zeros(length(S), length(z))
+    loss = 0.0
+    for (ci, ch) in enumerate(channels)
+        Lw = whitening(ch)
+        size(Lw, 1) == 0 && continue
+        if sigma
+            Ω = omegas[ci]
+            for j in 1:size(Lw, 1)
+                col = argmax(abs.(Lw[j, :]))
+                s2 = 1 / Lw[j, col]^2
+                Lw[j, :] .*= sqrt(s2 / (s2 + Ω[col]))
+            end
+        end
+        r, _ = predict(ch, S, Jzero, z, prior, lay)
+        loss += _channel_nll(ch, r, Lw, rawdata(ch))
+    end
+    return loss
+end
+
 function _state_solve(v, d::GateData, ph::PhysicsState)
     lay = ph.lay
     z = v[1:lay.n_z]; x = v[state_range(lay)]
     xp = from_z(z[1:N_PHYS], d.prior[1:N_PHYS])
     θ, φ = xp[1:N_THETA], xp[(N_THETA + 1):N_PHYS]
     ics, a = unpack_state(x, lay)
-    φs = vcat(φ[1:6], ph.first ? φ[7] : clamp(a, 1e-6, 1 - 1e-6))
+    φs = vcat(φ[1:6], ph.first ? φ[7] : a)
     A = ph.area_latent > 0 ? exp(z[ph.area_latent]) : d.cfg.A_meat
     o = monolith_solve(θ, φs, d.u, d.t, d.t; pit=d.pit, cfg=d.cfg, abstol=d.abstol, reltol=d.reltol, A_meat=A, ics..., ph.events...)
     ics2, a2 = handoff(o, length(d.t))
-    return _stack_1d(o, A, θ[4]), pack_state(ics2, a2, lay), OutputLayout(size(o.T_field, 1), length(d.t)), o
+    return _stack_1d(o, A, θ[4], d.cfg), pack_state(ics2, a2, lay), OutputLayout(size(o.T_field, 1), length(d.t)), o
 end
 physics_stack(v, d::GateData, ph::PhysicsState) = (r = _state_solve(v, d, ph); (r[1], r[3]))    # a trial centre: the slice alone; the points belong to a linearization
 "The tangent of the slice at `v`: the stacked outputs, their Jacobian over the latents and the state, the end state and its Jacobian, the solve."
@@ -491,8 +575,8 @@ function _sigma_prediction(lay::FilterLayout, sigma::AbstractMatrix, v::Abstract
     Vzz = Symmetric(Matrix(V[zr, zr]))
     F = cholesky(Vzz; check=false)
     issuccess(F) || error("the latents' posterior covariance is not positive definite at the prediction (smallest eigenvalue $(minimum(eigvals(Vzz)))): no sigma points can be drawn from it")
-    K = Matrix(V[ξr, zr]) / Vzz                                       # the regression of the state and the discrepancies on the latents
-    Vcond = Symmetric(Matrix(V[ξr, ξr]) - K * Matrix(Vzz) * K')       # their spread the latents do not explain
+    K = (F \ Matrix(V[zr, ξr]))'                                      # solve for the regression; do not form an inverse
+    Vcond = _stable_cov(Matrix(V[ξr, ξr]) - K * Matrix(V[zr, ξr]))    # conditional spread, checked and repaired to PSD
     Δ = zeros(n_z, N); Ξ = zeros(nξ, N)
     for i in 1:N
         δ = F.L * sigma[i, :]
@@ -522,7 +606,7 @@ end
     FilterState
 
 The filter's belief between updates and everything it carries: the layout and the joint sites; the mean and
-covariance of the block (the state at the last update, the discrepancies there, the latents); the registry's
+covariance of the block (the constrained-coordinate state at the last update, the discrepancies there, the latents); the registry's
 channels on the full grid (their data and masks the caller fills as samples arrive); per channel the noise prior
 (`np0`, the calibration's) and the current posterior (`np`), the level, the fault flag and when the level went
 high, the time of the last identification, the residual at the predicted mean at each of the channel's samples (the
@@ -568,6 +652,7 @@ mutable struct FilterState
     abstol::Float64
     reltol::Float64
     iters::Int
+    retry_iters::Int
     level_w::Float64
     level_window::Int
     fault_level::Float64
@@ -578,17 +663,16 @@ mutable struct FilterState
 end
 
 """
-    filter_init(channels, t, u, pit, cfg, sites, names, events; noise, area_latent, sn=StateNoise(), q, jumps, goals, iters=1, ...) -> FilterState
+    filter_init(channels, t, u, pit, cfg, sites, names, events; noise, area_latent, sn=StateNoise(), q, jumps, goals, iters=4, retry_iters=12, ...) -> FilterState
 
-The belief before any sample: the latents at the prior's centre with the prior's widths, the state the recipe's
-(a zero-length solve at the prior centre, handed off at its first point) with the `StateNoise` initial widths,
+The belief before any sample: the latents at the prior's centre with the prior's widths, the constrained-coordinate
+state of the recipe (a zero-length solve at the prior centre, handed off at its first point) with the physical
+`StateNoise` initial widths mapped into that coordinate,
 every discrepancy at zero with its stationary spread. `channels` are the registry's channels on the grid `t`
 (one `NoisePrior` each in `noise`, in order); `u` the damper on the grid (NaN where not yet executed, the caller
 fills it); `q` the process-noise variance rate per hour per latent; `jumps` a vector of `(site, t_jump, var)`;
-`iters` the most Gauss-Newton steps an update takes and `ftol` the objective drop under which it stops (a
-routine update converges in one or two; a large innovation, the first scale reading against a prior area a
-third off, needs the iteration: one step of an exponential overshoots and leaves a covariance that claims
-otherwise);
+`iters` the short first pass's Gauss-Newton steps, `retry_iters` the continuation from its last accepted center
+when that pass does not converge (zero disables retry), and `ftol` the objective drop under which it stops;
 `ident_min` the residuals a channel must have before its (σ, ρ) are re-identified (the prior until then) and before its level is judged (one until then);
 `adapt_level` whether each channel's level follows its standardized innovations (off on the bench that earns
 the state's process noise: a level reads the belief's consistency and cannot be judged before the belief is
@@ -598,11 +682,14 @@ consistent; the dead-reading flag stays on); `n_sigma` the sigma points of the p
 function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
                      events::NamedTuple; noise::AbstractVector{NoisePrior}, area_latent::Int, sn::StateNoise=StateNoise(),
                      q::AbstractVector=zeros(length(sites)), jumps::AbstractVector=[], goals::PlanGoals=PlanGoals(),
-                     abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=4, ftol::Float64=0.05, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0,
+                     abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=4, retry_iters::Int=12,
+                     ftol::Float64=0.05, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0,
                      ident_min::Int=24, adapt_level::Bool=true, n_sigma::Int=64, sigma_seed::Int=7)
     n_z = length(sites); n_ch = length(channels)
     length(noise) == n_ch || throw(ArgumentError("one NoisePrior per channel ($(length(noise)) for $n_ch channels)"))
     length(names) == n_z || throw(ArgumentError("one name per site"))
+    iters > 0 || throw(ArgumentError("iters must be positive"))
+    retry_iters >= 0 || throw(ArgumentError("retry_iters must be nonnegative"))
     z0 = [z_moments(p)[1] for p in sites]                                  # the belief's mean: each family's mean in its coordinate
     xp0 = from_z(z0[1:N_PHYS], sites[1:N_PHYS])
     A0 = area_latent > 0 ? exp(z0[area_latent]) : cfg.A_meat
@@ -614,13 +701,16 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
     m = vcat(z0, pack_state(ics0, a0, lay), zeros(n_ch))
     P = zeros(lay.n, lay.n)
     for i in 1:n_z; P[i, i] = z_moments(sites[i])[2]; end                     # the latents: each family's variance in its coordinate
-    P[state_range(lay), state_range(lay)] = state_noise_cov(lay, sn, state_init_sd(sn, lay))   # the state: the recipe's, to its own uncertainty, by the noise's structure
+    yr = state_range(lay)
+    Q0 = state_noise_cov(lay, sn, state_init_sd(sn, lay))
+    P[yr, yr] = _state_cov_to_coord(Q0, m[yr], lay)                            # physical initial widths mapped into constrained state coordinates
     for c in 1:n_ch; i = disc_index(lay, c); P[i, i] = noise[c].σ_mean^2; end   # the discrepancies: their stationary spread
     past = Past(); past.m0 = o0.m_fuel[1]; past.t = t[1]
     return FilterState(lay, joint, collect(sites), collect(String, names), m, P, collect(Channel, channels), collect(NoisePrior, noise), collect(NoisePrior, noise),
                        ones(n_ch), falses(n_ch), fill(NaN, n_ch), fill(NaN, n_ch), [Float64[] for _ in 1:n_ch], [Float64[] for _ in 1:n_ch], [Float64[] for _ in 1:n_ch], ones(n_ch), [Int[] for _ in 1:n_ch],
                        sn, collect(Float64, q), [(Int(j[1]), Float64(j[2]), Float64(j[3])) for j in jumps], goals, past, 1, 0,
-                       collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, level_w, level_window, fault_level, ident_min, adapt_level, ftol,
+                       collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, retry_iters,
+                       level_w, level_window, fault_level, ident_min, adapt_level, ftol,
                        n_sigma > 0 ? sigma_design(n_z, n_sigma, sigma_seed) : zeros(0, n_z))
 end
 
@@ -649,6 +739,99 @@ end
 _corr_time(np::NoisePrior, dt) = -dt / log(clamp(np.ρ_mean, 1e-6, 0.999))
 "The level that scales a channel's discrepancy innovation: its own, or the fault threshold's when the channel is flagged (a frozen sensor's low level would otherwise make the belief trust it more)."
 _effective_level(st::FilterState, c::Int) = st.faulty[c] ? max(st.level[c], st.fault_level) : st.level[c]
+
+"A covariance with its marginal variances preserved and roundoff-scale negative correlation modes repaired."
+function _stable_cov(P::AbstractMatrix; corr_floor::Float64=1e-12)
+    S = Matrix(Symmetric(P))
+    all(isfinite, S) || throw(ArgumentError("covariance contains a non-finite entry"))
+    dscale = max(maximum(abs, diag(S)), 1.0)
+    minimum(diag(S)) >= -1e-10 * dscale ||
+        throw(ArgumentError("covariance has a materially negative marginal variance $(minimum(diag(S)))"))
+    d = sqrt.(max.(diag(S), eps(Float64)))
+    C = Symmetric(S ./ (d * d'))
+    E = eigen(C)
+    C1 = E.vectors * Diagonal(max.(E.values, corr_floor)) * E.vectors'
+    dc = sqrt.(max.(diag(C1), eps(Float64)))
+    C1 ./= dc * dc'                                                     # keep the original marginal variances
+    return Matrix(Symmetric(C1 .* (d * d')))
+end
+
+"A rectangular square root of a positive-semidefinite covariance."
+function _psd_factor(Q::AbstractMatrix)
+    E = eigen(Symmetric(Matrix(Q)))
+    vmax = max(maximum(E.values), 0.0)
+    keep = findall(>(max(vmax, 1.0) * 1e-14), E.values)
+    isempty(keep) && return zeros(size(Q, 1), 0)
+    return E.vectors[:, keep] * Diagonal(sqrt.(max.(E.values[keep], 0.0)))
+end
+
+"Square-root covariance propagation, combining `F*P*F'` and independent `Q` by QR."
+function _sqrt_propagate(F::AbstractMatrix, P::AbstractMatrix, Q::AbstractMatrix)
+    Lp = cholesky(Symmetric(_stable_cov(P))).L
+    A = hcat(F * Lp, _psd_factor(Q))
+    R = Matrix(qr(A').R)
+    return _stable_cov(R' * R)
+end
+_sqrt_cov_sum(P::AbstractMatrix, Q::AbstractMatrix) =
+    _sqrt_propagate(Matrix{Float64}(I, size(P, 1), size(P, 1)), P, Q)
+
+"A filter prior carrying the covariance's lower square root; the graph update runs in its whitened coordinates."
+function _filter_prior(sites, m, P)
+    Ps = _stable_cov(P)
+    F = cholesky(Symmetric(Ps))
+    n = size(Ps, 1)
+    return FilterPrior(sites, collect(m), zeros(n, n), Matrix(F.L)), Ps
+end
+
+"Run an online RxInfer update, continuing once from its last accepted center when the short first pass does not converge."
+function _online_solve(st::FilterState, chs, prior, d, ph, c0)
+    res = solve_map_channels(chs, prior, d; c0, physics=ph, iters=st.iters, ftol=st.ftol, verbose=false)
+    n_it = length(res.hist)
+    if !res.converged && st.retry_iters > 0
+        res = solve_map_channels(chs, prior, d; c0=res.z, physics=ph, iters=st.retry_iters, ftol=st.ftol, verbose=false)
+        n_it += length(res.hist)
+    end
+    return res, n_it
+end
+
+# The measurement operator at one endpoint. A two-point, negligible-duration solve reconstructs every channel's
+# instantaneous observable from the endpoint state (including humidity and bark algebra) while the channel masks
+# retain only its first point. This keeps the ordinary channel registry and its RxInfer graph unchanged.
+function _observation_context(st::FilterState, k::Int, P::AbstractMatrix; first::Bool=false)
+    lay = st.lay
+    δt = max(st.t[2] - st.t[1], 1.0) * 1e-6
+    tobs = [st.t[k], st.t[k] + δt]
+    uobs = [st.u[k], st.u[k]]
+    d = estimator_setup(tobs, uobs, st.pit, st.cfg, st.sites[1:N_PHYS], st.names[1:N_PHYS]; abstol=st.abstol, reltol=st.reltol)
+    ph = size(st.sigma, 1) > 0 ? PhysicsState(st.area_latent, st.events, lay, first, st.sigma, P) :
+                                PhysicsState(st.area_latent, st.events, lay, first)
+    idx = [k, k]
+    keep = Bool[true, false]
+    chs = Channel[Sequential(restrict(window(ch, idx), keep), disc_index(lay, c), white_floor(ch))
+                  for (c, ch) in enumerate(st.channels)]
+    live = [c for c in 1:lay.n_ch if size(whitening(chs[c]), 1) > 0]
+    return d, ph, chs, live
+end
+
+"The physical process covariance accumulated over an interval, mapped into the endpoint's constrained coordinates."
+function _state_process_cov(st::FilterState, tw, y_endpoint)
+    lay = st.lay
+    Δh = (tw[end] - tw[1]) / 3600
+    Q = state_noise_cov(lay, st.sn, state_rates(st.sn, lay) .* sqrt(Δh))
+    for (t_e, kind) in _event_times(st.events, tw[end])
+        (tw[1] < t_e <= tw[end]) || continue
+        σ = kind == :spritz ? st.sn.T_spritz : st.sn.T_event
+        ip = pit_index(lay) - lay.n_z
+        ifb = firebox_index(lay) - lay.n_z
+        Q[ip, ip] += σ^2
+        Q[ifb, ifb] += σ^2
+        if kind == :add
+            ifuel = fuel_index(lay) - lay.n_z
+            Q[ifuel, ifuel] += st.sn.m_add^2
+        end
+    end
+    return _state_cov_to_coord(Q, y_endpoint, lay)
+end
 
 # the noise of channel c after it delivered a sample at k: (σ, ρ) on the AR node over the full residual series
 # (each residual observing the discrepancy through the belief's own prediction variance there) with the
@@ -705,12 +888,16 @@ end
 """
     filter_update!(st, k; diagnostics=false) -> record
 
-The belief carried from its grid point to `k` and updated on the samples there: the discrepancies through their
-AR(1) transitions over the interval, the physics solved on the interval from the state in the block, the graph
-fit on the samples at `k` (skipped when none arrived: the belief is only propagated), the noise and the level of
-each channel that reported, the state predicted to `k` through the physics with the transition's Jacobian and
-the latents with their process noise, the past's integrals extended. The channels' samples strictly between the
-last update and `k` are an error: the update happens at every arrival. Returns one record: `t`, the belief's
+The belief predicted from its grid point to `k` and then updated on the samples there: an initial reading is
+assimilated once before the first transition; moving latents receive their interval process noise; discrepancies
+take their AR(1) transitions; the state is propagated through the interval physics; physical and event
+disturbances enter the predicted endpoint covariance; and the graph fits only the endpoint samples (skipped when
+none arrived). The noise and level of each reporting channel are then updated and the past's integrals extended.
+The channels' samples strictly between the last update and `k` are an error: the update happens at every arrival.
+If the short graph fit does not converge it is continued once from its last accepted center. If that also fails,
+its center, covariance, residual history, and noise adaptation are discarded; the filter advances with the
+predicted endpoint belief and reports `attempted=true, updated=false`.
+Returns one record: `t`, the belief's
 pit, centre and surface temperatures `(mean, sd)` and their joint covariance, the latents' posterior, the
 discrepancies, the noise and level per channel, the fault flags, the fit's misfit, iterations and wall; with
 `diagnostics`, the innovations at the predicted mean (before the update): `nis`, `dof` and the standardized
@@ -730,8 +917,33 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     any(isnan, uw) && throw(ArgumentError("the damper is not set on the whole interval $k0:$k"))
     nsteps = k - k0
     t0 = time()
-    # 1. the discrepancies to k: their AR(1) transition over the interval, the level in the innovation
     m, P = copy(st.m), copy(st.P)
+
+    # 1. The readings at the cook's initial point belong to the initial state, not to the discrepancy state at
+    # the end of the first interval. Assimilate them once before the first prediction.
+    if k0 == 1
+        P = _stable_cov(P)
+        d0, ph0, chs0, live0 = _observation_context(st, 1, P; first=true)
+        if !isempty(live0)
+            prior0, P = _filter_prior(st.joint, m, P)
+            res0, n0 = _online_solve(st, chs0, prior0, d0, ph0, m)
+            if res0.converged
+                m, P = res0.z, _stable_cov(res0.cov)
+            else
+                @warn "initial observation update did not converge; retaining the initial belief" grid_index=1 iterations=n0
+            end
+        end
+    end
+
+    # 2. Predict to k. A moving latent's new interval value drives this interval's physics, so its process noise
+    # enters before propagation. The discrepancy takes its independent AR transition.
+    Δh = (tw[end] - tw[1]) / 3600
+    for i in 1:n_z
+        P[i, i] += st.q[i] * Δh
+    end
+    for (s_i, t_j, var) in st.jumps
+        (tw[1] < t_j <= tw[end]) && (P[s_i, s_i] += var)
+    end
     for c in 1:n_ch
         i = disc_index(lay, c)
         ρn = clamp(st.np[c].ρ_mean, 0.0, 0.999)^nsteps
@@ -739,37 +951,43 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
         P[i, :] .*= ρn; P[:, i] .*= ρn
         P[i, i] += st.np[c].σ_mean^2 * (1 - ρn^2) * _effective_level(st, c)^2
     end
-    # 2. the interval's physics and channels
-    d = estimator_setup(tw, uw, st.pit, st.cfg, st.sites[1:N_PHYS], st.names[1:N_PHYS]; abstol=st.abstol, reltol=st.reltol)
-    ph = size(st.sigma, 1) > 0 ? PhysicsState(st.area_latent, st.events, lay, k0 == 1, st.sigma, P) : PhysicsState(st.area_latent, st.events, lay, k0 == 1)
-    keep = falses(length(idx)); keep[end] = true                      # the interval's channels: the sample at k, the earlier points the last update's
-    k0 == 1 && (keep[1] = true)                                       # the readings at the cook's first point join the first update (nothing came before them)
+    d_transition = estimator_setup(tw, uw, st.pit, st.cfg, st.sites[1:N_PHYS], st.names[1:N_PHYS]; abstol=st.abstol, reltol=st.reltol)
+    ph_transition = PhysicsState(st.area_latent, st.events, lay, k0 == 1)
+    L = _tangent(m, d_transition, ph_transition)
+    sigma_ok = size(st.sigma, 1) > 0
+    xr = state_range(lay)
+    Q = zeros(lay.n, lay.n)
+    Q[xr, xr] = _state_process_cov(st, tw, L.x_end)
+    if sigma_ok
+        m_pred, P_pred = _sigma_prediction(lay, st.sigma, m, P, L.J_end, d_transition, ph_transition)
+        P_pred = _sqrt_cov_sum(P_pred, Q)
+    else
+        F = Matrix(1.0 * I, lay.n, lay.n)
+        F[xr, :] = L.J_end
+        m_pred = copy(m)
+        m_pred[xr] = L.x_end
+        P_pred = _sqrt_propagate(F, P, Q)
+    end
+    P_pred = _stable_cov(P_pred)
+
+    # 3. Update the predicted endpoint belief with only the readings at k. Process and event uncertainty is now
+    # in this prior, so those readings condition it directly; no event-specific measurement inflation is needed.
     for (c, ch) in enumerate(st.channels)
         ch.mask[k] && rawdata(ch) !== nothing && !isfinite(rawdata(ch)[k]) && throw(ArgumentError("channel $c has a sample at grid point $k but no finite reading"))
     end
-    # a lid-open event inside the interval: the reading that ends it sees the state after the event, while the block
-    # holds the state before it propagated through the event as if exact; the event's disturbance reaches the pit
-    # probe's row here, as white noise on the reading, and the state for what follows in the prediction
-    σ_ev = 0.0
-    for (t_e, kind) in _event_times(st.events, tw[end])
-        (tw[1] < t_e <= tw[end]) && (σ_ev = sqrt(σ_ev^2 + (kind == :spritz ? st.sn.T_spritz : st.sn.T_event)^2))
-    end
-    chs = Channel[Sequential(restrict(window(ch, idx), keep), disc_index(lay, c), ch isa PitProbe ? sqrt(white_floor(ch)^2 + σ_ev^2) : white_floor(ch))
-                  for (c, ch) in enumerate(st.channels)]
-    live = [c for c in 1:n_ch if size(whitening(chs[c]), 1) > 0]
-    prior_w = FilterPrior(st.joint, m, inv(Symmetric(P)))
+    d, ph, chs, live = _observation_context(st, k, P_pred; first=false)
     nis, dof, innov = NaN, 0, Dict{Int,Vector{Float64}}()
     resid = Dict{Int,Float64}(); rvar = Dict{Int,Float64}(); efree = Dict{Int,Float64}()
     if isempty(live)
-        physics_outputs(m, d, ph)                                         # the transition's Jacobian at the predicted mean
-        z_post, V_post, mis, n_it, converged = m, P, nothing, 0, true
+        z_post, V_post, mis, n_it, converged = m_pred, P_pred, nothing, 0, true
     else
+        prior_w, P_pred = _filter_prior(st.joint, m_pred, P_pred)
         # the residual of every sample at the predicted mean, before the update: the reading less the physics, the
         # series the noise and the level are identified on (the discrepancy as the instrument sees it, not as the
         # belief's own prior on it shrinks it); with `diagnostics` also the innovations whitened by their predicted
         # covariance (the linearization at the predicted mean is the solve's first, kept)
-        Sp, Jp, layp = physics_outputs(m, d, ph)
-        a, B, w = assemble_at(chs, m, Sp, Jp, prior_w, layp, ph)
+        Sp, Jp, layp = physics_outputs(m_pred, d, ph)
+        a, B, w = assemble_at(chs, m_pred, Sp, Jp, prior_w, layp, ph)
         rowscale = ph.scale[]                                             # under sigma points a row's scale carries the regression's residual
         row = 0
         for (c, ch) in enumerate(chs)
@@ -777,19 +995,25 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             nr == 0 && continue
             if count(noise_mask(ch)) > 0                                  # a capped reading is not a residual
                 σw = rowscale === nothing ? white_floor(ch) : rowscale[row + 1]
-                resid[c] = (w[row + 1] - a[row + 1]) * σw + m[disc_index(lay, c)]
+                resid[c] = (w[row + 1] - a[row + 1]) * σw + m_pred[disc_index(lay, c)]
                 Bx = B[row + 1, :]; Bx[disc_index(lay, c)] = 0.0             # the belief's prediction variance of the physics there, the discrepancy's own excluded
-                rvar[c] = σw^2 * (dot(Bx, P, Bx) + 1.0)
+                rvar[c] = σw^2 * (dot(Bx, P_pred, Bx) + 1.0)
             end
             row += nr
         end
         # the innovations whitened by their predicted covariance (the belief's uncertainty of the physics, the
         # discrepancy's own spread and the floor): white, zero-mean, unit when the filter is consistent. The level
         # reads them; with `diagnostics` they are recorded with the normalized innovation squared
-        keepr = findall(isfinite, w)
+        keepr = Int[]
+        row = 0
+        for ch in chs
+            nr = size(whitening(ch), 1)
+            append!(keepr, (row + j for j in 1:misfit_rows(ch) if isfinite(w[row + j])))
+            row += nr
+        end
         if !isempty(keepr)
             nu = w[keepr] .- a[keepr]; H = B[keepr, :]
-            Sm = Symmetric(H * P * H' + I)
+            Sm = Symmetric(H * P_pred * H' + I)
             nis = dot(nu, Sm \ nu); dof = length(nu)
             sdev = sqrt.(max.(diag(Sm), 1e-12))
             pos = Dict(i => j for (j, i) in enumerate(keepr))
@@ -809,57 +1033,38 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
                 row += nr
             end
         end
-        res = solve_map_channels(chs, prior_w, d; c0=m, physics=ph, iters=st.iters, ftol=st.ftol, verbose=false)
-        z_post, V_post, mis, n_it, converged = res.z, Matrix(Symmetric(res.cov)), res.misfit, length(res.hist), res.converged
+        res, n_it = _online_solve(st, chs, prior_w, d, ph, m_pred)
+        mis, converged = res.misfit, res.converged
+        if converged
+            z_post, V_post = res.z, _stable_cov(res.cov)
+        else
+            @warn "endpoint observation update did not converge; retaining the predicted belief" grid_index=k time=tw[end] iterations=n_it
+            z_post, V_post = m_pred, P_pred
+        end
     end
-    # 3. the residual series, the noise and the level of every channel that reported a reading
-    for c in live
-        haskey(resid, c) || continue
-        push!(st.dser[c], resid[c]); push!(st.dvar[c], rvar[c]); push!(st.didx[c], k)
-        push!(st.eser[c], get(efree, c, 0.0))
-        _identify!(st, c, k)
+    # 4. the residual series, the noise and the level of every channel that reported a reading
+    if converged
+        for c in live
+            haskey(resid, c) || continue
+            push!(st.dser[c], resid[c]); push!(st.dvar[c], rvar[c]); push!(st.didx[c], k)
+            push!(st.eser[c], get(efree, c, 0.0))
+            _identify!(st, c, k)
+        end
     end
-    # 4. the prediction of the state to k: through the physics by sigma points over the latents (the tangent at the
-    # MAP only when the filter was built without them), the latents with process noise
-    L = ph.last[]
-    (L === nothing || maximum(abs.(L.c .- z_post)) > 1e-9) && (physics_outputs(z_post, d, ph); L = ph.last[])
-    Δh = (tw[end] - tw[1]) / 3600
-    Q = zeros(lay.n, lay.n)
-    for i in 1:n_z; Q[i, i] = st.q[i] * Δh; end
-    for (s_i, t_j, var) in st.jumps
-        (tw[1] < t_j <= tw[end]) && (Q[s_i, s_i] += var)
-    end
-    Q[state_range(lay), state_range(lay)] = state_noise_cov(lay, st.sn, state_rates(st.sn, lay) .* sqrt(Δh))
-    # the events' disturbances: a lid-open event the interval crosses leaves the pit's and the firebox's temperatures
-    # uncertain by T_event (T_spritz for a spritz), and the add the fuel mass by m_add (StateNoise)
-    for (t_e, kind) in _event_times(st.events, tw[end])
-        (tw[1] < t_e <= tw[end]) || continue
-        σ = kind == :spritz ? st.sn.T_spritz : st.sn.T_event
-        Q[pit_index(lay), pit_index(lay)] += σ^2
-        Q[firebox_index(lay), firebox_index(lay)] += σ^2
-        kind == :add && (Q[fuel_index(lay), fuel_index(lay)] += st.sn.m_add^2)
-    end
-    sigma_ok = size(st.sigma, 1) > 0
-    if sigma_ok
-        m_new, P_pred = _sigma_prediction(lay, st.sigma, z_post, V_post, L.J_end, d, ph)
-    else
-        F = Matrix(1.0 * I, lay.n, lay.n)
-        F[state_range(lay), :] = L.J_end
-        m_new = copy(z_post)
-        m_new[state_range(lay)] = L.x_end
-        P_pred = F * V_post * F'
-    end
-    m_new[ignited_index(lay)] = clamp(m_new[ignited_index(lay)], 1e-6, 1 - 1e-6)
-    P_new = Matrix(Symmetric(P_pred + Q))
+    m_new = copy(z_post)
+    P_new = _stable_cov(V_post)
     st.m, st.P = m_new, P_new
     st.k0 = k; st.n_updates += 1
     _accumulate!(st.past, L.o, tw, haskey(st.events, :t_pull) ? st.events.t_pull : BrisketDynamics.PULL_NEVER, st.goals)
     diagnostics || (nis = NaN; dof = 0; innov = Dict{Int,Vector{Float64}}())
     sd = sqrt.(max.(diag(P_new), 0.0))
     iT = [pit_index(lay), centre_index(lay), surface_index(lay)]
-    xr = state_range(lay)                                             # with diagnostics the whole state block and its covariance (the bench scores it by group)
-    return (t=tw[end], k=k, updated=!isempty(live), channels=live,
-            T_pit=(m_new[iT[1]], sd[iT[1]]), T_centre=(m_new[iT[2]], sd[iT[2]]), T_surface=(m_new[iT[3]], sd[iT[3]]), T_cov=P_new[iT, iT],
+    xr = state_range(lay)                                             # with diagnostics the constrained-coordinate state block and covariance
+    x_phys, P_phys = state_physical_moments(m_new[xr], P_new[xr, xr], lay)
+    iTx = iT .- lay.n_z
+    Tsd = sqrt.(max.(diag(P_phys[iTx, iTx]), 0.0))
+    return (t=tw[end], k=k, attempted=!isempty(live), updated=!isempty(live) && converged, channels=live,
+            T_pit=(x_phys[iTx[1]], Tsd[1]), T_centre=(x_phys[iTx[2]], Tsd[2]), T_surface=(x_phys[iTx[3]], Tsd[3]), T_cov=P_phys[iTx, iTx],
             x=(diagnostics ? m_new[xr] : nothing), x_cov=(diagnostics ? P_new[xr, xr] : nothing),
             z=m_new[1:n_z], z_sd=sd[1:n_z], z_cov=P_new[1:n_z, 1:n_z], disc=m_new[disc_range(lay)], disc_sd=sd[disc_range(lay)],
             noise=[(σ=np.σ_mean, σ_sd=np.σ_sd, ρ=np.ρ_mean, ρ_sd=np.ρ_sd) for np in st.np], level=copy(st.level), faulty=copy(st.faulty),
@@ -932,15 +1137,16 @@ end
     state_now(st) -> (k, t, ics, ignited, x, past, zx_cov)
 
 The plant's state the belief holds at its grid point, for a plan from it: the grid index and time, the
-initial-condition keywords and the ignited fraction (`handoff`'s contract), the packed state vector, the past's
-integrals, and the joint covariance of the latents and the state (`plan_predictive` carries it into the plan).
+physical initial-condition keywords and ignited fraction (`handoff`'s contract), the packed constrained-coordinate
+state vector, the past's integrals, and the joint covariance of the latents and that coordinate state
+(`plan_predictive` carries it into the plan).
 """
 function state_now(st::FilterState)
     lay = st.lay
     x = st.m[state_range(lay)]
     ics, a = unpack_state(x, lay)
     nzx = lay.n_z + lay.n_state
-    return (k=st.k0, t=st.t[st.k0], ics=ics, ignited=clamp(a, 1e-6, 1 - 1e-6), x=x, past=st.past, zx_cov=st.P[1:nzx, 1:nzx], lay=lay)
+    return (k=st.k0, t=st.t[st.k0], ics=ics, ignited=a, x=x, past=st.past, zx_cov=st.P[1:nzx, 1:nzx], lay=lay)
 end
 
 """

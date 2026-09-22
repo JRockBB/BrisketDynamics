@@ -110,7 +110,8 @@ uv run brisket logs                       # the cook logs the repo knows
 uv run brisket digitize my/log.toml       # chart screenshot -> CSV (tools/loghunt)
 uv run brisket calibrate --csv my.csv --t-amb-k 294 --name mycook
 uv run brisket plan  --params fit_mycook.json          # schedule optimum
-uv run brisket pilot --params fit_mycook.json     --pit http://heatermeter.local --apikey XXXX --wall-pace 1 --advisory-only
+uv run brisket pilot --params fit_mycook.json --pit http://heatermeter.local \
+    --apikey XXXX --shadow                              # non-actuating first flight
 ```
 
 `calibrate` fits any registry log or your own CSV (column convention in
@@ -120,7 +121,9 @@ Gauss-Newton MAP + Laplace chain, and writes a `--params`-compatible
 calibration that `plan` and `pilot` consume directly. `pilot` flies a cook
 against a real HeaterMeter (LinkMeter v14 REST API) — or against
 `brisket mock-pit`, the calibrated sim plant behind the same API, for a
-hardware-free dry run. Multi-cook pooling: `brisket pool --set keg`.
+hardware-free dry run. Real hardware uses real-time polling and explicit
+human event acknowledgement by default; remove `--shadow` only when
+actuation is intended. Multi-cook pooling: `brisket pool --set keg`.
 
 ## Containers (Linux/WSL2 + Docker)
 

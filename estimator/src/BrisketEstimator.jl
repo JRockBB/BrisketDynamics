@@ -29,18 +29,19 @@ using Random
 using JSON
 using Printf
 using SHA
-using SpecialFunctions: erfc, erfcinv, beta_inc, beta_inc_inv, logbeta
+using SpecialFunctions: erfc, erfcx, erfcinv, beta_inc, beta_inc_inv, logbeta
 using BrisketDynamics
 
 export ridge_chain, noise_marginal_cov, FilterPrior, prior_quadratic, handoff, solve_segments
 export DriftLayout, PhysicsDrift, DriftPrior, smoother_fit, smoother_step, drift_layout, warm_start, segment_edges, index_at, current_index, block_at
 export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRIFT_SD_PER_HOUR, JUMP_LOG_SD, drift_rates
-export FilterLayout, PhysicsState, pack_state, unpack_state, state_sites, disc_sites, sequential_filter, pit_index, centre_index, surface_index
+export FilterLayout, PhysicsState, pack_state, unpack_state, state_to_coord, state_from_coord, state_physical_moments,
+       state_sites, disc_sites, sequential_filter, pit_index, centre_index, surface_index
 export FilterState, StateNoise, Past, filter_init, filter_update!, filter_advance!, state_range, disc_range, disc_index, state_now, innovation_misfit
 export STATE_GROUPS, STATE_NOISE_FILE, state_groups, group_dofs, state_noise_cov, physics_fingerprint, state_noise_dict, load_state_noise, sigma_design
 export GateData, load_gate, from_z, to_z, dx_dz, z_center, z_moments, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, islogbeta, islinear, isscore, drift_scale, logistic,
-       latent_block, read_sites, draw_truth, FAMILIES
+       latent_block, probe_depth_site, probe_depth, read_sites, draw_truth, FAMILIES
 
 const N_THETA = 8
 const N_PHYS = 15
@@ -163,25 +164,54 @@ function z_moments(p::PriorSite)
     return (_digamma(p.p1) - _digamma(p.p2), _trigamma(p.p1) + _trigamma(p.p2))
 end
 
-"The sites of a prior file's `prior` list (`prior_next_cook.json`, the gate file)."
-read_sites(list) = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"]), Float64(get(p, "p3", 0.0)), Float64(get(p, "p4", 1.0)); coord=Symbol(get(p, "coord", "logit"))) for p in list]
+"One fully specified site from a serialized prior."
+function _read_site(p)
+    family = String(p["family"])
+    if family == "logbeta" && !(haskey(p, "p3") && haskey(p, "p4"))
+        throw(ArgumentError("a serialized logbeta prior requires p3 and p4 bounds"))
+    end
+    return PriorSite(family, Float64(p["p1"]), Float64(p["p2"]),
+                     Float64(get(p, "p3", 0.0)), Float64(get(p, "p4", 1.0));
+                     coord=Symbol(get(p, "coord", "logit")))
+end
+
+"The sites of a prior file's `prior` list (`prior_next_cook.json`, the gate file), including bounds and coordinate."
+read_sites(list) = _read_site.(list)
 
 """
-    latent_block(prior_path, cfg; area_sd=0.3, depth_frac=0.8, depth_sd=0.5)
+    probe_depth_site(; mean=0.8, concentration=10.0)
+
+The bounded prior for the meat-probe insertion depth as a fraction of the
+current half-thickness. Its score coordinate is standard normal, while its
+physical value is always in `(0, 1)`.
+"""
+function probe_depth_site(; mean::Float64=0.8, concentration::Float64=10.0)
+    0 < mean < 1 || throw(ArgumentError("probe-depth fraction mean must lie in (0, 1)"))
+    concentration > 0 || throw(ArgumentError("probe-depth concentration must be positive"))
+    return PriorSite("beta", mean * concentration, (1 - mean) * concentration; coord=:score)
+end
+
+"Physical insertion depth from half-thickness and its bounded fraction."
+probe_depth(L, fraction) = L * fraction
+
+"""
+    latent_block(prior_path, cfg; area_sd=0.3, depth_frac=0.8, depth_concentration=10.0)
 
 The estimator's latent block, declared once: the fifteen physics sites of the prior file in their families and
 names, then the two estimator-only sites, the exposed area (`A_meat`, lognormal about the config's) and the meat
-probe's depth (lognormal about `depth_frac` of the thickness's median). Returns `(sites, names, prior_phys,
-phys_names, area, depth, idx, file)`; every driver reads its block from here.
+probe's insertion-depth fraction (bounded Beta with mean `depth_frac`). Physical depth is `L * fraction`, so
+thickness and depth share one joint parameterization. Returns `(sites, names, prior_phys, phys_names, area,
+depth, idx, file)`; every driver reads its block from here.
 """
-function latent_block(prior_path::AbstractString, cfg::MeatConfig; area_sd::Float64=0.3, depth_frac::Float64=0.8, depth_sd::Float64=0.5)
+function latent_block(prior_path::AbstractString, cfg::MeatConfig; area_sd::Float64=0.3,
+                      depth_frac::Float64=0.8, depth_concentration::Float64=10.0)
     file = JSON.parsefile(prior_path)
     prior_phys = read_sites(file["prior"])
     length(prior_phys) == N_PHYS || throw(ArgumentError("the prior file carries $(length(prior_phys)) physics sites, not $N_PHYS"))
     phys_names = String.(file["names"])
-    L_med = from_z(z_center(prior_phys[4]), prior_phys[4])
-    sites = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), area_sd), PriorSite("lognormal", log(depth_frac * L_med), depth_sd)])
-    names = vcat(phys_names, ["A_meat", "core_depth"])
+    sites = vcat(prior_phys, [PriorSite("lognormal", log(cfg.A_meat), area_sd),
+                             probe_depth_site(mean=depth_frac, concentration=depth_concentration)])
+    names = vcat(phys_names, ["A_meat", "core_depth_fraction"])
     return (sites=sites, names=names, prior_phys=prior_phys, phys_names=phys_names, area=length(sites) - 1, depth=length(sites),
             idx=Dict(n => i for (i, n) in enumerate(names)), file=file)
 end
@@ -192,31 +222,41 @@ function _beta_rand(rng, a, b)
     r = rand(rng); k = clamp(searchsortedfirst(c, r), 2, length(c)); x[k - 1] + (x[k] - x[k - 1]) * (r - c[k - 1]) / max(c[k] - c[k - 1], 1e-300)
 end
 """
-    draw_truth(rng, sites; depth=0, thickness=4) -> z
+    draw_truth(rng, sites) -> z
 
-A truth drawn from the sites' prior, in z (Gaussian for the lognormal and linear sites, a Beta draw of the fraction
-in the site's coordinate, the logit or the score, for the beta and logbeta sites); with `depth` > 0 the probe's depth is kept inside the meat (under 0.9 of the
-thickness at site `thickness`).
+A truth drawn from every site's declared prior, in z (Gaussian for the
+lognormal and linear sites, a Beta draw in the site's logit or score
+coordinate for beta and logbeta sites). Probe depth needs no special clipping:
+its declared site is already a bounded fraction and physical depth is formed
+jointly with thickness by `probe_depth`.
 """
 function draw_truth(rng::AbstractRNG, sites::AbstractVector{PriorSite}; depth::Int=0, thickness::Int=4)
+    depth == 0 || throw(ArgumentError("probe-depth truth clipping was removed; declare a bounded fraction with probe_depth_site and call draw_truth without `depth`"))
     z = [_betalike(p) ? (f = _beta_rand(rng, p.p1, p.p2); isscore(p) ? _score_of_fraction(f, p.p1, p.p2) : log(f / (1 - f))) : p.p1 + p.p2 * randn(rng) for p in sites]
-    depth > 0 && (z[depth] = min(z[depth], log(0.9 * from_z(z[thickness], sites[thickness]))))
     return z
 end
 
 """
     FilterPrior(sites, m, Λ)
+    FilterPrior(sites, m, Λ, S)
 
 A full-covariance Gaussian prior on the latent block in z (a filter's predicted belief: the last posterior
 inflated by process noise), carrying the per-site families `sites` for the transforms z -> x. Indexes and
 iterates as its sites, so every consumer of a `Vector{PriorSite}` (from_z, the channels, the layouts) reads
-it unchanged; `prior_terms` returns the Gaussian's value, gradient and FULL Hessian.
+it unchanged; `prior_terms` returns the Gaussian's value, gradient and FULL Hessian. `S`, when present, is the
+lower square root of the covariance (`P = S*S'`); the sequential graph is then solved in standardized
+coordinates instead of forming or messaging the ill-conditioned precision.
 """
 struct FilterPrior
     sites::Vector{PriorSite}
     m::Vector{Float64}
     Λ::Matrix{Float64}
+    S::Union{Nothing,Matrix{Float64}}
 end
+FilterPrior(sites::Vector{PriorSite}, m::AbstractVector, Λ::AbstractMatrix) =
+    FilterPrior(sites, collect(Float64, m), Matrix{Float64}(Λ), nothing)
+FilterPrior(sites::Vector{PriorSite}, m::AbstractVector, Λ::AbstractMatrix, S::AbstractMatrix) =
+    FilterPrior(sites, collect(Float64, m), Matrix{Float64}(Λ), Matrix{Float64}(S))
 Base.getindex(p::FilterPrior, i) = p.sites[i]
 Base.length(p::FilterPrior) = length(p.sites)
 Base.lastindex(p::FilterPrior) = lastindex(p.sites)
@@ -224,7 +264,13 @@ Base.iterate(p::FilterPrior, st...) = iterate(p.sites, st...)
 Base.eltype(::Type{FilterPrior}) = PriorSite
 function prior_terms(z, p::FilterPrior)
     r = z .- p.m
-    return 0.5 * dot(r, p.Λ * r), p.Λ * r, Matrix(p.Λ)
+    if p.S === nothing
+        return 0.5 * dot(r, p.Λ * r), p.Λ * r, Matrix(p.Λ)
+    end
+    u = p.S \ r
+    g = p.S' \ u
+    H = p.S' \ (p.S \ Matrix{Float64}(I, length(r), length(r)))
+    return 0.5 * dot(u, u), g, Matrix(Symmetric(H))
 end
 "The prior's precision as a matrix: a diagonal from the per-site curvature, or the Gaussian's own."
 _prec(h::AbstractVector) = Matrix(Diagonal(h))
@@ -241,7 +287,7 @@ function prior_quadratic(c, prior; damping::Float64=0.0)
     mp = c .- Λp \ g
     return mp, Λp
 end
-logistic(v) = 1 / (1 + exp(-v))
+logistic(v) = v >= 0 ? inv(1 + exp(-v)) : (e = exp(v); e / (1 + e))
 
 # --- the normal score of a Beta: f = F⁻¹(Φ(z)), under which the prior is exactly N(0, 1) ------------------------
 const SCORE_MAX = 8.0     # beyond eight score sd the fraction is held at its value there (Φ(±8) sits 6e-16 from 0 and 1)
