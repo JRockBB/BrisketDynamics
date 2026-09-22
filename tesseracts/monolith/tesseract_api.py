@@ -63,6 +63,10 @@ if sys.platform == "win32" and not os.environ.get("PYTHON_JULIAPKG_EXE"):
             _exe = ""
         if _exe:
             os.environ["PYTHON_JULIAPKG_EXE"] = _exe
+    # and its project: the repository's own (PythonCall is a direct dependency of the package), so that one
+    # manifest decides every version; a project of juliacall's own loads Preferences at another version and the
+    # package's dependencies then cannot precompile inside the same session
+    os.environ.setdefault("PYTHON_JULIAPKG_PROJECT", str(REPO_ROOT))
 
 import filelock
 

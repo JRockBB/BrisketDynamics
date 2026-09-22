@@ -29,16 +29,17 @@ Julia-backed app test errored at setup. Two things fix it:
 
 - both Tesseract APIs (`tesseracts/monolith/tesseract_api.py`,
   `tesseracts/slab2d/tesseract_api.py`) now point juliacall at the `julia`
-  on PATH (`PYTHON_JULIAPKG_EXE`, resolved through juliaup's shim), so the
-  app uses the Julia the repository's environments were instantiated with;
-  set `PYTHON_JULIAPKG_EXE` yourself to choose another;
-- if juliacall's project is still broken from an earlier Julia, instantiate
-  it once with that same Julia:
-
-  ```
-  uv run python -c "import juliapkg; print(juliapkg.project())"
-  julia --project=<that path> -e 'using Pkg; Pkg.instantiate()'
-  ```
+  on PATH (`PYTHON_JULIAPKG_EXE`, resolved through juliaup's shim) and at
+  the repository project itself (`PYTHON_JULIAPKG_PROJECT`; PythonCall is a
+  direct dependency of the package), so one manifest decides every version
+  and the app uses the Julia the repository was instantiated with. A project
+  of juliacall's own loads `Preferences` at another version, and the
+  package's dependencies then cannot precompile inside the same session.
+  Set either variable yourself to choose otherwise;
+- juliapkg then manages the repository project: it keeps `PythonCall` pinned
+  exactly, `OpenSSL_jll` among the dependencies, and drops a `lock.pid` at the
+  root (ignored). If the package will not load, instantiate the repository
+  project with that same Julia: `julia --project=. -e 'using Pkg; Pkg.instantiate()'`.
 
 When the Julia runtime cannot start, the app suite reports it once: the
 first Julia-backed test fails with the cause and this repair, and the other

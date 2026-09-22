@@ -15,3 +15,7 @@ LocalPreferences.toml
 
 # staged build contexts (created by scripts/build_containers.sh)
 tesseracts/*/BrisketDynamics/
+
+# juliapkg manages the repository project on Windows (PYTHON_JULIAPKG_PROJECT): its lock file
+lock.pid
+pyjuliapkg/
