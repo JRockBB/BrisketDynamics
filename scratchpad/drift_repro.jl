@@ -28,10 +28,10 @@ t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]
 dt = t[2] - t[1]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
 cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
-L_med = exp(prior_phys[4].p1)
-extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3), LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5)]
+extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3),
+         LatentSpec("core_depth_fraction", probe_depth_site())]
 sites = vcat(prior_phys, [e.site for e in extra]); allnames = vcat(names, [e.name for e in extra])
 AREA, DEPTH = length(sites) - 1, length(sites)
 ev = m["events"]
@@ -50,16 +50,9 @@ q = zeros(length(sites)); for (nm, sd) in DRIFT; q[idx[nm]] = sd^2; end
 hours = collect(1.0:1.0:30.0)
 seg_edges = [findlast(t .<= h * 3600) for h in hours[1:(end - 1)]]
 
-function beta_rand(rng, a, b)
-    x = range(1e-6, 1 - 1e-6; length=4001); lp = (a - 1) .* log.(x) .+ (b - 1) .* log.(1 .- x); p = exp.(lp .- maximum(lp)); c = cumsum(p); c ./= c[end]
-    r = rand(rng); k = clamp(searchsortedfirst(c, r), 2, length(c)); x[k - 1] + (x[k] - x[k - 1]) * (r - c[k - 1]) / max(c[k] - c[k - 1], 1e-300)
-end
-function draw_truth(rng)
-    z = [isbeta(p) ? (x = beta_rand(rng, p.p1, p.p2); log(x / (1 - x))) : p.p1 + p.p2 * randn(rng) for p in sites]
-    z[DEPTH] = min(z[DEPTH], log(0.9 * exp(z[4]))); z
-end
-from_z_all(z) = [isbeta(p) ? 1 / (1 + exp(-v)) : exp(v) for (v, p) in zip(z, sites)]
-to_z_all(x) = [isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x, sites)]
+draw_drift_truth(rng) = E.draw_truth(rng, sites)
+from_z_all(z) = E.from_z(z, sites)
+to_z_all(x) = [to_z(v, p) for (v, p) in zip(x, sites)]
 "The truth walked through the cook: z per hour (17 latents; the area and the depth constant)."
 function walk_truth(rng, z0)
     zs = Vector{Vector{Float64}}(); z = copy(z0)
@@ -89,8 +82,9 @@ end
 
 seed = parse(Int, ARGS[1]); which = ARGS[2]
 rng = MersenneTwister(2000 + seed)
-z0 = draw_truth(rng); zs = walk_truth(rng, z0); xs = [from_z_all(z) for z in zs]
-A, depth = xs[1][AREA], xs[1][DEPTH]
+z0 = draw_drift_truth(rng); zs = walk_truth(rng, z0); xs = [from_z_all(z) for z in zs]
+A, depth_fraction = xs[1][AREA], xs[1][DEPTH]
+depth = probe_depth(xs[1][4], depth_fraction)
 o = solve_segments([x[1:8] for x in xs], [x[9:15] for x in xs], u, t, seg_edges; pit, cfg, A_meat=A, events...)
 readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=xs[1][4], depth=depth)
 println("seed ", seed, ": truth at 1 h ", round.(zs[1]; digits=2))

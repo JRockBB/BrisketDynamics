@@ -3,7 +3,7 @@ seed = parse(Int, ARGS[1]); steps = parse(Int, ARGS[2])
 ik = findfirst(==("k_e"), allnames); im = findfirst(==("k_m"), allnames)
 c = recs[seed]; b = c["batches"][end]
 z = Float64.(b["z"]); sd = Float64.(b["sd"]); z_true = Float64.(c["z_true"])
-rng = MersenneTwister(1000 + seed); zt = draw_truth(rng, prior); xt = from_z(zt)
+rng = MersenneTwister(1000 + seed); zt = draw_amyosin_truth(rng); xt = physical_amyosin(zt)
 θ, φ, A, depth = xt[1:8], xt[9:15], xt[16], xt[17]
 o = monolith_solve(θ, φ, u, t, t; pit, cfg, A_meat=A, events...)
 readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=θ[4], depth=depth)

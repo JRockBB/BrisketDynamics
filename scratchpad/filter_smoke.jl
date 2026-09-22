@@ -12,10 +12,10 @@ m = JSON.parsefile(joinpath(REPO, "data", "mock", mock))
 gate = JSON.parsefile(joinpath(REPO, "data", "calibration", "prior_next_cook.json"))
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]; dt = t[2] - t[1]
 pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"])); cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-prior_phys = [PriorSite(String(p["family"]), Float64(p["p1"]), Float64(p["p2"])) for p in gate["prior"]]
+prior_phys = read_sites(gate["prior"])
 names = String.(gate["names"])
-L_med = exp(prior_phys[4].p1)
-extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3), LatentSpec("core_depth", "lognormal", log(0.8 * L_med), 0.5)]
+extra = [LatentSpec("A_meat", "lognormal", log(cfg.A_meat), 0.3),
+         LatentSpec("core_depth_fraction", probe_depth_site())]
 sites = vcat(prior_phys, [e.site for e in extra]); allnames = vcat(names, [e.name for e in extra])
 AREA, DEPTH = length(sites) - 1, length(sites)
 ev = m["events"]
@@ -30,7 +30,7 @@ edges = 3600.0 .* collect(2:2:to_h)
 # the truth per window: constant, or by the hour for the drifting mock
 x_true = Float64.(m["truth"]["x"])
 truth_at(te) = haskey(m, "truth_by_hour") ? (hs = Float64.(m["truth_by_hour"]["hours"]); k = max(1, findlast(hs .<= te / 3600 + 1e-9)); Float64.(m["truth_by_hour"]["x"][k])) : x_true
-z_of(x) = [isbeta(p) ? log(v / (1 - v)) : log(v) for (v, p) in zip(x, sites)]
+z_of(x) = [to_z(v, p) for (v, p) in zip(x, sites)]
 q = zeros(length(sites))
 for (nm, sd) in get(m, "drift", Dict("sd_per_hour" => Dict()))["sd_per_hour"]
     q[findfirst(==(nm), allnames)] = sd^2
