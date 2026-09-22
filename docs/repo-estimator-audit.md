@@ -148,8 +148,10 @@ Online, the same innovations drive:
 
 The AR graph is fit separately and its posterior means are plugged into the
 physics graph. Its uncertainty is not propagated through the sequential
-belief. The raw AR coefficient has an unbounded normal prior
-(`estimator/src/noise.jl:60-80`) and is clamped only after inference.
+belief. The AR coefficient keeps the node's unbounded Gaussian (the node's
+rules are conjugate in it); its reported moments are now the Gaussian's
+truncation to the stationary interval rather than a post-hoc point clamp
+(remediation report, issue 10), which bounds the summary, not the node.
 
 Simultaneous identification of process noise, measurement noise, physical
 parameters, and discrepancy is not generally identifiable without structural
@@ -157,8 +159,11 @@ assumptions and sufficient observability [3]. Adding flexible discrepancy
 also risks confounding physical calibration unless its prior and structure
 are scientifically constrained [1,2].
 
-**Remedy:** parameterize AR correlation through a bounded transform; separate
-instrument characterization from state/process-noise estimation; use
+**Remedy:** (the bounded summary of the AR correlation is done; a bounded
+parameterization inside the node would need a custom AR rule, since a delta
+node in front of it does not bound the posterior the node uses under
+mean-field) separate instrument characterization from state/process-noise
+estimation; use
 replicated cooks and independently measured mass, humidity, geometry, and
 event data; report sensitivity/Fisher rank, profile posteriors, and posterior
 correlations.
@@ -186,26 +191,19 @@ relevant humidity condition; and provide fail-safe fallback schedules.
 
 ### 16. Secondary confirmed issues
 
-- `realcook` continues masking measurements for scheduled spritzes after wrap
-  (`estimator/src/realcook.jl:38-55`, `100-110`), while the monolith gates
-  spritz lid lifts off after wrap (`src/monolith.jl:138-142`). This creates
-  phantom data outages in synthetic coverage.
-- Water-pan evaporation is tapered at zero mass, but an adaptive ODE step can
-  overshoot below zero and leave the state frozen there:
-  `src/monolith.jl:79-88`, `160-168`.
-- Custom cook-log pit NaNs are interpolated and then marked usable; only
-  meat-probe missing spans are retained in the mask:
-  `app/src/brisket_app/cooklog.py:125-145`.
 - Julia and app objective implementations disagree on the tracked MPC case:
   `0.6802` versus `0.6461`, principally appearance:
-  `data/mock/objective_crosscheck.json:67-110`.
+  `data/mock/objective_crosscheck.json:67-110`. The formula is identical on
+  both sides (a term-by-term parity fixture now gates it; see the remediation
+  report); the residual disagreement is the two engines' bark, a roadmap item.
 - The supported 2-D model omits several 1-D dynamics, including dynamic fat
   rendering, smoke/ring, fuel additions, and lid lifts, by design:
   `src/meats/slab2d.jl:1-25`. It is a useful shadow model, not independent
   verification of the full planner.
-- Comments in `BrisketEstimator.jl:4-19` still describe all bounded sites as
-  logit and an external outer loop, while current paths also use score
-  coordinates and callback-hosted iteration.
+
+The spritz mask past the wrap, the water pan's overshoot below zero, the
+cook-log pit gaps marked usable, and the stale module header are resolved
+and recorded in `docs/estimator-remediation-report.md`.
 
 ## Physical and model-theory gaps
 

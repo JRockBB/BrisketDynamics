@@ -160,7 +160,8 @@ end
     zz = vcat(z, log(0.03))
     r1 = replan_on_graph([zz], s6, d; iters=6, scan_wrap=(), scan_rest=(), scan_damper=false)
     r3 = replan_on_graph([zz], s6, d; iters=6)
-    @test r1.n_starts == 1 && r3.n_starts <= 2 && r3.F <= r1.F + 1e-9
+    println("  replan starts: warm alone F ", r1.F, " (goals ", r1.F_goals, ", ", r1.n_starts, " start); with the scans F ", r3.F, " (goals ", r3.F_goals, ", ", r3.n_starts, " starts)")
+    @test r1.n_starts == 1 && r3.n_starts <= 2 && r3.F_goals <= r1.F_goals + 1e-9   # the pick is by the goals alone (the prior conditions the solve, never chooses), so "never worse" is by the goals
     # the hedged replan over sigma points runs and returns a plan inside the decision space
     zs6 = sigma_draws(zz, Diagonal(fill(0.02, length(zz))); n_dirs=1)
     rh = replan_on_graph(zs6, s6, d; iters=3, scan_wrap=(), scan_rest=(), scan_damper=false)
@@ -251,5 +252,24 @@ end
     # a later clock with the same plan: re-encoded in the shrunken window, the loss is still finite
     s.t_now = 2 * 3600.0
     @test isfinite(plan_loss([z], plan, s, d).mean)
+end
+
+@testset "the objective's parity fixture: Julia scores the stored cook as it recorded it" begin
+    fx = JSON.parsefile(joinpath(@__DIR__, "..", "..", "data", "mock", "objective_parity.json"))
+    tg = Float64.(fx["t"]); nt = length(tg)
+    g = PlanGoals()
+    @test all(getfield(g, f) == fx["goals"][string(f)] for f in fieldnames(PlanGoals))
+    cfgp = MeatConfig()
+    @test cfgp.W0 == fx["cfg"]["W0"] && cfgp.β_fat == fx["cfg"]["beta_fat"] && cfgp.η_drain == fx["cfg"]["eta_drain"] && cfgp.F0 == fx["cfg"]["F0"]
+    # the stored trajectories as a cook output whose fields are constant at the values read at serve
+    o_syn = (Tsurf=Float64.(fx["tsurf"]), Tcore=Float64.(fx["tcore"]), m_fuel=Float64.(fx["m_fuel"]),
+             l_star=fill(Float64(fx["l_star_end"]), nt), bark_s=fill(Float64(fx["smoke_end"]), nt),
+             C_field=fill(Float64(fx["doneness"]), 2, nt), W_field=fill(Float64(fx["w_serve"]) * cfgp.W0, 2, nt),
+             F_field=fill(Float64(fx["fmean_serve"]), 2, nt))
+    y = cook_outputs(o_syn, tg, Float64.(fx["du"]), Float64(fx["t_pull"]), Float64(fx["t_add"]), Float64(fx["t_serve"]), cfgp, g)
+    @test isapprox(y[6], fx["juiciness"]; rtol=1e-10) && isapprox(y[7], fx["surf_term"]; rtol=1e-10) && isapprox(y[8], fx["fuel_frac"]; rtol=1e-10)
+    @test isapprox(y[end - 1], fx["leth_s"]; rtol=1e-10) && isapprox(y[end], fx["leth_c"]; rtol=1e-10)
+    terms = objective_terms(y, g)
+    @test all(isapprox(getfield(terms, k), fx["terms"][string(k)]; rtol=1e-9, atol=1e-12) for k in keys(terms))
 end
 println("test_horizon.jl: done")

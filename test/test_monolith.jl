@@ -357,6 +357,11 @@ end
     @test wet.Tpit[i_mid] < dry.Tpit[i_mid]
     @test sum(wet.pv_base) > sum(dry.pv_base)
     @test all(wet.pan_evap[(end - 5):end] .>= -1e-9)  # steady pan evaporates, not condenses
+    # a pan that dries out mid-cook: the mass never goes negative (the solver rejects a step that overshoots the
+    # dry-out, where the taper would otherwise freeze the state below zero), the humidity stays finite
+    pit_small = PitConfig(; T_amb=300.0, m_pan0=0.25)
+    small = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=pit_small)
+    @test all(small.m_pan .>= -1e-6 * pit_small.m_pan_taper) && small.m_pan[end] < 0.05 && all(isfinite, small.pv_pit) && all(isfinite, small.T_pan)   # dry to a rounding error below zero, never frozen below it
     # the closed pan balance: the pan drives against the pit vapor that
     # includes its own contribution, so while it evaporates the pit vapor
     # stays below the pan's saturation (it can never push the pit past it)

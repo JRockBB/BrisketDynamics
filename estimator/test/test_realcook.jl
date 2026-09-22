@@ -30,13 +30,20 @@ events = (t_wrap=6.0 * 3600, t_pull=12.0 * 3600, t_add=4.0 * 3600, t_spritz=3.0 
 
 @testset "lid windows and masks" begin
     open = lid_windows(t, events, nc)
-    # the wrap, the pull, the fuel add, and the spritzes at 3, 4.5, 6, 7.5, 9, 10.5, 12 h: each six minutes = 3 grid points
-    n_ev = 3 + 7
+    # the wrap, the pull, the fuel add, and the spritzes at 3, 4.5 and 6 h (the train stops at the wrap): each six minutes = 3 grid points
+    n_ev = 3 + 3
     @test count(open) <= n_ev * 3 && count(open) >= (n_ev - 2) * 3      # the wrap at 6 h and a spritz at 6 h overlap
     masks = realcook_masks(t, open, nc)
     @test E.channel_gap(masks.pit) == 1 && E.channel_gap(masks.core) == 1
     @test E.channel_gap(masks.humidity) == 5 && E.channel_gap(masks.mass) == 15
     @test !any(masks.pit .& open) && !any(masks.mass .& open)
+    # after the wrap no spritz opens the lid (the plant sprays no wrapped brisket; monolith.jl gates the lift the
+    # same way): between the wrap's own window and the pull nothing is open, on the grid and at any time
+    after_wrap = (t .>= events.t_wrap + nc.lid_open) .& (t .< events.t_pull)
+    @test !any(open[after_wrap]) && !any(E.lid_open_at(tk, events, nc) for tk in t[after_wrap])
+    @test E.lid_open_at(4.5 * 3600, events, nc) && !E.lid_open_at(7.5 * 3600, events, nc)
+    no_wrap = (t_wrap=1e9, t_pull=events.t_pull, t_add=events.t_add, t_spritz=events.t_spritz, dt_spritz=events.dt_spritz, m_spritz=events.m_spritz)
+    @test E.lid_open_at(7.5 * 3600, no_wrap, nc) && count(lid_windows(t, no_wrap, nc)) > count(open)   # unwrapped, the train runs to the pull
 end
 
 @testset "the pit level follows the fire, the humidity is capped" begin

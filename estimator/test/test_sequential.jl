@@ -147,7 +147,29 @@ end
     end
     sn2 = load_state_noise(tmp; warn=false)
     @test sn2.T == 0.7 && sn2.W0 == 0.2 && sn2.C == sn.C && sn2.ignited0 == sn.ignited0 && sn2.fields == :offset
-    @test load_state_noise(tempname() * ".json"; warn=false) == StateNoise()
+    @test load_state_noise(tempname() * ".json"; strict=false, warn=false) == StateNoise()
+    # fail closed: a flight never runs on the defaults or on stale rates by accident; the tune round says so explicitly
+    @test_throws ErrorException load_state_noise(tempname() * ".json")
+    tmp_stale = tempname() * ".json"
+    open(tmp_stale, "w") do io
+        JSON.print(io, merge(state_noise_dict(StateNoise(T=0.7)), Dict("physics" => Dict("fingerprint" => "000000000000"))))
+    end
+    @test_throws ErrorException load_state_noise(tmp_stale)
+    @test load_state_noise(tmp_stale; strict=false, warn=false).T == 0.7
+    rm(tmp_stale)
+    # the fingerprint covers every file the filter runs through: on a synthetic tree a byte in stream.jl or misfit.jl moves it
+    @test "stream.jl" in E.FILTER_FILES && "misfit.jl" in E.FILTER_FILES
+    mktempdir() do tree
+        mkpath(joinpath(tree, "src")); mkpath(joinpath(tree, "estimator", "src"))
+        write(joinpath(tree, "src", "a.jl"), "a")
+        for f in E.FILTER_FILES; write(joinpath(tree, "estimator", "src", f), ""); end
+        fp0 = physics_fingerprint(repo=tree)
+        write(joinpath(tree, "estimator", "src", "stream.jl"), "b")
+        fp1 = physics_fingerprint(repo=tree)
+        write(joinpath(tree, "estimator", "src", "misfit.jl"), "c")
+        fp2 = physics_fingerprint(repo=tree)
+        @test fp0 != fp1 && fp1 != fp2 && length(fp2) == 12
+    end
     rm(tmp)
 end
 
@@ -229,6 +251,17 @@ end
     a_f, B_f, w_f = E.assemble_at(chs0, st0.m, S_f, J_f, pw0, lay_f, ph_f)
     @test all(isfinite, a_f) && all(isfinite, B_f) && all(ph_f.scale[] .>= E.white_floor(chs0[1]) - 1e-12) && length(ph_f.scale[]) == length(a_f)
     arrivals = [k for k in 2:findlast(t .<= 1800.0 + 1e-9) if any(mk[k] for mk in (masks.pit, masks.core, masks.humidity, masks.mass))]
+    # the trust region on the filter's own first update (the initial readings assimilated, the prediction, the
+    # update at the first arrival): with the cap on the update commits; when no iteration was capped the belief is
+    # the uncapped one exactly; a capped iteration is a finding the bench counts (the record's `capped`)
+    st_t = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=64)
+    st_f = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=64, trust=false)
+    r_t = filter_update!(st_t, arrivals[1]; diagnostics=true); r_f = filter_update!(st_f, arrivals[1]; diagnostics=true)
+    println("  the first update (the initial readings and the first arrival): ", r_t.capped, " of ", r_t.iters, " iterations capped, converged ", r_t.converged, "; uncapped ", r_f.iters, " iterations, converged ", r_f.converged)
+    @test r_t.updated && r_t.capped >= 0 && r_f.capped == 0 && st_t.trust && !st_f.trust
+    if r_t.capped == 0
+        @test isapprox(st_t.m, st_f.m; rtol=1e-10, atol=1e-12) && isapprox(st_t.P, st_f.P; rtol=1e-10, atol=1e-14)
+    end
     @test length(recs) == length(arrivals) && [r.k for r in recs] == arrivals && all(r.updated for r in recs)   # one update per arrival, none between
     r = recs[end]
     @test all(isfinite, r.z) && all(r.z_sd .> 0) && r.T_pit[2] > 0 && r.T_centre[2] > 0 && r.T_surface[2] > 0 && all(isfinite, r.disc)
@@ -288,7 +321,7 @@ end
     ifuel = E.fuel_index(lay_e) - lay_e.n_z
     @test abs((Pa[ifuel, ifuel] - Pe[ifuel, ifuel]) - st_e.sn.m_add^2) < 0.2 * st_e.sn.m_add^2
     @test length(E._event_times(ev_add, t[end])) == length(E._event_times(events, t[end])) && any(te == t[5] && k == :add for (te, k) in E._event_times(ev_add, t[end]))
-    @test load_state_noise(tempname() * ".json"; warn=false).T_event == 5.0
+    @test load_state_noise(tempname() * ".json"; strict=false, warn=false).T_event == 5.0
     # endpoint process noise belongs to the predicted state before its reading: a precise pit sample after an
     # event conditions almost all of that event variance, while the same propagation without a sample retains it
     km = 7

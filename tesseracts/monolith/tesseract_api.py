@@ -43,6 +43,27 @@ if not os.environ.get("JULIA_PYTHONCALL_LIB") and sys.platform == "linux":
     if _libs:
         os.environ["JULIA_PYTHONCALL_LIB"] = _libs[0]
 
+if sys.platform == "win32" and not os.environ.get("PYTHON_JULIAPKG_EXE"):
+    # juliacall's own Julia must be the one the repository's environments were instantiated with: `julia` on
+    # PATH through juliaup. Left to itself juliapkg picks a channel of its own (1.12 here, against the 1.11 the
+    # package and CI pin), its project then fails to precompile PythonCall, and two runtimes contend for one
+    # depot. juliaup's shim only resolves the real executable when run, so ask it (docs/install.md, Windows).
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    _julia = _shutil.which("julia")
+    if _julia:
+        try:
+            _exe = _subprocess.run(
+                [_julia, "-e", 'print(joinpath(Sys.BINDIR, "julia.exe"))'],
+                capture_output=True, text=True, timeout=120, check=True,
+            ).stdout.strip()
+        except Exception as _e:  # noqa: BLE001 - juliapkg then chooses; say so
+            print(f"tesseract_api: could not resolve `julia` for juliacall ({_e}); juliapkg will choose its own", file=sys.stderr)
+            _exe = ""
+        if _exe:
+            os.environ["PYTHON_JULIAPKG_EXE"] = _exe
+
 import filelock
 
 _EXEC_ATTR = "_brisket_julia_executor"

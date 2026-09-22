@@ -33,6 +33,37 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
 
+  estimator-tests:
+    # the RxInfer estimator suite (estimator/test), every file its own process, in shards balanced by the
+    # files' wall times (estimator/test/runtests.jl prints them) so each shard sits under the job limit
+    name: Estimator shard ${{ matrix.shard.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - { name: sequential, files: "test_sequential.jl" }
+          - { name: planner, files: "test_horizon.jl test_iterated.jl test_smoother.jl" }
+          - { name: misfit, files: "test_misfit.jl test_physics2d.jl test_ridge.jl" }
+          - { name: channels, files: "test_channels.jl test_engine.jl test_noise.jl test_rates.jl test_realcook.jl test_rules.jl test_segments.jl test_volatility.jl" }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.11'
+          arch: x64
+      - uses: julia-actions/cache@v2
+      - name: Instantiate the estimator project (BrisketDynamics by path, RxInfer)
+        run: julia --project=estimator -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+      - name: Run the shard
+        env:
+          JULIA_FASTCHOLESKY_NO_WARN_NON_SYMMETRIC: "1"
+        run: julia estimator/test/runtests.jl ${{ matrix.shard.files }}
+
   app-tests:
     name: App (pytest, LocalClient in-process)
     runs-on: ubuntu-latest

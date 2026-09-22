@@ -77,3 +77,28 @@ def test_as_cooklog_aligns_damper_with_observation_grid():
     assert log["u"].shape == log["t"].shape
     np.testing.assert_allclose(log["u"][0], synth.U_COOK[0])
     np.testing.assert_allclose(log["u"][-1], synth.U_COOK[-1])
+
+
+def test_cooklog_pit_gap_is_interpolated_but_never_observed(tmp_path):
+    """A span of missing pit samples is filled on the grid (the damper and the starts need a value) but masked
+    out of the likelihood, as a missing meat span already was."""
+    from brisket_app import cooklog
+
+    rows = ["t_min,pit_F,meat_F,amb_F,fan_pct,setpoint_F,lid_event"]
+    for k in range(37):  # 0..360 min at 10 min
+        t = 10 * k
+        pit = "" if 100 <= t <= 150 else f"{225 + 0.01 * t:.2f}"
+        rows.append(f"{t},{pit},{60 + 0.2 * t:.2f},70,30,225,false")
+    csv_path = tmp_path / "gap.csv"
+    csv_path.write_text("\n".join(rows) + "\n")
+    cooklog.LOGS["gap_test"] = {"csv": csv_path, "t_end_min": None, "t_amb_K": 300.0, "start_at_core_K": None}
+    try:
+        log = cooklog.load(dt_min=10.0, log="gap_test")
+    finally:
+        del cooklog.LOGS["gap_test"]
+    t_min = log["t"] / 60.0
+    in_gap = (t_min >= 100) & (t_min <= 150)
+    assert np.all(np.isfinite(log["obs_pit"]))            # interpolated for the grid
+    assert not log["mask_pit"][in_gap].any()              # never observed
+    assert log["mask_pit"][~in_gap].all()                 # everything else is
+    assert log["mask_core"].all()

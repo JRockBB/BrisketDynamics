@@ -232,14 +232,16 @@ const REPO_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
 "The state-noise file the bench writes and every driver reads."
 const STATE_NOISE_FILE = joinpath(REPO_ROOT, "data", "calibration", "state_noise.json")
 "The filter's own sources, fingerprinted with the physics: a change to any of them means the rates must be re-earned."
-const FILTER_FILES = ("BrisketEstimator.jl", "sequential.jl", "channels.jl", "noise.jl", "volatility.jl", "realcook.jl", "drift.jl", "segments.jl", "iterated.jl")
+const FILTER_FILES = ("BrisketEstimator.jl", "sequential.jl", "channels.jl", "noise.jl", "volatility.jl", "realcook.jl", "drift.jl", "segments.jl", "iterated.jl",
+                      "stream.jl", "misfit.jl")
 
 """
     physics_fingerprint(; repo=REPO_ROOT) -> String
 
 The first twelve hex digits of the SHA-1 over the physics sources (`src/**/*.jl`) and the filter's own files
 (`FILTER_FILES`), each as its repository path and its bytes with carriage returns dropped, in path order. The
-state-noise file records the fingerprint it was earned on; `load_state_noise` warns when the tree's differs.
+state-noise file records the fingerprint it was earned on; `load_state_noise` refuses the file when the tree's
+differs (the bench's tune round alone may start from stale rates).
 """
 function physics_fingerprint(; repo::AbstractString=REPO_ROOT)
     files = String[]
@@ -263,22 +265,28 @@ state_noise_dict(sn::StateNoise) = Dict("rates" => Dict(g => getfield(sn, Symbol
                                         "events" => Dict("T_event" => sn.T_event, "T_spritz" => sn.T_spritz, "m_add" => sn.m_add))
 
 """
-    load_state_noise(path=STATE_NOISE_FILE; warn=true) -> StateNoise
+    load_state_noise(path=STATE_NOISE_FILE; strict=true, warn=true) -> StateNoise
 
 The state's process noise and initial widths as the bench earned them (`estimator/python/bench_state_noise.py`
-writes the file with the physics fingerprint it ran on); the `StateNoise` defaults, with a note, when there is
-no file yet, and a warning when the tree's physics or filter no longer match the file's fingerprint (the
-rates are then stale: rerun the bench).
+writes the file with the physics fingerprint it ran on). Under `strict` (the default: every flight, every
+coverage run, the bench's fresh round) a missing file or a fingerprint that is not the tree's is an error:
+the `StateNoise` defaults are a starting point and stale rates are not results, and neither may stand in for
+the bench silently. With `strict=false` (the bench's tune round, which starts from the file's rates by design)
+a missing file gives the defaults with a note and a stale file its rates with a warning (`warn`).
 """
-function load_state_noise(path::AbstractString=STATE_NOISE_FILE; warn::Bool=true)
+function load_state_noise(path::AbstractString=STATE_NOISE_FILE; strict::Bool=true, warn::Bool=true)
     if !isfile(path)
+        strict && error("no state-noise file at $path: earn the rates with estimator/python/bench_state_noise.py, or take the StateNoise defaults explicitly (strict=false; \"default\" on the bench)")
         warn && @info "no state-noise file at $path: the StateNoise defaults, a starting point and not a result; earn them with estimator/python/bench_state_noise.py"
         return StateNoise()
     end
     d = JSON.parsefile(path)
     got = string(get(get(d, "physics", Dict()), "fingerprint", ""))
     fp = physics_fingerprint()
-    got == fp || !warn || @warn "the state noise in $path was earned on physics $got; the tree's is $fp: the rates are stale, rerun estimator/python/bench_state_noise.py"
+    if got != fp
+        strict && error("the state noise in $path was earned on physics $got; the tree's is $fp: the rates are stale, rerun estimator/python/bench_state_noise.py (its tune round alone may start from them: strict=false)")
+        warn && @warn "the state noise in $path was earned on physics $got; the tree's is $fp: the rates are stale, rerun estimator/python/bench_state_noise.py"
+    end
     kw = Dict{Symbol,Any}()
     for (k, v) in d["rates"]; kw[Symbol(k)] = Float64(v); end
     for (k, v) in d["init_sd"]; kw[Symbol(k * "0")] = Float64(v); end
@@ -660,6 +668,7 @@ mutable struct FilterState
     adapt_level::Bool
     ftol::Float64
     sigma::Matrix{Float64}
+    trust::Bool                       # the trust region on the update's iterations (off only for comparisons)
 end
 
 """
@@ -677,14 +686,16 @@ when that pass does not converge (zero disables retry), and `ftol` the objective
 `adapt_level` whether each channel's level follows its standardized innovations (off on the bench that earns
 the state's process noise: a level reads the belief's consistency and cannot be judged before the belief is
 consistent; the dead-reading flag stays on); `n_sigma` the sigma points of the prediction (`sigma_design`;
-0 for the tangent prediction, the transition Jacobian at the optimum alone) and `sigma_seed` their draw.
+0 for the tangent prediction, the transition Jacobian at the optimum alone) and `sigma_seed` their draw;
+`trust` the trust region on every update iteration (no coordinate of the block beyond its own predicted width
+in one iteration; off only for comparisons, the record counts the capped iterations as `capped`).
 """
 function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
                      events::NamedTuple; noise::AbstractVector{NoisePrior}, area_latent::Int, sn::StateNoise=StateNoise(),
                      q::AbstractVector=zeros(length(sites)), jumps::AbstractVector=[], goals::PlanGoals=PlanGoals(),
                      abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=4, retry_iters::Int=12,
                      ftol::Float64=0.05, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0,
-                     ident_min::Int=24, adapt_level::Bool=true, n_sigma::Int=64, sigma_seed::Int=7)
+                     ident_min::Int=24, adapt_level::Bool=true, n_sigma::Int=64, sigma_seed::Int=7, trust::Bool=true)
     n_z = length(sites); n_ch = length(channels)
     length(noise) == n_ch || throw(ArgumentError("one NoisePrior per channel ($(length(noise)) for $n_ch channels)"))
     length(names) == n_z || throw(ArgumentError("one name per site"))
@@ -711,7 +722,7 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
                        sn, collect(Float64, q), [(Int(j[1]), Float64(j[2]), Float64(j[3])) for j in jumps], goals, past, 1, 0,
                        collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, retry_iters,
                        level_w, level_window, fault_level, ident_min, adapt_level, ftol,
-                       n_sigma > 0 ? sigma_design(n_z, n_sigma, sigma_seed) : zeros(0, n_z))
+                       n_sigma > 0 ? sigma_design(n_z, n_sigma, sigma_seed) : zeros(0, n_z), trust)
 end
 
 # a channel's residual series (and the variances beside it) split into runs at gaps longer than three times
@@ -783,15 +794,21 @@ function _filter_prior(sites, m, P)
     return FilterPrior(sites, collect(m), zeros(n, n), Matrix(F.L)), Ps
 end
 
-"Run an online RxInfer update, continuing once from its last accepted center when the short first pass does not converge."
+"""
+Run an online RxInfer update, continuing once from its last accepted center when the short first pass does not
+converge; returns the result, the iterations taken and how many of them the trust region capped (a step that
+would have moved some coordinate beyond its own predicted width).
+"""
 function _online_solve(st::FilterState, chs, prior, d, ph, c0)
-    res = solve_map_channels(chs, prior, d; c0, physics=ph, iters=st.iters, ftol=st.ftol, verbose=false)
+    res = solve_map_channels(chs, prior, d; c0, physics=ph, iters=st.iters, ftol=st.ftol, verbose=false, trust=st.trust)
     n_it = length(res.hist)
+    n_cap = count(get(h, :alpha_max, 1.0) < 1 for h in res.hist)
     if !res.converged && st.retry_iters > 0
-        res = solve_map_channels(chs, prior, d; c0=res.z, physics=ph, iters=st.retry_iters, ftol=st.ftol, verbose=false)
+        res = solve_map_channels(chs, prior, d; c0=res.z, physics=ph, iters=st.retry_iters, ftol=st.ftol, verbose=false, trust=st.trust)
         n_it += length(res.hist)
+        n_cap += count(get(h, :alpha_max, 1.0) < 1 for h in res.hist)
     end
-    return res, n_it
+    return res, n_it, n_cap
 end
 
 # The measurement operator at one endpoint. A two-point, negligible-duration solve reconstructs every channel's
@@ -921,12 +938,13 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
 
     # 1. The readings at the cook's initial point belong to the initial state, not to the discrepancy state at
     # the end of the first interval. Assimilate them once before the first prediction.
+    cap0, n0 = 0, 0                                                   # the initial assimilation's iterations and the capped ones among them
     if k0 == 1
         P = _stable_cov(P)
         d0, ph0, chs0, live0 = _observation_context(st, 1, P; first=true)
         if !isempty(live0)
             prior0, P = _filter_prior(st.joint, m, P)
-            res0, n0 = _online_solve(st, chs0, prior0, d0, ph0, m)
+            res0, n0, cap0 = _online_solve(st, chs0, prior0, d0, ph0, m)
             if res0.converged
                 m, P = res0.z, _stable_cov(res0.cov)
             else
@@ -979,7 +997,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     nis, dof, innov = NaN, 0, Dict{Int,Vector{Float64}}()
     resid = Dict{Int,Float64}(); rvar = Dict{Int,Float64}(); efree = Dict{Int,Float64}()
     if isempty(live)
-        z_post, V_post, mis, n_it, converged = m_pred, P_pred, nothing, 0, true
+        z_post, V_post, mis, n_it, n_cap, converged = m_pred, P_pred, nothing, 0, 0, true
     else
         prior_w, P_pred = _filter_prior(st.joint, m_pred, P_pred)
         # the residual of every sample at the predicted mean, before the update: the reading less the physics, the
@@ -1033,7 +1051,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
                 row += nr
             end
         end
-        res, n_it = _online_solve(st, chs, prior_w, d, ph, m_pred)
+        res, n_it, n_cap = _online_solve(st, chs, prior_w, d, ph, m_pred)
         mis, converged = res.misfit, res.converged
         if converged
             z_post, V_post = res.z, _stable_cov(res.cov)
@@ -1068,7 +1086,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             x=(diagnostics ? m_new[xr] : nothing), x_cov=(diagnostics ? P_new[xr, xr] : nothing),
             z=m_new[1:n_z], z_sd=sd[1:n_z], z_cov=P_new[1:n_z, 1:n_z], disc=m_new[disc_range(lay)], disc_sd=sd[disc_range(lay)],
             noise=[(σ=np.σ_mean, σ_sd=np.σ_sd, ρ=np.ρ_mean, ρ_sd=np.ρ_sd) for np in st.np], level=copy(st.level), faulty=copy(st.faulty),
-            misfit=mis, iters=n_it, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov, sigma=sigma_ok)
+            misfit=mis, iters=n_it + n0, capped=n_cap + cap0, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov, sigma=sigma_ok)
 end
 
 "The lid-open events of the cook up to `t_end`, each with its kind: the add, the wrap, the pull, and the spritz train to the pull."

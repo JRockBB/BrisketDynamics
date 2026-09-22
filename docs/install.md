@@ -17,6 +17,33 @@ are Julia >= 1.10 and uv; the full recipe is README "Reproducing
 (README "Using it on your own cook"). First runs JIT-compile the Julia
 side (~1 min); the Tesseract runs in-process (LocalClient), no Docker.
 
+### Windows: one Julia for the app and the package
+
+The app drives the Julia package in-process through juliacall, which keeps a
+Julia project of its own (`app/.venv/julia_env`) and, left to itself, picks a
+Julia of its own through juliaup. On this machine that was the `release`
+channel (1.12) while the package, the estimator and CI run 1.11: juliacall's
+project would not precompile PythonCall (its own dependency JSON was never
+instantiated for that Julia), the Tesseract API failed to load, and every
+Julia-backed app test errored at setup. Two things fix it:
+
+- both Tesseract APIs (`tesseracts/monolith/tesseract_api.py`,
+  `tesseracts/slab2d/tesseract_api.py`) now point juliacall at the `julia`
+  on PATH (`PYTHON_JULIAPKG_EXE`, resolved through juliaup's shim), so the
+  app uses the Julia the repository's environments were instantiated with;
+  set `PYTHON_JULIAPKG_EXE` yourself to choose another;
+- if juliacall's project is still broken from an earlier Julia, instantiate
+  it once with that same Julia:
+
+  ```
+  uv run python -c "import juliapkg; print(juliapkg.project())"
+  julia --project=<that path> -e 'using Pkg; Pkg.instantiate()'
+  ```
+
+When the Julia runtime cannot start, the app suite reports it once: the
+first Julia-backed test fails with the cause and this repair, and the other
+Julia-backed tests are skipped (`app/tests/conftest.py`).
+
 ## Containers (Linux/WSL2)
 
 `scripts/build_containers.sh` builds the packaged Tesseract images

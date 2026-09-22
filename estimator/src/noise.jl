@@ -57,6 +57,36 @@ function noise_priors_from_file(path; ρ_sd_min::Float64=0.05, σ_rel_min::Float
                 for (k, v) in j["channels"])
 end
 
+"""
+    _truncated_moments(μ, σ, lo, hi) -> (m, s)
+
+The mean and sd of N(μ, σ²) truncated to (lo, hi), in the erfcx forms that hold in the tails (a posterior centred
+at 1.03 with sd 0.001, thirty sd beyond the bound, still gives finite moments): the summary of the AR coefficient
+inside its stationary interval, where the node's own Gaussian is not confined. An interval the Gaussian sits so
+far outside that the moments cancel is an error, not a clamp.
+"""
+function _truncated_moments(μ::Real, σ::Real, lo::Real, hi::Real)
+    (isfinite(μ) && isfinite(σ) && σ > 0 && lo < hi) ||
+        throw(ArgumentError("a truncated normal needs finite moments, σ > 0 and lo < hi: N($μ, $(σ)²) on ($lo, $hi)"))
+    a, b = (lo - μ) / σ, (hi - μ) / σ
+    flip = b <= 0                              # both bounds below the mean: mirror, so the nearer bound sits at a ≥ 0
+    flip && ((a, b) = (-b, -a))
+    if a >= 0                                  # the interval in one tail: φ/Z from erfcx, nothing underflows
+        e = exp(-(b - a) * (b + a) / 2)        # φ(b) / φ(a)
+        D = erfcx(a / sqrt(2.0)) - e * erfcx(b / sqrt(2.0))
+        δ = sqrt(2 / pi) * (1 - e) / D         # (φ(a) − φ(b)) / Z
+        τ = sqrt(2 / pi) * (a - b * e) / D     # (a φ(a) − b φ(b)) / Z
+    else                                       # the mean inside the interval: the plain forms
+        Z = 0.5 * (erfc(-b / sqrt(2.0)) - erfc(-a / sqrt(2.0)))
+        φa, φb = exp(-a^2 / 2) / sqrt(2pi), exp(-b^2 / 2) / sqrt(2pi)
+        δ = (φa - φb) / Z
+        τ = (a * φa - b * φb) / Z
+    end
+    v = 1 + τ - δ^2
+    v > 0 || error("the AR posterior N($μ, $(σ)²) sits too far outside ($lo, $hi) for a truncated summary")
+    return μ + (flip ? -δ : δ) * σ, σ * sqrt(v)
+end
+
 # the AR node's parameters from the prior's moments: θ ~ Normal(ρ), γ ~ Gamma matched to
 # γ = 1 / (σ² (1 − ρ²)) with the delta method on σ
 function _ar_prior(p::NoisePrior)
@@ -96,7 +126,12 @@ end
 
 The AR node's posterior on one channel's residual runs (a vector of
 vectors, raw units): the marginal sd and correlation with their delta-method
-widths, and the raw posteriors of θ and γ. `eps`, runs of per-sample
+widths, and the raw posteriors of θ and γ. The node's Gaussian on θ is not
+confined to the stationary interval (on a trending residual its mean passes
+1), so `ρ` and `ρ_sd` are that Gaussian's moments truncated to (−1, 1): the
+same summary as the Gaussian's own when its mass lies inside, a mean
+strictly inside the bound with a finite width when it does not; `θ` is the
+raw posterior, for diagnostics. `eps`, runs of per-sample
 variances, is the known noise the residuals observe the process through
 (a filter's prediction error at each sample, so the belief's own
 uncertainty is not read as the instrument's); without it a small
@@ -116,12 +151,11 @@ function ar1_posterior(runs::AbstractVector{<:AbstractVector}, prior::NoisePrior
                 initialization = ar1_init(ap.θ_mean, ap.θ_var, ap.γ_shape, ap.γ_rate),
                 iterations = iters, returnvars = (θ = KeepLast(), γ = KeepLast()))
     qθ, qγ = res.posteriors[:θ], res.posteriors[:γ]
-    ρ, ρ_sd = mean(qθ), std(qθ)
+    ρ, ρ_sd = _truncated_moments(mean(qθ), std(qθ), -1.0, 1.0)     # the node's Gaussian summarized inside the stationary bound
     γm, γsd = mean(qγ), std(qγ)
-    ρc = clamp(ρ, -0.999, 0.999)
-    σ = 1 / sqrt(γm * (1 - ρc^2))
+    σ = 1 / sqrt(γm * (1 - ρ^2))
     # delta method: d log σ = −½ d log γ + ρ dρ / (1 − ρ²)
-    σ_sd = σ * sqrt((0.5 * γsd / γm)^2 + (ρc * ρ_sd / (1 - ρc^2))^2)
+    σ_sd = σ * sqrt((0.5 * γsd / γm)^2 + (ρ * ρ_sd / (1 - ρ^2))^2)
     return (σ=σ, ρ=ρ, σ_sd=σ_sd, ρ_sd=ρ_sd, θ=qθ, γ=qγ)
 end
 

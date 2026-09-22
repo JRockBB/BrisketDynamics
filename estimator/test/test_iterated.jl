@@ -43,6 +43,43 @@ end
     @test any(abs(h.F - h.F_trial) > 1e-6 for h in accepted)
 end
 
+@testset "the trust region: no site moves beyond its own width in one iteration" begin
+    target = [0.5, 3.0]; w = [1.0, 0.1]
+    objective(c) = 0.5 * sum(abs2, c .- target)
+    centres = Vector{Vector{Float64}}()
+    rebuild!(c) = push!(centres, copy(c))
+    cap(_, s) = E._cap_factor(s ./ w)
+    function run_exact(_Λ_lm, callbacks, its)           # the graph's step: exactly to the target
+        q = nothing
+        for it in 1:its
+            q = MvNormalMeanCovariance(copy(target), Matrix(1.0 * I, 2, 2))
+            callbacks.on_marginal_update(MockMarginalEvent(:z, q))
+            if hasproperty(callbacks, :after_iteration)
+                event = MockIterationEvent(it, false)
+                callbacks.after_iteration(event)
+                event.stop_iteration && break
+            end
+        end
+        return q
+    end
+    r0 = iterated_solve(IteratedProblem(:z, objective, rebuild!, 2), run_exact; c0=[0.0, 0.0], tol=1e-8, ftol=1e-10)
+    @test r0.converged && all(h.alpha_max == 1.0 for h in r0.hist) && length(r0.hist) <= 2 && r0.z ≈ target
+    empty!(centres)
+    r1 = iterated_solve(IteratedProblem(:z, objective, rebuild!, 2; step_cap=cap), run_exact; c0=[0.0, 0.0], iters=60, tol=1e-8, ftol=1e-10)
+    @test r1.converged && isapprox(r1.z, target; atol=1e-6)
+    @test abs(r1.hist[1].alpha_max - 1 / 30) < 1e-12 && r1.hist[1].alpha == r1.hist[1].alpha_max && all(h.accepted for h in r1.hist)
+    moves = [maximum(abs.(centres[k] .- centres[k - 1]) ./ w) for k in 2:length(centres)]
+    @test all(moves .<= 1 + 1e-9) && count(h.alpha_max < 1 for h in r1.hist) == 29     # 29 capped moves of one width, then the free step to the target
+    @test r1.hist[end].alpha_max == 1.0                      # convergence is declared only on an uncapped step
+    # the whitened cap: a move of three widths on one coordinate of the block, whatever the correlation, caps at a third
+    rng_t = MersenneTwister(3)
+    S0 = Matrix(cholesky(Symmetric(let A = randn(rng_t, 4, 4); A * A' + I end)).L)
+    wv = sqrt.(vec(sum(abs2, S0; dims=2)))
+    Δv = zeros(4); Δv[2] = 3 * wv[2]
+    @test abs(E._whitened_step_cap(S0)(nothing, S0 \ Δv) - 1 / 3) < 1e-12
+    @test E._whitened_step_cap(S0)(nothing, S0 \ (Δv ./ 6)) == 1.0
+end
+
 # ---------------------------------------------------------------- the planner on the graph
 const AFFS = Ref{Vector{Tuple{Vector{Float64},Matrix{Float64}}}}(Tuple{Vector{Float64},Matrix{Float64}}[])
 const CENTER = Ref{Vector{Float64}}(zeros(3))

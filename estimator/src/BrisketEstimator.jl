@@ -1,25 +1,39 @@
 # The online estimator as a factor graph (RxInfer) over the BrisketDynamics
-# monolith — step 2 of the review's item 8: the Gauss-Newton / Laplace
-# calibration of the real cook, reproduced by message passing.
+# monolith: the calibration's Gauss-Newton / Laplace posterior reproduced by
+# message passing, then the channel registry, the noise on the graph, and
+# the filter that carries the belief through the physics as the cook goes.
 #
-# Structure (what step 1 established, docs/results.md "RxInfer step 1"):
-#   * ONE multivariate latent block z (the 15 physics latents in the
-#     unconstrained space: log for LogNormal sites, logit for Beta sites) —
-#     separate blocks feeding one node are mean-field in RxInfer and return
-#     conditional, not marginal, variances;
-#   * one node PER WHITENED RESIDUAL, each with a scalar output — a node
-#     with more outputs than latent inputs has a singular forward output
-#     covariance and RxInfer silently returns the prior;
-#   * the physics enters each node AFFINE around a linearization point c
-#     (f(c) + J(c)(z − c), J by ForwardDiff through the FBDF solve), so the
-#     Linearization rule is exact and an OUTER loop moves c: Gauss-Newton
-#     with the prior intact, expressed as message passing;
-#   * the prior node is the local quadratic of −log p(z) at c (exact for the
-#     Gaussian sites, the logit-Beta curvature for the Beta sites), so the
-#     fixed point and the covariance are those of scripts/run_gn_map.py.
-# Sensors are then nodes on the same latent: this file carries the two
-# probe channels of the real cook (as the whitened AR(1) residuals the
-# calibration uses); the channel registry comes next.
+# Structure, fixed by three measured RxInfer behaviours (test_rules.jl):
+#   * ONE multivariate latent block z, every site in an unconstrained
+#     coordinate: the log for a lognormal site; the logit or the normal
+#     score for a beta or logbeta site (coord = :score, the pilot's prior
+#     file: the family is exactly N(0, 1) there, tails included); the value
+#     itself for a linear site (the filter's state block, itself in
+#     softplus / logit coordinates) — separate blocks feeding one node are
+#     mean-field in RxInfer and return conditional, not marginal, variances;
+#   * one node PER WHITENED RESIDUAL (or per local censored-normal survival
+#     site), each with a scalar output — a node with more outputs than
+#     latent inputs has a singular forward output covariance and RxInfer
+#     silently returns the prior;
+#   * the physics enters each node AFFINE around a centre c (f(c) + J(c)(z − c),
+#     J by ForwardDiff through the FBDF solve, or the regression over sigma
+#     points in the filter), so the Linearization rule is exact; the centre
+#     moves INSIDE one `infer` call (iterated.jl: the after-iteration callback
+#     re-centres the affine model, runs the exact line search under a trust
+#     region, and scales the Levenberg-Marquardt node);
+#   * the prior node is the local quadratic of −log p(z) at c (exact for a
+#     Gaussian or a score site, the logit-Beta curvature for a logit site; a
+#     filter's predicted belief as a full Gaussian, solved in its whitened
+#     coordinates), so the batch fixed point and covariance are those of
+#     scripts/run_gn_map.py.
+# The files: channels.jl (the registry: PitProbe, MeatProbe, CensoredHumidity,
+# MassScale and the rest, each with predict / noise_mask / extra_rows),
+# noise.jl (the AR node on each channel's residuals), volatility.jl (the
+# level as a GCV process), stream.jl (the batch fit alternating physics and
+# noise), iterated.jl (the loop on the graph), segments.jl / drift.jl /
+# smoother.jl (the plant in segments, the drifting truths, the moving sites),
+# sequential.jl (the filter: the state in constrained coordinates, sigma-point
+# prediction, the whitened update, the process noise earned on the bench).
 module BrisketEstimator
 
 using RxInfer

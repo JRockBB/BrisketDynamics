@@ -27,6 +27,25 @@ from tesseract_core.runtime import Array, Differentiable, Float64, ShapeDType
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+if sys.platform == "win32" and not os.environ.get("PYTHON_JULIAPKG_EXE"):
+    # juliacall's own Julia must be the one the repository's environments were instantiated with (`julia` on PATH
+    # through juliaup); see tesseracts/monolith/tesseract_api.py and docs/install.md (Windows)
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    _julia = _shutil.which("julia")
+    if _julia:
+        try:
+            _exe = _subprocess.run(
+                [_julia, "-e", 'print(joinpath(Sys.BINDIR, "julia.exe"))'],
+                capture_output=True, text=True, timeout=120, check=True,
+            ).stdout.strip()
+        except Exception as _e:  # noqa: BLE001 - juliapkg then chooses; say so
+            print(f"tesseract_api: could not resolve `julia` for juliacall ({_e}); juliapkg will choose its own", file=sys.stderr)
+            _exe = ""
+        if _exe:
+            os.environ["PYTHON_JULIAPKG_EXE"] = _exe
+
 _DIRECT = os.environ.get("BRISKET_JL_DIRECT", "0") == "1"
 # the ONE process-wide Julia thread, shared with the monolith API:
 # libjulia initializes on the first module's executor thread, and a

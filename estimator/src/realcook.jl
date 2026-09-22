@@ -35,7 +35,7 @@ Base.@kwdef struct RealCookNoise
     lid_open::Float64 = 360.0          # the lid is open six minutes at each event
 end
 
-"The grid indices inside a lid-open window after each event time (the wrap, every spritz, the pull, the fuel add)."
+"The grid indices inside a lid-open window after each event time (the wrap, every spritz up to the wrap or the pull, the pull, the fuel add)."
 function lid_windows(t, events::NamedTuple, nc::RealCookNoise; t_end=Inf)
     open = falses(length(t))
     times = Float64[]
@@ -44,7 +44,8 @@ function lid_windows(t, events::NamedTuple, nc::RealCookNoise; t_end=Inf)
     haskey(ev, :t_pull) && ev.t_pull < 1e8 && push!(times, ev.t_pull)
     haskey(ev, :t_add) && ev.t_add < 1e8 && push!(times, ev.t_add)
     if haskey(ev, :t_spritz) && ev.t_spritz < 1e8
-        tp = haskey(ev, :t_pull) && ev.t_pull < 1e8 ? ev.t_pull : t_end
+        tp = min(haskey(ev, :t_pull) && ev.t_pull < 1e8 ? ev.t_pull : t_end,
+                 haskey(ev, :t_wrap) && ev.t_wrap < 1e8 ? ev.t_wrap : t_end)     # the train stops at the wrap, as the plant's does (no lid lift for a wrapped brisket)
         ts = ev.t_spritz
         while ts <= min(tp, t[end])
             push!(times, ts)
@@ -96,7 +97,7 @@ Instruments(t, nc::RealCookNoise, rng) = Instruments(nc, collect(Float64, t),
 "The pit probe's sd at time `t`: the level follows the fire, a bump after the fuel add."
 pit_sd_at(nc::RealCookNoise, t, t_add) = nc.pit_sd * (t_add < 1e8 && t > t_add ? 1 + nc.pit_add_bump * exp(-(t - t_add) / nc.add_tau) : 1.0)
 
-"Whether the lid is open at time `t` under the executed events (the wrap, the pull, the add, the spritz train to the pull)."
+"Whether the lid is open at time `t` under the executed events (the wrap, the pull, the add, the spritz train to the wrap or the pull)."
 function lid_open_at(t, events::NamedTuple, nc::RealCookNoise)
     ev = events
     inwin(te) = te < 1e8 && te <= t < te + nc.lid_open
@@ -104,7 +105,7 @@ function lid_open_at(t, events::NamedTuple, nc::RealCookNoise)
     (haskey(ev, :t_pull) && inwin(ev.t_pull)) && return true
     (haskey(ev, :t_add) && inwin(ev.t_add)) && return true
     if haskey(ev, :t_spritz) && ev.t_spritz < 1e8
-        tp = haskey(ev, :t_pull) && ev.t_pull < 1e8 ? ev.t_pull : Inf
+        tp = min(haskey(ev, :t_pull) && ev.t_pull < 1e8 ? ev.t_pull : Inf, haskey(ev, :t_wrap) && ev.t_wrap < 1e8 ? ev.t_wrap : Inf)
         n = floor(Int, (t - ev.t_spritz) / ev.dt_spritz)
         n >= 0 && ev.t_spritz + n * ev.dt_spritz <= tp && inwin(ev.t_spritz + n * ev.dt_spritz) && return true
     end

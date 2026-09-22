@@ -89,6 +89,17 @@ function _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit::PitConfig, hum::Humidit
 end
 
 """
+    _pan_out_of_domain(cfg) -> (x, p, t) -> Bool
+
+The pan's water mass may not go negative: the evaporation tapers to zero at zero mass, so the exact solution
+approaches the dry pan without crossing it, but an adaptive step that overshoots would leave the state frozen
+below zero (the taper is then zero both ways, and condensation cannot refill it). The solver rejects such a
+step and retries it shorter. The bound sits a millionth of the taper scale below zero: as the pan dries the state
+converges onto zero itself, and a trial a rounding error below it is not an overshoot.
+"""
+_pan_out_of_domain(cfg::MeatConfig, pit::PitConfig) = (x, p, t) -> _primal(x[5 * cfg.nx + 8]) < -1e-6 * pit.m_pan_taper
+
+"""
     make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
 
 Build the in-place coupled RHS over `x = [meat(5·nx + 4) | T_pit, m_fuel,
@@ -213,7 +224,7 @@ function _monolith_solve_arr(
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!, x0, (float(tsave[1]), float(tsave[end])), p
     )
-    sol = solve(prob, FBDF(); saveat=tsave, abstol=abstol, reltol=reltol)
+    sol = solve(prob, FBDF(); saveat=tsave, abstol=abstol, reltol=reltol, isoutofdomain=_pan_out_of_domain(cfg, pit))
     A = Array(sol)
     (SciMLBase.successful_retcode(sol) && size(A, 2) == length(tsave)) || throw(
         ErrorException(
@@ -617,7 +628,7 @@ function _monolith_solve_arr_s(
     )
     s_grid = collect(Float64, s_save)
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(rhs_s!, x0, (0.0, 1.0), p)
-    sol = solve(prob, FBDF(); saveat=s_grid, abstol=abstol, reltol=reltol)
+    sol = solve(prob, FBDF(); saveat=s_grid, abstol=abstol, reltol=reltol, isoutofdomain=_pan_out_of_domain(cfg, pit))
     A = Array(sol)
     (SciMLBase.successful_retcode(sol) && size(A, 2) == length(s_grid)) || throw(
         ErrorException(

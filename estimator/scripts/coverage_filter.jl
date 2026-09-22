@@ -9,12 +9,10 @@
 # by default), after every cook; plot_coverage.py reads it with the key err_sd_graphfilter, plot_filter_consistency.py
 # the consistency tests.
 #
-# Run:  julia --project=estimator estimator/scripts/coverage_filter.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [adapt_level 0/1] [state_noise.json|default] [n_sigma] [truths]
+# Run:  julia --project=estimator estimator/scripts/coverage_filter.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [adapt_level 0/1] [state_noise.json|default] [n_sigma] [stale_ok 0/1]
 #   n_sigma: the prediction's sigma points over the latents (64 by default; 0 for the tangent prediction)
-#   truths: "chain" (the default) draws every site's truth from its family in the prior file; "gaussian" redraws the
-#   bounded-family sites (beta, logbeta) from the Laplace Gaussian the filter starts from, everything else in the cook
-#   unchanged (the drift and the instruments' noise take the same draws): the test of whether the filter's Gaussian
-#   in the transformed coordinate is what leaves those sites wide
+#   stale_ok: 1 lets the state-noise file's rates stand when its fingerprint is not the tree's (the bench's tune round, which starts
+#   from them by design); every other run refuses stale rates (load_state_noise is strict)
 #   adapt_level: 0 (the default) keeps every channel's level at one while the state's process noise is earned from this
 #   bench (a level reads the belief's consistency and cannot be judged before the belief is consistent); 1 lets it follow
 #   state_noise.json (data/calibration): the state's process noise and initial widths the filter runs with (the file the
@@ -39,8 +37,7 @@ edges_to_h = length(ARGS) >= 5 ? parse(Float64, ARGS[5]) : 14.0
 adapt_level = length(ARGS) >= 6 ? ARGS[6] == "1" : false
 sn_file = length(ARGS) >= 7 ? ARGS[7] : "state_noise.json"
 n_sigma = length(ARGS) >= 8 ? parse(Int, ARGS[8]) : 64
-truths = length(ARGS) >= 9 ? ARGS[9] : "chain"
-truths in ("chain", "gaussian") || throw(ArgumentError("truths must be chain or gaussian, not $truths"))
+stale_ok = length(ARGS) >= 9 ? ARGS[9] == "1" : false
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_realcook.json"))
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]
 dt = t[2] - t[1]
@@ -58,7 +55,7 @@ noise = [np0[i] for i in 1:4]
 dr = drift_rates(blk.file; sites, idx)     # the rates the filter is told, in the sites' coordinates (the plant walks with drift.jl's own; the same by default: the test is of the mechanism)
 q = zeros(length(sites)); for (nm, sd) in dr.sd_per_hour; q[idx[nm]] = sd^2; end
 jumps = [(idx[nm], events.t_add, sd^2) for (nm, sd) in dr.jump_log_sd]
-sn = sn_file == "default" ? StateNoise() : load_state_noise(isabspath(sn_file) ? sn_file : joinpath(REPO, "data", "calibration", sn_file))
+sn = sn_file == "default" ? StateNoise() : load_state_noise(isabspath(sn_file) ? sn_file : joinpath(REPO, "data", "calibration", sn_file); strict=!stale_ok)
 fingerprint = physics_fingerprint()
 group_dof = Dict{String,Int}()          # each state group's degrees of freedom (filled from the first cook's layout)
 
@@ -70,11 +67,11 @@ save() = open(dst, "w") do io
                         "drift" => Dict("sd_per_hour" => dr.sd_per_hour, "jump_log_sd" => dr.jump_log_sd, "stated" => "in the logit of a fraction or the log, carried into each site's coordinate by drift_scale"), "q" => q,
                         "state_noise" => Dict(string(k) => getfield(sn, k) for k in fieldnames(StateNoise)), "state_noise_file" => sn_file,
                         "physics" => fingerprint, "adapt_level" => adapt_level, "groups" => collect(STATE_GROUPS), "group_dof" => group_dof, "n_sigma" => n_sigma,
-                        "truths" => truths))
+                        "stale_ok" => stale_ok))
 end
 println("the graph filter: prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; edges to ", edges_to_h, " h; updates on arrival; the level ",
         adapt_level ? "following the innovations" : "fixed at one (the bench earns the state's process noise)", "; the state noise from ", sn_file,
-        "; physics ", fingerprint, "; the prediction by ", n_sigma > 0 ? "$n_sigma sigma points" : "the tangent", "; the truths ", truths, "; record ", out_name)
+        "; physics ", fingerprint, "; the prediction by ", n_sigma > 0 ? "$n_sigma sigma points" : "the tangent", stale_ok ? "; stale rates allowed (the tune round)" : "", "; record ", out_name)
 println("  rates [units/sqrt(h)]: ", join(["$g $(getfield(sn, Symbol(g)))" for g in STATE_GROUPS], ", "))
 println("  initial sds: ", join(["$g $(getfield(sn, Symbol(g * "0")))" for g in STATE_GROUPS], ", "))
 flush(stdout)
@@ -82,13 +79,6 @@ for k in 1:n_cooks
     seed = seed0 + k - 1
     rng = MersenneTwister(2000 + seed)
     z0 = draw_truth(rng, sites)
-    if truths == "gaussian"                                           # the bounded sites from the Laplace Gaussian, on a draw of their own (a site in its score: its own family)
-        rng_g = MersenneTwister(4000 + seed)
-        _, _, h0 = prior_terms(z_center.(sites), sites)
-        for (i, p) in enumerate(sites)
-            E._betalike(p) && (z0[i] = z_center(p) + randn(rng_g) / sqrt(h0[i]))
-        end
-    end
     dd = DriftDraw(rng, idx; sites)
     seg_edges, blocks = drift_segments(t, z0, dd, events.t_add)
     xs = [from_z(z, sites) for z in blocks]

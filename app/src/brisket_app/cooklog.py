@@ -139,8 +139,10 @@ def load(
     pit_g, meat_g, amb_g, fan_g = map(resample, (pit, meat, amb, fan))
     # masks: usable observations exclude lid events and originally-NaN spans
     raw_ok_meat = np.isfinite(meat)
+    raw_ok_pit = np.isfinite(pit)
+    pit_has_data = np.interp(tg, t_min, raw_ok_pit.astype(float)) > 0.99
     meat_has_data = np.interp(tg, t_min, raw_ok_meat.astype(float)) > 0.99
-    mask_pit = ~lid_g
+    mask_pit = ~lid_g & pit_has_data     # a pit gap is interpolated for the grid but never observed
     mask_core = ~lid_g & meat_has_data
     usable_core = np.where(mask_core)[0]
     tcore0 = (
