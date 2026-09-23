@@ -83,14 +83,19 @@ function state_decode_jacobian(y, lay::FilterLayout)
             for (v, k) in zip(y, state_kinds(lay))]
 end
 
-"Map a physical covariance into local filter coordinates, limiting one interval's coordinate sd for boundary stability."
-function _state_cov_to_coord(Q, y, lay::FilterLayout; max_sd::Float64=3.0)
+"The per-entry factors that map a physical covariance into the local filter coordinates at `y`: the coordinate's derivative and the cap's scale (one where the entry's coordinate sd is under `max_sd`, less where the cap holds it)."
+function _coord_scales(Q, y, lay::FilterLayout; max_sd::Float64=3.0)
     dxdy = state_decode_jacobian(y, lay)
     d = inv.(max.(dxdy, eps(Float64)))
-    Qy = Matrix(Symmetric((d .* Q) .* d'))
-    sd = sqrt.(max.(diag(Qy), 0.0))
+    sd = sqrt.(max.(diag(Q) .* d .^ 2, 0.0))
     scale = min.(1.0, max_sd ./ max.(sd, eps(Float64)))
-    return Matrix(Symmetric((scale .* Qy) .* scale'))
+    return d, scale
+end
+"Map a physical covariance into local filter coordinates, limiting one interval's coordinate sd for boundary stability."
+function _state_cov_to_coord(Q, y, lay::FilterLayout; max_sd::Float64=3.0)
+    d, scale = _coord_scales(Q, y, lay; max_sd)
+    e = scale .* d
+    return Matrix(Symmetric((e .* Q) .* e'))
 end
 
 "Decode a state Gaussian by first-order moment propagation, for physical diagnostics."
@@ -617,7 +622,7 @@ function sigma_design(n::Int, N::Int, seed::Int)
 end
 
 """
-    _sigma_prediction(lay, sigma, v, V, J_end, d, ph) -> (m_new, P_new)
+    _sigma_prediction(lay, sigma, v, V, J_end, d, ph) -> (m_new, P_new, F)
 
 The belief propagated to the slice's end through the physics by sigma points over the latents: each point
 perturbs the latents by a whitened draw scaled by the posterior's Cholesky factor, takes the state and the
@@ -627,7 +632,10 @@ cross-covariance and the state's covariance are the points' spread, and the stat
 linear slice this is the linear prediction exactly; for the cook's physics it carries the state's spread across
 the regimes the latents' uncertainty reaches (a diffusivity one sd either way dries or wets the surface), which
 the tangent at the mean cannot. A point whose solve fails, or a latents' block that is not positive definite,
-is an error naming the point: there is no quiet way down to the tangent.
+is an error naming the point: there is no quiet way down to the tangent. `F` is the transition the prediction
+is equivalent to (the identity on the latents, the points' regression slope less the conditional coupling on
+the latents' columns of the state and the discrepancies, the tangent on the state's own): `P_new = F V Fᵀ` plus
+the regression's residual, exactly.
 """
 function _sigma_prediction(lay::FilterLayout, sigma::AbstractMatrix, v::AbstractVector, V::AbstractMatrix, J_end::AbstractMatrix, d::GateData, ph::PhysicsState)
     n_z = lay.n_z; zr = 1:n_z; xr = state_range(lay); ξr = (n_z + 1):lay.n
@@ -659,7 +667,11 @@ function _sigma_prediction(lay::FilterLayout, sigma::AbstractMatrix, v::Abstract
     P[zr, ξr] = (Δ * R') ./ N; P[ξr, zr] = P[zr, ξr]'
     P[ξr, ξr] = (R * R') ./ N + A * Vcond * A'
     m = copy(v); m[ξr] = ξ̄
-    return m, Matrix(Symmetric(P))
+    G = (F \ ((Δ * R') ./ N))'                                        # the regression slope of the endpoint on the latents' steps
+    Fm = Matrix{Float64}(I, lay.n, lay.n)
+    Fm[ξr, zr] = G - A * K
+    Fm[ξr, ξr] = A
+    return m, Matrix(Symmetric(P)), Fm
 end
 
 """
@@ -722,7 +734,11 @@ mutable struct FilterState
     sigma::Matrix{Float64}
     rounds::Int                       # the outer rounds of the update: the points re-placed at each round's posterior
     round_kl::Float64                 # the change of the belief between rounds [nats] under which the rounds stop
+    als::Union{Nothing,ALSAccumulator}   # the innovation autocovariances' sensitivity to the state's rates, fed at every update when the bench asks for it
 end
+"The accumulator of a run under the state noise `sn` on the layout `lay`: one variance rate per group, in `STATE_GROUPS`' order."
+ALSAccumulator(sn::StateNoise, lay::FilterLayout; kw...) =
+    ALSAccumulator(collect(String, STATE_GROUPS), [getfield(sn, Symbol(g))^2 for g in STATE_GROUPS], lay.n, lay.n_ch; kw...)
 
 """
     filter_init(channels, t, u, pit, cfg, sites, names, events; noise, area_latent, sn=StateNoise(), q, jumps, goals, iters=4, retry_iters=12, ...) -> FilterState
@@ -747,6 +763,8 @@ posterior covariance and the state's tangent taken at its centre, while the roun
 `round_kl` nats from the belief the points were placed by, the shift measured on the mean alone in whitened
 units, halved: a routine two-minute update moves the mean under a nat and costs one round, the initial
 assimilation moves it by hundreds and takes its rounds); the record carries the iterations and the rounds used.
+`als` an `ALSAccumulator` the updates feed (the bench's identification of the state's rates from the
+innovations' autocovariances; `nothing` otherwise, and the belief is the same either way).
 """
 function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
                      events::NamedTuple; noise::AbstractVector{NoisePrior}, area_latent::Int, sn::StateNoise=StateNoise(),
@@ -754,7 +772,7 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
                      abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=4, retry_iters::Int=12,
                      ftol::Float64=0.05, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0,
                      ident_min::Int=24, adapt_level::Bool=true, n_sigma::Int=64, sigma_seed::Int=7,
-                     rounds::Int=3, round_kl::Float64=5.0)
+                     rounds::Int=3, round_kl::Float64=5.0, als::Union{Nothing,ALSAccumulator}=nothing)
     n_z = length(sites); n_ch = length(channels)
     length(noise) == n_ch || throw(ArgumentError("one NoisePrior per channel ($(length(noise)) for $n_ch channels)"))
     length(names) == n_z || throw(ArgumentError("one name per site"))
@@ -781,7 +799,7 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
                        sn, collect(Float64, q), [(Int(j[1]), Float64(j[2]), Float64(j[3])) for j in jumps], goals, past, 1, 0,
                        collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, retry_iters,
                        level_w, level_window, fault_level, ident_min, adapt_level, ftol,
-                       n_sigma > 0 ? sigma_design(n_z, n_sigma, sigma_seed) : zeros(0, n_z), rounds, round_kl)
+                       n_sigma > 0 ? sigma_design(n_z, n_sigma, sigma_seed) : zeros(0, n_z), rounds, round_kl, als)
 end
 
 # a channel's residual series (and the variances beside it) split into runs at gaps longer than three times
@@ -903,6 +921,43 @@ function _state_process_cov(st::FilterState, tw, y_endpoint)
         end
     end
     return _state_cov_to_coord(Q, y_endpoint, lay)
+end
+
+"""
+    _state_process_sens(st, tw, y_endpoint) -> Vector{Matrix}
+
+Per group, in `STATE_GROUPS`' order, the derivative of the interval's state process covariance (as
+`_state_process_cov` maps it, the events' disturbances aside) with respect to the group's variance rate, the
+square of its rate, in the full block's coordinates: the group's own block per unit of that rate, and nothing
+where the coordinate cap holds an entry's width (an entry the cap holds does not grow with the rate; a
+covariance between a held entry and a free one grows with its square root). The accumulator of the bench's
+identification reads it.
+"""
+function _state_process_sens(st::FilterState, tw, y_endpoint)
+    lay = st.lay; xr = state_range(lay); n = lay.n
+    Δh = (tw[end] - tw[1]) / 3600
+    rates = state_rates(st.sn, lay)
+    Q = state_noise_cov(lay, st.sn, rates .* sqrt(Δh))
+    d, scale = _coord_scales(Q, y_endpoint, lay)
+    e = scale .* d
+    Qc = Matrix(Symmetric((e .* Q) .* e'))
+    capped = scale .< 1
+    out = Matrix{Float64}[]
+    for (g, rg) in state_groups(lay)
+        θ = getfield(st.sn, Symbol(g))^2
+        D = zeros(n, n)
+        if θ > 0
+            for i in rg, j in rg
+                D[xr[i], xr[j]] = Qc[i, j] * (2 - capped[i] - capped[j]) / (2θ)
+            end
+        else                                                          # a group at rate zero: its structure per unit rate², which no cap can hold at zero width
+            sd1 = zeros(length(rates)); sd1[rg] .= sqrt(Δh)
+            Q1 = state_noise_cov(lay, st.sn, sd1)
+            for i in rg, j in rg; D[xr[i], xr[j]] = d[i] * Q1[i, j] * d[j]; end
+        end
+        push!(out, D)
+    end
+    return out
 end
 
 # the noise of channel c after it delivered a sample at k: (σ, ρ) on the AR node over the full residual series
@@ -1032,16 +1087,23 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     Q = zeros(lay.n, lay.n)
     Q[xr, xr] = _state_process_cov(st, tw, L.x_end)
     if sigma_ok
-        m_pred, P_pred = _sigma_prediction(lay, st.sigma, m, P, L.J_end, d_transition, ph_transition)
+        m_pred, P_pred, F_lin = _sigma_prediction(lay, st.sigma, m, P, L.J_end, d_transition, ph_transition)
         P_pred = _sqrt_cov_sum(P_pred, Q)
     else
-        F = Matrix(1.0 * I, lay.n, lay.n)
-        F[xr, :] = L.J_end
+        F_lin = Matrix(1.0 * I, lay.n, lay.n)
+        F_lin[xr, :] = L.J_end
         m_pred = copy(m)
         m_pred[xr] = L.x_end
-        P_pred = _sqrt_propagate(F, P, Q)
+        P_pred = _sqrt_propagate(F_lin, P, Q)
     end
     P_pred = _stable_cov(P_pred)
+    if st.als !== nothing                                             # the interval's transition from the last posterior (the discrepancies' AR factors precede the physics) and the process covariance's sensitivity per group
+        F_full = copy(F_lin)
+        for c in 1:n_ch
+            F_full[:, disc_index(lay, c)] .*= clamp(st.np[c].ρ_mean, 0.0, 0.999)^nsteps
+        end
+        dQ = _state_process_sens(st, tw, L.x_end)
+    end
 
     # 3. Update the predicted endpoint belief with only the readings at k. Process and event uncertainty is now
     # in this prior, so those readings condition it directly; no event-specific measurement inflation is needed.
@@ -1051,6 +1113,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     d, ph, chs, live = _observation_context(st, k, P_pred; first=false)
     nis, dof, innov = NaN, 0, Dict{Int,Vector{Float64}}()
     resid = Dict{Int,Float64}(); rvar = Dict{Int,Float64}(); efree = Dict{Int,Float64}()
+    H_als, S_als, e_als, rowch_als = nothing, nothing, nothing, Int[]  # the standardized rows, their covariance and the innovations at the predicted mean, for the accumulator
     if isempty(live)
         z_post, V_post, mis, n_it, n_rounds, converged = m_pred, P_pred, nothing, 0, 0, true
     else
@@ -1089,6 +1152,10 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             Sm = Symmetric(H * P_pred * H' + I)
             nis = dot(nu, Sm \ nu); dof = length(nu)
             sdev = sqrt.(max.(diag(Sm), 1e-12))
+            if st.als !== nothing
+                H_als = H ./ sdev; S_als = Matrix(Sm) ./ (sdev * sdev'); e_als = nu ./ sdev
+                rowch_als = reduce(vcat, [fill(c, size(whitening(ch), 1)) for (c, ch) in enumerate(chs)])[keepr]
+            end
             pos = Dict(i => j for (j, i) in enumerate(keepr))
             row = 0
             for (c, ch) in enumerate(chs)
@@ -1113,6 +1180,14 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
         else
             @warn "endpoint observation update did not converge; retaining the predicted belief" grid_index=k time=tw[end] iterations=n_it
             z_post, V_post = m_pred, P_pred
+        end
+    end
+    if st.als !== nothing
+        if H_als === nothing
+            als_update!(st.als, F_full, dQ, zeros(0, lay.n), zeros(0, 0), zeros(lay.n, 0), Float64[], Int[], tw[end])
+        else                                                          # the gain on the standardized innovations; none when the predicted belief was kept
+            K_als = converged ? P_pred * H_als' / Symmetric(S_als) : zeros(lay.n, length(e_als))
+            als_update!(st.als, F_full, dQ, H_als, S_als, K_als, e_als, rowch_als, tw[end])
         end
     end
     # 4. the residual series, the noise and the level of every channel that reported a reading

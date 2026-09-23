@@ -369,14 +369,24 @@ estimator's.
 
 **The bench, and why it is a script.** The state's process noise (a
 random-walk rate and an initial width per field group, `StateNoise`) is
-not fit to any reading. It is earned by consistency against the truth
-on the drifting bench: `estimator/python/bench_state_noise.py` runs a
-tuning round on seeds 1 to 9, applies one covariance-matching step per
-group (the rate and the width scaled by the square root of the group's
-NEES per degree of freedom when that widens the belief, by its fourth
-root when it narrows it, capped at a factor four), runs a fresh round on
-seeds 10 to 18 with the corrected rates, and renders the consistency and
-coverage figures from the fresh round only. The rates live in
+not fit to any reading. It is identified from the filter's own
+innovations on the drifting bench and checked against the truth there:
+`estimator/python/bench_state_noise.py` runs a tuning round on seeds 1
+to 9 with each cook's filter carrying the accumulator of the innovation
+autocovariances' sensitivity to every group's rate
+(`estimator/src/als.jl`), applies one autocovariance least-squares step
+(`estimator/python/als_fit.py`, Odelson et al. 2006 in the fixed-gain,
+time-varying form: the products of the standardized innovations at every
+pair of updates inside a two-hour window, less the filter's own white
+model, regressed on the change of the twelve variance rates under the
+gains the filter used, each rate capped at a factor four, a group the
+innovations cannot see kept, the initial widths kept), runs a fresh
+round on seeds 10 to 18 with the identified rates, and renders the
+consistency and coverage figures from the fresh round only. The step
+needs no truth, so it transfers to a real cook; it replaced a
+covariance-matching step against the plant's state that had turned a
+persistent, latent-driven pit error into white per-step noise (the
+remediation report's entry on the bench's step). The rates live in
 `data/calibration/state_noise.json` with the fingerprint of the physics
 sources and the filter's files they were earned on, the commit and both
 rounds' numbers; every driver loads them and warns when the tree has

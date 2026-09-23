@@ -733,9 +733,182 @@ Status: **fixed and focused tests passing**
   gate holds). With that, every one of the fifteen estimator test files
   passes on the committed tree.
 
+## The bench's step 2 — The rates identified from the innovations' autocovariances, in place of covariance matching against the truth
+
+Status: **built, tested and smoke-run; the bench itself pending a go** (this session, 2026-09-23)
+
+### Why the step was replaced
+
+- The bench earned the state's process-noise rates by one covariance-matching
+  step against the plant's state: each group's rate scaled by the square root
+  of its NEES per degree of freedom. On the remediated filter the smoke cook
+  showed what that step cannot see (the entry above): the pit's earned rate,
+  0.42 K per two-minute step, was as large as the probe's own innovation, the
+  innovations were smaller than the filter expected (NIS/dof 0.4) and the
+  pit's were negatively autocorrelated (over-correction) while the core's
+  stayed positively autocorrelated with a persistent negative mean
+  (under-correction). NEES against the truth measures the belief's width;
+  it does not say whether a width came from a persistent, latent-driven error
+  or from per-step noise, and the step turned the former into the latter.
+  The innovations' autocovariances at several lags tell the two apart: that
+  is what the autocovariance least-squares method identifies from (Odelson,
+  Rajamani, Rawlings 2006; in the fixed-gain, time-varying form, Åkesson et
+  al. 2008; Zhang et al. 2020, section IV). The step needs no truth, so it is
+  the same step on a real cook's innovations.
+
+### The mechanism, in the filter's own pieces
+
+- The filter's update at an arrival is, to first order, a Kalman update with
+  the affine rows H at the predicted mean (one per reading, whitened by its
+  noise; the same rows the diagnostics whiten the innovations with) and the
+  gain K = P⁻Hᵀ S⁻¹ on the predicted innovation covariance S = H P⁻ Hᵀ + I.
+  The prediction between arrivals is a transition F with the process noise
+  Q_known + Σ_g θ_g Q̇_g, θ_g the square of group g's rate and Q̇_g the group's
+  covariance per unit of it in the state's coordinate at the interval's end.
+  The sigma-point prediction is exactly such a transition: the identity on
+  the latents, the points' regression slope less the conditional coupling on
+  the latents' columns of the state and the discrepancies, the tangent on the
+  state's own columns; the predicted covariance is F P Fᵀ plus the
+  regression's residual, a covariance (`_sigma_prediction` now returns F).
+- Under its own model the filter's innovations are white with covariance S:
+  at lag zero the predicted covariance, beyond it nothing (the Kalman-gain
+  identity F[(I − KH)P⁻Hᵀ − K R] = 0). Under the rates θ + δθ, with the gains
+  the filter actually used, the prediction error carries an extra covariance
+  Π_g per unit δθ_g, propagated as Π_g ← F Π_g Fᵀ + Q̇_g at a prediction and
+  Π_g ← (I − KH) Π_g (I − KH)ᵀ at an update, and the innovation autocovariance
+  between the update at t and an earlier one at t′ is [t = t′] S + Σ_g δθ_g
+  H(t) Φ(t, t′) Π_g(t′) H(t′)ᵀ with Φ the product of the closed-loop
+  transitions between them. In units standardized by the filter's predicted
+  innovation sds, the products of the innovations at every pair of updates
+  inside the lag window, less the base, are a linear regression on the twelve
+  δθ_g. The accumulator (`estimator/src/als.jl`) carries its sufficient
+  statistics along the run: the normal equations, and per channel pair and
+  time lag the sample products, the base and each group's coefficient. The
+  driver pools them over the cooks and solves for δθ ≥ −θ.
+
+### Changes
+
+- `estimator/src/als.jl`: `ALSAccumulator`, `als_update!` (the twelve
+  sensitivity recursions, the pending updates inside the window with their
+  propagated Π Hᵀ, the rows' statistics; innovation replicates as columns
+  for the tests' simulation), `als_summary` (what the worker writes per cook).
+- `estimator/src/sequential.jl`: `_coord_scales` shared by the coordinate map
+  and the sensitivity; `_sigma_prediction` returns the equivalent transition;
+  `_state_process_sens` (per group the derivative of the interval's mapped
+  process covariance with respect to its variance rate, nothing where the
+  coordinate cap holds an entry, half where the cap holds one side of a
+  covariance); the `als` slot on `FilterState` (`filter_init(...; als)`), fed
+  at the end of every update with the interval's transition (the
+  discrepancies' AR factors preceding the physics), the sensitivities, the
+  standardized rows, S, the gain on the standardized innovations (zero when
+  the predicted belief was kept) and the innovations. The belief is the same
+  with or without it.
+- `estimator/scripts/coverage_filter.jl`: a tenth argument, the accumulator's
+  lag window in hours (2 by default, 0 without); the accumulator per cook and
+  its summary under `als` in the record.
+- `estimator/python/als_fit.py`: `pool`, `als_fit`, `lag_table`, the
+  printing. The rows are weighted by their own residual variance per channel
+  pair and kind (the squares at one update, the products across updates; the
+  accumulator keeps each block's normal equations for it), the method's
+  weighting made feasible from the rows themselves: the weights start at one,
+  each block's residual variance at the unbounded fit re-weights it, and the
+  fit is repeated until the weights hold. The first smoke showed why: the
+  core probe's innovations are tiny against their predicted spread, and its
+  products were a twelfth as scattered as the pit's; at unit weight the pooled
+  rows' noise read 0.10 and the core was drowned. The rule: the rows' noise is
+  the residual of the unbounded fit over every group with a column (so a large
+  change is not mistaken for noise); a group enters the fit when its own
+  column pins its variance rate
+  to a relative standard error under a half, or when the unbounded fit moves
+  it by more than two standard errors (a rate small today that the
+  innovations want larger); the fit is bounded to [θ/cap², θ·cap²] on the
+  variance rate (the same cap of four on the rate as before) and to θ ≥ 0;
+  after it, a group whose joint standard error exceeds its variance rate and
+  which the unbounded fit did not move is held at its number and the fit is
+  solved again. A group the innovations cannot see keeps its numbers and is
+  reported, as a group without a finite NEES did before. The initial widths
+  are kept: their transient is one, the rates recur. Non-finite numbers are
+  written as null, since the Julia side parses the rates file strictly.
+- `estimator/python/bench_state_noise.py`: `identify` in place of `match`;
+  `--lag-h`; the fit's whole record under `bench.tune.als` in the rates file;
+  the fit table and the lag table printed; the figure rendered after the fit.
+- `estimator/python/plot_als_fit.py`: per channel and lag the sample
+  autocovariance (± its standard error) against the model at the round's
+  rates and at the identified rates (`figures/estimator/als_autocovariance.png`;
+  `_smoke` from the smoke). Its palette is the repository's blue and orange
+  with dark-ink markers; the sample is markers with error bars and the models
+  are lines, so identity is not colour alone (the palette validator could not
+  run here: no node on this machine).
+- `estimator/test/test_als.jl` (the planner CI shard); `app/tests/test_bench_als.py`;
+  `docs/results.md` and `figures/README.md` say what the step is now.
+
+### Verification
+
+- `estimator/test/test_als.jl`: **21/21 passed** (9 min). The transition
+  reproduces the sigma prediction's cross block to 1e-8 and leaves a
+  positive semidefinite residual on the state block; the per-group
+  sensitivities sum to the interval's mapped process covariance on every
+  entry the cap does not hold, and have no latent entries. The accumulator
+  against a simulation of its own error dynamics on the filter's first thirty
+  minutes (the run's transitions, rows and gains; 400 replicates at once): a
+  planted change of the pit's variance rate of **+8.0 was fitted as +7.73 ±
+  0.21**, the temperature field (relative standard error 0.30) was identified
+  and fitted within three standard errors of its planted zero, the fit's
+  cost fell; the belief with the accumulator is the belief without it to
+  1e-10; the summary survives JSON, its pairs count the rows and its blocks'
+  normal equations sum to the whole.
+- `app/tests/test_bench_als.py`: **3 passed**. A planted change of two
+  identified groups over three pooled cooks, with one block's rows three
+  times as scattered as the other's, is recovered within its standard error
+  while the nine unseen groups keep their numbers, the weighting finds the
+  variance ratio of nine and the error bars come from the products' own
+  spread; the cap binds; a rate small today that the innovations want larger
+  enters and moves to the cap while a sample uncorrelated with its column is
+  held; cooks that ran on different rates, and no cooks, are refused.
+- The driver's smoke (one two-hour cook per round: seed 1 tuned from the
+  stale rates file, seed 10 fresh; nothing quoted from it), run twice, at unit
+  weight and with the blocks' weighting. The tuning cook's innovations against
+  the filter's model: at lag zero the pit's mean square **0.43 ± 0.08 against
+  1.00**, the core's **0.12 ± 0.02 against 1.00**, and the pit's positive
+  autocorrelation out to twenty minutes (0.17 ± 0.06 at one step). At unit
+  weight the pooled rows' noise read 0.10, because the core's products were a
+  twelfth as scattered as the pit's, and the fit sent both the pit's rate and
+  the temperature field's to the cap. With the weighting the rows' noise is
+  1.00 and the fit identifies one group: the pit's rate, to the cap (2.54 to
+  0.64 K per root-hour, eight standard errors), which brings the pit's
+  lag-zero model to 0.54; the field is held (its column alone pins its rate to
+  ±55 % and the fit moves it one standard error): the unweighted move had
+  been the pit's rows speaking for the core's. The other ten groups are
+  unidentified on a two-hour cook. On the fresh cook, with the one identified
+  rate, the innovations came in whiter: NIS/dof 0.31 to 0.49, the pit's
+  lag-one +0.30 to +0.10 and the core's +0.40 to +0.20 (both inside the band
+  of 0.26), the temperatures' NEES/3 0.48 to 0.45 and the pit's NEES/dof 0.64
+  to 0.53 (one cook each, on different seeds: a direction, not a number).
+- What no rate can explain is in the figure
+  (`figures/estimator/als_autocovariance_smoke.png`): the core's innovation
+  variance is an eighth of the model's at lag zero, before and after (the
+  field's rate at its cap would move the model by under a percent), and the
+  humidity's about six tenths. That gap is not the rates'. The noise check
+  above placed part of it in the core's white floor (1.2 K per reading, the
+  mock's whole noise sd, while the mock's noise is a pure AR(1) whose one-step
+  innovation is 0.17 K: removing the floors moved the core's mean square from
+  0.29 to 0.42 on seed 10), the rest in the belief's own predicted spread of
+  the core temperature. The bench proper measures it over nine cooks; it is a
+  finding to read, not to tune away, and the noise configuration remains the
+  user's decision.
+
+### What remains
+
+- The bench proper (nine cooks per round, two rounds, about twelve hours),
+  with a go. The fresh round's NEES against the truth and its whiteness are
+  the check of a step that never saw the truth. What the fit cannot explain
+  stays visible as the gap after in the figure: a persistent latent error is
+  not a state rate and will show as one.
+
 ## The bench on the remediated filter: the smoke round, and the bench itself pending a go
 
 Status: **the driver, the worker, the summary and the figures verified end to end; the bench not run**
+(its step 2 has since been replaced: the entry above)
 
 ### What ran
 

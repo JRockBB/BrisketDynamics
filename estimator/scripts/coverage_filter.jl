@@ -9,8 +9,11 @@
 # by default), after every cook; plot_coverage.py reads it with the key err_sd_graphfilter, plot_filter_consistency.py
 # the consistency tests.
 #
-# Run:  julia --project=estimator estimator/scripts/coverage_filter.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [adapt_level 0/1] [state_noise.json|default] [n_sigma] [stale_ok 0/1]
+# Run:  julia --project=estimator estimator/scripts/coverage_filter.jl [prior.json] [n_cooks] [seed0] [out.json] [edges_to_h] [adapt_level 0/1] [state_noise.json|default] [n_sigma] [stale_ok 0/1] [als_lag_h]
 #   n_sigma: the prediction's sigma points over the latents (64 by default; 0 for the tangent prediction)
+#   als_lag_h: the lag window, in hours, of the innovation autocovariances' accumulator (estimator/src/als.jl) each cook
+#   runs with, 2 by default; 0 runs without it. Its sufficient statistics are written per cook under "als": the bench
+#   driver pools them and identifies the state's rates from them (estimator/python/als_fit.py)
 #   stale_ok: 1 lets the state-noise file's rates stand when its fingerprint is not the tree's (the bench's tune round, which starts
 #   from them by design); every other run refuses stale rates (load_state_noise is strict)
 #   adapt_level: 0 (the default) keeps every channel's level at one while the state's process noise is earned from this
@@ -18,7 +21,8 @@
 #   state_noise.json (data/calibration): the state's process noise and initial widths the filter runs with (the file the
 #   bench driver estimator/python/bench_state_noise.py writes; the StateNoise defaults when there is none, or with "default")
 # The record scores the belief's state group by group (the normalized estimation error squared of each field and
-# scalar block against the plant's state, per update): the bench driver reads it to earn the rates.
+# scalar block against the plant's state, per update), the check the bench driver reads after it has earned the
+# rates from the innovations.
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 ENV["JULIA_FASTCHOLESKY_NO_WARN_NON_SYMMETRIC"] = "1"
@@ -38,6 +42,7 @@ adapt_level = length(ARGS) >= 6 ? ARGS[6] == "1" : false
 sn_file = length(ARGS) >= 7 ? ARGS[7] : "state_noise.json"
 n_sigma = length(ARGS) >= 8 ? parse(Int, ARGS[8]) : 64
 stale_ok = length(ARGS) >= 9 ? ARGS[9] == "1" : false
+als_lag_h = length(ARGS) >= 10 ? parse(Float64, ARGS[10]) : 2.0
 m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_realcook.json"))
 t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]
 dt = t[2] - t[1]
@@ -67,11 +72,12 @@ save() = open(dst, "w") do io
                         "drift" => Dict("sd_per_hour" => dr.sd_per_hour, "jump_log_sd" => dr.jump_log_sd, "stated" => "in the logit of a fraction or the log, carried into each site's coordinate by drift_scale"), "q" => q,
                         "state_noise" => Dict(string(k) => getfield(sn, k) for k in fieldnames(StateNoise)), "state_noise_file" => sn_file,
                         "physics" => fingerprint, "adapt_level" => adapt_level, "groups" => collect(STATE_GROUPS), "group_dof" => group_dof, "n_sigma" => n_sigma,
-                        "stale_ok" => stale_ok))
+                        "stale_ok" => stale_ok, "als_lag_h" => als_lag_h))
 end
 println("the graph filter: prior ", prior_file, "; ", n_cooks, " cooks from seed ", seed0, "; edges to ", edges_to_h, " h; updates on arrival; the level ",
         adapt_level ? "following the innovations" : "fixed at one (the bench earns the state's process noise)", "; the state noise from ", sn_file,
-        "; physics ", fingerprint, "; the prediction by ", n_sigma > 0 ? "$n_sigma sigma points" : "the tangent", stale_ok ? "; stale rates allowed (the tune round)" : "", "; record ", out_name)
+        "; physics ", fingerprint, "; the prediction by ", n_sigma > 0 ? "$n_sigma sigma points" : "the tangent", stale_ok ? "; stale rates allowed (the tune round)" : "",
+        als_lag_h > 0 ? "; the innovation autocovariances accumulated to $(als_lag_h) h" : "", "; record ", out_name)
 println("  rates [units/sqrt(h)]: ", join(["$g $(getfield(sn, Symbol(g)))" for g in STATE_GROUPS], ", "))
 println("  initial sds: ", join(["$g $(getfield(sn, Symbol(g * "0")))" for g in STATE_GROUPS], ", "))
 flush(stdout)
@@ -94,8 +100,10 @@ for k in 1:n_cooks
     all(isfinite, o.Tcore) || (@printf("cook %d (seed %d): the plant is not finite; skipped\n", k, seed); push!(skipped, seed); save(); continue)
     readings, clean, masks, lid = realcook_readings(o, t, events, nc, rng; A=A, L=xs[1][4], depth=depth, cfg)
     chs = realcook_channels(readings, masks, np0; cap=nc.hum_cap, depth_latent=DEPTH)
+    lay = FilterLayout(size(o.T_field, 1), length(sites), 4)
+    acc = als_lag_h > 0 ? ALSAccumulator(sn, lay; lag_s=als_lag_h * 3600, bin_s=dt) : nothing
     recs = try
-        sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, area_latent=AREA, q, jumps, sn, adapt_level, n_sigma, diagnostics=true, verbose=false, t_end=edges[end])
+        sequential_filter(chs, t, u, pit, cfg, sites, allnames, events; noise, area_latent=AREA, q, jumps, sn, adapt_level, n_sigma, diagnostics=true, verbose=false, t_end=edges[end], als=acc)
     catch err
         err isa InterruptException && rethrow()
         @printf("cook %d (seed %d): the filter failed (%s); skipped\n", k, seed, sprint(showerror, err)[1:min(end, 100)]); push!(skipped, seed); save(); continue
@@ -118,7 +126,6 @@ for k in 1:n_cooks
     end
     # the state by group: the error against the plant's state at the update's grid point, in the block's correlation
     # form (a field block's entries span orders of magnitude), as NEES per degree of freedom
-    lay = FilterLayout(size(o.T_field, 1), length(sites), 4)
     groups = state_groups(lay)
     gdof = group_dofs(lay, sn)
     for (g, _) in groups; group_dof[g] = gdof[g]; end
@@ -145,7 +152,7 @@ for k in 1:n_cooks
                    "level" => r.level, "faulty" => r.faulty, "noise" => [[v.σ, v.ρ] for v in r.noise], "wall_s" => r.wall,
                    "iters" => r.iters, "rounds" => r.rounds, "converged" => r.converged)) for r in recs]
     push!(cooks, Dict("seed" => seed, "z_by_hour" => [truth_at(z0, dd, h * 3600.0, events.t_add; from=true) for h in 0:29], "batches" => batches,
-                      "temps" => temps, "wall_filter_s" => wall, "n_updates" => length(recs)))
+                      "temps" => temps, "wall_filter_s" => wall, "n_updates" => length(recs), "als" => acc === nothing ? nothing : als_summary(acc)))
     e = abs.(batches[end]["err_sd"])
     ep = [(r["pit"][1] - r["pit"][3]) / r["pit"][2] for r in temps]; ec = [(r["centre"][1] - r["centre"][3]) / r["centre"][2] for r in temps]; es = [(r["surface"][1] - r["surface"][3]) / r["surface"][2] for r in temps]
     nis_r = [r["nis"] / max(r["dof"], 1) for r in temps if r["dof"] > 0]

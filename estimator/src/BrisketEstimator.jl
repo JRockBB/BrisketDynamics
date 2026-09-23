@@ -53,6 +53,7 @@ export FilterLayout, PhysicsState, pack_state, unpack_state, state_to_coord, sta
        state_sites, disc_sites, sequential_filter, pit_index, centre_index, surface_index
 export FilterState, StateNoise, Past, filter_init, filter_update!, filter_advance!, state_range, disc_range, disc_index, state_now, innovation_misfit
 export STATE_GROUPS, STATE_NOISE_FILE, state_groups, group_dofs, state_noise_cov, physics_fingerprint, state_noise_dict, load_state_noise, sigma_design
+export ALSAccumulator, als_update!, als_summary
 export GateData, load_gate, from_z, to_z, dx_dz, z_center, z_moments, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, islogbeta, islinear, isscore, drift_scale, logistic,
        latent_block, probe_depth_site, probe_depth, read_sites, draw_truth, FAMILIES
@@ -592,6 +593,7 @@ include(joinpath(@__DIR__, "noise_marginal.jl"))
 include(joinpath(@__DIR__, "segments.jl"))
 include(joinpath(@__DIR__, "smoother.jl"))
 include(joinpath(@__DIR__, "drift.jl"))
+include(joinpath(@__DIR__, "als.jl"))
 include(joinpath(@__DIR__, "sequential.jl"))
 
 end # module

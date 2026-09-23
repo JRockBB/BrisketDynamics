@@ -37,7 +37,7 @@ jobs:
     # the RxInfer estimator suite (estimator/test), every file its own process, in shards balanced by the
     # files' wall times (estimator/test/runtests.jl prints them; 2026-09-22 on a loaded laptop: sequential 844 s,
     # segments 661, smoother 607, iterated 593, horizon 459, engine 457, ridge 437, realcook 235, physics2d 134,
-    # rates 91, volatility 81, rules 64, noise 51, channels 34, misfit 31) so each shard sits near twenty minutes
+    # rates 91, volatility 81, rules 64, noise 51, channels 34, misfit 31; als 455 on 2026-09-23) so each shard sits near twenty minutes
     name: Estimator shard ${{ matrix.shard.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -50,7 +50,7 @@ jobs:
         shard:
           - { name: sequential, files: "test_sequential.jl test_rates.jl test_rules.jl test_volatility.jl test_channels.jl test_misfit.jl" }
           - { name: segments, files: "test_segments.jl test_smoother.jl" }
-          - { name: planner, files: "test_iterated.jl test_horizon.jl test_noise.jl" }
+          - { name: planner, files: "test_iterated.jl test_horizon.jl test_noise.jl test_als.jl" }
           - { name: engine, files: "test_engine.jl test_ridge.jl test_realcook.jl test_physics2d.jl" }
     steps:
       - uses: actions/checkout@v6
