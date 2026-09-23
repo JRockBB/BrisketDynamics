@@ -470,9 +470,12 @@ Status: **replaced; focused tests passing** (this session, 2026-09-22)
   residual, plus the whitened prior), so the direction and the acceptance
   judge one cost; between rounds the points are placed again at the round's
   posterior covariance and the state's tangent is taken at its centre
-  (`_place_points!`); the rounds stop when the belief moves less than
-  `round_kl` nats (`_gauss_kl`, the IPLF's own criterion) or at `rounds`
-  (defaults 0.5 and 3). An accepted trial's points serve its linearization,
+  (`_place_points!`); the rounds stop when the round's posterior mean has
+  moved less than `round_kl` nats from the belief the points were placed by
+  (`_gauss_shift`: half the whitened squared shift of the mean, the mean term
+  of the IPLF's KL criterion, the widths' change left out since the
+  regression carries it exactly) or at `rounds` (defaults 5 nats and 3
+  rounds). An accepted trial's points serve its linearization,
   so a first-trial acceptance costs no extra solves. The update record
   carries `iters` and `rounds`, and the bench worker writes them with
   `converged`.
@@ -483,12 +486,44 @@ Status: **replaced; focused tests passing** (this session, 2026-09-22)
 
 - `estimator/test/test_sequential.jl`: **221/221 passed** on the new update; the
   filter's own first update (the initial readings assimilated, the prediction,
-  the update at the first arrival) commits in 2 rounds and 17 iterations, and
-  the KL rule is checked on two known Gaussians. The update testset ran in
-  11 min 26 s against 12 min 57 s with the trust region.
+  the update at the first arrival) commits in 1 round and 11 iterations, and
+  the shift rule is checked on two known Gaussians. The update testset ran in
+  9 min 18 s on the placement rule (11 min 26 s under the KL criterion, 12 min
+  57 s with the trust region).
 - `estimator/test/test_iterated.jl`: **13/13 passed** (the planner and the
   real-cook gates, which use the batch solve, are untouched by the change).
-- VERIFY_ROUNDS_COST
+- The rounds on the filter's first ninety minutes (45 updates, one round against
+  up to three, before the placement rule): every update commits either way,
+  the second round runs on nearly every update (mean 2.02), the belief at
+  ninety minutes differs by at most 0.23 sd on a latent (k_m, k_e, m_conv), the
+  widths by under 4 % except the probe's depth fraction, 19 % narrower with the
+  points at the posterior; the iterations rise by an eighth (224 against
+  199; the wall times, 596 s against 287 s, are confounded by the compilation
+  the first run in the process carries, measured below). The
+  innovations do not move: NIS/dof 0.35 against 0.36, the pit's lag-one −0.30
+  against −0.31, the core's +0.47 against +0.52 with its mean −0.17 against
+  −0.15. So the placement rule: the points are placed again only when the
+  round's posterior has moved more than `round_kl` nats from the belief they
+  were placed by, which leaves a routine update at one round.
+- The placement rule on the same ninety minutes (`round_kl` 5 nats on the
+  mean's whitened shift): with `rounds` at 3 every update stays at one round,
+  the iterations are the one-round run's 199, and the belief at ninety
+  minutes is the one-round belief to the last digit (largest difference 0.0
+  widths, every sd ratio 1.0), so a routine update costs what it did before
+  the rounds existed. The same pair of runs measures the compilation: for
+  identical work the first run in the process took 483 s and the second
+  244 s, so the second round's true cost in the run above was about an
+  eighth more, matching its iterations, not double.
+- What the innovations now say, and the update cannot change: the pit's
+  negative lag-one is over-correction (its earned rate, 0.42 K per step, is
+  as large as the probe's own innovation), the core's positive lag-one with a
+  persistent negative mean is under-correction on the core's side (its offset
+  re-explained through the field, which relaxes by diffusion between updates,
+  rather than through the discrepancy state). Both are the rates' structure,
+  invisible to a covariance-matching step against the truth and exactly what
+  the innovation autocovariances identify (Odelson et al. 2006; Zhang et al.
+  2020, Section IV). The bench's step 2 is therefore the next decision, and
+  it is put to the user rather than built.
 
 ### The noise check that the update's restructure was ordered behind
 

@@ -257,9 +257,9 @@ end
     r_f = filter_update!(st_f, arrivals[1]; diagnostics=true)
     println("  the first update: ", r_f.rounds, " rounds, ", r_f.iters, " iterations, converged ", r_f.converged)
     @test r_f.updated && 1 <= r_f.rounds <= 3 && st_f.rounds == 3
-    # the rounds' stopping rule: the KL between two Gaussians, zero for the same belief, half the squared shift for a shifted one
-    @test E._gauss_kl(zeros(3), Matrix(1.0I, 3, 3), zeros(3), Matrix(1.0I, 3, 3)) == 0.0
-    @test abs(E._gauss_kl(zeros(3), Matrix(1.0I, 3, 3), [0.3, 0.0, 0.4], Matrix(1.0I, 3, 3)) - 0.125) < 1e-12
+    # the rounds' stopping rule: the mean's whitened shift from the belief the points were placed by, zero for the same mean, half the squared shift for a shifted one
+    @test E._gauss_shift(zeros(3), Matrix(1.0I, 3, 3), zeros(3)) == 0.0
+    @test abs(E._gauss_shift(zeros(3), Matrix(1.0I, 3, 3), [0.3, 0.0, 0.4]) - 0.125) < 1e-12
     @test length(recs) == length(arrivals) && [r.k for r in recs] == arrivals && all(r.updated for r in recs)   # one update per arrival, none between
     r = recs[end]
     @test all(isfinite, r.z) && all(r.z_sd .> 0) && r.T_pit[2] > 0 && r.T_centre[2] > 0 && r.T_surface[2] > 0 && all(isfinite, r.disc)

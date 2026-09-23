@@ -177,13 +177,8 @@ function _solve_channels_graph_raw(channels, prior, d::GateData, ph::Physics; c0
     return (z=r.z, mean=r.mean, cov=r.cov, F=r.F, hist=r.hist, misfit=mis, converged=r.converged, rounds=1)
 end
 
-"KL(N(m1, C1) ‖ N(m2, C2)) in nats: how far a Gaussian belief moved between two rounds of an update."
-function _gauss_kl(m1, C1, m2, C2)
-    n = length(m1)
-    F1 = cholesky(Symmetric(Matrix(C1))); F2 = cholesky(Symmetric(Matrix(C2)))
-    d = m2 .- m1
-    return 0.5 * (tr(F2 \ Matrix(C1)) - n + dot(d, F2 \ d) + logdet(F2) - logdet(F1))
-end
+"The mean term of KL(N(m1, C1) ‖ N(m2, ·)) in nats: half the whitened squared shift of the mean from the belief the points were placed by."
+_gauss_shift(m1, C1, m2) = (d = m2 .- m1; 0.5 * dot(d, cholesky(Symmetric(Matrix(C1))) \ d))
 
 solve_channels_graph(channels, prior, d::GateData, ph::Physics; kw...) =
     _solve_channels_graph_raw(channels, prior, d, ph; kw...)
@@ -236,16 +231,23 @@ function solve_channels_graph(channels, prior::FilterPrior, d::GateData, ph::Phy
         callbacks = callbacks, returnvars = (z = KeepLast(),))
     r = iterated_solve(prob, run_infer; c0=ξ0, iters, tol, ftol, verbose)
     hist = r.hist; used = 1
-    # the outer rounds: the points placed again by the round's posterior covariance, the state's tangent taken
-    # at its centre, the inner loop run again from there, until the belief moves less than `round_kl` nats
+    # the outer rounds: while the round's posterior MEAN has moved, by more than `round_kl` nats, from the belief
+    # its points were placed by (the prior, N(0, I) in ξ, for the first round), the points are placed again by
+    # that posterior, the state's tangent is taken at its centre, and the inner loop runs again from there. The
+    # measure is the whitened squared shift of the mean, halved: the part of the KL between the two beliefs
+    # that the placement is blind to (the widths' change along the measured directions the regression carries
+    # exactly, and a precise reading makes at every update). A routine update costs one round; an informative
+    # one costs what it needs, up to `rounds`.
     if slr && rounds > 1
+        placed = (zeros(n), Matrix{Float64}(I, n, n))
         for j in 2:rounds
+            moved = _gauss_shift(placed[1], placed[2], r.mean)
+            verbose && @printf("    round %d: the belief's mean moved %.4f nats from where its points were placed\n", j - 1, moved)
+            moved < round_kl && break
+            placed = (r.mean, r.cov)
             _place_points!(ph, Symmetric(S0 * r.cov * S0'))
-            r2 = iterated_solve(prob, run_infer; c0=r.z, iters, tol, ftol, verbose)
-            kl = _gauss_kl(r.mean, r.cov, r2.mean, r2.cov)
-            hist = vcat(hist, r2.hist); r = r2; used = j
-            verbose && @printf("    round %d: the belief moved %.4f nats\n", j, kl)
-            kl < round_kl && break
+            r = iterated_solve(prob, run_infer; c0=r.z, iters, tol, ftol, verbose)
+            hist = vcat(hist, r.hist); used = j
         end
     end
     a, Bξ = AFF[].a, AFF[].B

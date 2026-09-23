@@ -743,8 +743,10 @@ consistent; the dead-reading flag stays on); `n_sigma` the sigma points of the p
 `rounds` the outer rounds of each update (the damped posterior-linearization form: the graph's direction and
 the line search descend one cost, the regression's expected readings against the samples, with the points and
 the residual inflation fixed inside a round; between rounds the points are placed again at the round's
-posterior covariance and the state's tangent taken at its centre) and `round_kl` the change of the belief
-between rounds, in nats, under which the rounds stop; the record carries the iterations and the rounds used.
+posterior covariance and the state's tangent taken at its centre, while the round's posterior has moved more than
+`round_kl` nats from the belief the points were placed by, the shift measured on the mean alone in whitened
+units, halved: a routine two-minute update moves the mean under a nat and costs one round, the initial
+assimilation moves it by hundreds and takes its rounds); the record carries the iterations and the rounds used.
 """
 function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
                      events::NamedTuple; noise::AbstractVector{NoisePrior}, area_latent::Int, sn::StateNoise=StateNoise(),
@@ -752,7 +754,7 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
                      abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=4, retry_iters::Int=12,
                      ftol::Float64=0.05, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0,
                      ident_min::Int=24, adapt_level::Bool=true, n_sigma::Int=64, sigma_seed::Int=7,
-                     rounds::Int=3, round_kl::Float64=0.5)
+                     rounds::Int=3, round_kl::Float64=5.0)
     n_z = length(sites); n_ch = length(channels)
     length(noise) == n_ch || throw(ArgumentError("one NoisePrior per channel ($(length(noise)) for $n_ch channels)"))
     length(names) == n_z || throw(ArgumentError("one name per site"))
