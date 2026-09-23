@@ -500,6 +500,52 @@ function likelihood_objective(channels, z, S, prior, lay, ph::PhysicsState)
     return loss
 end
 
+"""
+    slr_objective(channels, z, pts, prior, ph::PhysicsState) -> Float64
+
+The likelihood at a centre under statistical linearization: the cost the damped posterior-linearization update
+descends (Raitoharju, Svensson, García-Fernández, Piché 2018, their eq. 25). Each channel's prediction is the
+mean of its readings over the sigma points placed at the centre (`_sigma_points`), the rows inflated by the
+residual of the last linearization (`ph.omega`), so the line search judges the same cost the graph's direction
+descends. The physics at the centre alone is another cost, and the two differ by the curvature of the reading
+over the belief's spread: judged by that one, the graph's steps were rejected where the affine model
+was right about its own expectation.
+"""
+function slr_objective(channels, z, pts, prior, ph::PhysicsState)
+    omegas = ph.omega[]
+    omegas === nothing && error("a trial centre before any statistical linearization: the rows' inflation is not known yet")
+    n = length(z); N = length(pts.S)
+    Jzero = zeros(length(pts.S[1]), n)
+    loss = 0.0
+    for (ci, ch) in enumerate(channels)
+        Lw = whitening(ch)
+        size(Lw, 1) == 0 && continue
+        R = hcat([predict(ch, pts.S[i], Jzero, pts.V[i], prior, pts.lay)[1] for i in 1:N]...)
+        r̄ = vec(sum(R, dims=2) ./ N)
+        Ω = omegas[ci]
+        for j in 1:size(Lw, 1)
+            col = argmax(abs.(Lw[j, :]))
+            s2 = 1 / Lw[j, col]^2
+            Lw[j, :] .*= sqrt(s2 / (s2 + Ω[col]))
+        end
+        loss += _channel_nll(ch, r̄, Lw, rawdata(ch))
+    end
+    return loss
+end
+
+"""
+    _place_points!(ph::PhysicsState, P)
+
+Place the update's sigma points by a new covariance, the posterior of the round just finished (the outer loop
+of the damped posterior-linearization update): the points, the last linearization and the state's tangent are
+taken again at the next centre; the rows' inflation stays until that linearization replaces it.
+"""
+function _place_points!(ph::PhysicsState, P::AbstractMatrix)
+    ph.prior_cov[] = Matrix(P)
+    ph.pts[] = nothing; ph.last[] = nothing; ph.Jx[] = nothing
+    return ph
+end
+
 function _state_solve(v, d::GateData, ph::PhysicsState)
     lay = ph.lay
     z = v[1:lay.n_z]; x = v[state_range(lay)]
@@ -527,7 +573,12 @@ function _tangent(v, d::GateData, ph::PhysicsState)
 end
 function physics_outputs(v, d::GateData, ph::PhysicsState)
     L = ph.last[]
-    L !== nothing && L.c == v && return L.S, L.J, L.lay                 # the last linearization, at this point already
+    if L !== nothing && L.c == v                                        # the last linearization, at this point already
+        if has_sigma(ph) && (ph.pts[] === nothing || ph.pts[].c != v)  # the points may sit at a rejected trial's centre
+            ph.pts[] = _sigma_points(v, d, ph)
+        end
+        return L.S, L.J, L.lay
+    end
     if has_sigma(ph)
         # the tangent once per update, at its first centre: its state columns serve every centre of the update
         # (the state's response over two minutes barely moves with the centre); the latent columns are the
@@ -535,7 +586,8 @@ function physics_outputs(v, d::GateData, ph::PhysicsState)
         ph.Jx[] === nothing && (ph.Jx[] = _tangent(v, d, ph))
         T = ph.Jx[]
         S, x_end, olay, o = _state_solve(v, d, ph)
-        ph.pts[] = _sigma_points(v, d, ph)
+        pts = ph.pts[]
+        ph.pts[] = (pts !== nothing && pts.c == v) ? pts : _sigma_points(v, d, ph)   # the trial's points at this centre serve its linearization
         ph.last[] = (c=copy(v), S=S, J=T.J, lay=olay, x_end=x_end, J_end=T.J_end, o=o, d=d)
         return S, T.J, olay
     end
@@ -668,7 +720,8 @@ mutable struct FilterState
     adapt_level::Bool
     ftol::Float64
     sigma::Matrix{Float64}
-    trust::Bool                       # the trust region on the update's iterations (off only for comparisons)
+    rounds::Int                       # the outer rounds of the update: the points re-placed at each round's posterior
+    round_kl::Float64                 # the change of the belief between rounds [nats] under which the rounds stop
 end
 
 """
@@ -687,15 +740,19 @@ when that pass does not converge (zero disables retry), and `ftol` the objective
 the state's process noise: a level reads the belief's consistency and cannot be judged before the belief is
 consistent; the dead-reading flag stays on); `n_sigma` the sigma points of the prediction (`sigma_design`;
 0 for the tangent prediction, the transition Jacobian at the optimum alone) and `sigma_seed` their draw;
-`trust` the trust region on every update iteration (no coordinate of the block beyond its own predicted width
-in one iteration; off only for comparisons, the record counts the capped iterations as `capped`).
+`rounds` the outer rounds of each update (the damped posterior-linearization form: the graph's direction and
+the line search descend one cost, the regression's expected readings against the samples, with the points and
+the residual inflation fixed inside a round; between rounds the points are placed again at the round's
+posterior covariance and the state's tangent taken at its centre) and `round_kl` the change of the belief
+between rounds, in nats, under which the rounds stop; the record carries the iterations and the rounds used.
 """
 function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, cfg::MeatConfig, sites::Vector{PriorSite}, names::Vector{String},
                      events::NamedTuple; noise::AbstractVector{NoisePrior}, area_latent::Int, sn::StateNoise=StateNoise(),
                      q::AbstractVector=zeros(length(sites)), jumps::AbstractVector=[], goals::PlanGoals=PlanGoals(),
                      abstol::Float64=1e-6, reltol::Float64=1e-6, iters::Int=4, retry_iters::Int=12,
                      ftol::Float64=0.05, level_w::Float64=0.05, level_window::Int=100, fault_level::Float64=3.0,
-                     ident_min::Int=24, adapt_level::Bool=true, n_sigma::Int=64, sigma_seed::Int=7, trust::Bool=true)
+                     ident_min::Int=24, adapt_level::Bool=true, n_sigma::Int=64, sigma_seed::Int=7,
+                     rounds::Int=3, round_kl::Float64=0.5)
     n_z = length(sites); n_ch = length(channels)
     length(noise) == n_ch || throw(ArgumentError("one NoisePrior per channel ($(length(noise)) for $n_ch channels)"))
     length(names) == n_z || throw(ArgumentError("one name per site"))
@@ -722,7 +779,7 @@ function filter_init(channels::AbstractVector{<:Channel}, t, u, pit::PitConfig, 
                        sn, collect(Float64, q), [(Int(j[1]), Float64(j[2]), Float64(j[3])) for j in jumps], goals, past, 1, 0,
                        collect(Float64, t), u, pit, cfg, events, area_latent, abstol, reltol, iters, retry_iters,
                        level_w, level_window, fault_level, ident_min, adapt_level, ftol,
-                       n_sigma > 0 ? sigma_design(n_z, n_sigma, sigma_seed) : zeros(0, n_z), trust)
+                       n_sigma > 0 ? sigma_design(n_z, n_sigma, sigma_seed) : zeros(0, n_z), rounds, round_kl)
 end
 
 # a channel's residual series (and the variances beside it) split into runs at gaps longer than three times
@@ -794,21 +851,17 @@ function _filter_prior(sites, m, P)
     return FilterPrior(sites, collect(m), zeros(n, n), Matrix(F.L)), Ps
 end
 
-"""
-Run an online RxInfer update, continuing once from its last accepted center when the short first pass does not
-converge; returns the result, the iterations taken and how many of them the trust region capped (a step that
-would have moved some coordinate beyond its own predicted width).
-"""
+"Run an online RxInfer update, continuing once from its last accepted center when the short first pass does not converge; returns the result and the iterations taken."
 function _online_solve(st::FilterState, chs, prior, d, ph, c0)
-    res = solve_map_channels(chs, prior, d; c0, physics=ph, iters=st.iters, ftol=st.ftol, verbose=false, trust=st.trust)
+    res = solve_map_channels(chs, prior, d; c0, physics=ph, iters=st.iters, ftol=st.ftol, verbose=false,
+                             rounds=st.rounds, round_kl=st.round_kl)
     n_it = length(res.hist)
-    n_cap = count(get(h, :alpha_max, 1.0) < 1 for h in res.hist)
     if !res.converged && st.retry_iters > 0
-        res = solve_map_channels(chs, prior, d; c0=res.z, physics=ph, iters=st.retry_iters, ftol=st.ftol, verbose=false, trust=st.trust)
+        res = solve_map_channels(chs, prior, d; c0=res.z, physics=ph, iters=st.retry_iters, ftol=st.ftol, verbose=false,
+                                 rounds=st.rounds, round_kl=st.round_kl)
         n_it += length(res.hist)
-        n_cap += count(get(h, :alpha_max, 1.0) < 1 for h in res.hist)
     end
-    return res, n_it, n_cap
+    return res, n_it
 end
 
 # The measurement operator at one endpoint. A two-point, negligible-duration solve reconstructs every channel's
@@ -938,13 +991,13 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
 
     # 1. The readings at the cook's initial point belong to the initial state, not to the discrepancy state at
     # the end of the first interval. Assimilate them once before the first prediction.
-    cap0, n0 = 0, 0                                                   # the initial assimilation's iterations and the capped ones among them
+    n0 = 0                                                            # the initial assimilation's iterations
     if k0 == 1
         P = _stable_cov(P)
         d0, ph0, chs0, live0 = _observation_context(st, 1, P; first=true)
         if !isempty(live0)
             prior0, P = _filter_prior(st.joint, m, P)
-            res0, n0, cap0 = _online_solve(st, chs0, prior0, d0, ph0, m)
+            res0, n0 = _online_solve(st, chs0, prior0, d0, ph0, m)
             if res0.converged
                 m, P = res0.z, _stable_cov(res0.cov)
             else
@@ -997,7 +1050,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     nis, dof, innov = NaN, 0, Dict{Int,Vector{Float64}}()
     resid = Dict{Int,Float64}(); rvar = Dict{Int,Float64}(); efree = Dict{Int,Float64}()
     if isempty(live)
-        z_post, V_post, mis, n_it, n_cap, converged = m_pred, P_pred, nothing, 0, 0, true
+        z_post, V_post, mis, n_it, n_rounds, converged = m_pred, P_pred, nothing, 0, 0, true
     else
         prior_w, P_pred = _filter_prior(st.joint, m_pred, P_pred)
         # the residual of every sample at the predicted mean, before the update: the reading less the physics, the
@@ -1051,8 +1104,8 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
                 row += nr
             end
         end
-        res, n_it, n_cap = _online_solve(st, chs, prior_w, d, ph, m_pred)
-        mis, converged = res.misfit, res.converged
+        res, n_it = _online_solve(st, chs, prior_w, d, ph, m_pred)
+        mis, converged, n_rounds = res.misfit, res.converged, get(res, :rounds, 1)
         if converged
             z_post, V_post = res.z, _stable_cov(res.cov)
         else
@@ -1086,7 +1139,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             x=(diagnostics ? m_new[xr] : nothing), x_cov=(diagnostics ? P_new[xr, xr] : nothing),
             z=m_new[1:n_z], z_sd=sd[1:n_z], z_cov=P_new[1:n_z, 1:n_z], disc=m_new[disc_range(lay)], disc_sd=sd[disc_range(lay)],
             noise=[(σ=np.σ_mean, σ_sd=np.σ_sd, ρ=np.ρ_mean, ρ_sd=np.ρ_sd) for np in st.np], level=copy(st.level), faulty=copy(st.faulty),
-            misfit=mis, iters=n_it + n0, capped=n_cap + cap0, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov, sigma=sigma_ok)
+            misfit=mis, iters=n_it + n0, rounds=n_rounds, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov, sigma=sigma_ok)
 end
 
 "The lid-open events of the cook up to `t_end`, each with its kind: the add, the wrap, the pull, and the spritz train to the pull."

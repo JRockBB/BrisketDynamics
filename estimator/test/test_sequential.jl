@@ -251,17 +251,15 @@ end
     a_f, B_f, w_f = E.assemble_at(chs0, st0.m, S_f, J_f, pw0, lay_f, ph_f)
     @test all(isfinite, a_f) && all(isfinite, B_f) && all(ph_f.scale[] .>= E.white_floor(chs0[1]) - 1e-12) && length(ph_f.scale[]) == length(a_f)
     arrivals = [k for k in 2:findlast(t .<= 1800.0 + 1e-9) if any(mk[k] for mk in (masks.pit, masks.core, masks.humidity, masks.mass))]
-    # the trust region on the filter's own first update (the initial readings assimilated, the prediction, the
-    # update at the first arrival): with the cap on the update commits; when no iteration was capped the belief is
-    # the uncapped one exactly; a capped iteration is a finding the bench counts (the record's `capped`)
-    st_t = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=64)
-    st_f = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=64, trust=false)
-    r_t = filter_update!(st_t, arrivals[1]; diagnostics=true); r_f = filter_update!(st_f, arrivals[1]; diagnostics=true)
-    println("  the first update (the initial readings and the first arrival): ", r_t.capped, " of ", r_t.iters, " iterations capped, converged ", r_t.converged, "; uncapped ", r_f.iters, " iterations, converged ", r_f.converged)
-    @test r_t.updated && r_t.capped >= 0 && r_f.capped == 0 && st_t.trust && !st_f.trust
-    if r_t.capped == 0
-        @test isapprox(st_t.m, st_f.m; rtol=1e-10, atol=1e-12) && isapprox(st_t.P, st_f.P; rtol=1e-10, atol=1e-14)
-    end
+    # the filter's own first update (the initial readings assimilated, the prediction, the update at the first
+    # arrival) under the damped posterior-linearization form: it commits and uses one to three rounds
+    st_f = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=64)
+    r_f = filter_update!(st_f, arrivals[1]; diagnostics=true)
+    println("  the first update: ", r_f.rounds, " rounds, ", r_f.iters, " iterations, converged ", r_f.converged)
+    @test r_f.updated && 1 <= r_f.rounds <= 3 && st_f.rounds == 3
+    # the rounds' stopping rule: the KL between two Gaussians, zero for the same belief, half the squared shift for a shifted one
+    @test E._gauss_kl(zeros(3), Matrix(1.0I, 3, 3), zeros(3), Matrix(1.0I, 3, 3)) == 0.0
+    @test abs(E._gauss_kl(zeros(3), Matrix(1.0I, 3, 3), [0.3, 0.0, 0.4], Matrix(1.0I, 3, 3)) - 0.125) < 1e-12
     @test length(recs) == length(arrivals) && [r.k for r in recs] == arrivals && all(r.updated for r in recs)   # one update per arrival, none between
     r = recs[end]
     @test all(isfinite, r.z) && all(r.z_sd .> 0) && r.T_pit[2] > 0 && r.T_centre[2] > 0 && r.T_surface[2] > 0 && all(isfinite, r.disc)

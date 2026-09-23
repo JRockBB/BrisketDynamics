@@ -19,8 +19,8 @@
 #     J by ForwardDiff through the FBDF solve, or the regression over sigma
 #     points in the filter), so the Linearization rule is exact; the centre
 #     moves INSIDE one `infer` call (iterated.jl: the after-iteration callback
-#     re-centres the affine model, runs the exact line search under a trust
-#     region, and scales the Levenberg-Marquardt node);
+#     re-centres the affine model, runs a damped line search on the regression's
+#     own cost, and scales the Levenberg-Marquardt node);
 #   * the prior node is the local quadratic of −log p(z) at c (exact for a
 #     Gaussian or a score site, the logit-Beta curvature for a logit site; a
 #     filter's predicted belief as a full Gaussian, solved in its whitened

@@ -438,59 +438,81 @@ Status: **fixed and focused tests passing**
   records `ba928b214b27` and is now refused by every driver but the bench's
   tuning round.
 
-## Roadmap item (ii) — No trust region on the online update
+## Roadmap item (ii) — The update's convergence: a trust region built, then retired for the posterior-linearization form
 
-Status: **fixed and focused tests passing**
+Status: **replaced; focused tests passing** (this session, 2026-09-22)
+
+### What was built first and why it was retired
+
+- A trust region on the graph's step (no coordinate beyond its own predicted
+  width per iteration) was built as the named fix for the seed-12 lock. On
+  the filter's own updates it bound on 27 of 45 routine updates: the graph
+  proposed steps of 10 to 60 widths along one direction (the probe's depth
+  fraction with the field nodes bracketing the probe), the exact objective
+  rejected them with or without the cap, and the cap cost about 70 % more
+  wall time for a belief within 0.15 sd of the uncapped one.
+- The literature explains the proposals rather than the cap: the update
+  placed its sigma points at the prior for the whole update, mixed the
+  latents' regression slopes with a state tangent computed once and left
+  stale, and took the graph's direction from the regression's expected
+  reading while the line search judged the physics at the centre. That is
+  the construction the posterior-linearisation paper (García-Fernández et
+  al. 2015, Section IV-C) names as ad hoc, and the reason the damped IPLF
+  (Raitoharju et al. 2018) descends one cost with the points fixed and
+  re-places them between rounds. The region was removed in full.
 
 ### Changes
 
-- `IteratedProblem` carries an optional `step_cap(c, step) -> α_max`; the
-  graph's step is cut to the trust region before the line search, the line
-  search runs from there (its floor relative to the cap), the
-  Levenberg-Marquardt relaxation fires on a first-trial acceptance capped or
-  not, and convergence is never declared on a capped step. The history
-  records `alpha_max`.
-- The whitened filter solve caps the step so that no coordinate of the block
-  (latents, state, discrepancies) moves beyond its own predicted width
-  `sqrt(P_ii)` in one iteration; the raw solve caps by each site's local
-  width at the centre. Both solves take `trust=true` by default.
-- The filter's update record counts the capped iterations (`capped`), so
-  the bench records show how often the region binds.
+- The whitened filter solve is now the damped posterior-linearization
+  update: the line search descends the regression's own cost
+  (`slr_objective`: each channel's expected reading over the sigma points
+  at the trial centre, the rows inflated by the last linearization's
+  residual, plus the whitened prior), so the direction and the acceptance
+  judge one cost; between rounds the points are placed again at the round's
+  posterior covariance and the state's tangent is taken at its centre
+  (`_place_points!`); the rounds stop when the belief moves less than
+  `round_kl` nats (`_gauss_kl`, the IPLF's own criterion) or at `rounds`
+  (defaults 0.5 and 3). An accepted trial's points serve its linearization,
+  so a first-trial acceptance costs no extra solves. The update record
+  carries `iters` and `rounds`, and the bench worker writes them with
+  `converged`.
+- Fixed on the way: a solve restarted at a centre whose linearization was
+  cached could find the points at a rejected trial's centre.
 
 ### Verification
 
-- `estimator/test/test_iterated.jl`: **20/20 passed**, the new testset 7/7 (a site
-  thirty widths away is reached in 29 capped moves of one width and one
-  free step, convergence declared only on the free step; the whitened cap
-  brings a three-width move to a third); the real-cook gate still
-  reproduces the Gauss-Newton posterior with the cap on by default.
-- `estimator/test/test_sequential.jl`: **219/219 passed**; the filter's own first
-  update (the initial readings assimilated, the prediction, the update at
-  the first arrival) commits with the cap on, 4 of 14 iterations capped
-  against 4 iterations uncapped (the capped initial assimilation needs the
-  continuation), and the `capped` count in the record includes the initial
-  assimilation.
-- What the cap does on routine updates (the filter's first ninety minutes on
-  `mock_realcook.json`, 45 updates, cap on against cap off): every update
-  commits either way, 64 of 240 iterations are capped, the belief at ninety
-  minutes differs by at most 0.15 of a width on one state entry and by less
-  than 0.1 sd on every latent, the latent widths by less than 2.5 %; the
-  capped run takes 600 s against 357 s, because a capped iteration is
-  accepted and rebuilds the surrogate where the uncapped line search would
-  have rejected the proposal cheaply.
-- Where it binds, iteration by iteration: at the cook's first grid point the
-  exposed area (1.2 widths; the initial readings pull hard from the prior
-  centre); from the second update on, one direction pairing the probe's
-  depth fraction with the temperature-field nodes bracketing the probe and
-  the core probe's discrepancy, at 2 to 9 widths on the first updates and
-  10 to 60 widths by the sixth (the proposal moves the probe deeper and
-  heats the nodes there, which leaves the reading unchanged). The exact
-  objective rejects those proposals with or without the cap; they are the
-  update surrogate's ridge between the probe's position and the field around
-  it, the same pairing the per-node field noise once fed at the noise level
-  (fixed 2026-09-16), now visible in the affine model. The cap is kept on by
-  default as decided; the bench's records count the capped iterations per
-  update, and the seed-12 lock the cap was built for is the bench's to show.
+- `estimator/test/test_sequential.jl`: **221/221 passed** on the new update; the
+  filter's own first update (the initial readings assimilated, the prediction,
+  the update at the first arrival) commits in 2 rounds and 17 iterations, and
+  the KL rule is checked on two known Gaussians. The update testset ran in
+  11 min 26 s against 12 min 57 s with the trust region.
+- `estimator/test/test_iterated.jl`: **13/13 passed** (the planner and the
+  real-cook gates, which use the batch solve, are untouched by the change).
+- VERIFY_ROUNDS_COST
+
+### The noise check that the update's restructure was ordered behind
+
+The smoke cook (seed 10, two hours, the smoke's rates) rerun with the filter
+told the mock's own noise instead of the calibration's prior, and once more
+on a constant plant:
+
+| configuration | NIS/dof | core mean square | core lag-one (band 0.26) | core mean |
+|---|---|---|---|---|
+| A. calibration prior (the bench's) | 0.40 | 0.29 | +0.38 | −0.31 |
+| B. the mock's own noise, no floors | 0.47 | 0.42 | +0.31 | −0.29 |
+| C. as B, constant plant | 0.47 | 0.42 | +0.30 | −0.28 |
+
+The prior's sd is a minor part of the low NIS and none of the core's
+autocorrelation; the drift is none of it either. By arithmetic the rest of
+the pit's overstated innovation variance is its earned process-noise rate
+(2.28 K per root-hour, 0.42 K per two-minute step, as large as the probe's
+own innovation): the covariance-matching step turned a persistent,
+latent-driven pit error into white per-step noise, the failure mode Zhang et
+al. (2020) record for covariance matching. The core's biased, correlated
+innovations are the residual the update left unabsorbed. The bench's noise
+configuration therefore stays; what the tuning round must be read for is
+whether the posterior-placed update absorbs that residual and how the
+matching step treats the pit.
 
 ## Issue 10 (part) — The AR coefficient's posterior was clamped after inference
 
@@ -692,9 +714,8 @@ Status: **the driver, the worker, the summary and the figures verified end to en
 - Estimate for the bench proper (nine cooks of fourteen hours per round,
   about 400 updates each, two workers): 60 to 80 minutes per cook, five cooks
   per worker per round, about six hours per round, **about twelve hours for
-  both rounds**; the trust region's extra rebuilds are part of that (about
-  70 % more wall time per update than the uncapped solve on the first ninety
-  minutes of a cook).
+  both rounds** on the update as it was in the smoke round; the
+  posterior-linearization form's cost is measured below.
 - The Sep 21 partial records of the score-coordinate run were deleted; the
   smoke's own records and figures are untracked scratch.
 

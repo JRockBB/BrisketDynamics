@@ -62,9 +62,9 @@ function solve_map_channels(channels, prior, d::GateData; c0, area_latent::Int=0
                             noise_rounds::Int=3, noise_tol::Float64=0.02,
                             levelled::Bool=false, level_w::Float64=0.05,
                             iters::Int=30, tol::Float64=1e-4, ftol::Float64=1e-3,
-                            bp_iters::Int=20, verbose::Bool=false, trust::Bool=true)
+                            bp_iters::Int=20, verbose::Bool=false, rounds::Int=1, round_kl::Float64=0.5)
     ph = physics === nothing ? Physics1D(area_latent) : physics
-    solve_fixed = (chs, c) -> solve_channels_graph(chs, prior, d, ph; c0=c, iters, tol, ftol, bp_iters, verbose, trust)
+    solve_fixed = (chs, c) -> solve_channels_graph(chs, prior, d, ph; c0=c, iters, tol, ftol, bp_iters, verbose, rounds, round_kl)
     chs = collect(Channel, channels)
     noise_post = Dict{Int,NamedTuple}()
     c = copy(c0)
