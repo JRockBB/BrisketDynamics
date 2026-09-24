@@ -150,7 +150,7 @@ for k in 1:n_cooks
                    "nis" => r.nis, "dof" => r.dof, "innov" => Dict(string(ci) => v for (ci, v) in r.innov),
                    "nees_z" => nees(ez, r.z_cov), "nees_z16" => nees(ez[keep16], r.z_cov[keep16, keep16]), "nees_T" => nees(eT, r.T_cov),
                    "level" => r.level, "faulty" => r.faulty, "noise" => [[v.σ, v.ρ] for v in r.noise], "wall_s" => r.wall,
-                   "iters" => r.iters, "rounds" => r.rounds, "converged" => r.converged)) for r in recs]
+                   "iters" => r.iters, "rounds" => r.rounds, "converged" => r.converged, "gap" => r.gap)) for r in recs]
     push!(cooks, Dict("seed" => seed, "z_by_hour" => [truth_at(z0, dd, h * 3600.0, events.t_add; from=true) for h in 0:29], "batches" => batches,
                       "temps" => temps, "wall_filter_s" => wall, "n_updates" => length(recs), "als" => acc === nothing ? nothing : als_summary(acc)))
     e = abs.(batches[end]["err_sd"])

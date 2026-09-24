@@ -733,6 +733,74 @@ Status: **fixed and focused tests passing**
   gate holds). With that, every one of the fifteen estimator test files
   passes on the committed tree.
 
+## The update's fixed point — the iterated graph solve paired a fresh factor with the previous centre's observations
+
+Status: **fixed; the oracle tests pass** (2026-09-24, from the review of the bench run)
+
+### The bug
+
+- The iterated solve is one `infer` call: the affine model is a global the
+  `reading` node reads, and the prior's quadratic, the damping and the
+  observations are data arrays `infer` captured at the call. The callback's
+  `rebuild!` wrote the quadratic and the damping into their arrays and bound
+  the observations to a new vector (`w_ref[] = w`), so from the second
+  iteration the graph combined the factor at the new centre with the first
+  centre's observations. Ordinary rows did not notice (their whitened
+  observation does not depend on the centre); a censored site's
+  pseudo-observation and precision move with the centre, and under sigma
+  points every row's inflation rescales the observation side. The final
+  one-iteration pass captured the current vector, so only the iterations'
+  directions were wrong, and the loop could stop off its fixed point with a
+  covariance from a pass whose mean was elsewhere. `filter_update!`
+  committed that centre with that covariance.
+- The review's scalar oracle, reproduced here on the censored humidity
+  test's own setup (a discrepancy with a 100 Pa prior, a prediction of 6400
+  Pa, a reading at the 6500 Pa cap, a 10 Pa row floor): the exact posterior's
+  MAP is **116.06** with a local sd of **21.83**; the solve as it was
+  returned a centre of 127.7, a final-pass mean of 92.5 and an sd of 54. The
+  existing test asked for a positive move under 100 and passed.
+
+### Changes
+
+- `estimator/src/iterated.jl`: `_set_rows!` writes the observations into the
+  vector the running inference holds (both solves' `rebuild!`); every solve
+  returns `gap`, the fixed-point gap, how far the graph's mean at the final
+  centre sits from the centre on the worst coordinate (whitened sds in the
+  filter's solve); the header states the in-place rule.
+- `estimator/src/sequential.jl`: the update record carries `gap` (NaN without
+  an update); `coverage_filter.jl` writes it per update.
+- `estimator/test/test_realcook.jl`: the scalar oracle (the exact objective's
+  minimizer by Newton with a finite-difference curvature; the centre, the
+  mean and the covariance must be it, the gap under 1e-2) and the linear row
+  under the cap, which must be the Kalman update exactly.
+- `estimator/test/test_sequential.jl`: the filter's first update and every
+  committed update bounded on the gap.
+
+### Verification
+
+- `estimator/test/test_realcook.jl`: **27/27 passed**; the oracle line:
+  MAP 116.06, local sd 21.83; the graph's centre 116.06, mean 116.06, sd
+  21.83, gap 0.0. The linear row: the Kalman update to 1e-6.
+- `estimator/test/test_sequential.jl`: **223/223 passed**. The filter's first
+  update on the real-cook mock now converges in **5 iterations** (11 before
+  the fix: the stale inflations cost the loop its directions) with a
+  fixed-point gap of **0.0 sd**, and every committed update of the thirty
+  minute run sits under half a whitened sd of its own fixed point.
+
+### What it means for the bench
+
+- The bench of 2026-09-23 and the fresh round of 2026-09-24 (stopped after
+  eight of its ten cooks) ran on this update. Their rates are evidence from
+  a flawed update, not calibration: the sigma-point rows of every filter
+  update iterated against stale inflations, and the humidity's censored
+  sites against stale pseudo-observations. The calibration files are not
+  committed. The bench reruns only after the review's remaining checks: the
+  finite-horizon observability of the block (the reading is physics plus
+  discrepancy, an instantaneous null direction the dynamics must separate;
+  for the core the two-step observability determinant is the persistence
+  minus the thermal transition, both near one), and the ablations with the
+  state, the discrepancy and the AR noise given.
+
 ## The bench's step 2 — The rates identified from the innovations' autocovariances, in place of covariance matching against the truth
 
 Status: **built, tested and smoke-run; the bench itself pending a go** (this session, 2026-09-23)

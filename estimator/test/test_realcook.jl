@@ -107,5 +107,31 @@ end
     sq = E.Sequential(ch1, 1, 10.0)
     fit = solve_map_channels([sq], prior, d; c0=[0.0], physics=ph, iters=20, tol=1e-6, ftol=1e-8)
     @test fit.converged && fit.z[1] > 50.0 && sqrt(fit.cov[1, 1]) < 100.0
+    # the exact scalar posterior as an oracle: the objective the solve minimizes, the survival term at the row's
+    # floor plus the prior's quadratic, its minimizer by Newton with a finite-difference curvature and the local
+    # variance the inverse curvature; the graph's centre, its mean and its covariance must be that point, and the
+    # centre must be the graph's own fixed point (until 2026-09-24 the iterations paired a fresh site with the
+    # previous centre's pseudo-observation and stopped at 127.7 with a variance six times the local one)
+    f_ex(z) = E._censored_normal_nll(6400.0 + z, 6500.0, 10.0) + 0.5 * z^2 / 100.0^2
+    fd1(z; ε=1e-3) = (f_ex(z + ε) - f_ex(z - ε)) / (2ε)
+    fd2(z; ε=1e-2) = (f_ex(z + ε) - 2f_ex(z) + f_ex(z - ε)) / ε^2
+    z_map = 100.0
+    for _ in 1:60; z_map -= fd1(z_map) / fd2(z_map); end
+    var_map = 1 / fd2(z_map)
+    println("  the censored scalar oracle: MAP ", round(z_map; digits=2), ", local sd ", round(sqrt(var_map); digits=2),
+            "; the graph: centre ", round(fit.z[1]; digits=2), ", mean ", round(fit.mean[1]; digits=2), ", sd ", round(sqrt(fit.cov[1, 1]); digits=2),
+            ", fixed-point gap ", round(fit.gap; digits=5), " sd")
+    @test abs(fd1(z_map)) < 1e-8
+    @test abs(fit.z[1] - z_map) < 5e-3 * abs(z_map)
+    @test abs(fit.mean[1] - fit.z[1]) < 1e-2 * 100.0 && fit.gap < 1e-2
+    @test abs(fit.cov[1, 1] - var_map) < 0.05 * var_map
+    # the same site with its reading under the cap is one linear-Gaussian row: the graph must return the Kalman
+    # update exactly, its centre, its mean and its variance alike
+    ch2 = CensoredHumidity(100.0, 0.0, trues(1); cap=6500.0, data=[6450.0])
+    sq2 = E.Sequential(ch2, 1, 10.0)
+    fit2 = solve_map_channels([sq2], prior, d; c0=[0.0], physics=ph, iters=20, tol=1e-8, ftol=1e-10)
+    var_kf = 1 / (1 / 100.0^2 + 1 / 10.0^2); mean_kf = var_kf * (6450.0 - 6400.0) / 10.0^2
+    @test fit2.converged && isapprox(fit2.z[1], mean_kf; rtol=1e-6) && isapprox(fit2.mean[1], mean_kf; rtol=1e-6)
+    @test isapprox(fit2.cov[1, 1], var_kf; rtol=1e-6) && fit2.gap < 1e-6
 end
 println("test_realcook.jl: done")

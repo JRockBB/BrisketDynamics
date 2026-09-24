@@ -20,6 +20,18 @@
 # One `infer`
 # call is the whole solve; its last marginal is the posterior at the
 # converged center once the damping is released.
+#
+# Everything the graph reads during that call is a data array `infer`
+# captured when it was called, so the callback must write INTO those
+# arrays, never bind new ones: the prior's quadratic, the damping and the
+# observations alike. The observations are not constant along the solve
+# (a censored site's pseudo-observation and precision move with the
+# centre; under sigma points every row's inflation rescales the observation
+# side too), and until 2026-09-24 the rebuild bound a new vector, so the
+# iterations paired a fresh factor with the previous centre's observations
+# and the loop could stop off its fixed point. The gap between the final
+# pass's mean and the centre is now returned and recorded, and the tests
+# require it to vanish.
 
 export iterated_solve, IteratedProblem, lm_node, solve_channels_graph
 
@@ -108,7 +120,19 @@ function iterated_solve(p::IteratedProblem, run_infer; c0, iters::Int=40, tol::F
     Λ_lm .= Matrix(1e-9 * I, p.n, p.n)
     res = run_infer(Λ_lm, (on_marginal_update=on_update,), 1)
     q = last[]
-    return (z=c, F=Fc, mean=collect(mean(q)), cov=Matrix(cov(q)), hist=hist, converged=converged[])
+    m = collect(mean(q))
+    gap = isempty(m) ? 0.0 : maximum(abs.(m .- c))         # the fixed-point gap: how far the graph's own mean at the final centre sits from it, on the worst coordinate
+    return (z=c, F=Fc, mean=m, cov=Matrix(cov(q)), hist=hist, converged=converged[], gap=gap)
+end
+
+"The observation vector the running inference holds, written in place: a new vector would leave the graph on the previous centre's observations."
+function _set_rows!(ref::Base.RefValue{Vector{Float64}}, w::AbstractVector)
+    if length(ref[]) == length(w)
+        ref[] .= w
+    else
+        ref[] = collect(Float64, w)
+    end
+    return ref
 end
 
 # --- the production solve on the graph -------------------------------------------------
@@ -161,7 +185,7 @@ function _solve_channels_graph_raw(channels, prior, d::GateData, ph::Physics; c0
         a, B, w = assemble_at(channels, c, S, J, prior, lay, ph)
         any(isnan, w) && throw(ArgumentError("every channel in a fit must carry data"))
         AFF[] = Affine(a, B, copy(c))
-        w_ref[] = w
+        _set_rows!(w_ref, w)
         lay_ref[] = lay
         mp_c, Λp_c = prior_quadratic(c, prior)
         mp .= mp_c
@@ -174,7 +198,7 @@ function _solve_channels_graph_raw(channels, prior, d::GateData, ph::Physics; c0
     r = iterated_solve(prob, run_infer; c0, iters, tol, ftol, verbose)
     a, B = AFF[].a, AFF[].B
     mis = misfit(channels, a, B, w_ref[], r.cov)
-    return (z=r.z, mean=r.mean, cov=r.cov, F=r.F, hist=r.hist, misfit=mis, converged=r.converged, rounds=1)
+    return (z=r.z, mean=r.mean, cov=r.cov, F=r.F, hist=r.hist, misfit=mis, converged=r.converged, rounds=1, gap=r.gap)
 end
 
 "The mean term of KL(N(m1, C1) ‖ N(m2, ·)) in nats: half the whitened squared shift of the mean from the belief the points were placed by."
@@ -222,7 +246,7 @@ function solve_channels_graph(channels, prior::FilterPrior, d::GateData, ph::Phy
         a, B, w = assemble_at(channels, c, stack, J, prior, lay, ph)
         any(isnan, w) && throw(ArgumentError("every channel in a fit must carry data"))
         AFF[] = Affine(a, B * S0, copy(ξ))
-        w_ref[] = w
+        _set_rows!(w_ref, w)
     end
     prob = IteratedProblem(:z, objective, rebuild!, n)
     run_infer(Λ_lm, callbacks, its) = infer(model = cook_graph_lm(),
@@ -253,5 +277,5 @@ function solve_channels_graph(channels, prior::FilterPrior, d::GateData, ph::Phy
     a, Bξ = AFF[].a, AFF[].B
     mis = misfit(channels, a, Bξ, w_ref[], r.cov)
     return (z=to_raw(r.z), mean=to_raw(r.mean), cov=Matrix(Symmetric(S0 * r.cov * S0')),
-            F=r.F, hist=hist, misfit=mis, converged=r.converged, rounds=used)
+            F=r.F, hist=hist, misfit=mis, converged=r.converged, rounds=used, gap=r.gap)   # the gap in whitened units: sds of the prior
 end

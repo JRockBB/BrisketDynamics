@@ -1028,7 +1028,8 @@ Returns one record: `t`, the belief's
 pit, centre and surface temperatures `(mean, sd)` and their joint covariance, the latents' posterior, the
 discrepancies, the noise and level per channel, the fault flags, the fit's misfit, iterations and wall; with
 `diagnostics`, the innovations at the predicted mean (before the update): `nis`, `dof` and the standardized
-innovations per channel.
+innovations per channel; `gap`, the update's fixed-point gap (how far the graph's mean at the final centre sits
+from the centre, in whitened sds, on the worst coordinate; NaN without an update).
 """
 function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     lay = st.lay; t = st.t; k0 = st.k0
@@ -1114,6 +1115,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
     nis, dof, innov = NaN, 0, Dict{Int,Vector{Float64}}()
     resid = Dict{Int,Float64}(); rvar = Dict{Int,Float64}(); efree = Dict{Int,Float64}()
     H_als, S_als, e_als, rowch_als = nothing, nothing, nothing, Int[]  # the standardized rows, their covariance and the innovations at the predicted mean, for the accumulator
+    gap = NaN
     if isempty(live)
         z_post, V_post, mis, n_it, n_rounds, converged = m_pred, P_pred, nothing, 0, 0, true
     else
@@ -1174,7 +1176,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             end
         end
         res, n_it = _online_solve(st, chs, prior_w, d, ph, m_pred)
-        mis, converged, n_rounds = res.misfit, res.converged, get(res, :rounds, 1)
+        mis, converged, n_rounds, gap = res.misfit, res.converged, get(res, :rounds, 1), get(res, :gap, NaN)
         if converged
             z_post, V_post = res.z, _stable_cov(res.cov)
         else
@@ -1216,7 +1218,7 @@ function filter_update!(st::FilterState, k::Int; diagnostics::Bool=false)
             x=(diagnostics ? m_new[xr] : nothing), x_cov=(diagnostics ? P_new[xr, xr] : nothing),
             z=m_new[1:n_z], z_sd=sd[1:n_z], z_cov=P_new[1:n_z, 1:n_z], disc=m_new[disc_range(lay)], disc_sd=sd[disc_range(lay)],
             noise=[(σ=np.σ_mean, σ_sd=np.σ_sd, ρ=np.ρ_mean, ρ_sd=np.ρ_sd) for np in st.np], level=copy(st.level), faulty=copy(st.faulty),
-            misfit=mis, iters=n_it + n0, rounds=n_rounds, converged=converged, wall=time() - t0, nis=nis, dof=dof, innov=innov, sigma=sigma_ok)
+            misfit=mis, iters=n_it + n0, rounds=n_rounds, converged=converged, gap=gap, wall=time() - t0, nis=nis, dof=dof, innov=innov, sigma=sigma_ok)
 end
 
 "The lid-open events of the cook up to `t_end`, each with its kind: the add, the wrap, the pull, and the spritz train to the pull."

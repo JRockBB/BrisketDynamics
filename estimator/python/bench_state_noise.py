@@ -131,6 +131,10 @@ def load_round(files: list[Path]) -> dict:
     out["temps_per_cook"] = [float(np.nanmean([r["nees_T"] for r in c["temps"]]) / 3) for c in cooks]
     nis = np.array([r["nis"] for r in temps if r["dof"] > 0], dtype=float); dof = np.array([r["dof"] for r in temps if r["dof"] > 0], dtype=float)
     out["latents_nees16"] = float(np.nanmean(nz) / 16); out["temps_nees3"] = float(np.nanmean(nT) / 3)
+    gaps = np.array([r["gap"] for r in temps if r.get("updated") and r.get("gap") is not None], dtype=float)   # the updates' fixed-point gaps (records since 2026-09-24)
+    gaps = gaps[np.isfinite(gaps)]
+    out["gap"] = {"n": int(len(gaps)), "max": float(np.max(gaps)) if len(gaps) else None, "median": float(np.median(gaps)) if len(gaps) else None,
+                  "over_half_sd": int(np.sum(gaps > 0.5)) if len(gaps) else None}
     out["nis_dof"] = float(np.nansum(nis) / np.sum(dof)) if len(dof) else float("nan")
     # the whiteness per channel: the standardized innovations' mean and lag-one autocorrelation, per cook then pooled
     white = {}
@@ -175,6 +179,12 @@ def print_round(name: str, r: dict, hours: float) -> None:
           + f"; the mean's interval from the cooks' spread {c16[0]:.2f} to {c16[1]:.2f}; a consistent filter's band for {r['n_cooks']} cooks {lo16:.2f} to {hi16:.2f})")
     print(f"  NEES/3 of the temperatures {r['temps_nees3']:.2f} (per cook: " + " ".join(f"{v:.2f}" for v in r["temps_per_cook"])
           + f"; the mean's interval {c3[0]:.2f} to {c3[1]:.2f}; the band {lo3:.2f} to {hi3:.2f})")
+    g = r["gap"]
+    if g["n"]:
+        print(f"  the updates' fixed-point gap (the graph's mean at the final centre against the centre, whitened sds, worst coordinate): "
+              f"max {g['max']:.3f}, median {g['median']:.3f}, {g['over_half_sd']} of {g['n']} updates over half an sd")
+    else:
+        print("  the updates' fixed-point gap: not in these records (made before 2026-09-24)")
     print(f"  {'group':9s} {'rate':>10s} {'init sd':>10s} {'NEES/dof':>9s} {'cook median':>12s} {'cook max':>9s} {'band (one sample per cook-hour)':>32s}")
     for g in GROUPS:
         v = r["groups"][g]; lo, hi = band(n_eff, gd[g])
@@ -297,7 +307,7 @@ def main() -> None:
                                      "rates": tune["rates"], "init_sd": tune["init_sd"], "factors": factors, "als": fit,
                                      "nees_dof": {g: tune["groups"][g]["nees_dof"] for g in GROUPS},
                                      "nees_dof_cook_median": {g: tune["groups"][g]["cook_median"] for g in GROUPS}, "nees_dof_cook_max": {g: tune["groups"][g]["cook_max"] for g in GROUPS},
-                                     "nis_dof": tune["nis_dof"], "latents_nees16": tune["latents_nees16"], "latents_per_cook": tune["latents_per_cook"],
+                                     "nis_dof": tune["nis_dof"], "latents_nees16": tune["latents_nees16"], "latents_per_cook": tune["latents_per_cook"], "gap": tune["gap"],
                                      "temps_nees3": tune["temps_nees3"], "temps_per_cook": tune["temps_per_cook"], "whiteness": tune["whiteness"]}}}
         rates_out.write_text(json.dumps(record, indent=1), encoding="utf-8")
         print(f"  wrote {rates_out}")
@@ -337,7 +347,7 @@ def main() -> None:
         record.setdefault("bench", {})["fresh"] = {"seeds": fresh["seeds"], "skipped": fresh["skipped"], "records": [f.name for f in files], "manifest": manifest_of("fresh").name, "physics": fresh["physics"],
                                                    "nees_dof": {g: fresh["groups"][g]["nees_dof"] for g in GROUPS},
                                                    "nees_dof_cook_median": {g: fresh["groups"][g]["cook_median"] for g in GROUPS}, "nees_dof_cook_max": {g: fresh["groups"][g]["cook_max"] for g in GROUPS},
-                                                   "nis_dof": fresh["nis_dof"], "latents_nees16": fresh["latents_nees16"], "latents_per_cook": fresh["latents_per_cook"],
+                                                   "nis_dof": fresh["nis_dof"], "latents_nees16": fresh["latents_nees16"], "latents_per_cook": fresh["latents_per_cook"], "gap": fresh["gap"],
                                                    "temps_nees3": fresh["temps_nees3"], "temps_per_cook": fresh["temps_per_cook"], "whiteness": fresh["whiteness"]}
         rates_out.write_text(json.dumps(record, indent=1), encoding="utf-8")
         print(f"  wrote {rates_out}")

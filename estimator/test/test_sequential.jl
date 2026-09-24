@@ -255,8 +255,10 @@ end
     # arrival) under the damped posterior-linearization form: it commits and uses one to three rounds
     st_f = filter_init(channels(), t, u, pit, cfg, sites, names, events; noise, area_latent=AREA, q, n_sigma=64)
     r_f = filter_update!(st_f, arrivals[1]; diagnostics=true)
-    println("  the first update: ", r_f.rounds, " rounds, ", r_f.iters, " iterations, converged ", r_f.converged)
+    println("  the first update: ", r_f.rounds, " rounds, ", r_f.iters, " iterations, converged ", r_f.converged, ", fixed-point gap ", round(r_f.gap; digits=4), " sd")
     @test r_f.updated && 1 <= r_f.rounds <= 3 && st_f.rounds == 3
+    @test isfinite(r_f.gap) && r_f.gap < 0.5                           # the graph's mean at the final centre within half a whitened sd of it on every coordinate
+    @test all(isfinite(r.gap) && r.gap < 0.5 for r in recs if r.updated)
     # the rounds' stopping rule: the mean's whitened shift from the belief the points were placed by, zero for the same mean, half the squared shift for a shifted one
     @test E._gauss_shift(zeros(3), Matrix(1.0I, 3, 3), zeros(3)) == 0.0
     @test abs(E._gauss_shift(zeros(3), Matrix(1.0I, 3, 3), [0.3, 0.0, 0.4]) - 0.125) < 1e-12
