@@ -787,19 +787,59 @@ Status: **fixed; the oracle tests pass** (2026-09-24, from the review of the ben
   fixed-point gap of **0.0 sd**, and every committed update of the thirty
   minute run sits under half a whitened sd of its own fixed point.
 
+### The block's observability over two hours (`estimator/scripts/observability.jl`)
+
+- The review's structural point, measured: the open-loop observability
+  matrix of the filter's block over the first two hours of the real-cook
+  mock (60 updates, 136 readings, 230 coordinates), from the accumulator's
+  kept transitions and standardized rows, in the initial belief's sds. Its
+  singular values: **24 directions move the innovations at all**, 19 by
+  more than a tenth of an sd, 12 by more than one sd; the other 206 are
+  exactly null over the horizon. Per coordinate, a one-sd move of it alone
+  moves the innovations over the two hours by: every latent between 1.5
+  and 200 sd (the enthalpy, the area, the loss coefficient and the burn
+  rate above 130); the pit's temperature 11.6; the temperature field at
+  most 0.82 on one node (median 0.53); the water 0.12; the collagen, fat,
+  salt, bark, fuel, pan, firebox and ignited groups nothing. The
+  discrepancies: the pit's 7.6, the core's 29.8, the humidity's 1.2, the
+  scale's 0.2. Those are the six groups the autocovariance fit found
+  columns for, and why the rest were unidentified: the innovations do not
+  see them in two hours.
+- The core against its own discrepancy: a one-sd move of the field's node
+  under the probe moves the innovations by 0.41 sd, the discrepancy's by
+  29.8, and the two responses are 15 degrees apart; the pair's second
+  singular value is 0.11. The core temperature and the core discrepancy
+  are nearly inseparable over two hours, as the review said (the two-step
+  observability determinant is the persistence minus the thermal
+  transition, both near one). The pit against its discrepancy: 11.6 and
+  7.6 sd at 29 degrees, the second singular value 3.1: separable, because
+  the pit's dynamics are fast. The fixed-point gap over the sixty updates:
+  at most 0.05 sd, median 0.002.
+
 ### What it means for the bench
 
 - The bench of 2026-09-23 and the fresh round of 2026-09-24 (stopped after
-  eight of its ten cooks) ran on this update. Their rates are evidence from
-  a flawed update, not calibration: the sigma-point rows of every filter
-  update iterated against stale inflations, and the humidity's censored
-  sites against stale pseudo-observations. The calibration files are not
-  committed. The bench reruns only after the review's remaining checks: the
-  finite-horizon observability of the block (the reading is physics plus
-  discrepancy, an instantaneous null direction the dynamics must separate;
-  for the core the two-step observability determinant is the persistence
-  minus the thermal transition, both near one), and the ablations with the
-  state, the discrepancy and the AR noise given.
+  eight of its ten cooks) ran on the flawed update. Their rates are
+  evidence, not calibration: the sigma-point rows of every filter update
+  iterated against stale inflations, and the humidity's censored sites
+  against stale pseudo-observations. The calibration files are not
+  committed (the flawed run's rates record is kept under
+  `scratchpad/state_noise_flawed_update_2026-09-23.json`). The rates file's
+  fingerprint is stale again with this change to `iterated.jl`, so every
+  strict driver refuses it until the bench reruns.
+- Of the review's list before any rerun: the fixed-point requirement and
+  the scalar oracle are done, the linear row is checked as the Kalman
+  update, the observability is measured above. Open: a full-block oracle
+  (the exact objective's MAP and Hessian on a real update), the
+  frozen-linearization Kalman check at the block level, and the ablations
+  with the state, the discrepancy and the AR noise given, of which the
+  third exists as the noise-truth variant and the first two need the
+  filter to take an oracle. What the observability says for the design is
+  the larger question: with the innovations blind to most of the state's
+  groups and unable to tell the core's temperature from its discrepancy,
+  the rates of those groups cannot be identified from innovations on this
+  bench, and the core's row noise and its discrepancy's dynamics are one
+  thing to the filter.
 
 ## The bench's step 2 — The rates identified from the innovations' autocovariances, in place of covariance matching against the truth
 
