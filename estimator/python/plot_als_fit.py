@@ -5,14 +5,14 @@ rates the round ran with (the predicted variance at lag zero, white beyond it) a
 autocovariance least-squares step identified (estimator/python/als_fit.py). A consistent filter's sample sits on
 one at lag zero and on zero beyond; what the fit can and cannot explain is the gap that remains after.
 
-Reads the tuning round's records (data/mock/<pattern>) for the pooled statistics and the rates file for the
-fit; writes figures/estimator/als_autocovariance<tag>.png.
+Reads the tuning round's manifest (data/mock/bench_manifest_tune<tag>.json, its records validated against it:
+bench_manifest.py) or a pattern for the pooled statistics, and the rates file for the fit; writes
+figures/estimator/als_autocovariance<tag>.png.
 
-Run from app/:  uv run python ../estimator/python/plot_als_fit.py [pattern] [tag] [rates file]
+Run from app/:  uv run python ../estimator/python/plot_als_fit.py [manifest|pattern] [tag] [rates file]
 """
 from __future__ import annotations
 
-import glob
 import json
 import sys
 import textwrap
@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from als_fit import lag_table, pool  # noqa: E402
+from bench_manifest import resolve_inputs  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 INK, INK2, GRID_C, SURFACE = "#1f2430", "#5b6472", "#e4e7ec", "#fbfbfa"
@@ -43,10 +44,10 @@ def style(ax):
 
 
 def main():
-    pattern = sys.argv[1] if len(sys.argv) > 1 else "coverage_tune_*.json"
+    pattern = sys.argv[1] if len(sys.argv) > 1 else "bench_manifest_tune.json"
     tag = sys.argv[2] if len(sys.argv) > 2 else ""
     rates_file = Path(sys.argv[3]) if len(sys.argv) > 3 else REPO / "data" / "calibration" / "state_noise.json"
-    files = sorted(glob.glob(str(REPO / "data" / "mock" / pattern)))
+    files, _ = resolve_inputs(pattern)
     summaries = []
     for f in files:
         d = json.loads(Path(f).read_text(encoding="utf-8"))

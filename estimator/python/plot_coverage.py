@@ -13,7 +13,6 @@ Run from app/:  uv run python ../estimator/python/plot_coverage.py
 """
 from __future__ import annotations
 
-import glob
 import json
 from pathlib import Path
 
@@ -30,10 +29,12 @@ COOK_C, MEAN_C, BAND = "#9aa5b4", "#2a78d6", "#efefec"
 
 def main():
     import sys
-    pattern = sys.argv[1] if len(sys.argv) > 1 else "coverage_realcook*.json"     # e.g. coverage_ridge*.json
+    pattern = sys.argv[1] if len(sys.argv) > 1 else "coverage_realcook*.json"     # a round's manifest (bench_manifest_fresh.json) or a pattern, e.g. coverage_ridge*.json
     key = sys.argv[2] if len(sys.argv) > 2 else "err_sd"                          # err_sd (the Gaussian) or err_sd_ridge
     tag = sys.argv[3] if len(sys.argv) > 3 else ""                                # suffix of the figure and summary
-    files = sorted(glob.glob(str(REPO / "data" / "mock" / pattern)))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from bench_manifest import resolve_inputs
+    files, _ = resolve_inputs(pattern)
     cooks, names, prior_file, edges = [], None, None, None
     for f in files:
         d = json.loads(Path(f).read_text(encoding="utf-8"))

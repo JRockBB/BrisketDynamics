@@ -841,6 +841,11 @@ Status: **built, tested and smoke-run; the bench itself pending a go** (this ses
   run here: no node on this machine).
 - `estimator/test/test_als.jl` (the planner CI shard); `app/tests/test_bench_als.py`;
   `docs/results.md` and `figures/README.md` say what the step is now.
+- After the review (2026-09-24): `estimator/python/bench_manifest.py` and the
+  manifests, the driver's whole-block cook count, held-out fresh seeds and
+  validated reuse, the jackknife in `als_fit.py`, the cook-cluster interval
+  in the driver's printout, the renderers on the manifest;
+  `app/tests/test_bench_manifest.py`.
 
 ### Verification
 
@@ -888,22 +893,104 @@ Status: **built, tested and smoke-run; the bench itself pending a go** (this ses
   (`figures/estimator/als_autocovariance_smoke.png`): the core's innovation
   variance is an eighth of the model's at lag zero, before and after (the
   field's rate at its cap would move the model by under a percent), and the
-  humidity's about six tenths. That gap is not the rates'. The noise check
-  above placed part of it in the core's white floor (1.2 K per reading, the
-  mock's whole noise sd, while the mock's noise is a pure AR(1) whose one-step
-  innovation is 0.17 K: removing the floors moved the core's mean square from
-  0.29 to 0.42 on seed 10), the rest in the belief's own predicted spread of
-  the core temperature. The bench proper measures it over nine cooks; it is a
-  finding to read, not to tune away, and the noise configuration remains the
-  user's decision.
+  humidity's about six tenths. That gap is not the rates'. It is the channel's noise model:
+  the meat probe's white row floor is 0.1 K (`white_floor`), and the 1.2 K
+  is the floor on the AR discrepancy's sigma, whose calibration prior is
+  1.65 K against the mock's 1.2 K with a similar correlation time; the
+  discrepancy's transition variance is the largest term of the core's
+  predicted innovation variance, and the belief's own predicted spread of
+  the core temperature is the rest (the noise check above: telling the
+  filter the mock's own sigma and rho, without floors, moved the core's mean
+  square from 0.29 to 0.42 on seed 10). A first draft of this entry called
+  the 1.2 K a white floor; it is not. The bench proper measures the gap over
+  the cooks; it is a finding to read, not to tune away, and the noise model
+  is the user's decision.
+
+### The bench (2026-09-23, on the go; the driver's own numbers, ten cooks per round)
+
+- The tuning round (seeds 1 to 10, 4080 updates, 4 h 35 min on two workers)
+  from the stale rates file: NIS/dof 0.50, the latents' NEES/16 1.42, the
+  temperatures' NEES/3 1.33; the temperature field (1.39) and the pit (1.56)
+  too narrow against the truth, the water (0.39) too wide; the core's lag-one
+  +0.19 against a band of 0.10, the pit's +0.05.
+- The fit, on 1.12 million products with the weighted rows' noise at 1.00:
+  three groups identified and all three sent to the cap, the temperature
+  field, the water and the pit each to a quarter of their rate (63, 5 and 39
+  standard errors); the other nine unidentified. At lag zero the pit's sample
+  0.50 ± 0.01 against the model 1.00 before and **0.52 after**: the pit's gap
+  is the rate's and closes. The core's 0.34 ± 0.01 against 1.00 before and
+  **0.90 after**: the field's rate at its cap moves the model a tenth, the
+  gap is not a rate's. The humidity's 1.25 ± 0.08 against 1.00, which no rate
+  addresses, and the scale's 0.78 ± 0.07.
+  (`figures/estimator/als_autocovariance.png`.)
+- The fresh round (seeds 10 to 19, 4080 updates, 4 h 9 min) on the
+  identified rates: **NIS/dof 0.74** (from 0.50), the pit's lag-one +0.02,
+  the humidity's +0.06 (from +0.18), the core's +0.18 (from +0.19, still out
+  of band: the core's gap is not a rate's); the temperatures' NEES/3 1.40;
+  the temperature field 1.26 and the pit 1.50 still too narrow, the water
+  0.54 still too wide, the ignited fraction 2.00 with one cook at 10. The
+  latents' NEES/16 **1.78 is undercoverage**, not the band's edge: the
+  chi-squared band for the mean of ten cooks is about 0.79 to 1.23 (0.43 to
+  1.80 is one cook's), and the cook-cluster 95 % interval of the mean from
+  the ten per-cook values (2.65, 2.40, 2.72, 2.04, 0.94, 2.64, 1.02, 0.83,
+  1.16, 1.35) is 1.22 to 2.34, excluding one. The rates fell by a factor
+  four and the state's widths against the truth did not worsen (different
+  seeds; a direction, not a pair). The innovations are whiter and closer to
+  their predicted size; what remains is on the channels' side and on the
+  latents', not the rates'.
+- Three qualifications from the review of this run (2026-09-24), each
+  verified in the code and the records. (1) The fresh round was not fully
+  held out: the driver rounded nine cooks up to two blocks of five, ran seeds
+  1 to 10 in the tuning round and started the fresh seeds at 10, so seed 10
+  is in both while the file said nine cooks per round. (2) All three
+  identified rates sit on the cap's lower bound: they are cap-limited
+  candidates, not interior estimates, and the model's standard errors treat
+  1.1 million overlapping products as independent when a cook's products
+  share its plant and its belief. (3) The noise terminology: the white row
+  floor is 0.1 K and the 1.2 K is the AR discrepancy's sigma floor (above);
+  the core's lag-one stays +0.18, so fitting a white measurement variance
+  alone would not resolve the channel's mismatch: the AR sigma and rho are
+  what disagrees with the mock, and a joint fit of the channel noise (white
+  and AR, prior-regularized) with the state noise, validated on held-out
+  cooks, is the design item, not dropping physically justified floors.
+- The protocol flaw, and its fix as the review asked (a manifest, not
+  deletion plus a glob): the consistency and coverage figures (and their
+  summary JSONs) were rendered from a glob on the round's stem, and the
+  record names carry the seed block, which changed with the worker count.
+  The old fresh records `coverage_filter_13.json` and `coverage_filter_16.json`
+  (2026-09-17, physics `ba928b214b27`, the old rates) matched the glob, so
+  those two figures pooled sixteen cooks of two physics and two rate sets and
+  are wrong; the driver's printed numbers, the rates file's record and the
+  fit's figure read the round's files and are right. Now each round's records
+  are listed in a manifest (`data/mock/bench_manifest_<round>.json`:
+  `estimator/python/bench_manifest.py`) with their seed blocks, the cook
+  count, the physics and the state noise they ran with; every renderer
+  (`plot_filter_consistency.py`, `plot_coverage.py`, `plot_als_fit.py`)
+  takes the manifest and refuses a record whose seeds, physics or rates are
+  not the manifest's; `--reuse` accepts existing records only when they
+  validate the same way. The cook count is whole blocks, the fresh seeds
+  start where the tuning seeds end unless given, and overlapping seed sets
+  are refused. The fit quotes a leave-one-cook-out jackknife standard error
+  beside the model's, with the count of leave-one-out fits in which each
+  group was identified and at the cap; the driver prints the cook-cluster
+  interval of the latents' and the temperatures' NEES beside the band.
+  Tests: `test_bench_manifest.py` (the round's records validate, a record
+  of another bench is refused with the reason, the manifest round-trips and
+  a changed record is refused at load) and the jackknife in
+  `test_bench_als.py` (a borderline group identified on the pool but not by
+  every two of three cooks is what it flags).
 
 ### What remains
 
-- The bench proper (nine cooks per round, two rounds, about twelve hours),
-  with a go. The fresh round's NEES against the truth and its whiteness are
-  the check of a step that never saw the truth. What the fit cannot explain
-  stays visible as the gap after in the figure: a persistent latent error is
-  not a state rate and will show as one.
+- The corrected check: the fresh round on seeds 11 to 20, held out from the
+  tuning round's 1 to 10, rendered from its manifest. The quarter-rate result
+  stands as a strong directional finding; the calibration (the rates file,
+  the records, the figures) is committed only once that check has run.
+- The channel noise in the identification: white and AR jointly with the
+  state noise, prior-regularized, validated on held-out cooks; a design item
+  for the user.
+- The latents' undercoverage (1.78 over ten cooks), to be read first on the
+  corrected coverage figure: a latent inconsistency the rates do not govern.
 
 ## The bench on the remediated filter: the smoke round, and the bench itself pending a go
 

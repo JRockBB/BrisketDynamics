@@ -25,7 +25,10 @@ squares fit. This module solves it:
     variance rate is negative;
   * after the bounded fit a group whose joint standard error exceeds its fitted variance rate without a
     significant move (the fit cannot tell its sign) is held at its number and the fit is solved again;
-  * the initial widths are not identified here (their transient is one; the rates recur) and are kept.
+  * the initial widths are not identified here (their transient is one; the rates recur) and are kept;
+  * the standard errors are quoted twice: from the model's rows, which treats the products as independent, and
+    from a leave-one-cook-out jackknife over the cooks' own statistics, which does not; a cook's products share
+    its plant and its belief, so the jackknife is the one to read when the two disagree.
 
 The fit needs no truth, so the same step applies to a real cook's innovations, where the bench's covariance
 matching against the plant's state could not.
@@ -106,11 +109,13 @@ def _block_variances(blocks: dict, delta: np.ndarray) -> dict:
     return out
 
 
-def als_fit(pooled: dict, cap: float = 4.0) -> dict:
+def als_fit(pooled: dict, cap: float = 4.0, summaries: list[dict] | None = None) -> dict:
     """The rates from the pooled statistics: per group the variance rate before and after, the factor on the rate,
     the standard error of the rate, whether it was identified and whether the cap bound; the fit's cost before
     and after and the rows' noise; the marginal relative standard error that judged each group; per block its
-    weight (the inverse of its residual variance)."""
+    weight (the inverse of its residual variance); with the cooks' `summaries` (three or more) the leave-one-cook-out
+    jackknife of the whole procedure: each group's rate's jackknife standard error and in how many of the
+    leave-one-out fits it was identified and at the cap."""
     groups = list(pooled["groups"]); theta = np.asarray(pooled["theta"], dtype=float); n_g = len(groups)
     N = int(pooled["n_rows"])
     if N < n_g + 2:
@@ -177,7 +182,8 @@ def als_fit(pooled: dict, cap: float = 4.0) -> dict:
     block_var = _block_variances(blocks, delta)
     at_cap = [bool(g in active and (abs(theta_new[g] - theta[g] / cap ** 2) <= 1e-9 * theta[g] or abs(theta_new[g] - theta[g] * cap ** 2) <= 1e-9 * theta[g]))
               for g in range(n_g)]
-    return {"groups": groups, "theta": theta.tolist(), "theta_new": theta_new.tolist(), "rates": rates.tolist(), "rates_new": rates_new.tolist(),
+    jk = _jackknife(summaries, cap) if summaries is not None and len(summaries) >= 3 else None
+    return {"jackknife": jk, "groups": groups, "theta": theta.tolist(), "theta_new": theta_new.tolist(), "rates": rates.tolist(), "rates_new": rates_new.tolist(),
             "factors": [float(rates_new[g] / rates[g]) if rates[g] > 0 else 1.0 for g in range(n_g)],
             "se_rate": [_finite(se_theta[g] / (2 * rates_new[g])) if rates_new[g] > 0 else None for g in range(n_g)],
             "identified": [bool(g in active) for g in range(n_g)],
@@ -188,6 +194,21 @@ def als_fit(pooled: dict, cap: float = 4.0) -> dict:
             "blocks": [{"a": k[0], "b": k[1], "same": k[2], "n": int(blocks[k]["n"]), "weight": _finite(weights[k]), "variance_at_fit": _finite(block_var[k])}
                        for k in sorted(blocks)],
             "n_cooks": pooled.get("n_cooks"), "n_updates": pooled.get("n_updates"), "lag_s": pooled.get("lag_s"), "bin_s": pooled.get("bin_s"), "cap": cap}
+
+
+def _jackknife(summaries: list[dict], cap: float) -> dict:
+    """The procedure repeated with each cook left out: the jackknife standard error of every group's rate and its
+    variance rate, and the counts of leave-one-out fits in which the group was identified and at the cap."""
+    n = len(summaries)
+    fits = [als_fit(pool(summaries[:i] + summaries[i + 1:]), cap=cap) for i in range(n)]
+    theta = np.array([f["theta_new"] for f in fits], dtype=float)
+    rates = np.array([f["rates_new"] for f in fits], dtype=float)
+    se_theta = np.sqrt((n - 1) / n * np.sum((theta - theta.mean(axis=0)) ** 2, axis=0))
+    se_rate = np.sqrt((n - 1) / n * np.sum((rates - rates.mean(axis=0)) ** 2, axis=0))
+    return {"n_cooks": n, "se_theta": [_finite(v) for v in se_theta], "se_rate": [_finite(v) for v in se_rate],
+            "identified_in": [int(sum(f["identified"][g] for f in fits)) for g in range(theta.shape[1])],
+            "at_cap_in": [int(sum(f["cap_bound"][g] for f in fits)) for g in range(theta.shape[1])],
+            "rates_min": rates.min(axis=0).tolist(), "rates_max": rates.max(axis=0).tolist()}
 
 
 def lag_table(pooled: dict, fit: dict, channels: dict[int, str], bins: list[int]) -> list[dict]:
@@ -216,7 +237,8 @@ def format_fit(fit: dict, units: dict[str, str], channels: dict[int, str] | None
              "  the blocks' residual variance at the fit (their weight is its inverse): "
              + "; ".join(f"{ch.get(b['a'], b['a'])}×{ch.get(b['b'], b['b'])} {'at one update' if b['same'] else 'across updates'} {b['variance_at_fit']:.3g} (n {b['n']})"
                          for b in fit["blocks"] if b["variance_at_fit"] is not None and b["a"] == b["b"]),
-             f"  {'group':9s} {'rate':>10s} {'-> rate':>10s} {'factor':>7s} {'se (rate)':>10s}  {'own rel se':>10s} {'move/se':>8s}  status"]
+             f"  {'group':9s} {'rate':>10s} {'-> rate':>10s} {'factor':>7s} {'se (rate)':>10s} {'jackknife se':>13s} {'in k of n':>10s}  {'own rel se':>10s} {'move/se':>8s}  status"]
+    jk = fit.get("jackknife")
     for g, name in enumerate(fit["groups"]):
         status = "identified" if fit["identified"][g] else fit["held"].get(name, "")
         if fit["cap_bound"][g]:
@@ -225,7 +247,13 @@ def format_fit(fit: dict, units: dict[str, str], channels: dict[int, str] | None
         se_s = f"{se:10.3g}" if se is not None else f"{'-':>10s}"
         rel_s = f"{rel:10.2f}" if rel is not None else f"{'-':>10s}"
         mv_s = f"{mv:8.1f}" if mv is not None else f"{'-':>8s}"
-        lines.append(f"  {name:9s} {fit['rates'][g]:10.4g} {fit['rates_new'][g]:10.4g} {fit['factors'][g]:7.2f} {se_s}  {rel_s} {mv_s}  {status} [{units.get(name, '')}]")
+        if jk is not None:
+            jse = jk["se_rate"][g]
+            jk_s = f"{jse:13.3g}" if jse is not None else f"{'-':>13s}"
+            in_s = f"{jk['identified_in'][g]:3d} of {jk['n_cooks']:<3d}"
+        else:
+            jk_s = f"{'-':>13s}"; in_s = f"{'-':>10s}"
+        lines.append(f"  {name:9s} {fit['rates'][g]:10.4g} {fit['rates_new'][g]:10.4g} {fit['factors'][g]:7.2f} {se_s} {jk_s} {in_s:>10s}  {rel_s} {mv_s}  {status} [{units.get(name, '')}]")
     return "\n".join(lines)
 
 

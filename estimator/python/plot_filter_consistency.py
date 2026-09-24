@@ -15,15 +15,15 @@ scalars, the ignited fraction): NEES per degree of freedom against the
 plant's state, the reading the bench earns the state's process noise
 from (estimator/python/bench_state_noise.py).
 
-Reads data/mock/coverage_filter_*.json (or the pattern given), writes
-figures/estimator/filter_consistency_drift<tag>.png and
+Reads the round's manifest (data/mock/bench_manifest_fresh<tag>.json, the
+records it names validated against it: bench_manifest.py) or a pattern on
+data/mock, writes figures/estimator/filter_consistency_drift<tag>.png and
 data/mock/filter_consistency_summary<tag>.json, and prints the numbers.
 
-Run from app/:  uv run python ../estimator/python/plot_filter_consistency.py [pattern] [tag]
+Run from app/:  uv run python ../estimator/python/plot_filter_consistency.py [manifest|pattern] [tag]
 """
 from __future__ import annotations
 
-import glob
 import json
 import sys
 from pathlib import Path
@@ -34,6 +34,9 @@ from scipy import stats
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bench_manifest import resolve_inputs  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 INK, INK2, GRID_C, SURFACE = "#1f2430", "#5b6472", "#e4e7ec", "#fbfbfa"
@@ -50,9 +53,9 @@ def style(ax):
 
 
 def main():
-    pattern = sys.argv[1] if len(sys.argv) > 1 else "coverage_filter_*.json"
+    pattern = sys.argv[1] if len(sys.argv) > 1 else "bench_manifest_fresh.json"
     tag = sys.argv[2] if len(sys.argv) > 2 else ""
-    files = sorted(glob.glob(str(REPO / "data" / "mock" / pattern)))
+    files, _ = resolve_inputs(pattern)
     cooks, groups, group_dof, sn, physics = [], None, None, None, None
     for f in files:
         d = json.loads(Path(f).read_text(encoding="utf-8"))

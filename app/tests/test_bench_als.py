@@ -64,6 +64,17 @@ def test_fit_recovers_the_planted_change_and_holds_the_unseen():
     json.dumps(fit, allow_nan=False)                                               # the rates file is parsed strictly on the Julia side
     text = format_fit(fit, {g: "K" for g in GROUPS}, {1: "pit probe"}) + format_lags(rows)
     assert "identified" in text and "unidentified" in text
+    # the leave-one-cook-out jackknife: on cooks that are draws of one process its standard errors agree with the
+    # model's within a factor, the identified groups are identified in every leave-one-out fit, the record is JSON
+    fit = als_fit(pooled, cap=4.0, summaries=cooks)
+    jk = fit["jackknife"]
+    assert jk["n_cooks"] == 3 and all(jk["identified_in"][g] == 0 for g in range(12) if g not in active)
+    assert jk["identified_in"][6] == 3 and jk["identified_in"][7] == 3                # the pit and the fuel pinned by every two of the cooks
+    assert jk["identified_in"][0] < 3                                                 # the field, borderline on three cooks, is not pinned by every two: what the jackknife is for
+    for g in (6, 7):
+        assert 0.1 < jk["se_rate"][g] / fit["se_rate"][g] < 10
+    json.dumps(fit, allow_nan=False)
+    assert "jackknife se" in format_fit(fit, {g: "K" for g in GROUPS}, {1: "pit probe"})
 
 
 def test_the_cap_binds_and_a_small_rate_the_innovations_want_larger_moves():

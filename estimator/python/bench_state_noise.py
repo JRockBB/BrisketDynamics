@@ -23,6 +23,13 @@ can be rerun whenever the physics or the filter change:
      figure and the coverage figure are rendered from this round only, and it is the round the numbers are
      quoted from. Anything still out of band is reported, not tuned away.
 
+Each round's records are listed in a manifest (data/mock/bench_manifest_<round>.json: the records, their seed
+blocks, the cook count, the physics and the state noise they ran with; estimator/python/bench_manifest.py), and
+every renderer takes the manifest and refuses records that are not the round's. The cook count is whole blocks
+(workers × cooks per worker); the fresh seeds start where the tuning seeds end unless given, and the two sets may
+not overlap. The fit's standard errors are quoted twice: from the model's rows, and from a leave-one-cook-out
+jackknife, since a cook's products are not independent of one another.
+
 The file data/calibration/state_noise.json carries the rates, the fingerprint of the physics and the filter
 they were earned on (BrisketEstimator.physics_fingerprint; every driver refuses the file when the tree has moved past it, and the
 tune round alone starts from stale rates),
@@ -30,12 +37,12 @@ the git commit, and both rounds' numbers. The bench is a floor: its plant is the
 real pit, where the model is wrong in ways the mock never is, the same rates leave the belief overconfident;
 on real logs the check is NIS and whiteness only.
 
-Run from app/:  uv run python ../estimator/python/bench_state_noise.py [--cooks 9] [--workers 2] [--hours 14]
-                    [--prior prior_next_cook.json] [--tune-seed0 1] [--fresh-seed0 10] [--cap 4] [--lag-h 2]
+Run from app/:  uv run python ../estimator/python/bench_state_noise.py [--cooks 10] [--workers 2] [--hours 14]
+                    [--prior prior_next_cook.json] [--tune-seed0 1] [--fresh-seed0 <after the tuning seeds>] [--cap 4] [--lag-h 2]
                     [--start file|default] [--rounds tune,fresh] [--smoke]
   --smoke: one worker, one cook, at most two hours, into scratch names (the driver's own check; nothing quoted from it)
   --rounds fresh: the fresh round only, with the file's rates as they are (the check without the correction)
-  --reuse: aggregate a round's records when they all exist instead of running its workers
+  --reuse: aggregate a round's records when they all exist and are the round's (its seeds, physics and rates) instead of running its workers
   --variant NAME: a bench variant (records variant_NAME_<round>_<seed>.json, figures tagged _NAME, the rates file untouched)
 """
 from __future__ import annotations
@@ -54,6 +61,7 @@ from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from als_fit import als_fit, format_fit, format_lags, lag_table, pool
+from bench_manifest import validate_records, write_manifest
 
 REPO = Path(__file__).resolve().parents[2]
 RATES_FILE = REPO / "data" / "calibration" / "state_noise.json"
@@ -104,6 +112,7 @@ def load_round(files: list[Path]) -> dict:
         sn = d["state_noise"]; fp = d.get("physics"); gd = d["group_dof"]
         seeds += [c["seed"] for c in d["cooks"]]; skipped += d.get("skipped_seeds", [])
     als = [c["als"] for c in cooks if c.get("als")]
+    out_als_summaries = als
     if not cooks:
         raise SystemExit("the round produced no cooks")
     temps = [r for c in cooks for r in c["temps"]]
@@ -134,6 +143,7 @@ def load_round(files: list[Path]) -> dict:
                       "lag1": float(np.mean(r1)) if r1 else float("nan"), "band": float(2 / np.sqrt(np.mean([len(s) for s in seqs]))) if seqs else float("nan")}
     out["whiteness"] = white
     out["als"] = pool(als) if als else None                             # the innovation autocovariances' statistics, pooled (absent on records made without the accumulator)
+    out["als_summaries"] = out_als_summaries                            # per cook, for the leave-one-cook-out jackknife
     return out
 
 
@@ -145,11 +155,26 @@ def band(n_eff: float, dof: int) -> tuple[float, float]:
     return float(stats.chi2.ppf(0.025, k) / k), float(stats.chi2.ppf(0.975, k) / k)
 
 
+def cluster_interval(per_cook: list[float]) -> tuple[float, float]:
+    """The 95 % interval of the mean over cooks from the cooks' own spread (a t interval on the per-cook values: the
+    updates within a cook are not independent, the cooks are), beside which the chi-squared band of one sample per
+    cook is the reference for a consistent filter."""
+    v = np.array([x for x in per_cook if np.isfinite(x)], dtype=float)
+    if len(v) < 3:
+        return float("nan"), float("nan")
+    half = stats.t.ppf(0.975, len(v) - 1) * np.std(v, ddof=1) / np.sqrt(len(v))
+    return float(np.mean(v) - half), float(np.mean(v) + half)
+
+
 def print_round(name: str, r: dict, hours: float) -> None:
     gd = r["group_dof"]; n_eff = r["n_cooks"] * hours
     print(f"{name}: {r['n_cooks']} cooks (seeds {r['seeds']}), {r['n_updates']} updates; physics {r['physics']}; the fields' noise by {r['fields']}")
-    print(f"  NIS/dof {r['nis_dof']:.2f}; NEES/16 of the latents {r['latents_nees16']:.2f} (per cook: " + " ".join(f"{v:.2f}" for v in r["latents_per_cook"]) + ")")
-    print(f"  NEES/3 of the temperatures {r['temps_nees3']:.2f} (per cook: " + " ".join(f"{v:.2f}" for v in r["temps_per_cook"]) + ")")
+    lo16, hi16 = band(r["n_cooks"], 16); lo3, hi3 = band(r["n_cooks"], 3)
+    c16 = cluster_interval(r["latents_per_cook"]); c3 = cluster_interval(r["temps_per_cook"])
+    print(f"  NIS/dof {r['nis_dof']:.2f}; NEES/16 of the latents {r['latents_nees16']:.2f} (per cook: " + " ".join(f"{v:.2f}" for v in r["latents_per_cook"])
+          + f"; the mean's interval from the cooks' spread {c16[0]:.2f} to {c16[1]:.2f}; a consistent filter's band for {r['n_cooks']} cooks {lo16:.2f} to {hi16:.2f})")
+    print(f"  NEES/3 of the temperatures {r['temps_nees3']:.2f} (per cook: " + " ".join(f"{v:.2f}" for v in r["temps_per_cook"])
+          + f"; the mean's interval {c3[0]:.2f} to {c3[1]:.2f}; the band {lo3:.2f} to {hi3:.2f})")
     print(f"  {'group':9s} {'rate':>10s} {'init sd':>10s} {'NEES/dof':>9s} {'cook median':>12s} {'cook max':>9s} {'band (one sample per cook-hour)':>32s}")
     for g in GROUPS:
         v = r["groups"][g]; lo, hi = band(n_eff, gd[g])
@@ -170,7 +195,7 @@ def identify(r: dict, cap: float) -> tuple[dict, dict, dict, dict]:
         raise SystemExit("the round's records carry no innovation-autocovariance statistics: rerun the workers with the accumulator (als_lag_h > 0)")
     if list(r["als"]["groups"]) != GROUPS:
         raise SystemExit(f"the accumulator's groups {r['als']['groups']} are not the driver's {GROUPS}")
-    fit = als_fit(r["als"], cap=cap)
+    fit = als_fit(r["als"], cap=cap, summaries=r["als_summaries"])
     rates = {g: fit["rates_new"][i] for i, g in enumerate(GROUPS)}
     init = {g: r["init_sd"][g] for g in GROUPS}
     factors = {g: fit["factors"][i] for i, g in enumerate(GROUPS)}
@@ -178,9 +203,19 @@ def identify(r: dict, cap: float) -> tuple[dict, dict, dict, dict]:
     return rates, init, factors, fit
 
 
-def render(pattern: str, tag: str, log_dir: Path) -> None:
-    """The consistency figure and the coverage figure from the fresh round's records."""
-    for script, args in (("plot_filter_consistency.py", [pattern, tag]), ("plot_coverage.py", [pattern, "err_sd_graphfilter", "_driftgraphfilter" + tag])):
+def reusable(files: list[Path], blocks: list[list[int]], physics: str | None = None, state_noise: dict | None = None) -> bool:
+    """Whether existing records are the round's own (its seed blocks, one physics, the expected physics and rates when given)."""
+    try:
+        validate_records(files, blocks, physics=physics, state_noise=state_noise)
+        return True
+    except ValueError as e:
+        print(f"  the existing records are not the round's ({e}): the workers run")
+        return False
+
+
+def render(manifest: Path, tag: str, log_dir: Path) -> None:
+    """The consistency figure and the coverage figure from the fresh round's manifest."""
+    for script, args in (("plot_filter_consistency.py", [str(manifest), tag]), ("plot_coverage.py", [str(manifest), "err_sd_graphfilter", "_driftgraphfilter" + tag])):
         cmd = [sys.executable, str(REPO / "estimator" / "python" / script)] + args
         res = subprocess.run(cmd, cwd=REPO / "app", capture_output=True, text=True)
         (log_dir / (script + ".log")).write_text(res.stdout + res.stderr, encoding="utf-8")
@@ -192,8 +227,10 @@ def render(pattern: str, tag: str, log_dir: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--cooks", type=int, default=9); ap.add_argument("--workers", type=int, default=2); ap.add_argument("--hours", type=float, default=14.0)
-    ap.add_argument("--prior", default="prior_next_cook.json"); ap.add_argument("--tune-seed0", type=int, default=1); ap.add_argument("--fresh-seed0", type=int, default=10)
+    ap.add_argument("--cooks", type=int, default=10, help="cooks per round, rounded up to whole blocks of workers")
+    ap.add_argument("--workers", type=int, default=2); ap.add_argument("--hours", type=float, default=14.0)
+    ap.add_argument("--prior", default="prior_next_cook.json"); ap.add_argument("--tune-seed0", type=int, default=1)
+    ap.add_argument("--fresh-seed0", type=int, default=None, help="the fresh round's first seed: right after the tuning round's seeds unless given; the sets may not overlap")
     ap.add_argument("--cap", type=float, default=4.0, help="the most a rate moves in the one identification step, as a factor either way")
     ap.add_argument("--lag-h", type=float, default=2.0, help="the lag window, in hours, of the innovation autocovariances each cook accumulates")
     ap.add_argument("--start", choices=["file", "default"], default="file", help="the tuning round's rates: the file's (if any) or the code's defaults")
@@ -205,24 +242,41 @@ def main() -> None:
     if a.smoke:
         a.cooks, a.workers, a.hours = 1, 1, min(a.hours, 2.0)
     n_per = -(-a.cooks // a.workers)
+    n_cooks = n_per * a.workers                                                   # whole blocks: what actually runs
+    a.cooks = n_cooks
+    if a.fresh_seed0 is None:
+        a.fresh_seed0 = a.tune_seed0 + n_cooks
     tune_seeds = [a.tune_seed0 + i * n_per for i in range(a.workers)]
     fresh_seeds = [a.fresh_seed0 + i * n_per for i in range(a.workers)]
+    tune_blocks = [list(range(s, s + n_per)) for s in tune_seeds]
+    fresh_blocks = [list(range(s, s + n_per)) for s in fresh_seeds]
+    overlap = sorted({x for b in tune_blocks for x in b} & {x for b in fresh_blocks for x in b})
+    if overlap:
+        raise SystemExit(f"the tuning seeds {tune_blocks} and the fresh seeds {fresh_blocks} share {overlap}: the fresh round would not be held out")
     stem_tune, stem_fresh = ("bench_smoke_tune", "bench_smoke_fresh") if a.smoke else ("coverage_tune", "coverage_filter")
     if a.variant:
         stem_tune, stem_fresh = f"variant_{a.variant}_tune", f"variant_{a.variant}_filter"   # a stem the main figures' glob does not match
     rates_out = (REPO / "scratchpad" / "state_noise_smoke.json") if a.smoke else (REPO / "scratchpad" / f"state_noise_{a.variant}.json" if a.variant else RATES_FILE)
+    tag = "_smoke" if a.smoke else (f"_{a.variant}" if a.variant else "")
+    manifest_of = lambda rnd: REPO / "data" / "mock" / f"bench_manifest_{rnd}{tag}.json"   # noqa: E731
     log_dir = REPO / "scratchpad" / ("bench_state_noise_smoke" if a.smoke else f"bench_state_noise_{a.variant}" if a.variant else "bench_state_noise")
     log_dir.mkdir(parents=True, exist_ok=True)
     start_file = "default" if (a.start == "default" or not RATES_FILE.exists()) else RATES_FILE.name
-    print(f"the state-noise bench: {a.cooks} cooks per round in {a.workers} workers, {a.hours:g} h each, prior {a.prior}; rounds {rounds}; "
+    print(f"the state-noise bench: {a.cooks} cooks per round in {a.workers} workers ({n_per} each; tuning seeds {tune_blocks}, fresh seeds {fresh_blocks}), {a.hours:g} h each, prior {a.prior}; rounds {rounds}; "
           f"the tuning round starts from {'the code defaults' if start_file == 'default' else 'data/calibration/' + start_file}; logs in {log_dir}")
     sys.stdout.flush()
     if "tune" in rounds:
         names = [f"{stem_tune}_{s}.json" for s in tune_seeds]
-        if a.reuse and all((REPO / "data" / "mock" / nm).exists() for nm in names):
-            files = [REPO / "data" / "mock" / nm for nm in names]; print("  tune: reusing the records " + ", ".join(names))
+        files = [REPO / "data" / "mock" / nm for nm in names]
+        if a.reuse and all(f.exists() for f in files) and reusable(files, tune_blocks):
+            print("  tune: reusing the records " + ", ".join(names))
         else:
             files = run_workers("tune", tune_seeds, n_per, a.hours, a.prior, start_file, names, log_dir, stale_ok=start_file != "default", lag_h=a.lag_h)
+        try:
+            write_manifest(manifest_of("tune"), "tune", files, tune_blocks, extra={"state_noise_file": start_file, "hours": a.hours, "prior": a.prior, "workers": a.workers})
+        except ValueError as e:
+            raise SystemExit(f"the tuning round's records are not the round's: {e}") from e
+        print(f"  wrote {manifest_of('tune')}")
         tune = load_round(files)
         print_round("the tuning round (before the identification)", tune, a.hours)
         rates, init, factors, fit = identify(tune, a.cap)
@@ -237,8 +291,8 @@ def main() -> None:
                             "each group's variance rate under the gains the filter used, pooled over the cooks, the rate capped; a group the innovations cannot see "
                             "keeps its numbers, the initial widths are kept; the fresh round is the check and the round the numbers are quoted from; "
                             "the bench's plant is the model's own physics, so the rates are a floor",
-                  "bench": {"cooks_per_round": a.cooks, "hours": a.hours, "prior": a.prior, "cap": a.cap, "lag_h": a.lag_h,
-                            "tune": {"seeds": tune["seeds"], "skipped": tune["skipped"], "records": [f.name for f in files], "started_from": start_file,
+                  "bench": {"cooks_per_round": n_cooks, "cooks_per_worker": n_per, "workers": a.workers, "hours": a.hours, "prior": a.prior, "cap": a.cap, "lag_h": a.lag_h,
+                            "tune": {"seeds": tune["seeds"], "skipped": tune["skipped"], "records": [f.name for f in files], "manifest": manifest_of("tune").name, "started_from": start_file,
                                      "physics": tune["physics"], "stale_ok": start_file != "default",
                                      "rates": tune["rates"], "init_sd": tune["init_sd"], "factors": factors, "als": fit,
                                      "nees_dof": {g: tune["groups"][g]["nees_dof"] for g in GROUPS},
@@ -248,7 +302,7 @@ def main() -> None:
         rates_out.write_text(json.dumps(record, indent=1), encoding="utf-8")
         print(f"  wrote {rates_out}")
         # the fit's figure: per channel and lag the sample autocovariance against the model before and after
-        cmd = [sys.executable, str(REPO / "estimator" / "python" / "plot_als_fit.py"), f"{stem_tune}_*.json", "_smoke" if a.smoke else (f"_{a.variant}" if a.variant else ""), str(rates_out)]
+        cmd = [sys.executable, str(REPO / "estimator" / "python" / "plot_als_fit.py"), str(manifest_of("tune")), tag, str(rates_out)]
         res = subprocess.run(cmd, cwd=REPO / "app", capture_output=True, text=True)
         (log_dir / "plot_als_fit.py.log").write_text(res.stdout + res.stderr, encoding="utf-8")
         print(res.stdout.strip())
@@ -263,26 +317,31 @@ def main() -> None:
             raise SystemExit(f"no rates file at {rates_out}: run the tuning round first")
         sn_file = rates_out.name if rates_out == RATES_FILE else str(rates_out)      # the worker takes a name in data/calibration or an absolute path
         names = [f"{stem_fresh}_{s}.json" for s in fresh_seeds]
-        if a.reuse and all((REPO / "data" / "mock" / nm).exists() for nm in names):
-            files = [REPO / "data" / "mock" / nm for nm in names]; print("  fresh: reusing the records " + ", ".join(names))
+        files = [REPO / "data" / "mock" / nm for nm in names]
+        record = json.loads(rates_out.read_text(encoding="utf-8"))
+        expected_noise = {**record["rates"], **{g + "0": v for g, v in record["init_sd"].items()}, "fields": record["fields"], "node_jitter": record["node_jitter"], **record.get("events", {})}
+        if a.reuse and all(f.exists() for f in files) and reusable(files, fresh_blocks, physics=record["physics"]["fingerprint"], state_noise=expected_noise):
+            print("  fresh: reusing the records " + ", ".join(names))
         else:
             files = run_workers("fresh", fresh_seeds, n_per, a.hours, a.prior, sn_file, names, log_dir, lag_h=a.lag_h)   # strict: the rates must be this tree's
+        try:                                                                          # the round's records, on the file's physics and rates, or nothing
+            write_manifest(manifest_of("fresh"), "fresh", files, fresh_blocks, physics=record["physics"]["fingerprint"], state_noise=expected_noise,
+                           extra={"state_noise_file": sn_file, "hours": a.hours, "prior": a.prior, "workers": a.workers})
+        except ValueError as e:
+            raise SystemExit(f"the fresh round's records are not the round's: {e}") from e
+        print(f"  wrote {manifest_of('fresh')}")
         fresh = load_round(files)
         print_round("the fresh round (the rates as written, seeds never seen)", fresh, a.hours)
-        record = json.loads(rates_out.read_text(encoding="utf-8"))
         if a.variant:                                                                 # a variant records its numbers beside the rates, never in them
             rates_out = REPO / "scratchpad" / f"state_noise_{a.variant}.json"
-        record.setdefault("bench", {})["fresh"] = {"seeds": fresh["seeds"], "skipped": fresh["skipped"], "records": [f.name for f in files], "physics": fresh["physics"],
+        record.setdefault("bench", {})["fresh"] = {"seeds": fresh["seeds"], "skipped": fresh["skipped"], "records": [f.name for f in files], "manifest": manifest_of("fresh").name, "physics": fresh["physics"],
                                                    "nees_dof": {g: fresh["groups"][g]["nees_dof"] for g in GROUPS},
                                                    "nees_dof_cook_median": {g: fresh["groups"][g]["cook_median"] for g in GROUPS}, "nees_dof_cook_max": {g: fresh["groups"][g]["cook_max"] for g in GROUPS},
                                                    "nis_dof": fresh["nis_dof"], "latents_nees16": fresh["latents_nees16"], "latents_per_cook": fresh["latents_per_cook"],
                                                    "temps_nees3": fresh["temps_nees3"], "temps_per_cook": fresh["temps_per_cook"], "whiteness": fresh["whiteness"]}
-        fp_fresh, fp_file = fresh["physics"], record.get("physics", {}).get("fingerprint")
-        if fp_fresh != fp_file:                                                       # a stale fresh round is never written into the file
-            raise SystemExit(f"the fresh round ran on physics {fp_fresh}; the rates file records {fp_file}: stale, rerun the tune round on this tree")
         rates_out.write_text(json.dumps(record, indent=1), encoding="utf-8")
         print(f"  wrote {rates_out}")
-        render(f"{stem_fresh}_*.json", "_smoke" if a.smoke else (f"_{a.variant}" if a.variant else ""), log_dir)
+        render(manifest_of("fresh"), tag, log_dir)
     print("done")
 
 
