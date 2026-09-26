@@ -280,6 +280,29 @@ Its structure is fixed by three measured RxInfer behaviours
   floor on the meat probe's sd (1.2 °C) is what the misfit check reads
   on a plant quieter than the calibration; a real probe is not.
 
+- **The multi-meat inference architecture, what remains** (the build of
+  2026-09-24 and 2026-09-25 is in `docs/results.md` and
+  `docs/multi-meat-inference-implementation-report.md`). The Python
+  application's migration from the RxInfer filter to the new backend
+  and planner (the Julia pilot loop already flies them:
+  `estimator/scripts/mock_closed_loop_system.jl`), and the bench pointed
+  at the new backend to earn its `StateNoise` rates (it runs on the
+  defaults), with the reduced-order artifacts' process discrepancy
+  recalibrated per artifact as the plan asks (the artifact carries the
+  defaults). A whole two-piece cook with the pieces' events at their own
+  times (the half-hour mock covers the arrivals, the planner test the
+  events). A relinearization of the newest dynamics factor at the trial
+  point where the second-order correction does not engage (the sixth
+  arrival of the two-piece mock spends twelve short steps before a
+  corrected full step). Reduced-order artifacts over more than one
+  archetype and mesh, and over the wrap, pull and spritz. Latent drift
+  inside the window (the filter's `q` and jumps; the hierarchy factor
+  exists for segments, unwired). A delayed reading older than a sensor's
+  committed discrepancy is refused; a lag-aware chain would accept it.
+  The window's dynamics Jacobians are the cost (nineteen Dual slice
+  solves each); the block-tridiagonal structure of the window is not
+  exploited.
+
 ## Product
 
 The `brisket` CLI shipped, the pooling work is written up, and the

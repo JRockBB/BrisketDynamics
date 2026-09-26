@@ -1,0 +1,24 @@
+the round's manifest bench_manifest_tune.json: 10 cooks (seeds [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) in 2 records, physics 89076c2657d7
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\estimator\als_autocovariance.png
+  pit probe  lag    0 min  n   4080  sample +0.497 ± 0.013  before +1.000  after +0.515
+  pit probe  lag    2 min  n   4030  sample +0.031 ± 0.009  before +0.000  after -0.001
+  pit probe  lag    4 min  n   3980  sample +0.018 ± 0.009  before +0.000  after +0.010
+  pit probe  lag   10 min  n   3910  sample +0.012 ± 0.009  before +0.000  after +0.008
+  pit probe  lag   20 min  n   3860  sample +0.020 ± 0.009  before +0.000  after +0.006
+  pit probe  lag   60 min  n   3690  sample -0.001 ± 0.008  before +0.000  after +0.002
+  pit probe  lag  120 min  n   3380  sample +0.012 ± 0.008  before +0.000  after +0.001
+  core probe lag    0 min  n   4080  sample +0.345 ± 0.008  before +1.000  after +0.896
+  core probe lag    2 min  n   4030  sample +0.069 ± 0.006  before +0.000  after -0.018
+  core probe lag    4 min  n   3980  sample +0.025 ± 0.006  before +0.000  after -0.004
+  core probe lag   10 min  n   3910  sample +0.022 ± 0.006  before +0.000  after -0.001
+  core probe lag   20 min  n   3860  sample +0.018 ± 0.006  before +0.000  after +0.000
+  core probe lag   60 min  n   3690  sample -0.002 ± 0.006  before +0.000  after +0.000
+  core probe lag  120 min  n   3380  sample +0.011 ± 0.006  before +0.000  after +0.000
+  humidity   lag    0 min  n    744  sample +1.249 ± 0.078  before +1.000  after +0.869
+  humidity   lag   10 min  n    688  sample +0.223 ± 0.054  before +0.000  after +0.002
+  humidity   lag   20 min  n    674  sample +0.012 ± 0.051  before +0.000  after +0.002
+  humidity   lag   60 min  n    640  sample +0.030 ± 0.052  before +0.000  after +0.001
+  humidity   lag  120 min  n    566  sample -0.002 ± 0.058  before +0.000  after +0.000
+  scale      lag    0 min  n    250  sample +0.777 ± 0.068  before +1.000  after +0.848
+  scale      lag   60 min  n    210  sample +0.084 ± 0.056  before +0.000  after -0.016
+  scale      lag  120 min  n    180  sample -0.007 ± 0.063  before +0.000  after -0.002

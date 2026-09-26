@@ -1,0 +1,4 @@
+the graph filter: prior prior_next_cook.json; 5 cooks from seed 15; edges to 14.0 h; updates on arrival; the level fixed at one (the bench earns the state's process noise); the state noise from state_noise.json; physics 3a846a18649e; the prediction by 64 sigma points; the truths chain; record variant_score_filter_15.json
+  rates [units/sqrt(h)]: T 0.5410709557110042, W 0.00843527232934859, C 0.0034887044134860523, F 0.0016377727027904344, S 8.208837643319232e-5, bark 0.007218306447190745, T_pit 2.5435258138833197, m_fuel 0.051426877530904455, m_pan 0.02, T_pan 0.125, T_fb 0.125, ignited 0.010035535285831627
+  initial sds: T 1.0821419114220083, W 0.04217636164674295, C 0.0006977408826972104, F 0.0003275545405580868, S 8.208837643319232e-5, bark 0.0007218306447190746, T_pit 2.5435258138833197, m_fuel 0.10285375506180891, m_pan 0.05, T_pan 0.125, T_fb 0.125, ignited 0.02508883821457907
+OpenBLAS: malloc failed in dsyrk_thread_UT

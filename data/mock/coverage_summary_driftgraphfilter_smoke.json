@@ -1,0 +1,238 @@
+{
+ "n_cooks": 1,
+ "n_drawn": 1,
+ "prior_file": "prior_next_cook.json",
+ "hours": [
+  2.0
+ ],
+ "sites": {
+  "D_eff": {
+   "mean": -0.9068973470274347,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 1.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    -0.9068973470274347
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "k_m": {
+   "mean": 0.06605129121692964,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 1.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    0.06605129121692964
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "h_c": {
+   "mean": -1.3378147225736317,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    -1.3378147225736317
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "L": {
+   "mean": -2.2742668604687686,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 0.0,
+   "mean_by_hour": [
+    -2.2742668604687686
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "k_mult": {
+   "mean": -0.8898439565813995,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 1.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    -0.8898439565813995
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "k_e": {
+   "mean": -2.064787443002255,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 0.0,
+   "mean_by_hour": [
+    -2.064787443002255
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "a_myosin": {
+   "mean": -1.426139579360808,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    -1.426139579360808
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "m_conv": {
+   "mean": -0.48637143748948014,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 1.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    -0.48637143748948014
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "C_th": {
+   "mean": -0.18421041079465078,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 1.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    -0.18421041079465078
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "UA": {
+   "mean": 1.1325731520922222,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    1.1325731520922222
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "r_max": {
+   "mean": 0.8870460375885045,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 1.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    0.8870460375885045
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "dH_eff": {
+   "mean": 0.0338098446748279,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 1.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    0.0338098446748279
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "u_leak": {
+   "mean": 0.9765206633798372,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 1.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    0.9765206633798372
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "k_spread": {
+   "mean": 1.621405155390574,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 1.0,
+   "mean_by_hour": [
+    1.621405155390574
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "a0": {
+   "mean": -4.445962826126244,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 0.0,
+   "mean_by_hour": [
+    -4.445962826126244
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "A_meat": {
+   "mean": 2.26156956723821,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 0.0,
+   "mean_by_hour": [
+    2.26156956723821
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  },
+  "core_depth_fraction": {
+   "mean": -2.27719437475984,
+   "z_mean": NaN,
+   "spread": NaN,
+   "cover1": 0.0,
+   "cover2": 0.0,
+   "mean_by_hour": [
+    -2.27719437475984
+   ],
+   "spread_by_hour": [
+    NaN
+   ]
+  }
+ },
+ "pooled_last": {
+  "mean": -0.5479125439178475,
+  "spread": 1.6912461880233323,
+  "cover1": 0.47058823529411764,
+  "cover2": 0.7058823529411765
+ },
+ "key": "err_sd_graphfilter"
+}

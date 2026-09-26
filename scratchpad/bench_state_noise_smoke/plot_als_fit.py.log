@@ -1,0 +1,19 @@
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\estimator\als_autocovariance_smoke.png
+  pit probe  lag    0 min  n     60  sample +0.430 ± 0.079  before +1.000  after +0.542
+  pit probe  lag    2 min  n     59  sample +0.167 ± 0.062  before +0.000  after +0.006
+  pit probe  lag    4 min  n     58  sample +0.111 ± 0.057  before +0.000  after +0.014
+  pit probe  lag   10 min  n     55  sample +0.141 ± 0.077  before +0.000  after +0.011
+  pit probe  lag   20 min  n     50  sample +0.120 ± 0.063  before +0.000  after +0.007
+  pit probe  lag   60 min  n     30  sample -0.018 ± 0.077  before +0.000  after +0.001
+  core probe lag    0 min  n     60  sample +0.121 ± 0.020  before +1.000  after +1.000
+  core probe lag    2 min  n     59  sample +0.050 ± 0.016  before +0.000  after -0.000
+  core probe lag    4 min  n     58  sample +0.024 ± 0.016  before +0.000  after -0.000
+  core probe lag   10 min  n     55  sample -0.005 ± 0.016  before +0.000  after -0.000
+  core probe lag   20 min  n     50  sample -0.005 ± 0.015  before +0.000  after -0.000
+  core probe lag   60 min  n     30  sample -0.011 ± 0.019  before +0.000  after -0.000
+  humidity   lag    0 min  n     12  sample +0.605 ± 0.317  before +1.000  after +0.992
+  humidity   lag   10 min  n     11  sample +0.005 ± 0.068  before +0.000  after -0.003
+  humidity   lag   20 min  n     10  sample +0.119 ± 0.097  before +0.000  after -0.001
+  humidity   lag   60 min  n      6  sample -0.101 ± 0.094  before +0.000  after +0.000
+  scale      lag    0 min  n      4  sample +0.563 ± 0.415  before +1.000  after +0.997
+  scale      lag   60 min  n      2  sample +0.254 ± 0.707  before +0.000  after +0.001

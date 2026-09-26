@@ -37,10 +37,12 @@ jobs:
     # the RxInfer estimator suite (estimator/test), every file its own process, in shards balanced by the
     # files' wall times (estimator/test/runtests.jl prints them; 2026-09-22 on a loaded laptop: sequential 844 s,
     # segments 661, smoother 607, iterated 593, horizon 459, engine 457, ridge 437, realcook 235, physics2d 134,
-    # rates 91, volatility 81, rules 64, noise 51, channels 34, misfit 31; als 455 on 2026-09-23) so each shard sits near twenty minutes
+    # rates 91, volatility 81, rules 64, noise 51, channels 34, misfit 31; als 455 on 2026-09-23; factors 60, offline 82,
+    # multi 480, plan_system 600, rom 260, online 2700 to 9200 on 2026-09-26, its fixed-lag testset pinning two full-history
+    # solves to 1e-6) so the long-running online file remains alone in its own shard
     name: Estimator shard ${{ matrix.shard.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     permissions:
       actions: write
       contents: read
@@ -52,6 +54,8 @@ jobs:
           - { name: segments, files: "test_segments.jl test_smoother.jl" }
           - { name: planner, files: "test_iterated.jl test_horizon.jl test_noise.jl test_als.jl" }
           - { name: engine, files: "test_engine.jl test_ridge.jl test_realcook.jl test_physics2d.jl" }
+          - { name: factors, files: "test_factors.jl test_offline.jl test_multi.jl test_plan_system.jl test_rom.jl" }
+          - { name: online, files: "test_online.jl" }
     steps:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3

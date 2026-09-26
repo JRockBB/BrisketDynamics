@@ -4,6 +4,129 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Grid pieces, reduced-order artifacts, the multi-meat planner, and a two-piece cook assimilated (2026-09-25)
+
+The second day of the plan's build (`docs/multi-meat-inference-plan.md`;
+the report `docs/multi-meat-inference-implementation-report.md` carries
+every command and outcome). Pieces on a grid: `Brick3D` and
+`Cylinder2D` (`src/meats/grid3d.jl`) are tensor finite-volume pieces on
+the system's own interface, every node running the slab's cell physics
+and every exposed node the slab's surface balance and bark against the
+shared chamber; a one-face brick reproduces the slab to 1e-4 K, a cube
+is invariant under axis permutation with water conserved, the infinite
+cylinder matches the slab's cylindrical mode to 1e-3 K, and the
+axisymmetric piece agrees with the ADI engine to 0.33 K at the core (a
+gap that is the engine's own and does not move with its step; the
+engine stays the comparison oracle, unadapted). The reduced-order
+artifact (`estimator/src/rom.jl`): archetype, full-order and reduced
+descriptions, the projection to the core line, a bias-and-spread error
+model per observable against time from a design of latent draws, the
+design's envelope, the physics fingerprint (a stale one refused), its
+own state noise; trained on a half-thickness brick with its top and
+sides exposed against the slab of its thickness (the core's reduction
+bias −9 K ± 0.9 at two hours), validated held out (coverage 1.0 on
+every observable), read online (the observation factor carries the bias
+and the widened floor). The multi-meat planner (`plan_system.jl`) is
+inference on the same graph: a `PlanFactor` of every piece's goal
+residuals at a plan of shared damper knots, a wrap and a pull per piece
+and the events, solved by `gauss_newton!` from several starts, with the
+replan policy, commitment and stability check per piece; one slab
+reproduces `horizon.jl`'s cook and residuals at the same plan, and a
+flat beside a thin rack pulls the rack first (10.7 h against 15.7 h),
+the goals 1.18 from the prior's 7.35. The pilot loop rewritten on the
+new backend and planner (`estimator/scripts/mock_closed_loop_system.jl`)
+flies the real-cook plant and writes the existing record shape; the
+Python application still calls the RxInfer filter.
+
+A flat and a bone-in rack on one pit, read by the pit probe, a probe in
+each piece (the flat's at a latent depth), the humidity sensor and one
+scale, are assimilated end to end by the online backend
+(`estimator/test/test_multi.jl`): sixteen arrivals at lag 2 converge in
+2 to 15 iterations (93 s), both centres and the pit within their widths
+of the truth, every latent nearer its truth than the prior, the pieces
+in the other order the same by name, the collagen and the bark of both
+pieces named as the groups nothing reads. Getting there took a
+diagnosis rather than a tuning: four arrivals capped at thirty
+iterations with every step accepted at a twentieth of its length, and
+the line search was not the reason (a pure Levenberg-Marquardt update
+was worse, an interpolating Armijo backtracking in place of halving
+changed nothing, nor did freezing the whitener with the linearization,
+though that is kept). Decomposing the step showed the states' component
+leaves the propagation linear while the latents' does not, and the
+process noise's shape precision (the `:offset` structure at a node
+jitter of 3e-3) prices a millikelvin of shape deviation at hundreds of
+nats, so a joint step moving a latent by more than a hundredth in the
+log leaves the dynamics residuals far from the linear model although
+the states could absorb the change exactly. The remedy is a safeguarded
+fixed-J chord correction, not the Maratos-effect SQP correction: at
+every trial point the residuals are re-evaluated and the complete
+damped displacement is solved again under the same Jacobian, with the
+line-search-scaled trust bounds reapplied while the objective drops;
+Armijo is still tested against the base direction at the corrected point;
+with it every arrival converges, the accepted step the full one at
+nearly every iteration. The latents' move per iteration is also bounded
+at a quarter in the log. The pilot loop rewritten on the new backend
+and planner flies the real-cook plant to 0.2 h with every update
+converged (8, 3, 2, 2, 18 and 2 iterations, where the first solver
+capped its first update and took twenty-odd for the rest), replanning
+three times on a raised loss and holding three times; its plan's pull
+time swings by hours over those first replans as the fire's latents
+move on the pit's 7 K first innovation, which the loop's benches have
+not yet judged.
+
+## The cook as a system of pieces, the shared factors, and the square-root backends (2026-09-24)
+
+The architecture plan (`docs/multi-meat-inference-plan.md`) was implemented
+and independently remediated over several review passes; the review-ready account is
+`docs/multi-meat-inference-implementation-report.md` (every TODO mapped
+to evidence, every file, the decisions, the commands with their
+outcomes, the risks and the review order). In short: `src/system.jl`
+makes a cook a `CookSystem` of explicit, heterogeneous slab pieces on
+one pit, each with its own configuration, θ, area, events and exchange
+port, coupled through the pit's energy balance and ONE chamber-humidity
+closure in closed form (`p_v* = pv_base + K Σ A_i n_i α_i a_i (e_i −
+p_v*)`, then every piece's flux at `p_v*`), which reduces to the
+monolith's expression exactly for one piece: one slab reproduces
+`monolith_solve` to the solver's tolerance (the RHS to 1e-9 relative),
+three explicit copies reproduce `n_meat = 3`, a flat beside two bone-in
+racks sees one chamber and is pulled by them, a cook restarts through
+the hand-off, and ForwardDiff goes through the system as through the
+monolith (`test/test_system.jl`, in the root suite: 516 of 516). On the
+estimator side the belief over a system's state generalizes the
+filter's coordinates (one slab gives `FilterLayout` entry for entry),
+sensors are semantic (`TemperatureAt(:flat; depth_latent=…)`, the
+chamber's vapor pressure, the aggregate scale) with OU discrepancies at
+their own sample times and the survival site for a capped reading, and
+the factors (prior, dynamics, observation, discrepancy, hierarchy) are
+backend-neutral: the online backend is a square-root information
+fixed-lag smoother (nodes at arrival times, delayed insertion by
+splitting a node or a chain, marginalization by QR), the offline one the
+same factors over several cooks' full histories on one sparse graph with
+a population variable. Gated: the linear Kalman/RTS oracles to 1e-9 at
+every lag, delayed insertion and dropouts against the same oracle, a
+planted hierarchy recovered; two 80-minute cooks pooled the convective
+coefficient within one posterior sd of the planted value in 55 s; the
+online backend assimilates the real-cook mock's first arrivals
+converging at every one, its fixed lag agrees with the full history and
+a delayed reading with the in-order run, and at lag zero it reproduces
+the RxInfer filter's pit, centre and surface temperatures to 0.01 K with
+the same widths (the old filter is the new backend's oracle, as the plan
+asked).
+
+Two things a smoother on this physics needs that a filter never showed:
+the belief's encode must have bounded slope and a fixed point at a
+state's floor (an unsalted cut's salt field sat at the floor and its
+log coordinate swung by tens of units on 1e-24 noise, thousands of
+nats of roughness once whitened by the field's shape precision; a hard
+clamp and a smooth floor without a fixed point each failed in their
+own way before `_soft_floor` held), and the integrator's error must sit
+far below the process noise in every coordinate (tolerances 1e-10 and
+1e-8, and a process-noise floor at a hundred times the solver's error).
+The 3-D physics, the reduced-order models, the multi-meat planner and
+the two-piece assimilation followed on 2026-09-25 (the entry above);
+the application's migration and the bench for the new backend's rates
+remain (`docs/roadmap.md`).
+
 ## The bounded families: the moving sites tracked, the Gaussian belief tested against the families' own draws, and the belief started from their moments (2026-09-17, night)
 
 Two questions were put to the bench above: whether the filter uses the

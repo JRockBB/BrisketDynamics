@@ -1,0 +1,21 @@
+9 cooks (of 9 drawn) on prior prior_next_cook.json; standardized errors at the last batch (14 h):
+site            mean  z of mean  spread  within 1  within 2
+D_eff           0.33       1.08    0.90      0.78      1.00
+k_m             0.68       2.35    0.86      0.56      1.00
+h_c             0.17       0.56    0.89      0.67      1.00
+L              -0.25      -0.67    1.10      0.67      1.00
+k_mult          0.04       0.11    0.97      0.56      1.00
+k_e             0.07       0.17    1.15      0.44      1.00
+a_myosin       -0.11      -0.48    0.70      0.89      1.00
+m_conv         -0.31      -0.55    1.68      0.44      0.78
+C_th           -0.12      -0.50    0.71      0.78      1.00
+UA              0.65       1.73    1.13      0.56      0.89
+r_max           0.29       0.47    1.88      0.56      0.78
+dH_eff          0.38       0.86    1.34      0.67      0.89
+u_leak         -0.06      -0.13    1.33      0.67      0.78
+k_spread       -0.45      -1.51    0.88      0.78      1.00
+a0             -0.33      -0.49    2.00      0.56      0.89
+A_meat          0.27       0.73    1.11      0.67      1.00
+core_depth      0.36       0.68    1.61      0.33      0.78
+all sites       0.10               1.23      0.62      0.93   (a calibrated posterior: 0, 1, 0.68, 0.95)
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\estimator\coverage_realcook_driftgraphfilter_mmprior.png

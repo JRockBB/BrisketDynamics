@@ -1,0 +1,27 @@
+the graph filter: prior prior_next_cook.json; 5 cooks from seed 16; edges to 14.0 h; updates on arrival; the level fixed at one (the bench earns the state's process noise); the state noise from state_noise.json; physics 89076c2657d7; the prediction by 64 sigma points; the innovation autocovariances accumulated to 2.0 h; record coverage_filter_16.json
+  rates [units/sqrt(h)]: T 0.13526773892775104, W 0.002108818082337148, C 0.0034887044134860523, F 0.0016377727027904344, S 8.208837643319232e-5, bark 0.007218306447190745, T_pit 0.6358814534708302, m_fuel 0.051426877530904455, m_pan 0.02, T_pan 0.125, T_fb 0.125, ignited 0.010035535285831627
+  initial sds: T 1.0821419114220083, W 0.04217636164674295, C 0.0006977408826972104, F 0.0003275545405580868, S 8.208837643319232e-5, bark 0.0007218306447190746, T_pit 2.5435258138833197, m_fuel 0.10285375506180891, m_pan 0.05, T_pan 0.125, T_fb 0.125, ignited 0.02508883821457907
+cook 1 (seed 16): at 14 h |err|/sd max 2.61 (UA) median 1.00; the temperatures' |err|/sd median pit 0.82 centre 1.16 surface 1.33; NIS/dof mean 0.73, NEES/16 mean 1.02, NEES_T/3 mean 1.44; 408 updates, 3685 s
+    u_leak  truth -1.55 -1.32 -1.06 -1.30 -1.39 -1.68 -1.91 | filter +0.95 +1.28 +1.34 +1.19 +0.55 +0.94 +1.72
+    k_e     truth -6.99 -7.09 -7.11 -7.07 -7.02 -7.03 -6.95 | filter -1.24 -0.90 -0.90 -0.69 -0.84 -0.86 -0.89
+    h_c     truth +2.83 +2.78 +2.83 +2.84 +2.86 +2.90 +2.91 | filter -1.44 -1.22 -1.21 -1.83 -1.15 -1.30 -1.52
+    r_max   truth -0.19 -0.19 -0.19 -0.19 -0.19 -0.19 -0.68 | filter -0.30 -0.46 -0.40 -0.67 -0.60 -0.76 -1.00
+    the state by group, NEES/dof mean: T 1.51, W 0.07, C 1.08, F 0.58, S 0.28, bark 0.04, T_pit 1.84, m_fuel 0.07, m_pan 0.24, T_pan 0.00, T_fb 0.00, ignited 0.05
+cook 2 (seed 17): at 14 h |err|/sd max 1.77 (a_myosin) median 0.53; the temperatures' |err|/sd median pit 0.72 centre 0.62 surface 0.52; NIS/dof mean 0.66, NEES/16 mean 0.83, NEES_T/3 mean 0.81; 408 updates, 3242 s
+    u_leak  truth +0.39 +0.45 +0.66 +0.70 +0.75 +0.84 +0.96 | filter -0.66 -0.26 +0.53 +1.43 +1.05 +0.89 +0.45
+    k_e     truth -7.32 -7.28 -7.29 -7.38 -7.49 -7.57 -7.63 | filter +0.01 -0.05 +0.38 +0.69 +0.87 +1.30 +1.40
+    h_c     truth +2.05 +2.02 +2.02 +2.02 +2.12 +2.08 +2.05 | filter +0.57 +0.58 +0.31 +0.85 +0.54 +0.89 +1.46
+    r_max   truth +0.21 +0.21 +0.21 +0.21 +0.21 +0.21 +0.14 | filter +1.04 +1.38 +1.61 +1.21 +1.65 +1.17 +0.87
+    the state by group, NEES/dof mean: T 1.17, W 0.84, C 0.60, F 0.06, S 0.34, bark 2.19, T_pit 0.90, m_fuel 2.68, m_pan 0.25, T_pan 0.00, T_fb 0.00, ignited 0.01
+cook 3 (seed 18): at 14 h |err|/sd max 3.25 (core_depth_fraction) median 0.39; the temperatures' |err|/sd median pit 0.72 centre 1.06 surface 0.70; NIS/dof mean 0.70, NEES/16 mean 1.16, NEES_T/3 mean 1.38; 408 updates, 3816 s
+    u_leak  truth +0.68 +0.76 +0.64 +0.38 +0.08 +0.24 +0.11 | filter -0.68 -0.83 -0.62 -0.75 -1.30 -0.70 -0.43
+    k_e     truth -7.44 -7.39 -7.41 -7.47 -7.30 -7.20 -7.25 | filter -0.38 +0.06 +0.38 +0.42 -0.15 -0.43 -0.30
+    h_c     truth +2.56 +2.57 +2.54 +2.55 +2.57 +2.60 +2.59 | filter +0.63 +0.67 +0.18 +0.06 +0.06 -0.21 -0.11
+    r_max   truth -0.43 -0.43 -0.43 -0.43 -0.43 -0.43 -0.53 | filter +0.99 +0.84 +0.50 +0.57 +0.57 +0.30 +0.63
+    the state by group, NEES/dof mean: T 1.61, W 0.25, C 1.13, F 0.01, S 0.25, bark 0.36, T_pit 1.54, m_fuel 0.04, m_pan 0.20, T_pan 0.00, T_fb 0.00, ignited 0.13
+cook 4 (seed 19): at 14 h |err|/sd max 4.29 (r_max) median 1.07; the temperatures' |err|/sd median pit 0.76 centre 0.46 surface 0.53; NIS/dof mean 0.81, NEES/16 mean 1.35, NEES_T/3 mean 1.03; 408 updates, 2315 s
+    u_leak  truth -2.31 -2.59 -2.52 -2.54 -2.49 -2.34 -2.29 | filter +1.12 -0.14 +0.20 -0.44 -1.10 -5.01 -3.88
+    k_e     truth -6.69 -6.71 -6.80 -6.89 -6.94 -6.94 -6.94 | filter -1.79 -1.52 -1.48 -1.28 -1.06 -1.15 -1.07
+    h_c     truth +2.47 +2.43 +2.43 +2.48 +2.42 +2.40 +2.43 | filter -0.42 -0.79 -0.81 -0.67 +0.28 +1.17 +1.16
+    r_max   truth -1.72 -1.72 -1.72 -1.72 -1.72 -1.72 -1.92 | filter +1.52 +1.28 +1.87 +2.53 +2.13 +5.07 +4.29
+    the state by group, NEES/dof mean: T 0.35, W 0.41, C 0.06, F 0.06, S 0.32, bark 0.74, T_pit 1.48, m_fuel 0.60, m_pan 0.26, T_pan 0.00, T_fb 0.00, ignited 0.61

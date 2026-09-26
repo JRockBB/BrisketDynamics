@@ -1,0 +1,25 @@
+the graph filter: prior prior_next_cook.json; 3 cooks from seed 10; edges to 14.0 h; updates on arrival; the level fixed at one (the bench earns the state's process noise); the state noise from state_noise.json; physics ab7d94be5a38; the prediction by 64 sigma points; the truths chain; record variant_mmprior_filter_10.json
+  rates [units/sqrt(h)]: T 0.5410709557110042, W 0.00843527232934859, C 0.0034887044134860523, F 0.0016377727027904344, S 8.208837643319232e-5, bark 0.007218306447190745, T_pit 2.5435258138833197, m_fuel 0.051426877530904455, m_pan 0.02, T_pan 0.125, T_fb 0.125, ignited 0.010035535285831627
+  initial sds: T 1.0821419114220083, W 0.04217636164674295, C 0.0006977408826972104, F 0.0003275545405580868, S 8.208837643319232e-5, bark 0.0007218306447190746, T_pit 2.5435258138833197, m_fuel 0.10285375506180891, m_pan 0.05, T_pan 0.125, T_fb 0.125, ignited 0.02508883821457907
+cook 1 (seed 10): at 14 h |err|/sd max 5.07 (a0) median 0.85; the temperatures' |err|/sd median pit 0.63 centre 0.34 surface 0.93; NIS/dof mean 0.51, NEES/16 mean 1.18, NEES_T/3 mean 0.98; 402 updates, 2188 s
+    u_leak  truth +0.04 +0.02 -0.01 -0.01 -0.03 -0.13 -0.12 | filter +0.79 +0.75 +0.11 -0.50 -0.21 +0.10 +0.13
+    k_e     truth -6.41 -6.41 -6.46 -6.48 -6.45 -6.42 -6.54 | filter -2.20 -2.07 -1.90 -1.55 -1.52 -1.57 -1.42
+    h_c     truth +2.01 +1.99 +1.92 +1.95 +2.05 +2.05 +2.08 | filter +0.37 +0.64 +0.97 +0.40 -0.46 -0.41 -0.65
+    r_max   truth -1.04 -1.04 -1.04 -1.04 -1.04 -1.04 -1.07 | filter +1.02 +1.32 +1.37 +1.29 +1.04 +1.21 +1.23
+    the state by group, NEES/dof mean: T 0.84, W 0.17, C 0.71, F 0.63, S 0.00, bark 0.42, T_pit 1.50, m_fuel 0.72, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.47
+cook 2 (seed 11): at 14 h |err|/sd max 3.37 (m_conv) median 0.75; the temperatures' |err|/sd median pit 0.78 centre 0.52 surface 0.91; NIS/dof mean 0.51, NEES/16 mean 1.47, NEES_T/3 mean 0.71; 402 updates, 1562 s
+    u_leak  truth +0.18 +0.19 +0.21 +0.23 +0.38 +0.42 +0.49 | filter -1.25 -0.85 -0.85 -0.57 -0.79 -0.48 -0.70
+    k_e     truth -8.15 -8.07 -8.10 -8.14 -8.28 -8.32 -8.44 | filter +0.86 +0.66 +0.70 +0.79 +1.06 +1.11 +1.32
+    h_c     truth +2.27 +2.18 +2.15 +2.17 +2.15 +2.11 +2.16 | filter -0.61 -0.05 +0.25 +0.02 +0.10 +0.48 +0.59
+    r_max   truth -0.89 -0.89 -0.89 -0.89 -0.89 -0.89 -0.68 | filter +0.73 +0.88 +1.44 +1.34 +0.95 +0.72 +0.28
+    the state by group, NEES/dof mean: T 0.62, W 1.19, C 0.47, F 0.55, S 0.00, bark 0.14, T_pit 1.02, m_fuel 0.32, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.37
+cook 3 (seed 12): at 14 h |err|/sd max 2.39 (core_depth) median 0.94; the temperatures' |err|/sd median pit 0.78 centre 1.16 surface 1.64; NIS/dof mean 0.48, NEES/16 mean 2.35, NEES_T/3 mean 1.23; 402 updates, 2048 s
+    u_leak  truth +0.24 +0.22 +0.24 +0.14 +0.17 +0.15 +0.12 | filter -0.48 -0.40 -0.57 -1.49 -1.51 -1.03 -0.97
+    k_e     truth -6.66 -6.64 -6.61 -6.61 -6.60 -6.63 -6.68 | filter -1.79 -1.90 -1.76 -1.88 -1.91 -1.93 -1.86
+    h_c     truth +3.00 +2.98 +3.01 +2.99 +3.04 +3.07 +3.10 | filter +0.04 +0.26 -0.08 +0.50 +0.13 +0.21 -0.06
+    r_max   truth -0.89 -0.89 -0.89 -0.89 -0.89 -0.89 -0.74 | filter -0.01 +0.02 -0.11 -0.07 -0.15 -0.40 -0.94
+    the state by group, NEES/dof mean: T 2.17, W 1.18, C 0.82, F 0.41, S 0.00, bark 0.33, T_pit 0.93, m_fuel 0.58, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.23
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+┌ Warning: the state noise in C:\Users\jmurp\.julia\dev\BrisketDynamics\data\calibration\state_noise.json was earned on physics ba928b214b27; the tree's is ab7d94be5a38: the rates are stale, rerun estimator/python/bench_state_noise.py
+└ @ Main.BrisketEstimator C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\sequential.jl:224
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\data\mock\variant_mmprior_filter_10.json (3 cooks, 0 skipped)

@@ -43,6 +43,7 @@ using Random
 using JSON
 using Printf
 using SHA
+using SparseArrays
 using SpecialFunctions: erfc, erfcx, erfcinv, beta_inc, beta_inc_inv, logbeta
 using BrisketDynamics
 
@@ -52,7 +53,8 @@ export DriftDraw, truth_at, drift_segments, solve_drifting, smoother_moving, DRI
 export FilterLayout, PhysicsState, pack_state, unpack_state, state_to_coord, state_from_coord, state_physical_moments,
        state_sites, disc_sites, sequential_filter, pit_index, centre_index, surface_index
 export FilterState, StateNoise, Past, filter_init, filter_update!, filter_advance!, state_range, disc_range, disc_index, state_now, innovation_misfit
-export STATE_GROUPS, STATE_NOISE_FILE, state_groups, group_dofs, state_noise_cov, physics_fingerprint, state_noise_dict, load_state_noise, sigma_design
+export STATE_GROUPS, STATE_NOISE_FILE, state_groups, group_dofs, state_noise_cov, physics_fingerprint, state_noise_dict,
+       state_noise_from_dict, load_state_noise, sigma_design
 export ALSAccumulator, als_update!, als_summary
 export GateData, load_gate, from_z, to_z, dx_dz, z_center, z_moments, prior_terms, physics_mean, physics_mean_jac,
        objective_value, solve_map, compare_gate, PriorSite, N_PHYS, N_THETA, isbeta, islogbeta, islinear, isscore, drift_scale, logistic,
@@ -595,5 +597,15 @@ include(joinpath(@__DIR__, "smoother.jl"))
 include(joinpath(@__DIR__, "drift.jl"))
 include(joinpath(@__DIR__, "als.jl"))
 include(joinpath(@__DIR__, "sequential.jl"))
+# --- the multi-meat inference architecture (docs/multi-meat-inference-plan.md): the belief over a CookSystem, the
+# --- semantic cook log, the backend-neutral factors, the online square-root fixed-lag backend, the offline
+# --- full-history and hierarchical backend
+include(joinpath(@__DIR__, "system_state.jl"))
+include(joinpath(@__DIR__, "semantic.jl"))
+include(joinpath(@__DIR__, "factors.jl"))
+include(joinpath(@__DIR__, "online.jl"))
+include(joinpath(@__DIR__, "offline.jl"))
+include(joinpath(@__DIR__, "plan_system.jl"))
+include(joinpath(@__DIR__, "rom.jl"))
 
 end # module

@@ -268,6 +268,16 @@ state_noise_dict(sn::StateNoise) = Dict("rates" => Dict(g => getfield(sn, Symbol
                                         "init_sd" => Dict(g => getfield(sn, Symbol(g * "0")) for g in STATE_GROUPS),
                                         "fields" => string(sn.fields), "node_jitter" => sn.node_jitter,
                                         "events" => Dict("T_event" => sn.T_event, "T_spritz" => sn.T_spritz, "m_add" => sn.m_add))
+"Reconstruct `StateNoise` from `state_noise_dict` or the same JSON object."
+function state_noise_from_dict(d::AbstractDict)
+    kw = Dict{Symbol,Any}()
+    for (k, v) in d["rates"]; kw[Symbol(k)] = Float64(v); end
+    for (k, v) in d["init_sd"]; kw[Symbol(string(k) * "0")] = Float64(v); end
+    haskey(d, "fields") && (kw[:fields] = Symbol(d["fields"]))
+    haskey(d, "node_jitter") && (kw[:node_jitter] = Float64(d["node_jitter"]))
+    for (k, v) in get(d, "events", Dict()); kw[Symbol(k)] = Float64(v); end
+    return StateNoise(; kw...)
+end
 
 """
     load_state_noise(path=STATE_NOISE_FILE; strict=true, warn=true) -> StateNoise
@@ -292,13 +302,7 @@ function load_state_noise(path::AbstractString=STATE_NOISE_FILE; strict::Bool=tr
         strict && error("the state noise in $path was earned on physics $got; the tree's is $fp: the rates are stale, rerun estimator/python/bench_state_noise.py (its tune round alone may start from them: strict=false)")
         warn && @warn "the state noise in $path was earned on physics $got; the tree's is $fp: the rates are stale, rerun estimator/python/bench_state_noise.py"
     end
-    kw = Dict{Symbol,Any}()
-    for (k, v) in d["rates"]; kw[Symbol(k)] = Float64(v); end
-    for (k, v) in d["init_sd"]; kw[Symbol(k * "0")] = Float64(v); end
-    haskey(d, "fields") && (kw[:fields] = Symbol(d["fields"]))
-    haskey(d, "node_jitter") && (kw[:node_jitter] = Float64(d["node_jitter"]))
-    for (k, v) in get(d, "events", Dict()); kw[Symbol(k)] = Float64(v); end
-    return StateNoise(; kw...)
+    return state_noise_from_dict(d)
 end
 
 """

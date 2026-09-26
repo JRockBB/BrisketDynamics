@@ -421,8 +421,13 @@ observable so skin, salt, wrap, pull, and vapor feedback cannot diverge.
 """
 function surface_fluxes_blended(Ts, Ws, h_c, k_m, s, pl, pv_base, c, cfg::MeatConfig, f_aw=1.0)
     k_eff = isinf(cfg.k_skin) ? k_m : 1 / (1 / k_m + 1 / cfg.k_skin)
-    j_pit = (1 - pl) *
-            evap_flux_fb(Ts, Ws, (1 - cfg.η_evap * s) * k_eff, pv_base, c, cfg, f_aw)
+    # Only the in-pit fraction contributes to the chamber closure. Its gate therefore belongs in both
+    # sides of j_pit = gate*a*(e - pv_base - c*j_pit), including the denominator; multiplying a fully
+    # coupled flux by the gate afterwards overstates humidity feedback during the smooth pull transition.
+    gate = 1 - pl
+    km_pit = (1 - cfg.η_evap * s) * k_eff
+    a = km_pit / (R_V * Ts)
+    j_pit = gate * a * (f_aw * a_w_oswin(Ws, cfg) * p_sat(Ts) - pv_base) / (1 + c * gate * a)
     j_rest = pl * (1 - cfg.η_rest) *
              evap_flux(Ts, Ws, k_eff * cfg.h_rest / h_c, cfg.p_v_rest, cfg, f_aw)
     return (j=j_pit + j_rest, j_pit, pv_pit=pv_base + c * j_pit)

@@ -1,0 +1,75 @@
+the graph filter: prior prior_next_cook.json; 3 cooks from seed 13; edges to 14.0 h; updates on arrival; the level fixed at one (the bench earns the state's process noise); the state noise from state_noise.json; physics ba928b214b27; the prediction by 64 sigma points; the truths gaussian; record variant_gausstruth_filter_13.json
+  rates [units/sqrt(h)]: T 0.5410709557110042, W 0.00843527232934859, C 0.0034887044134860523, F 0.0016377727027904344, S 8.208837643319232e-5, bark 0.007218306447190745, T_pit 2.5435258138833197, m_fuel 0.051426877530904455, m_pan 0.02, T_pan 0.125, T_fb 0.125, ignited 0.010035535285831627
+  initial sds: T 1.0821419114220083, W 0.04217636164674295, C 0.0006977408826972104, F 0.0003275545405580868, S 8.208837643319232e-5, bark 0.0007218306447190746, T_pit 2.5435258138833197, m_fuel 0.10285375506180891, m_pan 0.05, T_pan 0.125, T_fb 0.125, ignited 0.02508883821457907
+cook 1 (seed 13): at 14 h |err|/sd max 1.61 (core_depth) median 0.70; the temperatures' |err|/sd median pit 0.93 centre 0.65 surface 0.78; NIS/dof mean 0.52, NEES/16 mean 1.47, NEES_T/3 mean 1.60; 402 updates, 2087 s
+    u_leak  truth -0.22 -0.23 -0.27 -0.18 -0.15 -0.22 -0.25 | filter +0.66 -0.00 -0.23 -0.61 -0.58 -0.95 -1.01
+    k_e     truth -7.47 -7.47 -7.55 -7.56 -7.61 -7.60 -7.61 | filter -0.05 -1.12 +0.09 +0.05 +0.10 +0.10 +0.25
+    h_c     truth +2.16 +2.19 +2.14 +2.13 +2.12 +2.10 +2.13 | filter -2.02 -2.03 -1.42 -1.34 -0.93 -0.95 -0.53
+    r_max   truth -0.18 -0.18 -0.18 -0.18 -0.18 -0.18 -0.35 | filter +1.01 +0.36 +0.25 +0.25 +0.70 +1.06 +0.89
+    the state by group, NEES/dof mean: T 0.51, W 1.77, C 0.69, F 0.10, S 0.00, bark 0.29, T_pit 1.46, m_fuel 0.07, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.32
+cook 2 (seed 14): at 14 h |err|/sd max 1.98 (k_m) median 0.94; the temperatures' |err|/sd median pit 0.55 centre 0.93 surface 0.95; NIS/dof mean 0.51, NEES/16 mean 1.45, NEES_T/3 mean 0.75; 402 updates, 1683 s
+    u_leak  truth +0.25 +0.22 +0.18 +0.28 +0.32 +0.40 +0.39 | filter -0.02 -0.19 -0.06 +0.50 -0.48 -0.83 -0.77
+    k_e     truth -8.07 -8.13 -8.31 -8.26 -8.20 -8.19 -8.20 | filter +0.87 +1.02 +1.42 +1.24 +1.16 +1.21 +1.20
+    h_c     truth +1.58 +1.59 +1.61 +1.57 +1.54 +1.56 +1.55 | filter +2.16 +1.52 +1.04 +1.30 +1.48 +1.52 +1.05
+    r_max   truth -0.41 -0.41 -0.41 -0.41 -0.41 -0.41 -0.48 | filter -0.48 -0.61 -0.31 +0.39 +0.70 +0.80 +0.72
+    the state by group, NEES/dof mean: T 1.29, W 1.06, C 0.61, F 0.27, S 0.00, bark 0.06, T_pit 0.60, m_fuel 0.16, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.24
+cook 3 (seed 15): at 14 h |err|/sd max 1.74 (dH_eff) median 0.80; the temperatures' |err|/sd median pit 0.71 centre 1.27 surface 1.45; NIS/dof mean 0.49, NEES/16 mean 1.15, NEES_T/3 mean 1.49; 402 updates, 1693 s
+    u_leak  truth -0.36 -0.34 -0.43 -0.43 -0.45 -0.48 -0.46 | filter +1.19 +0.94 +0.42 +0.87 +0.60 +0.73 +0.50
+    k_e     truth -7.66 -7.75 -7.78 -7.84 -7.83 -7.84 -7.89 | filter +0.17 -0.02 +0.37 +0.33 +0.31 +0.35 +0.47
+    h_c     truth +2.29 +2.33 +2.32 +2.22 +2.21 +2.27 +2.26 | filter -0.84 -0.69 -0.61 +0.06 -0.03 -0.53 -0.23
+    r_max   truth -0.16 -0.16 -0.16 -0.16 -0.16 -0.16 -0.06 | filter -0.99 -0.63 -0.68 -0.86 -1.06 -0.94 -1.44
+    the state by group, NEES/dof mean: T 2.68, W 0.31, C 2.52, F 0.38, S 0.00, bark 0.09, T_pit 0.93, m_fuel 0.05, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.04
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  At t=22.26923314972271, dt was forced below floating point epsilon 3.552713678800501e-15. Aborting. There is either an error in your model specification or the true solution is unstable (or it cannot be represented in Float64 precision).
+│ 
+│ Diagnostics:
+│ 
+│ Jacobian Analysis:
+│   row(s) [40, 120] have unusually large entries (e.g. J[40,80] = -4.101e+17, J[40,160] = 6.851e+16, J[120,120] = -3.243e+15, J[40,40] = 1.267e+14, J[40,79] = -8.122e+08), suggesting a singularity in those equation(s)
+│   column(s) [40, 79, 80, 120, 159, 160] have unusually large entries, suggesting those state component(s) are diverging
+└ @ DiffEqBase C:\Users\jmurp\.julia\packages\DiffEqBase\dgDMc\src\check_error.jl:37
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  At t=3.6441485329368186, dt was forced below floating point epsilon 4.440892098500626e-16. Aborting. There is either an error in your model specification or the true solution is unstable (or it cannot be represented in Float64 precision).
+│ 
+│ Diagnostics:
+│ 
+│ Jacobian Analysis:
+│   row(s) [120] have unusually large entries (e.g. J[120,120] = -1.67e+16), suggesting a singularity in those equation(s)
+│   column(s) [120] have unusually large entries, suggesting those state component(s) are diverging
+└ @ DiffEqBase C:\Users\jmurp\.julia\packages\DiffEqBase\dgDMc\src\check_error.jl:37
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  At t=118.16864073921224, dt was forced below floating point epsilon 1.4210854715202004e-14. Aborting. There is either an error in your model specification or the true solution is unstable (or it cannot be represented in Float64 precision).
+│ 
+│ Diagnostics:
+│ 
+│ Jacobian Analysis:
+│   row(s) [40, 120] have unusually large entries (e.g. J[40,80] = -4.37e+17, J[40,160] = 7.287e+16, J[120,120] = -3.207e+15, J[40,40] = 1.352e+14, J[40,79] = -1.629e+09), suggesting a singularity in those equation(s)
+│   column(s) [40, 79, 80, 120, 159, 160, 204] have unusually large entries, suggesting those state component(s) are diverging
+└ @ DiffEqBase C:\Users\jmurp\.julia\packages\DiffEqBase\dgDMc\src\check_error.jl:37
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  At t=2.7140421376212203, dt was forced below floating point epsilon 4.440892098500626e-16. Aborting. There is either an error in your model specification or the true solution is unstable (or it cannot be represented in Float64 precision).
+│ 
+│ Diagnostics:
+│ 
+│ Jacobian Analysis:
+│   row(s) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 68 more] have unusually large entries (e.g. J[119,119] = -2.375e+13, J[40,80] = 1.502e+12, J[40,159] = 1.002e+12, J[39,79] = -3.305e+11, J[38,159] = 2.325e+11), suggesting a singularity in those equation(s)
+│   column(s) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 81 more] have unusually large entries, suggesting those state component(s) are diverging
+│ 
+│ Error Analysis:
+│   step error estimate EEst = 1.278 (a step is accepted when EEst <= 1)
+│   largest contributors to EEst = internalnorm(atmp), where atmp is the tolerance-weighted local error per state component:
+│     atmp[40] = 24.06, u[40] = 31.28, uprev[40] = 31.28
+│     atmp[38] = 0.2476, u[38] = 514.3, uprev[38] = 514.3
+│     atmp[39] = -0.2446, u[39] = 1167, uprev[39] = 1167
+└ @ DiffEqBase C:\Users\jmurp\.julia\packages\DiffEqBase\dgDMc\src\check_error.jl:37
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  At t=61.97821928055747, dt was forced below floating point epsilon 7.105427357601002e-15. Aborting. There is either an error in your model specification or the true solution is unstable (or it cannot be represented in Float64 precision).
+│ 
+│ Diagnostics:
+│ 
+│ Jacobian Analysis:
+│   row(s) [39, 40, 81, 82, 83, 84, 85, 86, 87, 88, and 31 more] have unusually large entries (e.g. J[119,119] = -5.157e+11, J[114,114] = -5.178e+08, J[113,113] = -5.126e+08, J[115,115] = -5.108e+08, J[112,112] = -5.051e+08), suggesting a singularity in those equation(s)
+│   column(s) [79, 80, 81, 82, 83, 84, 85, 86, 87, 88, and 33 more] have unusually large entries, suggesting those state component(s) are diverging
+└ @ DiffEqBase C:\Users\jmurp\.julia\packages\DiffEqBase\dgDMc\src\check_error.jl:37
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\data\mock\variant_gausstruth_filter_13.json (3 cooks, 0 skipped)

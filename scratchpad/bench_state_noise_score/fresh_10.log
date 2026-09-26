@@ -1,0 +1,76 @@
+the graph filter: prior prior_next_cook.json; 5 cooks from seed 10; edges to 14.0 h; updates on arrival; the level fixed at one (the bench earns the state's process noise); the state noise from state_noise.json; physics 3a846a18649e; the prediction by 64 sigma points; the truths chain; record variant_score_filter_10.json
+  rates [units/sqrt(h)]: T 0.5410709557110042, W 0.00843527232934859, C 0.0034887044134860523, F 0.0016377727027904344, S 8.208837643319232e-5, bark 0.007218306447190745, T_pit 2.5435258138833197, m_fuel 0.051426877530904455, m_pan 0.02, T_pan 0.125, T_fb 0.125, ignited 0.010035535285831627
+  initial sds: T 1.0821419114220083, W 0.04217636164674295, C 0.0006977408826972104, F 0.0003275545405580868, S 8.208837643319232e-5, bark 0.0007218306447190746, T_pit 2.5435258138833197, m_fuel 0.10285375506180891, m_pan 0.05, T_pan 0.125, T_fb 0.125, ignited 0.02508883821457907
+cook 1 (seed 10): at 14 h |err|/sd max 4.08 (a0) median 1.24; the temperatures' |err|/sd median pit 0.64 centre 0.67 surface 1.50; NIS/dof mean 0.63, NEES/16 mean 3.04, NEES_T/3 mean 4.70; 402 updates, 2225 s
+    u_leak  truth -0.03 -0.10 -0.17 -0.18 -0.23 -0.52 -0.50 | filter +0.16 -0.00 -0.76 -1.36 -1.18 -0.75 -0.66
+    k_e     truth -6.41 -6.41 -6.46 -6.48 -6.45 -6.42 -6.54 | filter -1.59 -1.55 -1.55 -1.38 -1.42 -1.50 -1.32
+    h_c     truth +2.01 +1.99 +1.92 +1.95 +2.05 +2.05 +2.08 | filter -2.30 -1.74 -1.15 -1.30 -1.81 -1.48 -1.40
+    r_max   truth -1.05 -1.05 -1.05 -1.05 -1.05 -1.05 -1.12 | filter +1.15 +1.39 +1.16 +0.94 +0.67 +0.90 +0.90
+    the state by group, NEES/dof mean: T 0.87, W 0.93, C 0.34, F 0.10, S 0.00, bark 0.14, T_pit 1.51, m_fuel 0.20, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.30
+cook 2 (seed 11): the filter failed (the physics failed at sigma point 51 of 64 of the update (the latents moved by 1.746 in z, at most 1); skipped
+cook 3 (seed 12): at 14 h |err|/sd max 2.14 (core_depth) median 0.74; the temperatures' |err|/sd median pit 0.85 centre 1.66 surface 2.10; NIS/dof mean 0.50, NEES/16 mean 2.01, NEES_T/3 mean 1.81; 402 updates, 3196 s
+    u_leak  truth +0.54 +0.48 +0.55 +0.25 +0.33 +0.27 +0.19 | filter +0.27 +0.35 +0.10 -0.92 -1.04 -0.66 -0.71
+    k_e     truth -6.66 -6.64 -6.61 -6.61 -6.60 -6.63 -6.68 | filter -1.80 -1.95 -1.77 -1.84 -1.86 -1.77 -1.67
+    h_c     truth +3.00 +2.98 +3.01 +2.99 +3.04 +3.07 +3.10 | filter -0.15 +0.23 -0.05 +0.53 +0.11 +0.21 -0.03
+    r_max   truth -0.77 -0.77 -0.77 -0.77 -0.77 -0.77 -0.44 | filter +0.30 +0.37 +0.22 +0.25 +0.03 -0.00 -0.74
+    the state by group, NEES/dof mean: T 3.77, W 0.57, C 1.91, F 0.77, S 0.00, bark 0.14, T_pit 1.00, m_fuel 0.14, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.11
+cook 4 (seed 13): at 14 h |err|/sd max 3.55 (r_max) median 1.26; the temperatures' |err|/sd median pit 0.94 centre 0.40 surface 0.33; NIS/dof mean 0.46, NEES/16 mean 1.95, NEES_T/3 mean 0.82; 402 updates, 2696 s
+    u_leak  truth -1.91 -1.95 -2.06 -1.78 -1.70 -1.90 -2.00 | filter -1.18 -2.03 -2.41 -2.79 -2.60 -2.75 -2.63
+    k_e     truth -7.47 -7.47 -7.55 -7.56 -7.61 -7.60 -7.61 | filter -0.33 -0.19 +0.04 -0.12 +0.13 +0.20 +0.27
+    h_c     truth +2.16 +2.19 +2.14 +2.13 +2.12 +2.10 +2.13 | filter -0.79 -1.01 -0.46 -0.28 +0.01 -0.21 -0.08
+    r_max   truth -2.01 -2.01 -2.01 -2.01 -2.01 -2.01 -2.37 | filter +3.49 +3.47 +4.01 +3.98 +3.80 +4.02 +3.55
+    the state by group, NEES/dof mean: T 0.17, W 0.57, C 0.32, F 0.17, S 0.00, bark 0.48, T_pit 1.52, m_fuel 0.54, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.37
+cook 5 (seed 14): at 14 h |err|/sd max 1.85 (k_m) median 0.85; the temperatures' |err|/sd median pit 0.56 centre 0.91 surface 0.95; NIS/dof mean 0.52, NEES/16 mean 1.06, NEES_T/3 mean 0.77; 402 updates, 2303 s
+    u_leak  truth -1.60 -1.69 -1.79 -1.51 -1.39 -1.15 -1.19 | filter +1.02 +0.65 +0.81 +1.60 +0.71 +0.31 +0.30
+    k_e     truth -8.07 -8.13 -8.31 -8.26 -8.20 -8.19 -8.20 | filter +1.05 +1.20 +1.56 +1.39 +1.29 +1.28 +1.30
+    h_c     truth +1.58 +1.59 +1.61 +1.57 +1.54 +1.56 +1.55 | filter +2.34 +1.91 +1.35 +1.47 +1.59 +1.63 +1.27
+    r_max   truth +0.60 +0.60 +0.60 +0.60 +0.60 +0.60 +0.45 | filter -0.99 -1.09 -1.05 -0.45 -0.17 +0.01 +0.09
+    the state by group, NEES/dof mean: T 1.19, W 1.64, C 0.88, F 0.39, S 0.00, bark 0.10, T_pit 0.62, m_fuel 0.23, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.22
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+┌ Warning: the state noise in C:\Users\jmurp\.julia\dev\BrisketDynamics\data\calibration\state_noise.json was earned on physics ba928b214b27; the tree's is 3a846a18649e: the rates are stale, rerun estimator/python/bench_state_noise.py
+└ @ Main.BrisketEstimator C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\sequential.jl:224
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  At t=1680.0000000000002, dt was forced below floating point epsilon 2.2737367544323206e-13. Aborting. There is either an error in your model specification or the true solution is unstable (or it cannot be represented in Float64 precision).
+│ 
+│ Diagnostics:
+│ 
+│ Jacobian Analysis:
+│   row(s) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 30 more] have unusually large entries (e.g. J[40,80] = -2.315e+13, J[26,26] = -1.853e+13, J[27,27] = -1.852e+13, J[25,25] = -1.85e+13, J[28,28] = -1.846e+13), suggesting a singularity in those equation(s)
+│   column(s) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 110 more] have unusually large entries, suggesting those state component(s) are diverging
+│ 
+│ Error Analysis:
+│   step error estimate EEst = 1371 (a step is accepted when EEst <= 1)
+│   largest contributors to EEst = internalnorm(atmp), where atmp is the tolerance-weighted local error per state component:
+│     atmp[40] = 7.887e+04, u[40] = 186.9, uprev[40] = 172.1
+│     atmp[39] = 5.15e+04, u[39] = 194.1, uprev[39] = 184
+│     atmp[38] = 2.881e+04, u[38] = 209.1, uprev[38] = 203.1
+└ @ DiffEqBase C:\Users\jmurp\.julia\packages\DiffEqBase\dgDMc\src\check_error.jl:37
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  Initial timestep too small (near machine epsilon), using default: dt = 1.0e-6
+└ @ OrdinaryDiffEqCore C:\Users\jmurp\.julia\packages\OrdinaryDiffEqCore\f0hq4\src\initdt.jl:222
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  At t=1680.0, dt was forced below floating point epsilon 2.2737367544323206e-13. Aborting. There is either an error in your model specification or the true solution is unstable (or it cannot be represented in Float64 precision).
+│ 
+│ Diagnostics:
+│ 
+│ Jacobian Analysis:
+│   row(s) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 30 more] have unusually large entries (e.g. J[34,153] = -4.279e+20, J[33,152] = -4.259e+20, J[35,154] = -4.116e+20, J[32,151] = -4.109e+20, J[32,153] = 4.022e+20), suggesting a singularity in those equation(s)
+│   column(s) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 110 more] have unusually large entries, suggesting those state component(s) are diverging
+└ @ DiffEqBase C:\Users\jmurp\.julia\packages\DiffEqBase\dgDMc\src\check_error.jl:37
+┌ Warning: Verbosity toggle: dt_epsilon 
+│  At t=1680.0000000000045, dt was forced below floating point epsilon 2.2737367544323206e-13. Aborting. There is either an error in your model specification or the true solution is unstable (or it cannot be represented in Float64 precision).
+│ 
+│ Diagnostics:
+│ 
+│ Jacobian Analysis:
+│   row(s) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 30 more] have unusually large entries (e.g. J[40,80] = -2.422e+10, J[25,25] = -1.549e+10, J[24,24] = -1.549e+10, J[26,26] = -1.548e+10, J[23,23] = -1.547e+10), suggesting a singularity in those equation(s)
+│   column(s) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 110 more] have unusually large entries, suggesting those state component(s) are diverging
+│ 
+│ Error Analysis:
+│   step error estimate EEst = 1.13 (a step is accepted when EEst <= 1)
+│   largest contributors to EEst = internalnorm(atmp), where atmp is the tolerance-weighted local error per state component:
+│     atmp[40] = 1.821, u[40] = 210.8, uprev[40] = 210.7
+│     atmp[39] = 0.08277, u[39] = 227.8, uprev[39] = 227.8
+│     atmp[29] = -0.0376, u[29] = 361.9, uprev[29] = 361.9
+└ @ DiffEqBase C:\Users\jmurp\.julia\packages\DiffEqBase\dgDMc\src\check_error.jl:37
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\data\mock\variant_score_filter_10.json (4 cooks, 1 skipped)

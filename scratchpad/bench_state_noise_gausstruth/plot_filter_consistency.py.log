@@ -1,0 +1,22 @@
+9 cooks, 402 updates each; the filter's consistency at every update, pooled:
+  NIS/dof: mean over slices 0.50; inside the 95 % band on 43 % of slices (a consistent filter: 95 %)
+  NEES/16 of the latents: mean 1.46 (band 0.78 to 1.24); NEES/3 of the temperatures: mean 1.61 (band 0.54 to 1.60)
+  channel       samples    mean     sd  lag-1 r   band
+  pit probe        3627   -0.01   0.72     0.03   0.10
+  core probe       3627   -0.01   0.63     0.16   0.10
+  humidity          720   -0.03   1.04     0.16   0.22
+  scale             234   -0.02   0.88     0.02   0.39
+  the state by group (rate, initial sd, NEES/dof, the band): physics ba928b214b27
+  T         dof   1     0.5411      1.082     1.66  0.77 to 1.26  too narrow
+  W         dof   1   0.008435    0.04218     0.91  0.77 to 1.26
+  C         dof   1   0.003489  0.0006977     1.25  0.77 to 1.26
+  F         dof   1   0.001638  0.0003276     0.31  0.77 to 1.26  too wide
+  S         dof   1  8.209e-05  8.209e-05     0.00  0.77 to 1.26  too wide
+  bark      dof   3   0.007218  0.0007218     0.57  0.86 to 1.15  too wide
+  T_pit     dof   1      2.544      2.544     1.13  0.77 to 1.26
+  m_fuel    dof   1    0.05143     0.1029     0.84  0.77 to 1.26
+  m_pan     dof   1       0.02       0.05     0.00  0.77 to 1.26  too wide
+  T_pan     dof   1      0.125      0.125     0.00  0.77 to 1.26  too wide
+  T_fb      dof   1      0.125      0.125     0.00  0.77 to 1.26  too wide
+  ignited   dof   1    0.01004    0.02509     0.82  0.77 to 1.26
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\estimator\filter_consistency_drift_gausstruth.png

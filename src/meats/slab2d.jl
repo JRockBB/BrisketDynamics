@@ -562,7 +562,7 @@ function coupled_solve_2d(
         a_c = clamp(a, zero(a), one(a))
         a += h * k_spread * a_c * (1 - a_c) * airflow
         if pit.m_pan0 > 0
-            Tpan += h * (q_pan - cfg.λ_vap * ṁ_pan) /
+            Tpan += h * (q_pan - pit.λ_pan * ṁ_pan) /
                     (CP_WATER * max(mp, zero(Tv)) + pit.C_pan_dry)
             mp = max(mp - h * ṁ_pan, zero(Tv))
         end

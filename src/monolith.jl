@@ -146,11 +146,11 @@ function make_monolith_rhs(
         )
         a_c = clamp(a, zero(a), one(a))
         ṁ_add = fuel_add_rate(t, t_add, dt_add, pit)
-        # the lid comes off to dump the chimney and for every spritz while the
-        # policy runs (in the pit, unwrapped)
-        lid = lid_open(t, t_add, pit.τ_open_add) +
-              lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz), pit.τ_open_spritz) *
-              (1 - wrap_blend(t, t_wrap, cfg)) * (1 - pull_blend(t, t_pull, cfg))
+        # One physical lid comes off to dump the chimney or spritz while the policy runs
+        # (in the pit, unwrapped); overlapping openings take the wider gate, not their sum.
+        lid = max(lid_open(t, t_add, pit.τ_open_add),
+                  lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz), pit.τ_open_spritz) *
+                  (1 - wrap_blend(t, t_wrap, cfg)) * (1 - pull_blend(t, t_pull, cfg)))
         q_lid = pit.UA_open * (Tp - pit.T_amb) * lid
         # two-zone: the burn heats the FIREBOX and the chamber receives
         # draft-advected duct heat; single-zone (c_duct = 0): direct, as ever
@@ -175,7 +175,7 @@ function make_monolith_rhs(
         dx[nm + 4] = -ṁ_pan
         dx[nm + 5] =
             pit.m_pan0 > 0 ?
-            (q_pan - cfg.λ_vap * ṁ_pan) /
+            (q_pan - pit.λ_pan * ṁ_pan) /
             (CP_WATER * max(mp, zero(mp)) + pit.C_pan_dry) : zero(Tp)
         return nothing
     end

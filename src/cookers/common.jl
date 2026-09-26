@@ -87,6 +87,7 @@ Base.@kwdef struct PitConfig
     g_pan::Float64 = 1.5e-9     # pan evaporation conductance [kg/(s Pa)] (~0.5 kg/h at boiling: a foiled WSM pan lasts ~7 h)
     C_pan_dry::Float64 = 2000.0 # dry pan + frame heat capacity [J/K]
     m_pan_taper::Float64 = 0.1  # dry-out taper scale [kg]
+    λ_pan::Float64 = 2.3e6      # latent heat of the pan water [J/kg], a cooker property rather than a piece's
     # Pellet-auger source: when > 0 the fuel feed is CONTROLLED — the
     # burn rate is m_auger·u·taper(hopper) instead of the Minion bed law
     # (u becomes the auger duty; the fan is implicit in the same duty).
