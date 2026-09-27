@@ -1,0 +1,148 @@
+the factor-graph backend's bench (one slab on the RxInfer bench's plant): 1 cooks per round in 1 workers (1 each; tuning seeds [[1]], fresh seeds [[2]]), 0.5 h each, prior prior_next_cook.json; lag 0; the plant static; the sensor noise matched; rounds SubString{String}["tune", "fresh"]; the tuning round starts from the code defaults; logs in C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\bench_system_smoke
+  tune: seeds 1..1 -> data/mock/bench_system_smoke_tune_1.json  (C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\bin\julia.exe --startup-file=no -t 4 --project=C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\scripts\coverage_system.jl prior_next_cook.json 1 1 bench_system_smoke_tune_1.json 0.5 0 default 0 0 2.0 matched)
+  tune: done in 4 min
+  wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\data\mock\bench_manifest_system_tune_system_smoke.json
+the tuning round (before the identification): 1 cooks (seeds [1]), 16 arrivals at lag 0; backend 58124c3bd719; the fields' noise by offset
+  NIS/dof 0.88; NEES/16 of the latents 1.93 (per cook: 1.93; the mean's interval from the cooks' spread NaN to NaN; a consistent filter's band for 1 cooks 0.43 to 1.80)
+  NEES/3 of the temperatures 0.71 (per cook: 0.71; the mean's interval NaN to NaN; the band 0.07 to 3.12)
+  the solves: iterations mean 7.9 max 35; the accepted point's scaled gradient max 1.43e-04 median 5.68e-05; 0 of 16 arrivals not committed; 10.0 s per arrival (max 53), 190 s per cook
+  group           rate    init sd  NEES/dof  cook median  cook max  band (one sample per cook-hour)
+  T                0.5          1      0.29         0.29      0.29               0.03 to 3.69
+  W               0.01       0.05      0.02         0.02      0.02               0.03 to 3.69  too wide
+  C              0.005      0.001      0.02         0.02      0.02               0.03 to 3.69  too wide
+  F              0.005      0.001      0.00         0.00      0.00               0.03 to 3.69  too wide
+  S              0.001      0.001      0.00         0.00      0.00               0.03 to 3.69  too wide
+  bark            0.01      0.001      2.29         2.29      2.29               0.03 to 3.69
+  T_pit              2          2      1.52         1.52      1.52               0.00 to 5.02
+  m_fuel          0.05        0.1      0.53         0.53      0.53               0.00 to 5.02
+  m_pan           0.02       0.05      0.00         0.00      0.00               0.00 to 5.02  too wide
+  T_pan              2          2      0.00         0.00      0.00               0.00 to 5.02  too wide
+  T_fb               2          2      0.00         0.00      0.00               0.00 to 5.02  too wide
+  ignited         0.02       0.05      0.26         0.26      0.26               0.00 to 5.02
+  whiteness: core probe mean -0.05 lag-1 -0.13 (band +-0.50); humidity mean -0.87 lag-1 -0.58 (band +-1.00); pit probe mean +0.62 lag-1 +0.48 (band +-0.50); scale mean +NaN lag-1 +NaN (band +-NaN)
+  sensors: core white 0.1 ou 1.2 tau 12000 s; humidity white 10 ou 100 tau 2700 s; mass white 0.005 ou 0.02 tau 2600 s; pit white 0.1 ou 1.5 tau 3000 s
+  the graph's whitened residuals at the accepted point (16 arrivals): the newest slice's dynamics residual power per coordinate by group (one when the rate is right, less by the group's leverage):
+    T 0.00, W 0.00, C 0.00, F 0.00, S 0.00, bark 0.00, T_pit 0.40, m_fuel 0.00, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.00
+    the window's: T 0.00, W 0.00, C 0.00, F 0.00, S 0.00, bark 0.00, T_pit 0.40, m_fuel 0.00, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.00
+    the observation residual squared per sensor: core 0.025, humidity 0.006, mass 0.002, pit 0.028; the OU residual squared per sensor: core 0.077, humidity 0.255, mass 0.037, pit 0.521; the least-squares goodness of fit 2F/(rows − cols) 0.854
+  the smoothed past (a node's belief as it left the window, against the plant at its time; 15 nodes): NEES/3 of the temperatures 0.68, NEES/16 of the latents 1.94; by group T 0.31, W 0.02, C 0.02, F 0.00, S 0.00, bark 2.19, T_pit 1.36, m_fuel 0.47, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.24
+  the autocovariance fit: 741 products over 1 cooks (16 updates), lags to 2.0 h; weighted cost 792 before, 791 after (the weighted rows' noise 1.07, one when the weights are right)
+  the blocks' residual variance at the fit (their weight is its inverse): pit probe×pit probe across updates 1.17 (n 120); pit probe×pit probe at one update 1.89 (n 16); core probe×core probe across updates 0.0515 (n 120); core probe×core probe at one update 0.723 (n 16); humidity×humidity across updates 1.3 (n 6); humidity×humidity at one update 1.31 (n 4); scale×scale at one update 26.6 (n 2)
+  group                rate    -> rate  factor  se (rate)  jackknife se  in k of n  own rel se  move/se  status
+  T                     0.5        0.5    1.00          -             -          -        0.30      0.1  held: the fit could not tell its sign [K]
+  W                    0.01       0.01    1.00          -             -          -       60.07      1.9  unidentified [kg/kg]
+  C                   0.005      0.005    1.00          -             -          -           -      0.0  unidentified [-]
+  F                   0.005      0.005    1.00          -             -          -      668.39      1.9  unidentified [-]
+  S                   0.001      0.001    1.00          -             -          -  1481607793449981632839680.00      0.0  unidentified [-]
+  bark                 0.01       0.01    1.00          -             -          -           -      0.0  unidentified [-]
+  T_pit                   2        0.5    0.25         40             -          -        0.91      2.2  identified, at the cap [K]
+  m_fuel               0.05       0.05    1.00          -             -          -  27823060538604528861184.00      0.0  unidentified [kg]
+  m_pan                0.02       0.02    1.00          -             -          -           -      0.0  unidentified [kg]
+  T_pan                   2          2    1.00          -             -          -           -      0.0  unidentified [K]
+  T_fb                    2          2    1.00          -             -          -           -      0.0  unidentified [K]
+  ignited              0.02       0.02    1.00          -             -          -       26.70      1.4  unidentified [-]
+  ou.pit                1.5      2.072    1.38       4.27             -          -        0.71      2.5  identified []
+  ou.core               1.2        1.2    1.00          -             -          -        0.28      1.1  held: the fit could not tell its sign []
+  ou.humidity           100        100    1.00          -             -          -        1.88      0.3  unidentified []
+  ou.mass              0.02      0.005    0.25       2.14             -          -       51.36      2.2  identified, at the cap []
+  white.pit             0.1        0.1    1.00          -             -          -        5.27      1.9  unidentified []
+  white.core            0.1        0.1    1.00          -             -          -        0.34      0.4  held: the fit could not tell its sign []
+  white.humidity         10         10    1.00          -             -          -       31.61      1.4  unidentified []
+  white.mass          0.005      0.005    1.00          -             -          -      147.42      1.1  unidentified []
+  channel        lag      n   sample   +-se  model before  model after
+  pit probe      0 m     16    1.128  0.344         1.000        1.072
+  pit probe      2 m     15    0.810  0.278         0.000       -0.001
+  pit probe      4 m     14    0.533  0.230         0.000       -0.003
+  pit probe      6 m     13    0.474  0.230         0.000       -0.003
+  pit probe     10 m     11    0.781  0.427         0.000       -0.002
+  pit probe     20 m      6    0.174  0.370         0.000       -0.001
+  core probe     0 m     16    0.240  0.082         1.000        1.000
+  core probe     2 m     15   -0.030  0.045         0.000        0.000
+  core probe     4 m     14    0.001  0.089         0.000        0.000
+  core probe     6 m     13   -0.004  0.063         0.000        0.000
+  core probe    10 m     11   -0.005  0.099         0.000       -0.000
+  core probe    20 m      6    0.002  0.100         0.000       -0.000
+  humidity       0 m      4    1.184  0.568         1.000        1.011
+  humidity      10 m      3    0.232  0.348         0.000        0.001
+  humidity      20 m      2    0.487  0.707         0.000       -0.000
+  scale          0 m      2    3.259  1.000         1.000        0.953
+  the identification, each group's factor on its rate: T x1.00, W x1.00, C x1.00, F x1.00, S x1.00, bark x1.00, T_pit x0.25, m_fuel x1.00, m_pan x1.00, T_pan x1.00, T_fb x1.00, ignited x1.00, ou.pit x1.38, ou.core x1.00, ou.humidity x1.00, ou.mass x0.25, white.pit x1.00, white.core x1.00, white.humidity x1.00, white.mass x1.00
+  wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\state_noise_system_smoke.json
+  fresh: seeds 2..2 -> data/mock/bench_system_smoke_fresh_2.json  (C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\bin\julia.exe --startup-file=no -t 4 --project=C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\scripts\coverage_system.jl prior_next_cook.json 1 2 bench_system_smoke_fresh_2.json 0.5 0 C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\state_noise_system_smoke.json 0 0 2.0 matched)
+  fresh: done in 4 min
+  wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\data\mock\bench_manifest_system_fresh_system_smoke.json
+the fresh round (the calibration as written, seeds never seen): 1 cooks (seeds [2]), 16 arrivals at lag 0; backend 58124c3bd719; the fields' noise by offset
+  NIS/dof 0.40; NEES/16 of the latents 0.94 (per cook: 0.94; the mean's interval from the cooks' spread NaN to NaN; a consistent filter's band for 1 cooks 0.43 to 1.80)
+  NEES/3 of the temperatures 0.33 (per cook: 0.33; the mean's interval NaN to NaN; the band 0.07 to 3.12)
+  the solves: iterations mean 6.1 max 15; the accepted point's scaled gradient max 9.83e-05 median 5.60e-05; 0 of 16 arrivals not committed; 8.8 s per arrival (max 57), 171 s per cook
+  group           rate    init sd  NEES/dof  cook median  cook max  band (one sample per cook-hour)
+  T                0.5          1      0.79         0.79      0.79               0.03 to 3.69
+  W               0.01       0.05      0.00         0.00      0.00               0.03 to 3.69  too wide
+  C              0.005      0.001      0.00         0.00      0.00               0.03 to 3.69  too wide
+  F              0.005      0.001      0.00         0.00      0.00               0.03 to 3.69  too wide
+  S              0.001      0.001      0.00         0.00      0.00               0.03 to 3.69  too wide
+  bark            0.01      0.001      0.01         0.01      0.01               0.03 to 3.69  too wide
+  T_pit            0.5          2      0.13         0.13      0.13               0.00 to 5.02
+  m_fuel          0.05        0.1      0.00         0.00      0.00               0.00 to 5.02  too wide
+  m_pan           0.02       0.05      0.00         0.00      0.00               0.00 to 5.02  too wide
+  T_pan              2          2      0.00         0.00      0.00               0.00 to 5.02  too wide
+  T_fb               2          2      0.00         0.00      0.00               0.00 to 5.02  too wide
+  ignited         0.02       0.05      0.86         0.86      0.86               0.00 to 5.02
+  whiteness: core probe mean -0.09 lag-1 -0.15 (band +-0.50); humidity mean -0.01 lag-1 -0.40 (band +-1.00); pit probe mean +0.16 lag-1 +0.10 (band +-0.50); scale mean +NaN lag-1 +NaN (band +-NaN)
+  sensors: core white 0.1 ou 1.2 tau 12000 s; humidity white 10 ou 100 tau 2700 s; mass white 0.005 ou 0.005 tau 2600 s; pit white 0.1 ou 2.07 tau 3000 s
+  the graph's whitened residuals at the accepted point (16 arrivals): the newest slice's dynamics residual power per coordinate by group (one when the rate is right, less by the group's leverage):
+    T 0.00, W 0.00, C 0.00, F 0.00, S 0.00, bark 0.00, T_pit 0.01, m_fuel 0.00, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.00
+    the window's: T 0.00, W 0.00, C 0.00, F 0.00, S 0.00, bark 0.00, T_pit 0.01, m_fuel 0.00, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.00
+    the observation residual squared per sensor: core 0.037, humidity 0.002, mass 0.010, pit 0.008; the OU residual squared per sensor: core 0.112, humidity 0.037, mass 0.015, pit 0.276; the least-squares goodness of fit 2F/(rows − cols) 0.482
+  the smoothed past (a node's belief as it left the window, against the plant at its time; 15 nodes): NEES/3 of the temperatures 0.30, NEES/16 of the latents 0.95; by group T 0.84, W 0.01, C 0.00, F 0.00, S 0.00, bark 0.01, T_pit 0.10, m_fuel 0.00, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.94
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+  wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\state_noise_system_smoke.json
+the round's manifest bench_manifest_system_fresh_system_smoke.json: 1 cooks (seeds [2]) in 1 records, physics 58124c3bd719
+1 cooks, 16 updates each; the filter's consistency at every update, pooled:
+  NIS/dof: mean over slices 0.41; inside the 95 % band on 100 % of slices (a consistent filter: 95 %)
+  NEES/16 of the latents: mean 0.94 (band 0.43 to 1.80); NEES/3 of the temperatures: mean 0.33 (band 0.07 to 3.12)
+  channel       samples    mean     sd  lag-1 r   band
+  pit probe          16    0.16   0.64     0.10   0.50
+  core probe         16   -0.09   0.65    -0.15   0.50
+  humidity            4   -0.01   0.54    -0.40   1.00
+  scale               0     nan    nan      nan    nan
+  the state by group (rate, initial sd, NEES/dof, the band): physics 58124c3bd719
+  T         dof   3        0.5          1     0.79  0.03 to 3.69
+  W         dof   3       0.01       0.05     0.00  0.03 to 3.69  too wide
+  C         dof   3      0.005      0.001     0.00  0.03 to 3.69  too wide
+  F         dof   3      0.005      0.001     0.00  0.03 to 3.69  too wide
+  S         dof   3      0.001      0.001     0.00  0.03 to 3.69  too wide
+  bark      dof   3       0.01      0.001     0.01  0.03 to 3.69  too wide
+  T_pit     dof   1        0.5          2     0.13  0.00 to 5.02
+  m_fuel    dof   1       0.05        0.1     0.00  0.00 to 5.02  too wide
+  m_pan     dof   1       0.02       0.05     0.00  0.00 to 5.02  too wide
+  T_pan     dof   1          2          2     0.00  0.00 to 5.02  too wide
+  T_fb      dof   1          2          2     0.00  0.00 to 5.02  too wide
+  ignited   dof   1       0.02       0.05     0.86  0.00 to 5.02
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\estimator\filter_consistency_drift_system_smoke.png
+C:\Users\jmurp\.julia\dev\BrisketDynamics\app\.venv\Lib\site-packages\numpy\lib\_nanfunctions_impl.py:1997: RuntimeWarning: Degrees of freedom <= 0 for slice.
+  var = nanvar(a, axis=axis, dtype=dtype, out=out, ddof=ddof,
+the round's manifest bench_manifest_system_fresh_system_smoke.json: 1 cooks (seeds [2]) in 1 records, physics 58124c3bd719
+1 cooks (of 1 drawn) on prior prior_next_cook.json; standardized errors at the last batch (0 h):
+site            mean  z of mean  spread  within 1  within 2
+D_eff          -0.23        nan     nan      1.00      1.00
+k_m             0.26        nan     nan      1.00      1.00
+h_c            -0.45        nan     nan      1.00      1.00
+L               0.17        nan     nan      1.00      1.00
+k_mult          1.73        nan     nan      0.00      1.00
+k_e            -0.76        nan     nan      1.00      1.00
+a_myosin        1.09        nan     nan      0.00      1.00
+m_conv          1.11        nan     nan      0.00      1.00
+C_th           -0.43        nan     nan      1.00      1.00
+UA              1.05        nan     nan      0.00      1.00
+r_max          -0.54        nan     nan      1.00      1.00
+dH_eff          0.38        nan     nan      1.00      1.00
+u_leak          1.69        nan     nan      0.00      1.00
+k_spread        1.83        nan     nan      0.00      1.00
+a0             -1.27        nan     nan      0.00      1.00
+A_meat          0.02        nan     nan      1.00      1.00
+core_depth_fraction    1.61        nan     nan      0.00      1.00
+all sites       0.43               0.98      0.53      1.00   (a calibrated posterior: 0, 1, 0.68, 0.95)
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\estimator\coverage_realcook_system_smoke.png
+done
+exit 0

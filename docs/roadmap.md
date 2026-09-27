@@ -282,13 +282,18 @@ Its structure is fixed by three measured RxInfer behaviours
 
 - **The multi-meat inference architecture, what remains** (the build of
   2026-09-24 and 2026-09-25 is in `docs/results.md` and
-  `docs/multi-meat-inference-implementation-report.md`). The Python
-  application's migration from the RxInfer filter to the new backend
-  and planner (the Julia pilot loop already flies them:
-  `estimator/scripts/mock_closed_loop_system.jl`), and the bench pointed
-  at the new backend to earn its `StateNoise` rates (it runs on the
-  defaults), with the reduced-order artifacts' process discrepancy
-  recalibrated per artifact as the plan asks (the artifact carries the
+  `docs/multi-meat-inference-implementation-report.md`). The
+  factor-graph backend is the sole estimator target; RxInfer, the
+  sequential filter and the Python bench are frozen comparison oracles.
+  Its statistical consistency is the plan of
+  `docs/estimator-consistency-roadmap.md` (the Julia bench
+  `estimator/scripts/bench_system.jl` with its worker
+  `coverage_system.jl`, the identification in `bench_fit.jl`, the
+  calibration file `data/calibration/state_noise_system.json`; the state
+  of the build and what its rounds have and have not shown is
+  `docs/estimator-consistency-implementation-report.md`). The
+  reduced-order artifacts' process discrepancy is recalibrated per
+  artifact as the plan asks (the artifact carries the
   defaults). A whole two-piece cook with the pieces' events at their own
   times (the half-hour mock covers the arrivals, the planner test the
   events). A relinearization of the newest dynamics factor at the trial

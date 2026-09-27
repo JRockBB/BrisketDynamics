@@ -1,0 +1,10 @@
+the factor-graph backend: prior prior_next_cook.json; 5 cooks from seed 16; edges to 14.0 h; the plant static; lag 0; the state noise from state_noise_system.json; the sensor noise matched overridden by the calibration file; backend fa74db8d5b20; the innovation autocovariances accumulated to 2.0 h; record coverage_system_16.json
+  rates [units/sqrt(h)]: T 0.5153811484779044, W 0.0025000000000000005, C 0.005, F 0.02, S 0.001, bark 0.01, T_pit 0.9367530809892803, m_fuel 0.05, m_pan 0.02, T_pan 2.0, T_fb 2.0, ignited 0.022076431124093243
+  initial sds: T 1.0, W 0.05, C 0.001, F 0.001, S 0.001, bark 0.001, T_pit 2.0, m_fuel 0.1, m_pan 0.05, T_pan 2.0, T_fb 2.0, ignited 0.05
+  sensors: pit white 0.025000000000000012 ou 1.4870192236153772 tau 3000 s; core white 0.025000000000000012 ou 1.0286630798807048 tau 12000 s; humidity white 10.0 ou 100.03184383305805 tau 2700 s; mass white 0.005 ou 0.016707863831683448 tau 2600 s
+cook 1 (seed 16): at 14 h |err|/sd max 8.26 (k_spread) median 1.19; the temperatures' |err|/sd median pit 0.78 centre 1.30 surface 1.97; NIS/dof mean 0.95, NEES/16 mean 5.85, NEES_T/3 mean 3.76; 409 arrivals (0 not committed), 2167 s, 5.2 s per arrival (max 64)
+    u_leak  truth -1.72 -1.72 -1.72 -1.72 -1.72 -1.72 -1.72 | smoother +1.78 +2.56 +3.63 +3.62 +3.83 +3.69 +4.83
+    k_e     truth -6.96 -6.96 -6.96 -6.96 -6.96 -6.96 -6.96 | smoother -1.25 -1.14 -1.10 -0.90 -0.96 -0.97 -0.96
+    h_c     truth +2.85 +2.85 +2.85 +2.85 +2.85 +2.85 +2.85 | smoother -2.15 -2.01 -2.47 -2.89 -2.47 -2.38 -2.22
+    r_max   truth -0.19 -0.19 -0.19 -0.19 -0.19 -0.19 -0.19 | smoother -0.84 -1.46 -4.55 -5.88 -6.31 -6.40 -6.26
+    the state by group, NEES/dof mean: T 2.54, W 0.10, C 2.49, F 0.42, S 0.00, bark 1.52, T_pit 2.02, m_fuel 3.17, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 231.48

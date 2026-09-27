@@ -1,0 +1,58 @@
+{
+  "backend": "system",
+  "blocks": [
+    [
+      1
+    ]
+  ],
+  "date": "2026-09-27",
+  "drift": 0,
+  "hours": 0.5,
+  "lag": 0,
+  "n_cooks": 1,
+  "noise": "matched",
+  "physics": "58124c3bd719",
+  "prior": "prior_next_cook.json",
+  "records": [
+    "bench_system_smoke_tune_1.json"
+  ],
+  "round": "tune",
+  "seeds": [
+    1
+  ],
+  "skipped": [],
+  "state_noise": {
+    "C": 0.005,
+    "C0": 0.001,
+    "F": 0.005,
+    "F0": 0.001,
+    "S": 0.001,
+    "S0": 0.001,
+    "T": 0.5,
+    "T0": 1.0,
+    "T_event": 5.0,
+    "T_fb": 2.0,
+    "T_fb0": 2.0,
+    "T_pan": 2.0,
+    "T_pan0": 2.0,
+    "T_pit": 2.0,
+    "T_pit0": 2.0,
+    "T_spritz": 1.5,
+    "W": 0.01,
+    "W0": 0.05,
+    "bark": 0.01,
+    "bark0": 0.001,
+    "field_modes": 2.0,
+    "fields": "offset",
+    "ignited": 0.02,
+    "ignited0": 0.05,
+    "m_add": 0.15,
+    "m_fuel": 0.05,
+    "m_fuel0": 0.1,
+    "m_pan": 0.02,
+    "m_pan0": 0.05,
+    "node_jitter": 0.003
+  },
+  "state_noise_file": "default",
+  "workers": 1
+}

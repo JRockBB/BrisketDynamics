@@ -21,6 +21,15 @@
 # predicted spread has products a hundredth as scattered as another's), and per channel pair and time lag the
 # sample products, their squares, the base term and each group's coefficient, for the driver to pool over the
 # cooks, solve for δθ ≥ −θ, and show. The initial widths are not in it: their transient is one, the rates recur.
+#
+# A group may also be a MEASUREMENT variance (a sensor's white floor; 2026-09-26, for the factor-graph backend's
+# bench, whose sensor noise is identified with the state's rates): under δθ_r more of that channel's white
+# variance, `dR_r` its derivative in the standardized units of this update's rows, the same-update products of the
+# channel's rows carry δθ_r dR_r directly, and the fixed gain feeds the extra noise into the state error,
+#   ε⁺ = (I − K H) ε⁻ − K v,   so   Π_r ← (I − K H) Π_r (I − K H)ᵀ + K dR_r Kᵀ   at an update,
+# and the pending row of that update carries −K dR_r beside (I − K H) Π_r Hᵀ for the products with later updates.
+# A measurement group's `dQ` is zero; a process group's `dR` is zero. The caller says which is which by what it
+# passes; the regression treats every group alike.
 
 "The normal equations of one block of rows: the products of one channel pair of one kind (the same update, or across updates)."
 mutable struct ALSBlock
@@ -72,7 +81,7 @@ function ALSAccumulator(groups::AbstractVector{<:AbstractString}, theta::Abstrac
 end
 
 """
-    als_update!(acc, F, dQ, H, S, K, e, rowch, t)
+    als_update!(acc, F, dQ, H, S, K, e, rowch, t; dR=nothing)
 
 One update of the filter fed to the accumulator: the transition `F` (n × n) from the last posterior to this
 prediction, per group the derivative `dQ[g]` (n × n) of the interval's process covariance with respect to the
@@ -80,10 +89,12 @@ group's variance rate, and at this arrival the standardized rows `H` (p × n; p 
 covariance `S` (p × p, unit diagonal), the gain `K` (n × p) the filter applied on the standardized innovations
 (zero when it kept the predicted belief), the standardized innovations `e` (a vector, or a p × R matrix whose
 columns are independent replicates of the run under the same gains: the tests' simulation), the channel of each
-row and the time.
+row and the time. `dR[g]` (p × p, in the rows' standardized units) is the derivative of this update's white
+measurement covariance with respect to group `g`'s variance (a measurement group; zero or absent for a process
+group): it enters the same-update products directly and the state error through the gain.
 """
 function als_update!(acc::ALSAccumulator, F::AbstractMatrix, dQ::AbstractVector, H::AbstractMatrix, S::AbstractMatrix,
-                     K::AbstractMatrix, e::AbstractVecOrMat, rowch::AbstractVector{Int}, t::Real)
+                     K::AbstractMatrix, e::AbstractVecOrMat, rowch::AbstractVector{Int}, t::Real; dR::Union{Nothing,AbstractVector}=nothing)
     n, n_g = acc.n, length(acc.groups)
     E = e isa AbstractVector ? reshape(collect(Float64, e), :, 1) : Matrix{Float64}(e)
     p, R = size(E)
@@ -91,6 +102,8 @@ function als_update!(acc::ALSAccumulator, F::AbstractMatrix, dQ::AbstractVector,
     length(dQ) == n_g || throw(ArgumentError("one process-covariance derivative per group"))
     size(H) == (p, n) && size(S) == (p, p) && size(K) == (n, p) && length(rowch) == p ||
         throw(ArgumentError("the rows, their covariance, the gain, the innovations and the channels disagree in size"))
+    dR === nothing || length(dR) == n_g || throw(ArgumentError("one measurement-covariance derivative per group (a zero matrix for a process group)"))
+    dR === nothing || all(size(D) == (p, p) for D in dR) || throw(ArgumentError("a measurement-covariance derivative is p × p"))
     # the prediction: the sensitivities and the pending rows carried through the interval
     for g in 1:n_g
         acc.Pi[g] = Matrix(Symmetric(F * acc.Pi[g] * F' + dQ[g]))
@@ -109,7 +122,7 @@ function als_update!(acc::ALSAccumulator, F::AbstractMatrix, dQ::AbstractVector,
             bin = round(Int, (t - pd.t) / acc.bin_s)
             for i in 1:p, i2 in 1:size(pd.E, 1)
                 same && i2 < i && continue                                # one row per unordered pair at the same update
-                for g in 1:n_g; b[g] = C[g][i, i2]; end
+                for g in 1:n_g; b[g] = C[g][i, i2] + (same && dR !== nothing ? dR[g][i, i2] : 0.0); end
                 base = same ? new.S[i, i2] : 0.0
                 prods = E[i, :] .* pd.E[i2, :]                            # one product per replicate
                 s_sum = sum(prods) - R * base
@@ -122,18 +135,28 @@ function als_update!(acc::ALSAccumulator, F::AbstractMatrix, dQ::AbstractVector,
                 v[1] += R; v[2] += sum(prods); v[3] += sum(abs2, prods); v[4] += R * base; v[5:end] .+= R .* b
             end
         end
-        # the update: the gain the filter applied closes the loop on the sensitivities and the pending rows
+        # the update: the gain the filter applied closes the loop on the sensitivities and the pending rows; a
+        # measurement group's extra white noise enters the state error through the gain (ε⁺ = (I − KH) ε⁻ − K v)
         IKH = I - K * H
         for g in 1:n_g
             acc.Pi[g] = Matrix(Symmetric(IKH * acc.Pi[g] * IKH'))
+            dR === nothing && continue
+            KD = K * dR[g]
+            acc.Pi[g] = Matrix(Symmetric(acc.Pi[g] + KD * K'))
         end
         for pd in acc.pending, g in 1:n_g
             pd.M[g] = IKH * pd.M[g]
         end
+        if dR !== nothing
+            for g in 1:n_g
+                new.M[g] .-= K * dR[g]
+            end
+        end
     end
     acc.n_updates += 1
     acc.keep && push!(acc.pieces, (t=Float64(t), F=Matrix{Float64}(F), dQ=[Matrix{Float64}(q) for q in dQ], H=Matrix{Float64}(H),
-                                   S=Matrix{Float64}(S), K=Matrix{Float64}(K), E=E, rowch=collect(Int, rowch)))
+                                   S=Matrix{Float64}(S), K=Matrix{Float64}(K), E=E, rowch=collect(Int, rowch),
+                                   dR=dR === nothing ? nothing : [Matrix{Float64}(D) for D in dR]))
     return acc
 end
 

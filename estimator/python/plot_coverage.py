@@ -35,11 +35,14 @@ def main():
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from bench_manifest import resolve_inputs
     files, _ = resolve_inputs(pattern)
-    cooks, names, prior_file, edges = [], None, None, None
+    cooks, names, prior_file, edges, drift_flag = [], None, None, None, None
     for f in files:
         d = json.loads(Path(f).read_text(encoding="utf-8"))
         names = d["names"]; prior_file = d["prior_file"]; edges = d["edges_h"]
         cooks += d["cooks"]
+        dr = d.get("drift")
+        if isinstance(dr, dict) and "on" in dr:                                    # the factor-graph backend's records say whether their plant drifted
+            drift_flag = bool(dr["on"])
     n = len(cooks)
     if n == 0:
         raise SystemExit("no coverage records")
@@ -95,9 +98,10 @@ def main():
     for ax in axes[:, 0]:
         ax.set_ylabel("(estimate − truth) / sd", color=INK2, fontsize=8)
     axes.flat[0].set_ylim(-5, 5)
-    drifting = "drift" in pattern or key == "err_sd_graphfilter"
+    drifting = drift_flag if drift_flag is not None else ("drift" in pattern or key == "err_sd_graphfilter")
     what = {"err_sd": "the batch estimator (every latent a constant)" if drifting else "the Gaussian posterior",
             "err_sd_graphfilter": "the filter on the graph (the belief over the plant's state and the latents, updated at every arrival of a sample)",
+            "err_sd_system": "the factor-graph backend (the square-root fixed-lag smoother over the system's state and the latents, updated at every arrival)",
             "err_sd_ridge": "the belief with the ridge chain",
             "err_sd_marg": "the Gaussian posterior with the noise marginalised",
             "err_sd_filter": "the filter (predict from a handed-off state, update on the window)",

@@ -1,0 +1,23 @@
+the round's manifest bench_manifest_system_fresh_system_smoke.json: 1 cooks (seeds [2]) in 1 records, physics 58124c3bd719
+1 cooks, 16 updates each; the filter's consistency at every update, pooled:
+  NIS/dof: mean over slices 0.41; inside the 95 % band on 100 % of slices (a consistent filter: 95 %)
+  NEES/16 of the latents: mean 0.94 (band 0.43 to 1.80); NEES/3 of the temperatures: mean 0.33 (band 0.07 to 3.12)
+  channel       samples    mean     sd  lag-1 r   band
+  pit probe          16    0.16   0.64     0.10   0.50
+  core probe         16   -0.09   0.65    -0.15   0.50
+  humidity            4   -0.01   0.54    -0.40   1.00
+  scale               0     nan    nan      nan    nan
+  the state by group (rate, initial sd, NEES/dof, the band): physics 58124c3bd719
+  T         dof   3        0.5          1     0.79  0.03 to 3.69
+  W         dof   3       0.01       0.05     0.00  0.03 to 3.69  too wide
+  C         dof   3      0.005      0.001     0.00  0.03 to 3.69  too wide
+  F         dof   3      0.005      0.001     0.00  0.03 to 3.69  too wide
+  S         dof   3      0.001      0.001     0.00  0.03 to 3.69  too wide
+  bark      dof   3       0.01      0.001     0.01  0.03 to 3.69  too wide
+  T_pit     dof   1        0.5          2     0.13  0.00 to 5.02
+  m_fuel    dof   1       0.05        0.1     0.00  0.00 to 5.02  too wide
+  m_pan     dof   1       0.02       0.05     0.00  0.00 to 5.02  too wide
+  T_pan     dof   1          2          2     0.00  0.00 to 5.02  too wide
+  T_fb      dof   1          2          2     0.00  0.00 to 5.02  too wide
+  ignited   dof   1       0.02       0.05     0.86  0.00 to 5.02
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\estimator\filter_consistency_drift_system_smoke.png

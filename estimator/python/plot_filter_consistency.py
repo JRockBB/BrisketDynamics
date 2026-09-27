@@ -56,11 +56,15 @@ def main():
     pattern = sys.argv[1] if len(sys.argv) > 1 else "bench_manifest_fresh.json"
     tag = sys.argv[2] if len(sys.argv) > 2 else ""
     files, _ = resolve_inputs(pattern)
-    cooks, groups, group_dof, sn, physics = [], None, None, None, None
+    cooks, groups, group_dof, sn, physics, sn_file = [], None, None, None, None, "data/calibration/state_noise.json"
     for f in files:
         d = json.loads(Path(f).read_text(encoding="utf-8"))
         cooks += [c for c in d["cooks"] if c["temps"] and "nis" in c["temps"][0]]
         groups, group_dof, sn, physics = d.get("groups"), d.get("group_dof"), d.get("state_noise"), d.get("physics")
+        if d.get("backend") == "system":                                           # the factor-graph backend's records name their own calibration file
+            sn_file = "the defaults" if d.get("state_noise_file") in (None, "default") else str(d.get("state_noise_file"))
+        if isinstance(d.get("channels"), dict):                                    # and their own channels (a two-piece record has a probe per piece)
+            CHANNELS.clear(); CHANNELS.update({str(k): str(v) for k, v in d["channels"].items()})
     if not cooks:
         raise SystemExit("no coverage records with diagnostics")
     n = len(cooks)
@@ -175,7 +179,7 @@ def main():
         ax.set_xticks(x); ax.set_xticklabels([f"{g[0]}\n({g[1]} dof)" for g in grows], color=INK2, fontsize=8)
         ax.set_ylabel("NEES / dof", color=INK2, fontsize=9)
         ax.set_title(f"The belief's state by group against the plant's, pooled over every update: NEES per degree of freedom\n"
-                     f"blue inside the band of one sample per cook-hour, orange outside; the rates of data/calibration/state_noise.json, physics {physics}", color=INK, fontsize=9.5)
+                     f"blue inside the band of one sample per cook-hour, orange outside; the rates of {sn_file}, physics {physics}", color=INK, fontsize=9.5)
     out = REPO / "figures" / "estimator" / f"filter_consistency_drift{tag}.png"
     fig.savefig(out, dpi=150, facecolor=SURFACE)
     print("wrote", out)

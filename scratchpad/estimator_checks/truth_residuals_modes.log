@@ -1,0 +1,56 @@
+the factor-graph backend: prior prior_next_cook.json; 1 cooks from seed 1; edges to 4.0 h; the plant static; lag 0; the state noise from default; the sensor noise matched; backend 58124c3bd719; record truth_residuals_unused.json
+  rates [units/sqrt(h)]: T 0.5, W 0.01, C 0.005, F 0.005, S 0.001, bark 0.01, T_pit 2.0, m_fuel 0.05, m_pan 0.02, T_pan 2.0, T_fb 2.0, ignited 0.02
+  initial sds: T 1.0, W 0.05, C 0.001, F 0.001, S 0.001, bark 0.001, T_pit 2.0, m_fuel 0.1, m_pan 0.05, T_pan 2.0, T_fb 2.0, ignited 0.05
+  sensors: pit white 0.1 ou 1.5 tau 3000 s; core white 0.1 ou 1.2 tau 12000 s; humidity white 10.0 ou 100.0 tau 2700 s; mass white 0.005 ou 0.02 tau 2600 s
+
+=== seed 1: segments 30; truth k_spread -6.211 a0 -1.004; the tune round's estimate at 14 h: k_spread -9.192 a0 -0.951
+  round trip at k=1 (0.0 h): max |lift(decode(encode)) - x_sys| = 0.001 at state 81 (value 0); encode∘decode on y: 8.9e-16
+  round trip at k=61 (2.0 h): max |lift(decode(encode)) - x_sys| = 0.000223 at state 203 (value 0.003359); encode∘decode on y: 0.084
+  round trip at k=301 (10.0 h): max |lift(decode(encode)) - x_sys| = 0.000134 at state 203 (value 0.004163); encode∘decode on y: 0.037
+  120 slices of 1 grid steps in 21 s
+  whitened dynamics residual, RMS per belief group (1 = the assumed state noise), at the TRUE latents | at the tune round's ESTIMATE
+  group            0-2   h     2-4   h     6-4   h    12-4   h   |  the same at the estimate
+  brisket.T          0.11       0.04        NaN        NaN   |     455.81     343.58        NaN        NaN
+  brisket.W          0.20       0.10        NaN        NaN   |    1280.90    1876.55        NaN        NaN
+  brisket.C         24.48       0.00        NaN        NaN   |      25.70       2.62        NaN        NaN
+  brisket.F          0.00       0.00        NaN        NaN   |       2.69       0.39        NaN        NaN
+  brisket.S          0.00       0.00        NaN        NaN   |       0.00       0.00        NaN        NaN
+  brisket.bark       0.08       0.06        NaN        NaN   |       0.09       0.06        NaN        NaN
+  T_pit              0.00       0.00        NaN        NaN   |       0.97       0.64        NaN        NaN
+  m_fuel             0.00       0.00        NaN        NaN   |       0.04       0.03        NaN        NaN
+  m_pan              0.00       0.00        NaN        NaN   |       0.00       0.00        NaN        NaN
+  T_pan              0.00       0.00        NaN        NaN   |       0.00       0.00        NaN        NaN
+  T_fb               0.00       0.00        NaN        NaN   |       0.00       0.00        NaN        NaN
+  ignited            0.00       0.01        NaN        NaN   |       1.06       0.01        NaN        NaN
+  raw step difference plant − model over one slice, MEAN per hour bin (a systematic sign is a mismatch): T_pit [K], T_core [K], ignited, m_fuel [kg]
+       0-2   h truth: dT_pit   -0.0001 (sd 0.0010)  dT_core  +0.00000 (sd 0.00002)  d_ign -8.458e-08 (sd 6.9e-07)  dm_fuel +4.840e-07 (sd 7.1e-06)
+              est.:  dT_pit   -0.3443             dT_core  -0.08967              d_ign +1.605e-03            dm_fuel +8.747e-05
+       2-4   h truth: dT_pit   -0.0000 (sd 0.0004)  dT_core  +0.00000 (sd 0.00000)  d_ign -2.685e-08 (sd 7.0e-08)  dm_fuel +1.215e-07 (sd 2.5e-06)
+              est.:  dT_pit   -0.2316             dT_core  -0.07125              d_ign +5.621e-08            dm_fuel +2.508e-04
+  the plant's ignited fraction: 0.893@0h 0.999@1h 1.000@2h 1.000@4h 1.000@8h 1.000@12h 1.000@12h 1.000@14h
+
+=== seed 10: segments 30; truth k_spread -8.945 a0 1.921
+  round trip at k=1 (0.0 h): max |lift(decode(encode)) - x_sys| = 0.001 at state 81 (value 0); encode∘decode on y: 8.9e-16
+  round trip at k=61 (2.0 h): max |lift(decode(encode)) - x_sys| = 0.000201 at state 203 (value 0.003538); encode∘decode on y: 0.07
+  round trip at k=301 (10.0 h): max |lift(decode(encode)) - x_sys| = 2.29e-05 at state 203 (value 0.006476); encode∘decode on y: 0.0037
+  120 slices of 1 grid steps in 2 s
+  whitened dynamics residual, RMS per belief group (1 = the assumed state noise), at the TRUE latents | at the tune round's ESTIMATE
+  group            0-2   h     2-4   h     6-4   h    12-4   h   |
+  brisket.T          0.08       0.04        NaN        NaN
+  brisket.W          0.17       0.17        NaN        NaN
+  brisket.C         21.62       0.00        NaN        NaN
+  brisket.F          0.00       0.00        NaN        NaN
+  brisket.S          0.00       0.00        NaN        NaN
+  brisket.bark       0.08       0.05        NaN        NaN
+  T_pit              0.00       0.00        NaN        NaN
+  m_fuel             0.00       0.00        NaN        NaN
+  m_pan              0.00       0.00        NaN        NaN
+  T_pan              0.00       0.00        NaN        NaN
+  T_fb               0.00       0.00        NaN        NaN
+  ignited            0.00       0.00        NaN        NaN
+  raw step difference plant − model over one slice, MEAN per hour bin (a systematic sign is a mismatch): T_pit [K], T_core [K], ignited, m_fuel [kg]
+       0-2   h truth: dT_pit   -0.0001 (sd 0.0008)  dT_core  +0.00000 (sd 0.00001)  d_ign -1.308e-09 (sd 4.3e-09)  dm_fuel +2.923e-07 (sd 2.6e-06)
+       2-4   h truth: dT_pit   +0.0001 (sd 0.0005)  dT_core  +0.00000 (sd 0.00000)  d_ign +8.559e-10 (sd 3.2e-09)  dm_fuel -2.372e-07 (sd 1.8e-06)
+  the plant's ignited fraction: 0.998@0h 0.998@1h 0.999@2h 0.999@4h 1.000@8h 1.000@12h 1.000@12h 1.000@14h
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+exit 0

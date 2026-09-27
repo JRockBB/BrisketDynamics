@@ -348,6 +348,17 @@ end
     rtoo = gauss_newton!(gtoo; iters=3, gtol=1e-4, resolution_gtol=5e-4, soc=0)
     @test !rtoo.converged && rtoo.gradient ≈ 6e-4
     @test_throws ArgumentError gauss_newton!(gtoo; gtol=1e-4, resolution_gtol=5e-5)
+    # With the joint read on (newton_tol > 0), the same stall is accepted when the undamped step at the exact
+    # relinearization is under newton_tol of a posterior sd (a unit Jacobian: the step in sds is the residual itself,
+    # 6e-4) and refused when it is not; the default leaves the rule off, as above.
+    gtoo2 = FactorGraph(); add_variable!(gtoo2, ktoo, [0.0]); add_factor!(gtoo2, ResolutionProbe(ktoo, 6e-4))
+    rtoo2 = gauss_newton!(gtoo2; iters=3, gtol=1e-4, resolution_gtol=5e-4, soc=0, newton_tol=1e-2)
+    @test rtoo2.converged && rtoo2.gradient ≈ 6e-4 && get(rtoo2.hist[end], :resolution_limited, false)
+    @test rtoo2.hist[end].newton_sd ≈ 6e-4 && rtoo2.newton_sd ≈ 6e-4 && rtoo2.newton_step ≈ 6e-4
+    gtoo3 = FactorGraph(); add_variable!(gtoo3, ktoo, [0.0]); add_factor!(gtoo3, ResolutionProbe(ktoo, 6e-4))
+    rtoo3 = gauss_newton!(gtoo3; iters=3, gtol=1e-4, resolution_gtol=5e-4, soc=0, newton_tol=1e-4)
+    @test !rtoo3.converged && rtoo3.newton_sd ≈ 6e-4
+    @test_throws ArgumentError gauss_newton!(gtoo3; newton_tol=-1.0)
     kf = VarKey(:state, :final_iteration, 1)
     gf = FactorGraph(); add_variable!(gf, kf, [0.0])
     add_factor!(gf, LinearFactor([kf], [fill(1.0, 1, 1)], [1.0]))

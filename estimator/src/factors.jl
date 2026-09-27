@@ -235,17 +235,58 @@ function propagate(m::SystemModel, y0::AbstractVector, z::AbstractVector, t0::Re
 end
 
 """
-    DynamicsFactor(model, key_z, key_y0, key_y1, t0, t1; first=false, events=Symbol[])
+    LatentSplit(static, moving)
+
+The latent vector held in two graph variables: the entries `static` in one (the same for the whole cook) and
+the entries `moving` in a copy per window node (the latents that drift; online.jl ties consecutive copies by a
+random-walk factor). A factor that reads the latents assembles the full vector from the two. Without a split
+one variable holds every entry.
+"""
+struct LatentSplit
+    static::Vector{Int}
+    moving::Vector{Int}
+    n::Int
+    function LatentSplit(static::AbstractVector{Int}, moving::AbstractVector{Int})
+        s = collect(Int, static); mv = collect(Int, moving)
+        isempty(intersect(s, mv)) || throw(ArgumentError("a latent cannot be both static and moving"))
+        n = length(s) + length(mv)
+        sort(vcat(s, mv)) == 1:n || throw(ArgumentError("the static and moving latents must partition 1:n"))
+        return new(s, mv, n)
+    end
+end
+export LatentSplit
+"The full latent vector from its static and moving parts."
+function assemble_latents(sp::LatentSplit, zs::AbstractVector, zm::AbstractVector)
+    z = zeros(promote_type(eltype(zs), eltype(zm)), sp.n)
+    z[sp.static] = zs; z[sp.moving] = zm
+    return z
+end
+"The columns of a Jacobian in the full latents split by the static and moving parts."
+_split_cols(sp::LatentSplit, Jz::AbstractMatrix) = [Jz[:, sp.static], Jz[:, sp.moving]]
+"The position, in the stacked `[static; moving]` vector, of every entry of the full latent vector."
+function split_permutation(sp::LatentSplit)
+    perm = zeros(Int, sp.n)
+    for (j, i) in enumerate(sp.static); perm[i] = j; end
+    for (j, i) in enumerate(sp.moving); perm[i] = length(sp.static) + j; end
+    return perm
+end
+export assemble_latents, split_permutation
+
+"""
+    DynamicsFactor(model, key_z, key_y0, key_y1, t0, t1; first=false, events=Symbol[], key_m=nothing, split=nothing)
 
 x_{k+1} = f(x_k, z) + w over the slice `[t0, t1]`: r = W (y1 − f(y0, z)), W the inverse lower square root
 of the process covariance of the interval in the belief's coordinates at the propagated state (the rates of
 the model's `StateNoise` over the interval's hours plus the disturbances of the lid-open `events` crossed).
 The Jacobian is ForwardDiff through the solve, in chunks, over the state and the latents; the factor keeps
-its last solve (the slice's outputs, for the past's integrals) and its last linearization by point.
+its last solve (the slice's outputs, for the past's integrals) and its last linearization by point. With a
+`split`, the latents are `key_z` (the static entries) and `key_m` (the moving copy in force over the slice).
 """
 mutable struct DynamicsFactor <: Factor
     model::SystemModel
     key_z::VarKey
+    key_m::Union{Nothing,VarKey}
+    split::Union{Nothing,LatentSplit}
     key_y0::VarKey
     key_y1::VarKey
     t0::Float64
@@ -253,33 +294,78 @@ mutable struct DynamicsFactor <: Factor
     first::Bool
     events::Vector{Symbol}
     chunk::Int
-    relin_tol::Float64
+    relin_tol::Float64          # the latents' move (∞-norm, their coordinates) beyond which the linearization is retaken
+    relin_tol_state::Float64    # the start node's move (∞-norm, the belief's coordinates) beyond which it is retaken
     cache::Any          # (z, y0, f, W, o) at the last solve; (jz, jy0, Jy, Jz) at the last linearization
     n_solves::Int
     n_jacobians::Int
 end
-DynamicsFactor(model::SystemModel, key_z::VarKey, key_y0::VarKey, key_y1::VarKey, t0::Real, t1::Real; first::Bool=false,
-               events::AbstractVector{Symbol}=Symbol[], chunk::Int=12, relin_tol::Float64=1e-3) =
-    DynamicsFactor(model, key_z, key_y0, key_y1, Float64(t0), Float64(t1), first, collect(Symbol, events), chunk, relin_tol, nothing, 0, 0)
-vars(f::DynamicsFactor) = [f.key_z, f.key_y0, f.key_y1]
+function DynamicsFactor(model::SystemModel, key_z::VarKey, key_y0::VarKey, key_y1::VarKey, t0::Real, t1::Real; first::Bool=false,
+                        events::AbstractVector{Symbol}=Symbol[], chunk::Int=12, relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol,
+                        key_m::Union{Nothing,VarKey}=nothing, split::Union{Nothing,LatentSplit}=nothing)
+    (key_m === nothing) == (split === nothing) || throw(ArgumentError("a moving latent copy needs its split, and a split its copy"))
+    return DynamicsFactor(model, key_z, key_m, split, key_y0, key_y1, Float64(t0), Float64(t1), first, collect(Symbol, events), chunk, relin_tol, relin_tol_state, nothing, 0, 0)
+end
+vars(f::DynamicsFactor) = f.key_m === nothing ? [f.key_z, f.key_y0, f.key_y1] : [f.key_z, f.key_m, f.key_y0, f.key_y1]
 ndim(f::DynamicsFactor) = f.model.bl.n
 provenance(f::DynamicsFactor) = "dynamics $(f.key_y0) → $(f.key_y1) over [$(f.t0), $(f.t1)] s"
+# the full latents and the two node values from a factor's values (in `vars` order)
+_dyn_unpack(f::DynamicsFactor, vals) = f.key_m === nothing ? (vals[1], vals[2], vals[3]) : (assemble_latents(f.split, vals[1], vals[2]), vals[3], vals[4])
+"The full latent vector a dynamics or observation factor reads from the graph's current values."
+_factor_latents(f, g) = f.key_m === nothing ? g.values[f.key_z] : assemble_latents(f.split, g.values[f.key_z], g.values[f.key_m])
 # the process noise in the belief's coordinates over the slice, floored at `INTEGRATOR_FLOOR` times the integrator's
 # error mapped into each coordinate (a state near zero under a log-type coordinate turns the solver's absolute
 # tolerance into 1e-3 of coordinate; whitened by a field's shape precision that was tenths of a nat of roughness per
 # node): no residual is whitened beyond what the solver resolves
 const INTEGRATOR_FLOOR = 100.0
-function _whitener(f::DynamicsFactor, y1)
+# a physical process covariance of the slice mapped into the belief's coordinates at `y1` with the integrator's floor
+# on the diagonal: what the whitener inverts (`to_coord` the coordinate map: the filter's own form for the whitener,
+# the variance form for the rates' sensitivity below, Dual-capable in `Q`)
+function _process_cov_coord(f::DynamicsFactor, y1, Q::AbstractMatrix; to_coord=belief_cov_to_coord)
     m = f.model
-    Δh = (f.t1 - f.t0) / 3600
-    Q = belief_process_cov(m.bl, m.sn, Δh; events=f.events)
-    Qc = belief_cov_to_coord(Q, y1, m.bl)
+    Qc = to_coord(Q, y1, m.bl)
     x = belief_decode(y1, m.bl)
     d = inv.(max.(belief_decode_jacobian(y1, m.bl), eps(Float64)))
     err = INTEGRATOR_FLOOR .* (m.abstol .+ m.reltol .* abs.(x)) .* d
     for i in eachindex(err); Qc[i, i] += err[i]^2; end
+    return Qc
+end
+function _whitener(f::DynamicsFactor, y1)
+    m = f.model
+    Δh = (f.t1 - f.t0) / 3600
+    Qc = _process_cov_coord(f, y1, belief_process_cov(m.bl, m.sn, Δh; events=f.events))
     Qc = _stable_cov(Qc)
     return Matrix(inv(cholesky(Symmetric(Qc)).L))
+end
+# a belief noise group's name in a bench accumulator: the piece's prefix dropped when the system has one piece
+# ("brisket.T" is "T", the filter's group), kept otherwise
+_als_group_name(bl::BeliefLayout, g::AbstractString) = length(bl.sys.pieces) == 1 && occursin('.', g) ? String(last(rsplit(g, '.'; limit=2))) : String(g)
+"""
+    _process_cov_sens(f::DynamicsFactor, y1, names) -> Vector{Matrix}
+
+Per name in `names`, the derivative of the slice's coordinate process covariance (as the factor whitens it, the
+events' disturbances and the integrator's floor aside since neither moves with a rate) with respect to that
+group's VARIANCE rate (the square of its `StateNoise` rate): the bench accumulator's `dQ` for the state's groups.
+A name no belief group carries gets a zero matrix.
+"""
+function _process_cov_sens(f::DynamicsFactor, y1, names::AbstractVector{<:AbstractString})
+    m = f.model; bl = m.bl
+    Δh = max((f.t1 - f.t0) / 3600, 0.0)
+    idx = Dict(String(nm) => i for (i, nm) in enumerate(names))
+    θ0 = [(_group_rate(bl, m.sn, g, false))^2 for (g, _) in bl.groups]           # the model's own variance rates by belief group
+    function cov_of(θ)
+        var_of(g) = (i = get(idx, _als_group_name(bl, g), 0); (i == 0 ? θ0[findfirst(x -> first(x) == g, bl.groups)] : θ[i]) * Δh)
+        Q = _belief_process_var(bl, m.sn, var_of)
+        return vec(_process_cov_coord(f, y1, Q; to_coord=_cov_to_coord_var))
+    end
+    θ = zeros(length(names))
+    for (g, _) in bl.groups
+        i = get(idx, _als_group_name(bl, g), 0)
+        i == 0 || (θ[i] = θ0[findfirst(x -> first(x) == g, bl.groups)])
+    end
+    J = ForwardDiff.jacobian(cov_of, θ)
+    n = bl.n
+    return [Matrix(Symmetric(reshape(J[:, i], n, n))) for i in eachindex(names)]
 end
 # the solve at (y0, z), cached by point; the Jacobian when asked, kept while the point stays within `relin_tol` of the
 # one it was taken at (a node whose neighbours have settled is not re-solved nineteen times per iteration). The
@@ -298,16 +384,51 @@ function _dyn_eval!(f::DynamicsFactor, z, y0; jac::Bool)
         c = c === nothing ? (z=copy(z), y0=copy(y0), f=fy, W=W, o=o, jz=nothing, jy0=nothing, Jy=nothing, Jz=nothing) :
                             (z=copy(z), y0=copy(y0), f=fy, W=W, o=o, jz=c.jz, jy0=c.jy0, Jy=c.Jy, Jz=c.Jz)
     end
-    if jac && (c.Jy === nothing || norm(z .- c.jz, Inf) > f.relin_tol || norm(y0 .- c.jy0, Inf) > f.relin_tol)
-        ny, nz = length(y0), length(z)
+    if jac && (c.Jy === nothing || norm(z .- c.jz, Inf) > f.relin_tol || norm(y0 .- c.jy0, Inf) > f.relin_tol_state)
+        ny = length(y0)
         g(v) = propagate(f.model, v[1:ny], v[(ny + 1):end], f.t0, f.t1; first_slice=f.first)[1]
-        v0 = vcat(y0, z)
-        J = ForwardDiff.jacobian(g, v0, ForwardDiff.JacobianConfig(g, v0, ForwardDiff.Chunk{min(f.chunk, length(v0))}()))
+        J = _chunked_jacobian(g, vcat(y0, z), ndim(f), f.chunk)
         f.n_jacobians += 1
         c = (z=c.z, y0=c.y0, f=c.f, W=_whitener(f, c.f), o=c.o, jz=copy(z), jy0=copy(y0), Jy=J[:, 1:ny], Jz=J[:, (ny + 1):end])
     end
     f.cache = c
     return c
+end
+"""
+    _chunked_jacobian(g, v0, m, chunk) -> J (m × length(v0))
+
+The Jacobian of `g` at `v0` in chunks of `chunk` inputs: every chunk one forward-mode pass over a Dual vector
+of the chunk's width seeded with unit partials on the chunk's inputs and zeros elsewhere, the last (shorter)
+chunk in the same width with its trailing partials unseeded, exactly as `ForwardDiff.jacobian` proceeds in
+sequence, so the numbers are the sequential call's bit for bit on any thread count; the chunks on the
+process's threads, since a dynamics factor's nineteen slice solves are independent and each is a second of
+stiff integration (measured 2026-09-26 on the real-cook mock: 1.54 s sequential, 0.85 s on four threads).
+"""
+function _chunked_jacobian(g, v0::AbstractVector, m::Int, chunk::Int)
+    n = length(v0)
+    N = min(chunk, n)
+    if Threads.nthreads() == 1                                       # one thread: the sequential call itself
+        v0f = collect(Float64, v0)
+        return ForwardDiff.jacobian(g, v0f, ForwardDiff.JacobianConfig(g, v0f, ForwardDiff.Chunk{N}()))
+    end
+    nchunks = cld(n, N)
+    J = Matrix{Float64}(undef, m, n)
+    v0f = collect(Float64, v0)
+    tag = ForwardDiff.Tag(g, Float64)                       # registered through the constructor: the tag's rank against the integrator's own Duals depends on it
+    D = ForwardDiff.Dual{typeof(tag),Float64,N}
+    Threads.@threads for c in 1:nchunks
+        c0 = (c - 1) * N
+        cols = (c0 + 1):min(c0 + N, n)
+        v = Vector{D}(undef, n)
+        for i in 1:n
+            v[i] = D(v0f[i], ForwardDiff.Partials(ntuple(j -> (i - c0 == j && i in cols) ? 1.0 : 0.0, N)))
+        end
+        y = g(v)
+        for (j, ci) in enumerate(cols), r in 1:m
+            J[r, ci] = ForwardDiff.partials(y[r], j)
+        end
+    end
+    return J
 end
 "Discard only a dynamics factor's secant linearization; its current primal solve may still be reused."
 function _invalidate_linearization!(f::DynamicsFactor)
@@ -318,31 +439,34 @@ function _invalidate_linearization!(f::DynamicsFactor)
     return f
 end
 function residual(f::DynamicsFactor, vals)
-    z, y0, y1 = vals
+    z, y0, y1 = _dyn_unpack(f, vals)
     c = _dyn_eval!(f, z, y0; jac=false)
     return c.W * (y1 .- c.f)
 end
+_dyn_jac_blocks(f::DynamicsFactor, c) = f.key_m === nothing ? [-c.W * c.Jz, -c.W * c.Jy, copy(c.W)] :
+                                        vcat([-c.W * J for J in _split_cols(f.split, c.Jz)], [-c.W * c.Jy, copy(c.W)])
 function jacobians(f::DynamicsFactor, vals)
-    z, y0, y1 = vals
+    z, y0, _ = _dyn_unpack(f, vals)
     c = _dyn_eval!(f, z, y0; jac=true)
-    return [-c.W * c.Jz, -c.W * c.Jy, copy(c.W)]
+    return _dyn_jac_blocks(f, c)
 end
 function factor_linearization(f::DynamicsFactor, vals)
-    z, y0, y1 = vals
+    z, y0, y1 = _dyn_unpack(f, vals)
     c = _dyn_eval!(f, z, y0; jac=true)
-    return (r=c.W * (y1 .- c.f), Js=[-c.W * c.Jz, -c.W * c.Jy, copy(c.W)])
+    return (r=c.W * (y1 .- c.f), Js=_dyn_jac_blocks(f, c))
 end
 "The slice's outputs at the last evaluation (for the past's integrals), or nothing."
 last_solve(f::DynamicsFactor) = f.cache === nothing ? nothing : f.cache.o
 
 """
-    ObservationFactor(model, spec, record, key_z, key_y, key_d, t)
+    ObservationFactor(model, spec, record, key_z, key_y, key_d; key_m=nothing, split=nothing)
 
 A sensor's reading at its own time: r = (y − h(x, z) − d)/σ_w with `h` the compiled observable, `d` the
 sensor's discrepancy at that sample (`key_d` nothing for a sensor without one) and σ_w the instrument's
 floor. A censored reading (at the cap) contributes the survival likelihood −log Φ((h + d − cap)/σ_w) as its
 loss and, as its residual, the local Gaussian site whose score and curvature match it at the current point
-(`_censored_normal_site`): the pseudo-observation moves with the point, never lagging a linearization.
+(`_censored_normal_site`): the pseudo-observation moves with the point, never lagging a linearization. With a
+`split` the latents are `key_z` (static) and `key_m` (the moving copy at the reading's node).
 """
 struct ObservationFactor <: Factor
     model::SystemModel
@@ -350,6 +474,8 @@ struct ObservationFactor <: Factor
     value::Float64
     censored::Bool
     key_z::VarKey
+    key_m::Union{Nothing,VarKey}
+    split::Union{Nothing,LatentSplit}
     key_y::VarKey
     key_d::Union{Nothing,VarKey}
     t::Float64
@@ -357,8 +483,10 @@ struct ObservationFactor <: Factor
     bias::Float64                 # the reduced model's reduction-error bias on this observable at this time (zero without an artifact)
     σ::Float64                    # the instrument's floor with the reduction error's spread in quadrature
 end
-function ObservationFactor(model::SystemModel, spec::SensorSpec, rec::MeasurementRecord, key_z::VarKey, key_y::VarKey, key_d::Union{Nothing,VarKey})
+function ObservationFactor(model::SystemModel, spec::SensorSpec, rec::MeasurementRecord, key_z::VarKey, key_y::VarKey, key_d::Union{Nothing,VarKey};
+                           key_m::Union{Nothing,VarKey}=nothing, split::Union{Nothing,LatentSplit}=nothing)
     rec.sensor === spec.id || throw(ArgumentError("the record is $(rec.sensor)'s, the sensor $(spec.id)"))
+    (key_m === nothing) == (split === nothing) || throw(ArgumentError("a moving latent copy needs its split, and a split its copy"))
     h = compile_observable(spec.observable, model.sys, model.bl, model.blk, model.log)
     bias, σ = 0.0, spec.noise.white_sd
     if model.rom !== nothing
@@ -368,15 +496,25 @@ function ObservationFactor(model::SystemModel, spec::SensorSpec, rec::Measuremen
             bias = e.bias; σ = sqrt(σ^2 + e.sd^2)
         end
     end
-    return ObservationFactor(model, spec, rec.value, censored_at(spec, rec), key_z, key_y, key_d, rec.t, h, bias, σ)
+    return ObservationFactor(model, spec, rec.value, censored_at(spec, rec), key_z, key_m, split, key_y, key_d, rec.t, h, bias, σ)
 end
-vars(f::ObservationFactor) = f.key_d === nothing ? [f.key_z, f.key_y] : [f.key_z, f.key_y, f.key_d]
+function vars(f::ObservationFactor)
+    ks = f.key_m === nothing ? [f.key_z, f.key_y] : [f.key_z, f.key_m, f.key_y]
+    f.key_d === nothing || push!(ks, f.key_d)
+    return ks
+end
 ndim(::ObservationFactor) = 1
 provenance(f::ObservationFactor) = "$(f.spec.id) at $(f.t) s" * (f.censored ? " (censored)" : "")
-# the prediction h(x, z) + d as a function of the stacked (z, y[, d])
+# the prediction h(x, z) + d as a function of the stacked (z[static, moving], y[, d])
 function _obs_pred(f::ObservationFactor, v)
     nz = length(f.model.blk)
-    z = view(v, 1:nz); y = view(v, (nz + 1):(nz + f.model.bl.n))
+    if f.key_m === nothing
+        z = view(v, 1:nz)
+    else
+        ns = length(f.split.static)
+        z = assemble_latents(f.split, view(v, 1:ns), view(v, (ns + 1):nz))
+    end
+    y = view(v, (nz + 1):(nz + f.model.bl.n))
     _validate_rom_use(f.model.rom, f.model.blk, z, f.t, f.t)
     p, _, tk = _point_params(f.model, z, f.t)
     x = system_from_belief(belief_decode(y, f.model.bl), f.model.bl)
@@ -496,7 +634,7 @@ function _ensure_current_dynamics!(g::FactorGraph)
         f isa DynamicsFactor || continue
         c = f.cache
         c === nothing && continue
-        z = g.values[f.key_z]; y0 = g.values[f.key_y0]
+        z = _factor_latents(f, g); y0 = g.values[f.key_y0]
         if c.Jy === nothing || c.z != z || c.y0 != y0 || c.jz != z || c.jy0 != y0
             _invalidate_linearization!(f)
         end
@@ -648,6 +786,24 @@ function _scaled_gradient(J::AbstractMatrix, r::AbstractVector, scales::Abstract
     d2 = [sum(abs2, view(J, :, j)) for j in axes(J, 2)]
     return maximum(abs.(g) ./ (max.(d2, eps(Float64)) .* scales); init=0.0)
 end
+# The undamped Gauss-Newton step at a point, in two metrics: its largest scaled coordinate move (the solver's
+# tolerance is stated in these) and its largest move in units of the point's own Gauss-Newton posterior standard
+# deviation, from the same pivoted QR ((JᵀJ)⁻¹ = P R⁻¹ R⁻ᵀ Pᵀ). The diagonal certificate above is blind along a
+# correlated valley: every coordinate's own displacement can be under tolerance while the joint step is a posterior
+# width long (the loosened-relinearization A/B of 2026-09-26 reached points two posterior sds apart, both certified).
+# The solver reports both at its accepted point; a dense graph only (the offline sparse problem is too large to invert).
+function _newton_step_metrics(J::AbstractMatrix, r::AbstractVector, scales::AbstractVector)
+    isempty(r) && return (0.0, 0.0)
+    Jd = Matrix(J)
+    n = size(Jd, 2)
+    size(Jd, 1) >= n || return (NaN, NaN)                            # fewer rows than columns: no posterior width to speak of
+    F = qr(Jd, ColumnNorm())
+    δ = F \ (-r)
+    Ri = UpperTriangular(Matrix(F.R)[1:n, 1:n]) \ Matrix{Float64}(I, n, n)
+    v = vec(sum(abs2, Ri; dims=2))                                   # diag(R⁻¹R⁻ᵀ) in the pivoted order
+    sd = sqrt.(max.(v[invperm(F.p)], 0.0))
+    return (maximum(abs.(δ) ./ scales; init=0.0), maximum(abs.(δ) ./ max.(sd, eps(Float64)); init=0.0))
+end
 function _stationarity_scale_vector(order, offsets, n::Int, stationarity_scales::AbstractDict)
     scales = ones(n)
     for (k, sk) in stationarity_scales
@@ -709,7 +865,7 @@ end
     gauss_newton!(g; iters=30, tol=1e-6, ftol=1e-8, gtol=tol,
                   resolution_gtol=2gtol, λ0=0.0, sparse=false,
                   verbose=false, step_bounds=Dict(), stationarity_scales=Dict(),
-                  adaptive_damping=false) -> (F, hist, converged, gradient)
+                  adaptive_damping=false) -> (F, hist, converged, gradient, newton_step, newton_sd)
 
 Damped Gauss-Newton on the exact objective: the least-squares step of the linearized factors (with the
 Marquardt-scaled damping λ when it is on), its length by the interpolating Armijo backtracking of
@@ -746,18 +902,28 @@ this covers objectives quantized by an ODE solve without accepting the large-gra
 the stationarity gate was added to reject. `stationarity_scales` maps variables to positive scalar or
 per-coordinate characteristic scales; the reported gradient and both thresholds are relative to those
 scales. The default `2gtol` is deliberately narrow; an ODE-backed caller may supply a separately measured
-resolution envelope.
+resolution envelope. `newton_step` and `newton_sd` are the undamped Gauss-Newton step at the accepted point, its largest
+scaled coordinate move and its largest move in the point's own posterior standard deviations (`_newton_step_metrics`;
+NaN for a sparse solve): the joint stationarity read the diagonal certificate cannot give. With `newton_tol` > 0 (off by
+default) a solve stalled three complete line searches at one point is also accepted when that point's `newton_sd`, at an
+exact relinearization, is under `newton_tol`: the diagonal read divides each coordinate's score by its own column only
+and sits at several times its tolerance on a correlated valley where no belief would move, and the joint step is what
+the belief would do. The normal certificate is unchanged; the rescue never fires on a sparse solve.
 """
 function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::Float64=1e-8, gtol::Float64=tol,
-                       resolution_gtol::Float64=2gtol, λ0::Float64=0.0, sparse::Bool=false,
+                       resolution_gtol::Float64=2gtol, newton_tol::Float64=0.0, λ0::Float64=0.0, sparse::Bool=false,
                        verbose::Bool=false, max_step::Float64=Inf, step_bounds::AbstractDict=Dict{VarKey,Float64}(), soc::Int=10,
                        stationarity_scales::AbstractDict=Dict(),
                        adaptive_damping::Bool=false)
     isfinite(resolution_gtol) && resolution_gtol >= gtol ||
         throw(ArgumentError("resolution_gtol must be finite and no smaller than gtol"))
+    newton_tol >= 0 || throw(ArgumentError("newton_tol must be non-negative"))
     order = g.keys
     offsets, n = _offsets(g, order)
     gradient_scales = _stationarity_scale_vector(order, offsets, n, stationarity_scales)
+    # the joint read: the undamped step at an exactly relinearized point, in the point's own posterior sds (NaN on a
+    # sparse solve, so the stall rescue below never fires there)
+    newton_sd_at(J, r) = sparse ? NaN : _newton_step_metrics(J, r, gradient_scales)[2]
     x = _stacked(g, order, offsets, n)
     F = _objective_at(g, x, offsets)
     isfinite(F) || error("the objective is not finite at the start of the solve")
@@ -833,15 +999,22 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             # complete line-search failures at the SAME accepted point, then refresh every dynamics
             # linearization and accept only a KKT displacement within the caller's explicit numerical
             # resolution envelope. A large gradient still fails and remains transactional in the online backend.
-            if rejected_at_point >= 3 && grad <= resolution_gtol
+            # With `newton_tol` > 0 the same three failures also qualify a point whose undamped joint step is under
+            # `newton_tol` of a posterior sd: the diagonal read divides each coordinate's score by its own column only
+            # and can sit at several times its tolerance where no belief would move (the fixed-lag smoother of
+            # 2026-09-26 threw away one arrival in thirty at 5e-4 against 1e-4 with the joint step at 1e-4 sd and the
+            # objective flat to six digits, the ODE solves' floor). The read is taken at the exactly relinearized
+            # point, like the resolution check; the normal certificate is untouched.
+            if rejected_at_point >= 3 && (grad <= resolution_gtol || newton_tol > 0)
                 _ensure_current_dynamics!(g)
                 Jc, rc, _, _ = linearize(g; order, sparse)
                 Fc = _objective_at(g, x, offsets)
                 gradc = _scaled_gradient(Jc, rc, gradient_scales)
-                if gradc <= resolution_gtol
+                nsdc = (gradc <= resolution_gtol || newton_tol <= 0) ? NaN : newton_sd_at(Jc, rc)
+                if gradc <= resolution_gtol || nsdc <= newton_tol
                     F = Fc
                     converged = true
-                    hist[end] = merge(hist[end], (F=F, gradient_final=gradc, resolution_limited=true))
+                    hist[end] = merge(hist[end], (F=F, gradient_final=gradc, newton_sd=nsdc, resolution_limited=true))
                     break
                 end
             end
@@ -891,8 +1064,10 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
     # The last permitted iteration may land exactly at a stationary point. Its refreshed KKT check is
     # authoritative even when no earlier in-loop stopping branch had set `converged`.
     converged = converged || grad <= gtol
-    verbose && @printf("    GN final  F %.6g  gradient %.3g  converged %s\n", F, grad, converged)
-    return (F=F, hist=hist, converged=converged, gradient=grad)
+    # the joint (Newton-metric) step at the accepted point, reported beside the diagonal certificate
+    newton_step, newton_sd = sparse ? (NaN, NaN) : _newton_step_metrics(Jf, rf, gradient_scales)
+    verbose && @printf("    GN final  F %.6g  gradient %.3g  Newton step %.3g (%.2f posterior sd)  converged %s\n", F, grad, newton_step, newton_sd, converged)
+    return (F=F, hist=hist, converged=converged, gradient=grad, newton_step=newton_step, newton_sd=newton_sd)
 end
 
 """

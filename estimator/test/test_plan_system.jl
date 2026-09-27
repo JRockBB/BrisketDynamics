@@ -113,9 +113,18 @@ run_set("one") && @testset "one slab: the system plan's cook and residuals are h
     ym = system_plan_outputs(snap_state, state_draws[3][1:nz], ζ_s, f_s, s_s, Dict(:b => goals);
                              y=state_draws[3][(nz + 1):end])[1][:b]
     fd_sd = abs.(yp .- ym) ./ 2
-    im = argmax(fd_sd)
-    @test maximum(pr_state[:b].sd) > 1e-6 && fd_sd[im] > 1e-6
-    @test isapprox(pr_state[:b].sd[im], fd_sd[im]; rtol=0.15, atol=1e-6)
+    n_out = length(fd_sd); leth = (n_out - 1):n_out                  # the lethality integrals are the vector's last two
+    # The linearized spread against a +-1 sd central difference. The smooth quality outputs the 0.02 K core perturbation
+    # reaches at serve (the water, the bark, the juiciness) agree to a few percent. The core at serve is at the plan
+    # solve's resolution (2e-5 K) and is left out. The lethality integrals are exponential in the temperature, so their
+    # central difference at one sd carries the integrand's curvature and is a loose reference: on this snapshot it read
+    # 1.19 of the linearized spread on the committed tree and 0.83 after the ignited fraction's coordinate change moved
+    # the fire's state by 1e-4 (2026-09-27), the linearized spread itself unchanged to four digits. They are held to a
+    # factor of two; the earlier gate (15 % at the largest spread, which is a lethality integral) gated the reference.
+    smooth = [i for i in 1:8 if i != 4 && fd_sd[i] > 1e-6]
+    @test !isempty(smooth) && maximum(fd_sd[leth]) > 1e-6
+    for i in smooth; @test isapprox(pr_state[:b].sd[i], fd_sd[i]; rtol=0.05); end
+    for i in leth; @test 0.5 < pr_state[:b].sd[i] / fd_sd[i] < 2.0; end
 end
 
 run_set("multi") && @testset "two pieces: the thin rack is pulled first, the goals improve, the events commit per piece" begin

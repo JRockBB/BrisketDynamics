@@ -1,0 +1,18 @@
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+the tree (kind :ignited): the snapshot's ignited coordinate 5.424 (a = 0.9956118010465458)
+  the gate's output: 15 linearized sd 1771.9 central-difference sd 2128.5 ratio 0.832
+    2                lin   2.322e-6  fd   2.309e-6  ratio 1.005
+    3                lin   3.773e-5  fd   3.784e-5  ratio 0.997
+    4                lin   2.393e-5  fd   2.893e-5  ratio 0.827
+    6                lin   2.148e-6  fd   2.136e-6  ratio 1.006
+    15               lin     1772.0  fd     2128.0  ratio 0.832
+    16               lin      872.9  fd      964.7  ratio 0.905
+before (kind :unit): the snapshot's ignited coordinate 5.451 (a = 0.9957262194334006)
+  the gate's output: 15 linearized sd 1772.1 central-difference sd 1485.8 ratio 1.193
+    2                lin   2.322e-6  fd   2.328e-6  ratio 0.998
+    3                lin   3.773e-5  fd   3.761e-5  ratio 1.003
+    4                lin   2.394e-5  fd   2.083e-5  ratio 1.149
+    6                lin   2.148e-6  fd   2.154e-6  ratio 0.997
+    15               lin     1772.0  fd     1486.0  ratio 1.193
+    16               lin      873.0  fd      820.6  ratio 1.064
+exit 0

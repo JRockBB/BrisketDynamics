@@ -1,0 +1,1082 @@
+{
+  "backend": "system",
+  "bench": {
+    "cap": 4.0,
+    "cooks_per_round": 1.0,
+    "cooks_per_worker": 1.0,
+    "drift": 0.0,
+    "hours": 0.5,
+    "lag": 0.0,
+    "lag_h": 2.0,
+    "noise": "matched",
+    "prior": "prior_next_cook.json",
+    "tune": {
+      "factors": {
+        "C": 1.0,
+        "F": 1.0,
+        "S": 1.0,
+        "T": 1.0,
+        "T_fb": 1.0,
+        "T_pan": 1.0,
+        "T_pit": 0.25,
+        "W": 1.0,
+        "bark": 1.0,
+        "ignited": 1.0,
+        "m_fuel": 1.0,
+        "m_pan": 1.0,
+        "ou.core": 1.0,
+        "ou.humidity": 1.0,
+        "ou.mass": 0.25000000000000006,
+        "ou.pit": 1.3810683758292273,
+        "white.core": 1.0,
+        "white.humidity": 1.0,
+        "white.mass": 1.0,
+        "white.pit": 1.0
+      },
+      "gradient": {
+        "max": 0.00014339458803937636,
+        "median": 5.676436317930113e-5,
+        "n": 16.0
+      },
+      "init_sd": {
+        "C": 0.001,
+        "F": 0.001,
+        "S": 0.001,
+        "T": 1.0,
+        "T_fb": 2.0,
+        "T_pan": 2.0,
+        "T_pit": 2.0,
+        "W": 0.05,
+        "bark": 0.001,
+        "ignited": 0.05,
+        "m_fuel": 0.1,
+        "m_pan": 0.05
+      },
+      "iters": {
+        "max": 35.0,
+        "mean": 7.875
+      },
+      "lag": 0.0,
+      "latents_nees16": 1.930898219805783,
+      "latents_per_cook": [
+        1.930898219805783
+      ],
+      "manifest": "bench_manifest_system_tune_system_smoke.json",
+      "n_updates": 16.0,
+      "nees_dof": {
+        "C": 0.022690047149705878,
+        "F": 0.00038034005570225906,
+        "S": 4.558542666131377e-11,
+        "T": 0.2879748936196776,
+        "T_fb": 4.743389301653637e-14,
+        "T_pan": 3.829243539373802e-14,
+        "T_pit": 1.5218207226184663,
+        "W": 0.018906870703850578,
+        "bark": 2.287134538315822,
+        "ignited": 0.26075129579605355,
+        "m_fuel": 0.5335820441482962,
+        "m_pan": 8.765023760198451e-32
+      },
+      "nees_dof_cook_max": {
+        "C": 0.022690047149705878,
+        "F": 0.00038034005570225906,
+        "S": 4.558542666131377e-11,
+        "T": 0.2879748936196776,
+        "T_fb": 4.743389301653637e-14,
+        "T_pan": 3.829243539373802e-14,
+        "T_pit": 1.5218207226184663,
+        "W": 0.018906870703850578,
+        "bark": 2.287134538315822,
+        "ignited": 0.26075129579605355,
+        "m_fuel": 0.5335820441482962,
+        "m_pan": 8.765023760198451e-32
+      },
+      "nees_dof_cook_median": {
+        "C": 0.022690047149705878,
+        "F": 0.00038034005570225906,
+        "S": 4.558542666131377e-11,
+        "T": 0.2879748936196776,
+        "T_fb": 4.743389301653637e-14,
+        "T_pan": 3.829243539373802e-14,
+        "T_pit": 1.5218207226184663,
+        "W": 0.018906870703850578,
+        "bark": 2.287134538315822,
+        "ignited": 0.26075129579605355,
+        "m_fuel": 0.5335820441482962,
+        "m_pan": 8.765023760198451e-32
+      },
+      "nis_dof": 0.8790634189479131,
+      "physics": "58124c3bd719",
+      "rates": {
+        "C": 0.005,
+        "F": 0.005,
+        "S": 0.001,
+        "T": 0.5,
+        "T_fb": 2.0,
+        "T_pan": 2.0,
+        "T_pit": 2.0,
+        "W": 0.01,
+        "bark": 0.01,
+        "ignited": 0.02,
+        "m_fuel": 0.05,
+        "m_pan": 0.02
+      },
+      "records": [
+        "bench_system_smoke_tune_1.json"
+      ],
+      "seeds": [
+        1.0
+      ],
+      "sensors": {
+        "core": {
+          "ar_sd": 1.2,
+          "tau": 12000.0,
+          "white_sd": 0.1
+        },
+        "humidity": {
+          "ar_sd": 100.0,
+          "tau": 2700.0,
+          "white_sd": 10.0
+        },
+        "mass": {
+          "ar_sd": 0.02,
+          "tau": 2600.0,
+          "white_sd": 0.005
+        },
+        "pit": {
+          "ar_sd": 1.5,
+          "tau": 3000.0,
+          "white_sd": 0.1
+        }
+      },
+      "skipped": [],
+      "stale_ok": false,
+      "started_from": "default",
+      "temps_nees3": 0.7067076218369918,
+      "temps_per_cook": [
+        0.7067076218369918
+      ],
+      "uncommitted": 0.0,
+      "wall_s": {
+        "cook_mean": 189.76900005340576,
+        "max": 53.2720000743866,
+        "mean": 9.982375025749207
+      },
+      "whiteness": {
+        "core probe": {
+          "band": 0.5,
+          "lag1": -0.1291297169677668,
+          "mean": -0.04865523209112899,
+          "n": 16.0,
+          "sd": 0.5037970479673676
+        },
+        "humidity": {
+          "band": 1.0,
+          "lag1": -0.583698364906227,
+          "mean": -0.8749230635613208,
+          "n": 4.0,
+          "sd": 0.7473866420763127
+        },
+        "pit probe": {
+          "band": 0.5,
+          "lag1": 0.4752096341659893,
+          "mean": 0.6203093959187084,
+          "n": 16.0,
+          "sd": 0.8904472119032408
+        },
+        "scale": {
+          "band": NaN,
+          "lag1": NaN,
+          "mean": NaN,
+          "n": 0.0,
+          "sd": NaN
+        }
+      }
+    },
+    "workers": 1.0,
+    "fresh": {
+      "gradient": {
+        "max": 9.833326370910811e-5,
+        "median": 5.5967226502538664e-5,
+        "n": 16
+      },
+      "init_sd": {
+        "C": 0.001,
+        "F": 0.001,
+        "S": 0.001,
+        "T": 1.0,
+        "T_fb": 2.0,
+        "T_pan": 2.0,
+        "T_pit": 2.0,
+        "W": 0.05,
+        "bark": 0.001,
+        "ignited": 0.05,
+        "m_fuel": 0.1,
+        "m_pan": 0.05
+      },
+      "iters": {
+        "max": 15,
+        "mean": 6.0625
+      },
+      "lag": 0.0,
+      "latents_nees16": 0.9362217392599052,
+      "latents_per_cook": [
+        0.9362217392599052
+      ],
+      "manifest": "bench_manifest_system_fresh_system_smoke.json",
+      "n_updates": 16,
+      "nees_dof": {
+        "C": 0.00182769699706972,
+        "F": 0.0009943899529154423,
+        "S": 3.7298722585152034e-12,
+        "T": 0.7941006481412587,
+        "T_fb": 2.806891226019275e-13,
+        "T_pan": 1.7852213090250778e-13,
+        "T_pit": 0.12538015737723263,
+        "W": 0.004467885868126879,
+        "bark": 0.006709751262623824,
+        "ignited": 0.8646001743044345,
+        "m_fuel": 0.0009558942857972831,
+        "m_pan": 4.382511880099227e-32
+      },
+      "nees_dof_cook_max": {
+        "C": 0.00182769699706972,
+        "F": 0.0009943899529154423,
+        "S": 3.7298722585152034e-12,
+        "T": 0.7941006481412587,
+        "T_fb": 2.806891226019275e-13,
+        "T_pan": 1.7852213090250778e-13,
+        "T_pit": 0.12538015737723263,
+        "W": 0.004467885868126879,
+        "bark": 0.006709751262623824,
+        "ignited": 0.8646001743044345,
+        "m_fuel": 0.0009558942857972831,
+        "m_pan": 4.382511880099227e-32
+      },
+      "nees_dof_cook_median": {
+        "C": 0.00182769699706972,
+        "F": 0.0009943899529154423,
+        "S": 3.7298722585152034e-12,
+        "T": 0.7941006481412587,
+        "T_fb": 2.806891226019275e-13,
+        "T_pan": 1.7852213090250778e-13,
+        "T_pit": 0.12538015737723263,
+        "W": 0.004467885868126879,
+        "bark": 0.006709751262623824,
+        "ignited": 0.8646001743044345,
+        "m_fuel": 0.0009558942857972831,
+        "m_pan": 4.382511880099227e-32
+      },
+      "nis_dof": 0.395978284657341,
+      "physics": "58124c3bd719",
+      "rates": {
+        "C": 0.005,
+        "F": 0.005,
+        "S": 0.001,
+        "T": 0.5,
+        "T_fb": 2.0,
+        "T_pan": 2.0,
+        "T_pit": 0.5,
+        "W": 0.01,
+        "bark": 0.01,
+        "ignited": 0.02,
+        "m_fuel": 0.05,
+        "m_pan": 0.02
+      },
+      "records": [
+        "bench_system_smoke_fresh_2.json"
+      ],
+      "seeds": [
+        2
+      ],
+      "sensors": {
+        "core": {
+          "ar_sd": 1.2,
+          "tau": 12000.0,
+          "white_sd": 0.1
+        },
+        "humidity": {
+          "ar_sd": 100.0,
+          "tau": 2700.0,
+          "white_sd": 10.0
+        },
+        "mass": {
+          "ar_sd": 0.005000000000000001,
+          "tau": 2600.0,
+          "white_sd": 0.005
+        },
+        "pit": {
+          "ar_sd": 2.071602563743841,
+          "tau": 3000.0,
+          "white_sd": 0.1
+        }
+      },
+      "skipped": [],
+      "temps_nees3": 0.33169043678699706,
+      "temps_per_cook": [
+        0.33169043678699706
+      ],
+      "uncommitted": 0,
+      "wall_s": {
+        "cook_mean": 170.95000004768372,
+        "max": 57.17799997329712,
+        "mean": 8.780874997377396
+      },
+      "whiteness": {
+        "core probe": {
+          "band": 0.5,
+          "lag1": -0.15012429017206622,
+          "mean": -0.09228479995503602,
+          "n": 16,
+          "sd": 0.6511860742837434
+        },
+        "humidity": {
+          "band": 1.0,
+          "lag1": -0.40158095435241203,
+          "mean": -0.008601146638085116,
+          "n": 4,
+          "sd": 0.5388861815786985
+        },
+        "pit probe": {
+          "band": 0.5,
+          "lag1": 0.09956130994576981,
+          "mean": 0.15866684284662202,
+          "n": 16,
+          "sd": 0.641265921884029
+        },
+        "scale": {
+          "band": NaN,
+          "lag1": NaN,
+          "mean": NaN,
+          "n": 0,
+          "sd": NaN
+        }
+      }
+    }
+  },
+  "events": {
+    "T_event": 5.0,
+    "T_spritz": 1.5,
+    "m_add": 0.15
+  },
+  "field_modes": 2.0,
+  "fields": "offset",
+  "fit": {
+    "bin_s": 120.0,
+    "blocks": [
+      {
+        "a": 1.0,
+        "b": 1.0,
+        "n": 120.0,
+        "same": false,
+        "variance_at_fit": 1.165365299870262,
+        "weight": 0.9323453277295382
+      },
+      {
+        "a": 1.0,
+        "b": 1.0,
+        "n": 16.0,
+        "same": true,
+        "variance_at_fit": 1.8886243068671784,
+        "weight": 0.5543024165682842
+      },
+      {
+        "a": 1.0,
+        "b": 2.0,
+        "n": 120.0,
+        "same": false,
+        "variance_at_fit": 0.31716734485735376,
+        "weight": 3.1477927021371586
+      },
+      {
+        "a": 1.0,
+        "b": 2.0,
+        "n": 16.0,
+        "same": true,
+        "variance_at_fit": 0.5350579727003129,
+        "weight": 1.8625911001707018
+      },
+      {
+        "a": 1.0,
+        "b": 3.0,
+        "n": 30.0,
+        "same": false,
+        "variance_at_fit": 1.306802279859101,
+        "weight": 0.7133859093874595
+      },
+      {
+        "a": 1.0,
+        "b": 3.0,
+        "n": 4.0,
+        "same": true,
+        "variance_at_fit": 0.505122260703553,
+        "weight": 1.0302483740230823
+      },
+      {
+        "a": 1.0,
+        "b": 4.0,
+        "n": 15.0,
+        "same": false,
+        "variance_at_fit": 7.547068975672603,
+        "weight": 0.1325022641079686
+      },
+      {
+        "a": 1.0,
+        "b": 4.0,
+        "n": 2.0,
+        "same": true,
+        "variance_at_fit": 5.050486778464567,
+        "weight": 0.1929250749273312
+      },
+      {
+        "a": 2.0,
+        "b": 1.0,
+        "n": 120.0,
+        "same": false,
+        "variance_at_fit": 0.19878960331378398,
+        "weight": 5.0054236230388165
+      },
+      {
+        "a": 2.0,
+        "b": 2.0,
+        "n": 120.0,
+        "same": false,
+        "variance_at_fit": 0.05146756820325291,
+        "weight": 18.512512811396906
+      },
+      {
+        "a": 2.0,
+        "b": 2.0,
+        "n": 16.0,
+        "same": true,
+        "variance_at_fit": 0.7230090203137619,
+        "weight": 6.584380026638798
+      },
+      {
+        "a": 2.0,
+        "b": 3.0,
+        "n": 30.0,
+        "same": false,
+        "variance_at_fit": 0.2708953467793172,
+        "weight": 3.691563848325291
+      },
+      {
+        "a": 2.0,
+        "b": 3.0,
+        "n": 4.0,
+        "same": true,
+        "variance_at_fit": 0.23105483512453276,
+        "weight": 4.268982026089142
+      },
+      {
+        "a": 2.0,
+        "b": 4.0,
+        "n": 15.0,
+        "same": false,
+        "variance_at_fit": 1.602303638807335,
+        "weight": 0.6242810008172399
+      },
+      {
+        "a": 2.0,
+        "b": 4.0,
+        "n": 2.0,
+        "same": true,
+        "variance_at_fit": 1.1918933568587282,
+        "weight": 0.8624118684596104
+      },
+      {
+        "a": 3.0,
+        "b": 1.0,
+        "n": 30.0,
+        "same": false,
+        "variance_at_fit": 1.5655064989859506,
+        "weight": 0.8926927425974104
+      },
+      {
+        "a": 3.0,
+        "b": 2.0,
+        "n": 30.0,
+        "same": false,
+        "variance_at_fit": 0.33652115226705837,
+        "weight": 2.9703876287186017
+      },
+      {
+        "a": 3.0,
+        "b": 3.0,
+        "n": 6.0,
+        "same": false,
+        "variance_at_fit": 1.2963904711895098,
+        "weight": 0.6670976805902069
+      },
+      {
+        "a": 3.0,
+        "b": 3.0,
+        "n": 4.0,
+        "same": true,
+        "variance_at_fit": 1.3115526199436747,
+        "weight": 0.8641178787162929
+      },
+      {
+        "a": 3.0,
+        "b": 4.0,
+        "n": 3.0,
+        "same": false,
+        "variance_at_fit": 9.178167093079518,
+        "weight": 0.10852678386260459
+      },
+      {
+        "a": 3.0,
+        "b": 4.0,
+        "n": 2.0,
+        "same": true,
+        "variance_at_fit": 11.794187384052288,
+        "weight": 0.09211095206632693
+      },
+      {
+        "a": 4.0,
+        "b": 1.0,
+        "n": 15.0,
+        "same": false,
+        "variance_at_fit": 0.4945235754094452,
+        "weight": 3.2432572005801106
+      },
+      {
+        "a": 4.0,
+        "b": 2.0,
+        "n": 15.0,
+        "same": false,
+        "variance_at_fit": 0.10255059057548321,
+        "weight": 6.939804446726339
+      },
+      {
+        "a": 4.0,
+        "b": 3.0,
+        "n": 3.0,
+        "same": false,
+        "variance_at_fit": 0.4317048513369278,
+        "weight": 2.6570527178662977
+      },
+      {
+        "a": 4.0,
+        "b": 4.0,
+        "n": 1.0,
+        "same": false,
+        "variance_at_fit": null,
+        "weight": 1.0
+      },
+      {
+        "a": 4.0,
+        "b": 4.0,
+        "n": 2.0,
+        "same": true,
+        "variance_at_fit": 26.624315648724483,
+        "weight": 0.03771593204521449
+      }
+    ],
+    "cap": 4.0,
+    "cap_bound": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ],
+    "factors": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.25,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.3810683758292273,
+      1.0,
+      1.0,
+      0.25000000000000006,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "groups": [
+      "T",
+      "W",
+      "C",
+      "F",
+      "S",
+      "bark",
+      "T_pit",
+      "m_fuel",
+      "m_pan",
+      "T_pan",
+      "T_fb",
+      "ignited",
+      "ou.pit",
+      "ou.core",
+      "ou.humidity",
+      "ou.mass",
+      "white.pit",
+      "white.core",
+      "white.humidity",
+      "white.mass"
+    ],
+    "held": {
+      "C": "unidentified",
+      "F": "unidentified",
+      "S": "unidentified",
+      "T": "held: the fit could not tell its sign",
+      "T_fb": "unidentified",
+      "T_pan": "unidentified",
+      "W": "unidentified",
+      "bark": "unidentified",
+      "ignited": "unidentified",
+      "m_fuel": "unidentified",
+      "m_pan": "unidentified",
+      "ou.core": "held: the fit could not tell its sign",
+      "ou.humidity": "unidentified",
+      "white.core": "held: the fit could not tell its sign",
+      "white.humidity": "unidentified",
+      "white.mass": "unidentified",
+      "white.pit": "unidentified"
+    },
+    "identified": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ],
+    "jackknife": null,
+    "lag_s": 7200.0,
+    "lags": [
+      {
+        "bin": 0.0,
+        "channel": "pit probe",
+        "lag_s": 0.0,
+        "model_after": 1.0723000962870675,
+        "model_before": 1.0,
+        "n": 16.0,
+        "sample": 1.1281239690271467,
+        "se": 0.34431226766967793
+      },
+      {
+        "bin": 1.0,
+        "channel": "pit probe",
+        "lag_s": 120.0,
+        "model_after": -0.000781461128731444,
+        "model_before": 0.0,
+        "n": 15.0,
+        "sample": 0.8097980088102622,
+        "se": 0.27779177504124103
+      },
+      {
+        "bin": 2.0,
+        "channel": "pit probe",
+        "lag_s": 240.0,
+        "model_after": -0.002926974598501656,
+        "model_before": 0.0,
+        "n": 14.0,
+        "sample": 0.5327623145986805,
+        "se": 0.2296669941171416
+      },
+      {
+        "bin": 3.0,
+        "channel": "pit probe",
+        "lag_s": 360.0,
+        "model_after": -0.002918171027695591,
+        "model_before": 0.0,
+        "n": 13.0,
+        "sample": 0.47389130845449756,
+        "se": 0.23046735934187929
+      },
+      {
+        "bin": 5.0,
+        "channel": "pit probe",
+        "lag_s": 600.0,
+        "model_after": -0.0021704653123663475,
+        "model_before": 0.0,
+        "n": 11.0,
+        "sample": 0.7814102491367309,
+        "se": 0.4273887094967841
+      },
+      {
+        "bin": 10.0,
+        "channel": "pit probe",
+        "lag_s": 1200.0,
+        "model_after": -0.000731008696625827,
+        "model_before": 0.0,
+        "n": 6.0,
+        "sample": 0.17386433093999795,
+        "se": 0.36959348568480044
+      },
+      {
+        "bin": 0.0,
+        "channel": "core probe",
+        "lag_s": 0.0,
+        "model_after": 1.0000016686427717,
+        "model_before": 1.0,
+        "n": 16.0,
+        "sample": 0.24031558055418611,
+        "se": 0.0819333348488818
+      },
+      {
+        "bin": 1.0,
+        "channel": "core probe",
+        "lag_s": 120.0,
+        "model_after": 1.0933624164757503e-6,
+        "model_before": 0.0,
+        "n": 15.0,
+        "sample": -0.029750686469750338,
+        "se": 0.04502927158537594
+      },
+      {
+        "bin": 2.0,
+        "channel": "core probe",
+        "lag_s": 240.0,
+        "model_after": 7.638799833467416e-7,
+        "model_before": 0.0,
+        "n": 14.0,
+        "sample": 0.000648226961721371,
+        "se": 0.08890952639198257
+      },
+      {
+        "bin": 3.0,
+        "channel": "core probe",
+        "lag_s": 360.0,
+        "model_after": 3.616484633739729e-7,
+        "model_before": 0.0,
+        "n": 13.0,
+        "sample": -0.0041221267524211075,
+        "se": 0.06315189225850695
+      },
+      {
+        "bin": 5.0,
+        "channel": "core probe",
+        "lag_s": 600.0,
+        "model_after": -5.178373616174626e-7,
+        "model_before": 0.0,
+        "n": 11.0,
+        "sample": -0.004830406639081564,
+        "se": 0.0985394298054058
+      },
+      {
+        "bin": 10.0,
+        "channel": "core probe",
+        "lag_s": 1200.0,
+        "model_after": -2.053146014261866e-7,
+        "model_before": 0.0,
+        "n": 6.0,
+        "sample": 0.0015825111158671457,
+        "se": 0.10011492859836899
+      },
+      {
+        "bin": 0.0,
+        "channel": "humidity",
+        "lag_s": 0.0,
+        "model_after": 1.0107862091646813,
+        "model_before": 1.0,
+        "n": 4.0,
+        "sample": 1.1844304617171066,
+        "se": 0.5683337586954644
+      },
+      {
+        "bin": 5.0,
+        "channel": "humidity",
+        "lag_s": 600.0,
+        "model_after": 0.0011558108305767666,
+        "model_before": 0.0,
+        "n": 3.0,
+        "sample": 0.23221706131197106,
+        "se": 0.3483904518821495
+      },
+      {
+        "bin": 10.0,
+        "channel": "humidity",
+        "lag_s": 1200.0,
+        "model_after": -0.0003996460590050767,
+        "model_before": 0.0,
+        "n": 2.0,
+        "sample": 0.48700511270281965,
+        "se": 0.7071067811865476
+      },
+      {
+        "bin": 0.0,
+        "channel": "scale",
+        "lag_s": 0.0,
+        "model_after": 0.953344115950791,
+        "model_before": 1.0,
+        "n": 2.0,
+        "sample": 3.2587094641442134,
+        "se": 1.0
+      }
+    ],
+    "moved_sigmas": [
+      0.12954231415424647,
+      1.900537320833967,
+      0.0,
+      1.8898487364672822,
+      2.1179710063693535e-15,
+      0.0,
+      2.198091415352538,
+      7.398896307929173e-17,
+      0.0,
+      0.0,
+      0.0,
+      1.4154119583803901,
+      2.4607613558033354,
+      1.101524889193429,
+      0.26772791154806264,
+      2.2161268472295457,
+      1.8673223655405342,
+      0.35431033209199925,
+      1.3979362902890247,
+      1.1258796684850787
+    ],
+    "n_cooks": 1.0,
+    "n_rows": 741.0,
+    "n_updates": 16.0,
+    "rates": [
+      0.5,
+      0.01,
+      0.005,
+      0.005,
+      0.001,
+      0.01,
+      2.0,
+      0.05,
+      0.02,
+      2.0,
+      2.0,
+      0.02,
+      1.5,
+      1.2,
+      100.0,
+      0.02,
+      0.1,
+      0.1,
+      10.0,
+      0.005
+    ],
+    "rates_new": [
+      0.5,
+      0.01,
+      0.005,
+      0.005,
+      0.001,
+      0.01,
+      0.5,
+      0.05,
+      0.02,
+      2.0,
+      2.0,
+      0.02,
+      2.071602563743841,
+      1.2,
+      100.0,
+      0.005000000000000001,
+      0.1,
+      0.1,
+      10.0,
+      0.005
+    ],
+    "rel_se_marginal": [
+      0.29689511397787105,
+      60.07417870656497,
+      null,
+      668.3893218399376,
+      1.4816077934499816e24,
+      null,
+      0.9065803571832141,
+      2.782306053860453e22,
+      null,
+      null,
+      null,
+      26.695274721444495,
+      0.714344801350483,
+      0.2808942283619562,
+      1.8815879149648405,
+      51.35750170843896,
+      5.265106919776028,
+      0.3437000658389047,
+      31.60704521698941,
+      147.42439027184315
+    ],
+    "rss_after": 790.9075621106897,
+    "rss_before": 791.6254730301731,
+    "se_rate": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      39.95383663118987,
+      null,
+      null,
+      null,
+      null,
+      null,
+      4.274114635646765,
+      null,
+      null,
+      2.140774249993913,
+      null,
+      null,
+      null,
+      null
+    ],
+    "sigma2": 1.0716904635646203,
+    "theta": [
+      0.25,
+      0.0001,
+      2.5e-5,
+      2.5e-5,
+      1.0e-6,
+      0.0001,
+      4.0,
+      0.0025000000000000005,
+      0.0004,
+      4.0,
+      4.0,
+      0.0004,
+      2.25,
+      1.44,
+      10000.0,
+      0.0004,
+      0.010000000000000002,
+      0.010000000000000002,
+      100.0,
+      2.5e-5
+    ],
+    "theta_new": [
+      0.25,
+      0.0001,
+      2.5e-5,
+      2.5e-5,
+      1.0e-6,
+      0.0001,
+      0.25,
+      0.0025000000000000005,
+      0.0004,
+      4.0,
+      4.0,
+      0.0004,
+      4.291537182110055,
+      1.44,
+      10000.0,
+      2.500000000000001e-5,
+      0.010000000000000002,
+      0.010000000000000002,
+      100.0,
+      2.5e-5
+    ]
+  },
+  "init_sd": {
+    "C": 0.001,
+    "F": 0.001,
+    "S": 0.001,
+    "T": 1.0,
+    "T_fb": 2.0,
+    "T_pan": 2.0,
+    "T_pit": 2.0,
+    "W": 0.05,
+    "bark": 0.001,
+    "ignited": 0.05,
+    "m_fuel": 0.1,
+    "m_pan": 0.05
+  },
+  "method": "one autocovariance least-squares step on the tuning round (Odelson et al. 2006, fixed-gain time-varying form) over the state's twelve variance rates, every discrepancy sensor's OU variance and every sensor's white variance: the products of the standardized innovations at every pair of arrivals inside the lag window, less the smoother's own white model, regressed on the change of each variance under the linear gains at the predicted points, pooled over the cooks, weighted per channel pair and kind, bounded by the cap; a group the innovations cannot see keeps its numbers, the initial widths are kept; the fresh round is the check and the round the numbers are quoted from; the bench's plant is the model's own physics, so the rates are a floor",
+  "node_jitter": 0.003,
+  "physics": {
+    "commit": "0e43d16",
+    "date": "2026-09-27",
+    "fingerprint": "58124c3bd719",
+    "physics_fingerprint": "4cc9973f4654",
+    "what": "BrisketEstimator.backend_fingerprint: src/**/*.jl, the filter's files and the factor-graph backend's; every driver refuses the file when the tree's differs, the tune round alone starts from stale rates"
+  },
+  "rates": {
+    "C": 0.005,
+    "F": 0.005,
+    "S": 0.001,
+    "T": 0.5,
+    "T_fb": 2.0,
+    "T_pan": 2.0,
+    "T_pit": 0.5,
+    "W": 0.01,
+    "bark": 0.01,
+    "ignited": 0.02,
+    "m_fuel": 0.05,
+    "m_pan": 0.02
+  },
+  "sensors": {
+    "core": {
+      "ar_sd": 1.2,
+      "tau": 12000.0,
+      "white_sd": 0.1
+    },
+    "humidity": {
+      "ar_sd": 100.0,
+      "tau": 2700.0,
+      "white_sd": 10.0
+    },
+    "mass": {
+      "ar_sd": 0.005000000000000001,
+      "tau": 2600.0,
+      "white_sd": 0.005
+    },
+    "pit": {
+      "ar_sd": 2.071602563743841,
+      "tau": 3000.0,
+      "white_sd": 0.1
+    }
+  },
+  "units": {
+    "C": "-",
+    "F": "-",
+    "S": "-",
+    "T": "K",
+    "T_fb": "K",
+    "T_pan": "K",
+    "T_pit": "K",
+    "W": "kg/kg",
+    "bark": "-",
+    "ignited": "-",
+    "m_fuel": "kg",
+    "m_pan": "kg"
+  }
+}

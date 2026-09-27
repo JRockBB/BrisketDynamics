@@ -1,0 +1,24 @@
+C:\Users\jmurp\.julia\dev\BrisketDynamics\app\.venv\Lib\site-packages\numpy\lib\_nanfunctions_impl.py:1997: RuntimeWarning: Degrees of freedom <= 0 for slice.
+  var = nanvar(a, axis=axis, dtype=dtype, out=out, ddof=ddof,
+the round's manifest bench_manifest_system_fresh_system_smoke.json: 1 cooks (seeds [2]) in 1 records, physics 9b820058741f
+1 cooks (of 1 drawn) on prior prior_next_cook.json; standardized errors at the last batch (0 h):
+site            mean  z of mean  spread  within 1  within 2
+D_eff          -0.24        nan     nan      1.00      1.00
+k_m             0.31        nan     nan      1.00      1.00
+h_c            -0.28        nan     nan      1.00      1.00
+L               0.15        nan     nan      1.00      1.00
+k_mult          1.52        nan     nan      0.00      1.00
+k_e            -0.69        nan     nan      1.00      1.00
+a_myosin        1.10        nan     nan      0.00      1.00
+m_conv          1.20        nan     nan      0.00      1.00
+C_th           -0.42        nan     nan      1.00      1.00
+UA              0.98        nan     nan      1.00      1.00
+r_max          -0.53        nan     nan      1.00      1.00
+dH_eff          0.41        nan     nan      1.00      1.00
+u_leak          1.78        nan     nan      0.00      1.00
+k_spread        1.68        nan     nan      0.00      1.00
+a0             -1.61        nan     nan      0.00      1.00
+A_meat          0.00        nan     nan      1.00      1.00
+core_depth_fraction    0.68        nan     nan      1.00      1.00
+all sites       0.36               0.94      0.65      1.00   (a calibrated posterior: 0, 1, 0.68, 0.95)
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\figures\estimator\coverage_realcook_system_smoke.png

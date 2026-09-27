@@ -107,8 +107,20 @@ run_set("layout") && @testset "the belief layout of one slab is the filter's; th
     sn = StateNoise()
     Qb = belief_process_cov(bl, sn, 0.5)
     Qf = state_noise_cov(lay, sn, E.state_rates(sn, lay) .* sqrt(0.5))
-    @test maximum(abs.(Qb .- Qf)) < 1e-12
-    @test maximum(abs.(belief_init_cov(bl, sn) .- state_noise_cov(lay, sn, E.state_init_sd(sn, lay)))) < 1e-12
+    # the backend's covariance is the filter's (the bulk and the jitter on a field, the scalars) plus, on a slab's fields,
+    # the smooth modes' draws (system_state.jl `FIELD_MODES`): the difference is exactly that part, nothing elsewhere
+    function modes_part(sd_of)
+        D = zeros(bl.n, bl.n)
+        for (g, rg) in bl.groups
+            B = E.field_mode_basis(bl, g)
+            (B === nothing || size(B, 2) == 1) && continue
+            Bm = B[:, 2:end]; D[rg, rg] .= sd_of(g)^2 .* (Bm * Bm')
+        end
+        return D
+    end
+    @test E.FIELD_MODES == 0 && size(E.field_mode_basis(bl, "brisket.T"), 2) == 1       # the bulk alone ships (system_state.jl); the modes' part below is then zero
+    @test maximum(abs.(Qb .- Qf .- modes_part(g -> E._group_rate(bl, sn, g, false) * sqrt(0.5)))) < 1e-12
+    @test maximum(abs.(belief_init_cov(bl, sn) .- state_noise_cov(lay, sn, E.state_init_sd(sn, lay)) .- modes_part(g -> E._group_rate(bl, sn, g, true)))) < 1e-12
     Qe = belief_process_cov(bl, sn, 0.5; events=[:add])
     ip = first(E.belief_index(bl, :pit, :T_pit)); ifu = first(E.belief_index(bl, :pit, :m_fuel))
     @test Qe[ip, ip] - Qb[ip, ip] ≈ sn.T_event^2 && Qe[ifu, ifu] - Qb[ifu, ifu] ≈ sn.m_add^2

@@ -1,0 +1,22 @@
+the factor-graph backend: prior prior_next_cook.json; 1 cooks from seed 1; edges to 3.0 h; the plant static; lag 0; the state noise from default; the sensor noise matched; backend 7f5e37d3ebb9; record c_band_unused.json
+  rates [units/sqrt(h)]: T 0.5, W 0.01, C 0.005, F 0.005, S 0.001, bark 0.01, T_pit 2.0, m_fuel 0.05, m_pan 0.02, T_pan 2.0, T_fb 2.0, ignited 0.02
+  initial sds: T 1.0, W 0.05, C 0.001, F 0.001, S 0.001, bark 0.001, T_pit 2.0, m_fuel 0.1, m_pan 0.05, T_pan 2.0, T_fb 2.0, ignited 0.05
+  sensors: pit white 0.1 ou 1.5 tau 3000 s; core white 0.1 ou 1.2 tau 12000 s; humidity white 10.0 ou 100.0 tau 2700 s; mass white 0.005 ou 0.02 tau 2600 s
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+seed 1: the collagen field's 40 nodes; floor δ = 0.001
+t [min]   C whitened   T whitened   worst node   | plant C: max      n<δ      n in band | the worst node's C (plant, model's propagation) and its whitened residual
+    2.0         0.68         0.24   node 40     | 1.12e-04       40        0 | 1.000e-03 1.012e-03     -4.22
+   12.0        30.57         0.25   node 38     | 6.86e-03       35        2 | 2.744e-03 2.337e-03   +138.23
+   22.0        30.89         0.44   node 33     | 1.99e-02       30        2 | 2.303e-03 1.900e-03   +131.30
+   32.0        32.32         0.06   node 29     | 3.33e-02       25        2 | 2.407e-03 2.001e-03   +129.23
+   42.0        33.85         0.03   node 25     | 4.54e-02       20        3 | 2.236e-03 1.837e-03   +123.94
+   52.0        35.71         0.11   node 21     | 5.57e-02       16        4 | 2.056e-03 1.665e-03   +117.54
+   62.0        38.37         0.00   node 17     | 6.46e-02       10        5 | 2.025e-03 1.638e-03   +110.27
+   72.0        41.86         0.14   node 12     | 7.32e-02        0       10 | 1.945e-03 1.564e-03    +80.28
+   82.0        52.60         0.06   node 16     | 8.15e-02        0        0 | 7.529e-03 7.509e-03    -86.91
+   92.0        19.74         0.01   node 12     | 8.98e-02        0        0 | 8.157e-03 8.145e-03    -32.77
+  102.0         1.28         0.13   node 9      | 9.77e-02        0        0 | 1.092e-02 1.092e-02     -2.29
+  112.0         0.08         0.32   node 21     | 1.05e-01        0        0 | 4.923e-02 4.923e-02     +0.15
+  122.0         0.00         0.02   node 32     | 1.13e-01        0        0 | 1.100e-01 1.100e-01     +0.00
+  132.0         0.00         0.07   node 35     | 1.19e-01        0        0 | 1.182e-01 1.182e-01     -0.00
+exit 0

@@ -1,0 +1,12 @@
+the factor-graph backend: prior prior_next_cook.json; 1 cooks from seed 2; edges to 0.5 h; the plant static; lag 0; the state noise from C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\state_noise_system_smoke.json; the sensor noise matched overridden by the calibration file; backend 9b820058741f; the innovation autocovariances accumulated to 2.0 h; record bench_system_smoke_fresh_2.json
+  rates [units/sqrt(h)]: T 0.5, W 0.01, C 0.005, F 0.005, S 0.001, bark 0.01, T_pit 2.0, m_fuel 0.05, m_pan 0.02, T_pan 2.0, T_fb 2.0, ignited 0.08
+  initial sds: T 1.0, W 0.05, C 0.001, F 0.001, S 0.001, bark 0.001, T_pit 2.0, m_fuel 0.1, m_pan 0.05, T_pan 2.0, T_fb 2.0, ignited 0.05
+  sensors: pit white 0.1 ou 1.573937751499954 tau 3000 s; core white 0.1 ou 1.2 tau 12000 s; humidity white 10.0 ou 100.0 tau 2700 s; mass white 0.005 ou 0.02 tau 2600 s
+cook 1 (seed 2): at 0 h |err|/sd max 1.78 (u_leak) median 0.68; the temperatures' |err|/sd median pit 0.44 centre 0.44 surface 0.62; NIS/dof mean 0.45, NEES/16 mean 0.77, NEES_T/3 mean 0.34; 16 arrivals (0 not committed), 250 s, 14.0 s per arrival (max 81)
+    u_leak  truth -1.23 | smoother +1.78
+    k_e     truth -7.25 | smoother -0.69
+    h_c     truth +2.37 | smoother -0.28
+    r_max   truth +0.88 | smoother -0.53
+    the state by group, NEES/dof mean: T 0.20, W 0.00, C 0.00, F 0.00, S 0.00, bark 0.01, T_pit 0.23, m_fuel 0.00, m_pan 0.00, T_pan 0.00, T_fb 0.00, ignited 0.77
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+wrote C:\Users\jmurp\.julia\dev\BrisketDynamics\data\mock\bench_system_smoke_fresh_2.json (1 cooks, 0 skipped)
