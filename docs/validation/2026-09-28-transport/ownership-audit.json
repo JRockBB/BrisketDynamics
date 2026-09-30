@@ -1,0 +1,23 @@
+{
+    "derived_from":  "worker.log: 09da_ownership.job.jl",
+    "reason":  "Closure identity differs after deepcopy; the legacy comparator rejects fresh copied observation functions before fitting.",
+    "full":  {
+                 "legacy_copy_comparison":  false,
+                 "repeated_original_state_fingerprint_equal":  true,
+                 "affected_fields":  [
+                                         "graph.factors[8].h",
+                                         "graph.factors[10].h",
+                                         "graph.factors[17].h",
+                                         "graph.factors[19].h",
+                                         "graph.factors[26].h",
+                                         "graph.factors[28].h"
+                                     ]
+             },
+    "pit_core":  {
+                     "legacy_copy_comparison":  true,
+                     "repeated_original_state_fingerprint_equal":  true
+                 },
+    "captured_data_tests":  8,
+    "test_sha256":  "b8a5561a190050e8efeda1ec18f2ba45f9d22132549a39c66adf353df9a9a180",
+    "fix":  "Serialize and hash the same caller before and after work; preserve a report even on failure."
+}

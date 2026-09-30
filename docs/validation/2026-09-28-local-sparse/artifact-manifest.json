@@ -1,0 +1,378 @@
+[
+    {
+        "path":  "analytic_comparison.json",
+        "sha256":  "967390605cb2da365f91d427d7fae73d390f76eb688fdde900cc2bc28733c3d8"
+    },
+    {
+        "path":  "analytic_comparison_final.json",
+        "sha256":  "ef69adaf3af5b78a339d2610e3ce7b66bfe76606951bbd3fec96ea54dfcd9ce9"
+    },
+    {
+        "path":  "artifact_checks.json",
+        "sha256":  "24db741bf3c5141e881d7e019bb76dd1b7ca62249719c49359dd6ec4f7336140"
+    },
+    {
+        "path":  "common_offgrid.json",
+        "sha256":  "73d6849bcb701b510cc40fa001895cd7341619c48777d8c8531014a6bceabd30"
+    },
+    {
+        "path":  "common_summary.json",
+        "sha256":  "47588a8d43e9bb80eb3981aa4578b4667c34769958d8627e08d89709a0f3616a"
+    },
+    {
+        "path":  "core_local_final.json",
+        "sha256":  "420c905406ff7f784615a3eb4d25e77a65ef434f4536ad6dbac17008729fa171"
+    },
+    {
+        "path":  "drivers/01_tests.job.jl.done",
+        "sha256":  "c07daf7470157a18ba64bc138b73319e0f0c5756cdacfdd82c94c003bda131ee"
+    },
+    {
+        "path":  "drivers/02_regression.job.jl.done",
+        "sha256":  "7f47f6fc0e620ab970e47677294868ea42ec7b9119dfa96b0cd16ea34495f3c3"
+    },
+    {
+        "path":  "drivers/03_bench_setup.job.jl.done",
+        "sha256":  "cb260af667031e723319e9d140d8d1a5a4ffdf95d70a063762b57b2888fe0daa"
+    },
+    {
+        "path":  "drivers/04_late_mapped.job.jl.done",
+        "sha256":  "ba4617896df49ac4e9cc7a225c79b5d213a4030daefe5a55f7d0a963b156b915"
+    },
+    {
+        "path":  "drivers/04a_analytic.job.jl.done",
+        "sha256":  "2cb69e91520641053f9932f3dc5774d896c47527c30ec8d2c0d3ec4abbfaef88"
+    },
+    {
+        "path":  "drivers/05_late_affine.job.jl.done",
+        "sha256":  "816e4db2c8109464b2840b12f0441b4467edfbcf913abbeb2176e0234dd4cc08"
+    },
+    {
+        "path":  "drivers/05a_regression_final.job.jl.done",
+        "sha256":  "4c559441ed6714d9d649f9c2826e17cc351ab40da04606025b6b9745767845d8"
+    },
+    {
+        "path":  "drivers/05b_policy_control.job.jl.done",
+        "sha256":  "c45fe20b84c905194dcbe2695f98cecd42cb70f4163eac18ccbdde3221eaed32"
+    },
+    {
+        "path":  "drivers/05c_bench_final.job.jl.done",
+        "sha256":  "fc5dc6aceb6ab56d1e3bd09a6e759e3439c4ecbdada00b3b756856b4e55dba65"
+    },
+    {
+        "path":  "drivers/05d_analytic_final.job.jl.done",
+        "sha256":  "fa8ed7561f2c09859a308392bb6bf000eecb711188e56b55024f34c48520123d"
+    },
+    {
+        "path":  "drivers/06_late_mapped_final.job.jl.done",
+        "sha256":  "ac7802a6d7c6f3fac3c563b1fd1931a141b34d279c013a2eed3e482d1508e34b"
+    },
+    {
+        "path":  "drivers/07_late_affine_final.job.jl.done",
+        "sha256":  "e44a037bc544a298e68212bd8aef120a1f69cd4eab8e6e00f48fa2c0a6bbde75"
+    },
+    {
+        "path":  "drivers/07a_common.job.jl.done",
+        "sha256":  "f8129f2825ca86aa81c92264773acda171f39434a418ebec286be59387560a24"
+    },
+    {
+        "path":  "drivers/08_rich_final.job.jl.done",
+        "sha256":  "9ae15415d1eb451fa3d9b251de3e9db1e29bc61506422fc7ce3aca2e64967d77"
+    },
+    {
+        "path":  "drivers/09_early_final.job.jl.done",
+        "sha256":  "84814e98f7bf9dfe1167a6db246e26d7906ac7a52c8ce42c13405a2104c97a76"
+    },
+    {
+        "path":  "drivers/10_online_late_final.job.jl.done",
+        "sha256":  "ef7f24e3fc06fad3d6adb5186aeb1b0851dcdf6154e1248107717cc63047003c"
+    },
+    {
+        "path":  "drivers/11_artifact_audit.job.jl.done",
+        "sha256":  "23121e56c43c54b0e775d39d1ab47ca957ec1370813499b46ce2033bf6c9d2b0"
+    },
+    {
+        "path":  "drivers/12_artifact_audit.job.jl.done",
+        "sha256":  "8333533d8f292f65a9d426d086abd72c64db426eae751ce335e6b20e0d5cb0e6"
+    },
+    {
+        "path":  "drivers/worker.jl",
+        "sha256":  "c9e02666889fb5e2c0b4792dcaa5360b507e50d0b3ce242fe6f9b4ba8d0527d4"
+    },
+    {
+        "path":  "final-source-manifest.json",
+        "sha256":  "470353f160f040b3a64550e8e0f3b30febd9731c7fcfc7afd1fee85fec818316"
+    },
+    {
+        "path":  "full_expanding_final.json",
+        "sha256":  "4584fc75bc61cdd3b853df9a2bfa0dd60374870fbc9148626d1b30687fb1d688"
+    },
+    {
+        "path":  "initial_tests.json",
+        "sha256":  "1ff55a57384adb381c13f541cf4a77b22c843f226782bcaf89991a83e2ed84cb"
+    },
+    {
+        "path":  "input-manifest.json",
+        "sha256":  "cd868fcc5e286c7b9e4d669301163f241b383cbc9310e50b2f33082aa9809dc0"
+    },
+    {
+        "path":  "late_two_affine.json",
+        "sha256":  "1f5fbbe0b52708bced5f00de46c7c0be34c5e8387658656967016a0349a7af9c"
+    },
+    {
+        "path":  "late_two_affine_final.json",
+        "sha256":  "880a3c36b4634198173b7c14c0a7820796bf58747794fc189381cc8384c8d90f"
+    },
+    {
+        "path":  "late_two_mapped.json",
+        "sha256":  "0f7c4653f3e9444f22afff88737e2463a78afceb43665df95061ff1d75e92c56"
+    },
+    {
+        "path":  "late_two_mapped_final.json",
+        "sha256":  "d1bfd0d3d51c203d4539f617786376f100032f61b94577b3cbfa3ce6fbd4f4d4"
+    },
+    {
+        "path":  "local-candidate-manifest.json",
+        "sha256":  "188651235bc0f98d5e3667655afc6e77ccfad41b98666f1250866e1efceb3f62"
+    },
+    {
+        "path":  "online_late_two_final.json",
+        "sha256":  "9d6d4711b3016ed171aadd19121c5874b5f506a586b0753c53211c2717b7bd06"
+    },
+    {
+        "path":  "README.md",
+        "sha256":  "c6b4d985ffccbf8e5ad49db5e73b2acac98b3ada805846a2030e0d1d3b3962b6"
+    },
+    {
+        "path":  "regression.json",
+        "sha256":  "a50cc84bfcfca4994ef0bde117a9d6615e6f6bf2c4dc6723f28bc4e843a9ba31"
+    },
+    {
+        "path":  "regression_final.json",
+        "sha256":  "4161d617e50de2613c11411dae1fe240b9af1a8535473e25246d6719aad5bdbe"
+    },
+    {
+        "path":  "reproduce.jl",
+        "sha256":  "4596354770a18951e163c7b7ce5e9da011b682fd5e17ca9e6beb4e64780d5555"
+    },
+    {
+        "path":  "saturation_control.json",
+        "sha256":  "6b3dc5fa93f718b6bb281e18e13f2e8ca8ce6377894fc8a8f1f76a61d6141928"
+    },
+    {
+        "path":  "source-manifest.json",
+        "sha256":  "b71c6edcc680ca2b78b6f6755f0a395c8dad19289155ef64e704e09128df1de6"
+    },
+    {
+        "path":  "sources/estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+        "path":  "sources/estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+        "path":  "sources/estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+        "path":  "sources/estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4"
+    },
+    {
+        "path":  "sources/estimator/scripts/sparse_conditional.jl",
+        "sha256":  "36df726db0b67e2d57c5486415be20441f55dc2eae91d8c554b356c1ba30ceaf"
+    },
+    {
+        "path":  "sources/estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+        "path":  "sources/estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9"
+    },
+    {
+        "path":  "sources/estimator/scripts/validate_sparse.jl",
+        "sha256":  "bb48da2faa227e18de63a538ac6b87d920bcb97964fccf4fadaeca710a020bd6"
+    },
+    {
+        "path":  "sources/estimator/scripts/validate_sparse_mapped.jl",
+        "sha256":  "9e6a582841e003e910b76148e252e400d75d2144653975dfdd659d6cbea2cd22"
+    },
+    {
+        "path":  "sources/estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+        "path":  "sources/estimator/src/conditional_charts.jl",
+        "sha256":  "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+        "path":  "sources/estimator/src/local_sparse_density.jl",
+        "sha256":  "f0bb60efb40d837acff36b8dc2d23690712ef868a105ff0d2d6e2a21aaf32ced"
+    },
+    {
+        "path":  "sources/estimator/src/sparse_density.jl",
+        "sha256":  "98c63a40cee1383e4d6b719940b42bb4d95624f21ed7631adb23660ee37fbc9e"
+    },
+    {
+        "path":  "sources/estimator/test/test_adaptive_conditional.jl",
+        "sha256":  "4dcac545673e50e007b9601e3ff5b91e74d7eeee6ac5b2372988baf41b0909a2"
+    },
+    {
+        "path":  "sources/estimator/test/test_adaptive_curvature.jl",
+        "sha256":  "02ef94f7a437fa5c1ff0ab51e5734b963d3c116873b104c25a670d907376f255"
+    },
+    {
+        "path":  "sources/estimator/test/test_adaptive_density.jl",
+        "sha256":  "27d90033aab4972f8f801b91f53c3e33fa0591e74441a7af4f9513d7c73470c9"
+    },
+    {
+        "path":  "sources/estimator/test/test_conditional_charts.jl",
+        "sha256":  "60cfda11f3ec73cb918663e700dd39832f3c285e9023c1ff1cc5337728765496"
+    },
+    {
+        "path":  "sources/estimator/test/test_local_sparse_conditional.jl",
+        "sha256":  "17f7979b0097fff2b7ee13490ae46ca58b400a49f14b436472ecaa183a02f22d"
+    },
+    {
+        "path":  "sources/estimator/test/test_local_sparse_density.jl",
+        "sha256":  "447409845c83c7ce3abeb7ff9c7dec7391673dfb2d7434a274abc9c5ba7c95f9"
+    },
+    {
+        "path":  "sources/estimator/test/test_mapped_conditional.jl",
+        "sha256":  "f221ccb838decb921de7b57fcd2c9fed055b8e70ba11d094989f295b8537ee31"
+    },
+    {
+        "path":  "sources/estimator/test/test_sparse_conditional.jl",
+        "sha256":  "336ef66de6e224b8c71c1e48a7da877604c2b76fe6096154555f898a18aaa097"
+    },
+    {
+        "path":  "sources/estimator/test/test_sparse_density.jl",
+        "sha256":  "a86e8a8f0ad79b539c20999222d6d7ff3c8c5717aab7529c2c5a071b416834c7"
+    },
+    {
+        "path":  "sources/estimator/test/test_target_ownership.jl",
+        "sha256":  "b8a5561a190050e8efeda1ec18f2ba45f9d22132549a39c66adf353df9a9a180"
+    },
+    {
+        "path":  "sources/estimator/test/test_transport_budget.jl",
+        "sha256":  "8f8e2768f2d3bfe98f176e35fc1d22db88b08167a762441c2ba95e6ed8c12c64"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/sparse_conditional.jl",
+        "sha256":  "36df726db0b67e2d57c5486415be20441f55dc2eae91d8c554b356c1ba30ceaf"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/validate_sparse.jl",
+        "sha256":  "bb48da2faa227e18de63a538ac6b87d920bcb97964fccf4fadaeca710a020bd6"
+    },
+    {
+        "path":  "sources-final/estimator/scripts/validate_sparse_mapped.jl",
+        "sha256":  "9e6a582841e003e910b76148e252e400d75d2144653975dfdd659d6cbea2cd22"
+    },
+    {
+        "path":  "sources-final/estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+        "path":  "sources-final/estimator/src/conditional_charts.jl",
+        "sha256":  "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+        "path":  "sources-final/estimator/src/local_sparse_density.jl",
+        "sha256":  "ddb3875011af41ba3ed5a3f0c63705f054b3e50b167ab50c948d4bb9375d2639"
+    },
+    {
+        "path":  "sources-final/estimator/src/sparse_density.jl",
+        "sha256":  "98c63a40cee1383e4d6b719940b42bb4d95624f21ed7631adb23660ee37fbc9e"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_adaptive_conditional.jl",
+        "sha256":  "4dcac545673e50e007b9601e3ff5b91e74d7eeee6ac5b2372988baf41b0909a2"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_adaptive_curvature.jl",
+        "sha256":  "02ef94f7a437fa5c1ff0ab51e5734b963d3c116873b104c25a670d907376f255"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_adaptive_density.jl",
+        "sha256":  "27d90033aab4972f8f801b91f53c3e33fa0591e74441a7af4f9513d7c73470c9"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_conditional_charts.jl",
+        "sha256":  "60cfda11f3ec73cb918663e700dd39832f3c285e9023c1ff1cc5337728765496"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_local_sparse_conditional.jl",
+        "sha256":  "17f7979b0097fff2b7ee13490ae46ca58b400a49f14b436472ecaa183a02f22d"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_local_sparse_density.jl",
+        "sha256":  "7e22ca694ad90b5cca0790308ad1c852a18d288006485531c7bba2f23dc55373"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_mapped_conditional.jl",
+        "sha256":  "f221ccb838decb921de7b57fcd2c9fed055b8e70ba11d094989f295b8537ee31"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_sparse_conditional.jl",
+        "sha256":  "336ef66de6e224b8c71c1e48a7da877604c2b76fe6096154555f898a18aaa097"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_sparse_density.jl",
+        "sha256":  "a86e8a8f0ad79b539c20999222d6d7ff3c8c5717aab7529c2c5a071b416834c7"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_target_ownership.jl",
+        "sha256":  "b8a5561a190050e8efeda1ec18f2ba45f9d22132549a39c66adf353df9a9a180"
+    },
+    {
+        "path":  "sources-final/estimator/test/test_transport_budget.jl",
+        "sha256":  "8f8e2768f2d3bfe98f176e35fc1d22db88b08167a762441c2ba95e6ed8c12c64"
+    },
+    {
+        "path":  "summary.json",
+        "sha256":  "0bf1e0f7b14d17cd850bf609f4aae2d6bc35cad85d2638851865a33e39b4e99f"
+    },
+    {
+        "path":  "two_core_coupled_final.json",
+        "sha256":  "9fcc00824ea63493106cfa50d7f1d7c95c1307c6b4548288baf6dc0ad9bc3b4b"
+    },
+    {
+        "path":  "verify.ps1",
+        "sha256":  "3943aaca487f42dbd055484a151e18b4e81395acc49e93fd2c8e605659bc9897"
+    },
+    {
+        "path":  "worker.err",
+        "sha256":  "41249a78ed4805ed880f346b7b3156ad048217a935870d1b8637c67d82252376"
+    },
+    {
+        "path":  "worker.log",
+        "sha256":  "501a142af45d8a7b273643645de9649037278cfd89c6ded1e4fb0c3c0d1676de"
+    }
+]

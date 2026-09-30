@@ -1,0 +1,7 @@
+include(joinpath(@__DIR__,"../../estimator/scripts/curvature_audit.jl"))
+for suite in (:two_core,:core,:full,:pit_core)
+    snap=deserialize(joinpath(@__DIR__,string(suite)*".jls"))
+    report=audit_candidate(snap.result.candidate;key=snap.accepted.bank.anchor.key_z,
+        max_components=3,basis=:full,solver_factor=.0001,steps=(.02,.01,.005))
+    write(joinpath(@__DIR__,string(suite)*"_tight_full_curvature.json"),E.json_document((backend=snap.backend,case=snap.case,report=report)))
+end

@@ -1,0 +1,18 @@
+let F=MappedRun
+    snap=deserialize(joinpath(@__DIR__,"../curvature_audit/two_core.jls"));anchor=deepcopy(snap.failed.bank.anchor);started=time()
+    for batch in snap.batches[snap.arrival+1:end]
+        r=E.assimilate!(anchor,batch);r.committed || error("continuation failed")
+    end
+    c=E._conditional_node!(deepcopy(anchor.graph),Tuple{E.VarKey,Int}[],Float64[];
+        iters=80,tol=1e-6,ftol=1e-8,step_bounds=Dict(anchor.key_z=>anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+    c.solve.converged || error("selection solve failed")
+    p=E._conditional_posterior([c],[0.],Tuple{E.VarKey,Int}[])
+    shape=E.conditional_shape_diagnostic(E.conditional_transport(p);key=anchor.key_z)
+    indices=sortperm(shape.scores;rev=true)[1:2];axes=[(anchor.key_z,i) for i in indices]
+    rows=[p.offsets[key][i] for (key,i) in axes];center=p.mean[rows];scale=Matrix(cholesky(Symmetric(p.covariance[rows,rows])).L)
+    serialize(joinpath(@__DIR__,"late_two_target.jls"),(anchor=anchor,axes=axes,center=center,scale=scale))
+    outcome=F.compare_transport_graph(anchor.graph,joinpath(@__DIR__,"late_two");axes,center,scale,
+        shape_key=anchor.key_z,step_bounds=Dict(anchor.key_z=>anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL,
+        max_nodes=257,tolerance=.002,orders=(5,9),max_seconds=600.,methods=(:triangular,:affine),
+        metadata=(case=snap.case,t=1800.,selection_scores=shape.scores,setup_seconds=time()-started,selection_fits=1))
+end

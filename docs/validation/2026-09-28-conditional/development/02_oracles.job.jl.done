@@ -1,0 +1,5 @@
+src=read(joinpath(@__DIR__,"../../../estimator/src/conditional.jl"),String)
+a=first(findfirst("function _conditional_node!",src));b=first(findfirst("\n\"\"\"\n    ConditionalPosterior",src))
+Base.include_string(E,src[a:prevind(src,b)],"conditional_node_refresh.jl")
+test=read(joinpath(@__DIR__,"../../../estimator/test/test_conditional.jl"),String)
+Base.include_string(Main,test[first(findfirst("@testset",test)):end],"conditional_oracles.jl")

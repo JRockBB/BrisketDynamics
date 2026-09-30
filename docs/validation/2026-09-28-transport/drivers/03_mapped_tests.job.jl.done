@@ -1,0 +1,7 @@
+module TransportRun
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_conditional_charts.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_mapped_conditional.jl"))
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_adaptive.jl"))
+end
+println("MAPPED TESTS VERIFIED");flush(stdout)

@@ -1,0 +1,179 @@
+{
+  "backend": "d31877a10f94",
+  "committed": false,
+  "completed_nodes": 403.0,
+  "completed_pilots": 0.0,
+  "consistent": false,
+  "domain_validated": false,
+  "graph_unchanged": true,
+  "last_refinement": {
+    "cells": 1.0,
+    "complete": true,
+    "event": "refinement",
+    "indicator": 7.435302077281079,
+    "integration_error": 6.441208470824071e20,
+    "log_indicator": 2.0062392081763663,
+    "log_integration_error": 47.914418033142056,
+    "log_normalizer": -458.24256485421176,
+    "nodes": 297.0
+  },
+  "map": null,
+  "map_seconds": 0.0,
+  "metadata": {
+    "case": {
+      "channels": [
+        [
+          "pit",
+          "core"
+        ],
+        [
+          "pit"
+        ],
+        [
+          "core"
+        ],
+        [
+          "pit",
+          "core"
+        ]
+      ],
+      "seed": 22002.0,
+      "suite": "pit_core",
+      "times": [
+        0.0,
+        90.0,
+        420.0,
+        1800.0
+      ]
+    },
+    "snapshot_sha256": "9a5a288953ad080e958c0b6c6b4afdd00cf6ddae1aecfb2f2b064a4a9a116131",
+    "t": 1800.0
+  },
+  "method": "affine",
+  "outcome": {
+    "error": "comparison time budget exhausted",
+    "status": "time_budget"
+  },
+  "physics": "c2c7bbf8c0ec",
+  "settings": {
+    "axes": [
+      [
+        {
+          "entity": "params",
+          "k": 0.0,
+          "name": "cook",
+          "scope": [
+            "cook"
+          ]
+        },
+        15.0
+      ],
+      [
+        {
+          "entity": "params",
+          "k": 0.0,
+          "name": "cook",
+          "scope": [
+            "cook"
+          ]
+        },
+        17.0
+      ],
+      [
+        {
+          "entity": "params",
+          "k": 0.0,
+          "name": "cook",
+          "scope": [
+            "cook"
+          ]
+        },
+        11.0
+      ],
+      [
+        {
+          "entity": "params",
+          "k": 0.0,
+          "name": "cook",
+          "scope": [
+            "cook"
+          ]
+        },
+        14.0
+      ]
+    ],
+    "center": [
+      0.1081044893914804,
+      -0.7541895537590838,
+      0.03132933840453621,
+      -7.564044851777993
+    ],
+    "max_nodes": 729.0,
+    "max_seconds": 600.0,
+    "orders": [
+      3.0,
+      5.0
+    ],
+    "pilot_radius": 2.0,
+    "radius": 4.0,
+    "scale": [
+      [
+        0.9578307800285519,
+        0.006780648925208435,
+        -0.051462282192701714,
+        0.05206734786949198
+      ],
+      [
+        0.0,
+        0.9708441900574902,
+        0.00263810053463428,
+        0.002399092333636238
+      ],
+      [
+        0.0,
+        0.0,
+        0.8729268202906869,
+        -0.044173195928701385
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.1417319778993857
+      ]
+    ],
+    "tolerance": 0.01
+  },
+  "sources": [
+    {
+      "path": "estimator/src/adaptive_density.jl",
+      "sha256": "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+      "path": "estimator/src/conditional_charts.jl",
+      "sha256": "168e91c72c96964c336ffcb706b0a109e89a52fa0a52a00acdf99422bdb9ad36"
+    },
+    {
+      "path": "estimator/scripts/adaptive_conditional.jl",
+      "sha256": "80ddfd938a06df0b1bdeb155ea717b10d469878c7680c3c82376404ec4eaf4b9"
+    },
+    {
+      "path": "estimator/scripts/adaptive_curvature.jl",
+      "sha256": "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+      "path": "estimator/scripts/fit_conditional_chart.jl",
+      "sha256": "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4"
+    },
+    {
+      "path": "estimator/scripts/mapped_diagnostics.jl",
+      "sha256": "874dc57e6822680bbc258accf96f7b761e864549fc2598e4d6f747f144bcaa3f"
+    },
+    {
+      "path": "estimator/scripts/validate_transport.jl",
+      "sha256": "84225ad982381b11846c69944129c3717d149d823fc0cff82c36da3bfd4a2af3"
+    }
+  ],
+  "total_conditional_fits": 403.0,
+  "wall": 601.0540001392365
+}

@@ -1,0 +1,67 @@
+{
+  "consistent": false,
+  "cook_specific": false,
+  "diagnostic_orders": [
+    15.0,
+    31.0
+  ],
+  "diagnostic_outside_fit_budget": true,
+  "diagnostic_splits": "interpolation_nodes_and_known_analytic_kink",
+  "reports": [
+    {
+      "conditional_sd_error": 2.0816681711721685e-17,
+      "joint_tv_estimate": 4.4022535515793715e-12,
+      "joint_tv_order_change": 2.8988261556444675e-18,
+      "kind": "smooth",
+      "method": "tensor",
+      "nodes": 9.0,
+      "quadrature_intervals": 67.0,
+      "reason": "resolution",
+      "resolved": true
+    },
+    {
+      "conditional_sd_error": 0.0,
+      "joint_tv_estimate": 4.402191171950687e-12,
+      "joint_tv_order_change": 6.1434121586294305e-18,
+      "kind": "smooth",
+      "method": "sparse",
+      "nodes": 8.0,
+      "quadrature_intervals": 67.0,
+      "reason": "finite_checks",
+      "resolved": true
+    },
+    {
+      "conditional_sd_error": 2.0816681711721685e-17,
+      "joint_tv_estimate": 3.081434577319473e-5,
+      "joint_tv_order_change": 8.639736061993863e-18,
+      "kind": "piecewise_c1",
+      "method": "tensor",
+      "nodes": 29.0,
+      "quadrature_intervals": 77.0,
+      "reason": "resolution",
+      "resolved": true
+    },
+    {
+      "conditional_sd_error": 0.0,
+      "joint_tv_estimate": 0.004337906956137691,
+      "joint_tv_order_change": 1.6656908791877131e-6,
+      "kind": "piecewise_c1",
+      "method": "sparse",
+      "nodes": 69.0,
+      "quadrature_intervals": 67.0,
+      "reason": "degree_budget",
+      "resolved": false
+    }
+  ],
+  "settings": {
+    "budget": 129.0,
+    "degree_cap": 64.0,
+    "orders": [
+      7.0,
+      11.0
+    ],
+    "radius": 4.0,
+    "tolerance": 0.002
+  },
+  "source_version": "archived_benchmark"
+}

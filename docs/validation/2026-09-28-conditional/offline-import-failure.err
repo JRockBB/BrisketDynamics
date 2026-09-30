@@ -1,0 +1,3 @@
+ERROR: LoadError: Some tests did not pass: 0 passed, 0 failed, 1 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_deterministic_online.jl:5
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic_sparse\offline_contract.jl:6

@@ -1,0 +1,6 @@
+module DirectQueryRegression
+const E=Main.E
+const consistency_model=Main.consistency_model
+using Main.BrisketEstimator, Test, BrisketDynamics, LinearAlgebra
+include(joinpath(@__DIR__,"../../estimator/test/test_direct_posterior.jl"))
+end

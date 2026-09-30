@@ -1,0 +1,23 @@
+include(joinpath(@__DIR__,"mapped_parameters.jl"))
+let sm=direct_core_case[1],truth=direct_core_case[3],chart=direct_core_mapped.transport
+    nz=length(sm.model.blk);k=length(chart.axes);r=nz-k;ref=direct_core_mapped.reference
+    function mapping(q)
+        v=vcat(q,zeros(ref.n-nz));mapped=DirectMappedRun.direct_map(chart,v)
+        _,L=DirectMappedRun._direct_geometry(chart,q[1:k])
+        logjac=sum(log,diag(chart.axisroot))+sum(log,diag(chart.restroot)[1:r])+sum(log,diag(L)[1:r])+sum(log,ref.zs)
+        (point=ref.zm+ref.zs.*mapped.u[1:nz],logjac=logjac)
+    end
+    j0=mapping(zeros(nz)).logjac
+    map=q->begin m=mapping(q);(point=m.point,logjac=m.logjac-j0) end
+    progress=h->(h.evaluations%500<30 ? (println("MAPPED PARAMETERS ",h);flush(stdout)) : nothing)
+    global core_mapped_parameters=MappedParameterRun.fit(sm;max_evaluations=6000,max_seconds=600.,progress,parameter_map=map)
+    p=core_mapped_parameters;r0=core_reference;target=vcat(truth.z,truth.y);err=p.mean-target
+    comparison=(mean_sd=maximum(abs.(p.mean-r0.mean)./sqrt.(diag(r0.covariance))),
+        sd_relative=maximum(abs.(sqrt.(abs.(diag(p.covariance)))./sqrt.(diag(r0.covariance)).-1)),
+        reference_quality=r0.diagnostics.mc_precision_ok)
+    record=(mean=p.mean,covariance=p.covariance,valid=p.valid,diagnostics=p.diagnostics,
+        comparison=comparison,wall=p.wall,conditional_gaussian_validated=false,
+        nees_y=p.valid ? dot(err[nz+1:end],p.covariance[nz+1:end,nz+1:end]\err[nz+1:end])/sm.model.bl.n : nothing)
+    write(joinpath(@__DIR__,"core_mapped_parameters.json"),E.json_document(record))
+    println("MAPPED PARAMETERS RESULT ",(valid=p.valid,diagnostics=p.diagnostics.reason,resolved=p.diagnostics.resolved,wall=p.wall,nees=record.nees_y,comparison=comparison));flush(stdout)
+end

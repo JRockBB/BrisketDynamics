@@ -64,7 +64,7 @@ function belief_layout(sys::CookSystem)
     p0 = length(idx) + 1
     for (f, g) in zip(PIT_BELIEF_FIELDS, PIT_GROUP_NAMES)
         r = lay.pit_range[lay.pit[f]]
-        kind = f === :ignited ? :ignited : lay.pit.kinds[findfirst(==(f), lay.pit.names)]     # the ignited fraction saturates: its own floor (below)
+        kind = f === :ignited ? :ignited : lay.pit.kinds[findfirst(==(f), lay.pit.names)]     # retain the backend's semantic kind for ignition
         append!(idx, collect(r)); append!(kinds, fill(kind, length(r)))
         push!(groups, g => length(idx):length(idx))
     end
@@ -92,41 +92,22 @@ function system_from_belief(x_b::AbstractVector, bl::BeliefLayout; latch::Real=0
     return x
 end
 
-# the constrained coordinates: the filter's decode (sequential.jl) by kind, and an encode of bounded slope. The filter's
-# encode takes the log of the excess over the floor down to a round-off (a salt field of an unsalted cut sits at the
-# floor and its coordinate swings by tens of units on 1e-24 noise); a filter never evaluates a dynamics residual, a
-# smoother does, and whitened by the field's shape precision such swings are thousands of nats of roughness. The
-# belief's encode floors the excess at `BELIEF_ENC_MIN`: `_soft_floor` is δ itself up to d = δ (so a state at its floor
-# decodes to floor + δ and encodes back to the same coordinate: a fixed point, no drift slice after slice), rises from
-# there with a continuous slope (no kink for the collagen nodes crossing 1e-6 one after another in the first twenty
-# minutes of a cook), and is d itself beyond a few δ (the correction is under 1e-20 past 50 δ), so every state farther
-# than 5e-5 from its floor keeps the filter's coordinate exactly.
-const BELIEF_ENC_MIN = 1e-6
-# a unit-interval field's floor is a thousandth: its coordinate is the logit, whose slope is 1/x, and the transition from
-# the floor's zero slope to it is a band as wide as the floor; the collagen field's interior nodes sit inside a 1e-6 band
-# for a quarter hour early in a cook, where the Gauss-Newton model of the dynamics residual changed by a million between
-# iterations (the two-piece bench of 2026-09-25 capped its iterations there); a conversion under a thousandth is nothing to
-# a band that starts at 0.9. The ignited fraction is the exception (kind :ignited): it saturates at exactly one within an
-# hour or two of most cooks (the plant's fixed point), and with the thousandth's floor the model's fire kept spreading at
-# k_spread × 10⁻³ × airflow for the rest of the cook, a phantom the plant does not have, whose trace in the meat field's
-# shape (whitened at the field's node jitter) informed k_spread for twelve hours after the fire was lit (the bench of
-# 2026-09-26: its width 0.48 → 0.19 with the estimate three nats low). Its floor is `BELIEF_ENC_MIN`, a thousandth of that.
-const BELIEF_ENC_MIN_UNIT = 1e-3
-function _soft_floor(d, δ)
-    d <= δ && return δ
-    u = (d - δ) / δ
-    return d - (d - δ) * exp(-u)
-end
+# Encode must invert decode in the physical interior. Smoothing just the encoder changed the physical
+# state at every restart (e.g. C=0.002 became 0.001632), creating dynamics information without evolution.
+# Only clip inside a numerical boundary layer, comparable to the decoder's own physical floor. This
+# prevents log(0) and unresolved log-coordinate swings; there is no transition band that changes interior
+# states. The integrator-error covariance floor handles the remaining boundary-scale numerical error.
+const BELIEF_ENC_MIN = 1e-8
+const BELIEF_ENC_MIN_UNIT = 1e-8
 function _belief_enc(x, kind::Symbol)
     kind === :free && return x
     if kind === :positive
         δ = oftype(x, BELIEF_ENC_MIN)
-        return _state_invsoftplus(_soft_floor(x - oftype(x, STATE_POSITIVE_FLOOR), δ))
+        return _state_invsoftplus(max(x - oftype(x, STATE_POSITIVE_FLOOR), δ))
     end
     δ = oftype(x, kind === :ignited ? BELIEF_ENC_MIN : BELIEF_ENC_MIN_UNIT)
     ε = oftype(x, STATE_UNIT_EPS)
-    q = (x - ε) / (one(x) - 2ε)
-    qs = one(q) - _soft_floor(one(q) - _soft_floor(q, δ), δ)          # floored at both ends
+    qs = clamp((x - ε) / (one(x) - 2ε), δ, one(x) - δ)
     return log(qs / (one(qs) - qs))
 end
 _belief_dec(y, kind::Symbol) = kind === :free ? y : _state_decode(y, kind === :ignited ? :unit : kind)

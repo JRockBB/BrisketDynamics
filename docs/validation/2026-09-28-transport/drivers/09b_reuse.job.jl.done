@@ -1,0 +1,4 @@
+module MapReuseVerification
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_mapped_conditional.jl"))
+end

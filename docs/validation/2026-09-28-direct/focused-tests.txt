@@ -1,0 +1,24 @@
+Environment: Julia 1.11.9, Windows, four Julia threads for cooking tests, one OpenBLAS thread.
+
+Focused mathematical quadrature suite: 59 assertions passed.
+  Gaussian/banana moments: 24
+  Composite quadrature and C1 hinge: 17
+  Asymmetric mixture and hidden interactions: 7
+  Budget/failure/batch semantics: 11
+
+Transport suite: 28 assertions passed.
+  Exact map determinant and conditional coordinates: 20
+  Full-target correction removes nonlinear proposal bias: 4
+  Curvature rotation retains all dimensions: 4
+
+Posterior/online API suite: 48 assertions passed (worker job 17).
+  Prior, CDF and parallel moment isolation: 24
+  Online/offline initial observation and rollback: 10
+  Analytic correlated-noise prediction and forecast ownership: 10
+  Guarding unresolved density/moment consumption: 4
+
+These are correctness tests, not evidence of statistical consistency.
+The full repository suite and independent cook-level statistical qualification were not run.
+Validation-bookkeeping suite: 16 assertions passed (worker job 20).
+Final-source settings metadata: 2 assertions passed (worker job 20).
+Total: 151 suite assertions plus 2 diagnostic metadata checks.

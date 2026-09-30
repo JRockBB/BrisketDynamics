@@ -1,0 +1,122 @@
+[
+    {
+        "path":  "estimator/scripts/adaptive_conditional.jl",
+        "archive":  "sources/estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+        "path":  "estimator/scripts/adaptive_curvature.jl",
+        "archive":  "sources/estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+        "path":  "estimator/scripts/curvature_audit.jl",
+        "archive":  "sources/estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+        "path":  "estimator/scripts/fit_conditional_chart.jl",
+        "archive":  "sources/estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4"
+    },
+    {
+        "path":  "estimator/scripts/sparse_conditional.jl",
+        "archive":  "sources/estimator/scripts/sparse_conditional.jl",
+        "sha256":  "36df726db0b67e2d57c5486415be20441f55dc2eae91d8c554b356c1ba30ceaf"
+    },
+    {
+        "path":  "estimator/scripts/target_ownership.jl",
+        "archive":  "sources/estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+        "path":  "estimator/scripts/validate_adaptive.jl",
+        "archive":  "sources/estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9"
+    },
+    {
+        "path":  "estimator/scripts/validate_sparse.jl",
+        "archive":  "sources/estimator/scripts/validate_sparse.jl",
+        "sha256":  "bb48da2faa227e18de63a538ac6b87d920bcb97964fccf4fadaeca710a020bd6"
+    },
+    {
+        "path":  "estimator/scripts/validate_sparse_mapped.jl",
+        "archive":  "sources/estimator/scripts/validate_sparse_mapped.jl",
+        "sha256":  "9e6a582841e003e910b76148e252e400d75d2144653975dfdd659d6cbea2cd22"
+    },
+    {
+        "path":  "estimator/src/adaptive_density.jl",
+        "archive":  "sources/estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+        "path":  "estimator/src/conditional_charts.jl",
+        "archive":  "sources/estimator/src/conditional_charts.jl",
+        "sha256":  "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+        "path":  "estimator/src/local_sparse_density.jl",
+        "archive":  "sources/estimator/src/local_sparse_density.jl",
+        "sha256":  "f0bb60efb40d837acff36b8dc2d23690712ef868a105ff0d2d6e2a21aaf32ced"
+    },
+    {
+        "path":  "estimator/src/sparse_density.jl",
+        "archive":  "sources/estimator/src/sparse_density.jl",
+        "sha256":  "98c63a40cee1383e4d6b719940b42bb4d95624f21ed7631adb23660ee37fbc9e"
+    },
+    {
+        "path":  "estimator/test/test_adaptive_conditional.jl",
+        "archive":  "sources/estimator/test/test_adaptive_conditional.jl",
+        "sha256":  "4dcac545673e50e007b9601e3ff5b91e74d7eeee6ac5b2372988baf41b0909a2"
+    },
+    {
+        "path":  "estimator/test/test_adaptive_curvature.jl",
+        "archive":  "sources/estimator/test/test_adaptive_curvature.jl",
+        "sha256":  "02ef94f7a437fa5c1ff0ab51e5734b963d3c116873b104c25a670d907376f255"
+    },
+    {
+        "path":  "estimator/test/test_adaptive_density.jl",
+        "archive":  "sources/estimator/test/test_adaptive_density.jl",
+        "sha256":  "27d90033aab4972f8f801b91f53c3e33fa0591e74441a7af4f9513d7c73470c9"
+    },
+    {
+        "path":  "estimator/test/test_conditional_charts.jl",
+        "archive":  "sources/estimator/test/test_conditional_charts.jl",
+        "sha256":  "60cfda11f3ec73cb918663e700dd39832f3c285e9023c1ff1cc5337728765496"
+    },
+    {
+        "path":  "estimator/test/test_local_sparse_conditional.jl",
+        "archive":  "sources/estimator/test/test_local_sparse_conditional.jl",
+        "sha256":  "17f7979b0097fff2b7ee13490ae46ca58b400a49f14b436472ecaa183a02f22d"
+    },
+    {
+        "path":  "estimator/test/test_local_sparse_density.jl",
+        "archive":  "sources/estimator/test/test_local_sparse_density.jl",
+        "sha256":  "447409845c83c7ce3abeb7ff9c7dec7391673dfb2d7434a274abc9c5ba7c95f9"
+    },
+    {
+        "path":  "estimator/test/test_mapped_conditional.jl",
+        "archive":  "sources/estimator/test/test_mapped_conditional.jl",
+        "sha256":  "f221ccb838decb921de7b57fcd2c9fed055b8e70ba11d094989f295b8537ee31"
+    },
+    {
+        "path":  "estimator/test/test_sparse_conditional.jl",
+        "archive":  "sources/estimator/test/test_sparse_conditional.jl",
+        "sha256":  "336ef66de6e224b8c71c1e48a7da877604c2b76fe6096154555f898a18aaa097"
+    },
+    {
+        "path":  "estimator/test/test_sparse_density.jl",
+        "archive":  "sources/estimator/test/test_sparse_density.jl",
+        "sha256":  "a86e8a8f0ad79b539c20999222d6d7ff3c8c5717aab7529c2c5a071b416834c7"
+    },
+    {
+        "path":  "estimator/test/test_target_ownership.jl",
+        "archive":  "sources/estimator/test/test_target_ownership.jl",
+        "sha256":  "b8a5561a190050e8efeda1ec18f2ba45f9d22132549a39c66adf353df9a9a180"
+    },
+    {
+        "path":  "estimator/test/test_transport_budget.jl",
+        "archive":  "sources/estimator/test/test_transport_budget.jl",
+        "sha256":  "8f8e2768f2d3bfe98f176e35fc1d22db88b08167a762441c2ba95e6ed8c12c64"
+    }
+]

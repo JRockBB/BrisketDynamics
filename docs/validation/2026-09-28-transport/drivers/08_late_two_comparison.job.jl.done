@@ -1,0 +1,3 @@
+Base.include(MappedRun,joinpath(@__DIR__,"../../estimator/scripts/mapped_diagnostics.jl"))
+Base.include(MappedRun,joinpath(@__DIR__,"../../estimator/scripts/validate_transport.jl"))
+include(joinpath(@__DIR__,"07_late_two.job.jl.done"))

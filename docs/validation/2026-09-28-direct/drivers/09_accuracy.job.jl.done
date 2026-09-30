@@ -1,0 +1,22 @@
+let sm=direct_core_case[1]
+    ref,c,L=DirectV2.direct_chart(sm)
+    accurate=deepcopy(ref)
+    for f in values(accurate.generators)
+        if f isa E.DynamicsFactor
+            m=f.model;f.model=E.SystemModel(m.sys,m.log,m.blk,m.bl,m.sn,m.abstol*1e-4,m.reltol*1e-4,m.rom)
+        end
+    end
+    root,_,off=E._conditional_root(deepcopy(sm.graph));idx=vcat(collect(off[sm.key_z]),collect(off[last(sm.nodes)[2]]))
+    S=Matrix(qr(root[idx,:]').R)';directions=Vector{Float64}[]
+    for j in (1,8,17,18,ref.n)
+        v=zeros(ref.n);v[j]=1.;push!(directions,v)
+    end
+    push!(directions,sin.(collect(1:ref.n))./sqrt(ref.n/2))
+    rows=NamedTuple[]
+    for v in directions,s in (-2.,1.)
+        a=E._transport_draw(ref,c+L*(s*v));b=E._transport_draw(accurate,c+L*(s*v))
+        push!(rows,(potential_difference=b.potential-a.potential,whitened_state_difference=norm(S\(b.draw-a.draw)),max_state_difference=maximum(abs.(b.draw-a.draw))))
+    end
+    write(joinpath(@__DIR__,"target_numerical_accuracy.json"),E.json_document(rows))
+    println("ODE ACCURACY ",(max_potential=maximum(abs(r.potential_difference) for r in rows),max_whitened=maximum(r.whitened_state_difference for r in rows)))
+end

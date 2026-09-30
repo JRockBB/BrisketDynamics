@@ -65,7 +65,13 @@ run_set("layout") && @testset "the belief layout of one slab is the filter's; th
     o0 = monolith_solve(x0[1:N_THETA], x0[(N_THETA + 1):N_PHYS], u[1:2], t[1:2], t[1:2]; pit, cfg, A_meat=exp(z0[AREA]), events_nt...)
     ics, a = handoff(o0, 1)
     lay = FilterLayout(length(ics.T0f), length(blk), 4)
-    @test bl.n == lay.n_state && bl.kinds == E.state_kinds(lay)
+    # The ignition fraction has its own semantic coordinate kind in the system backend.
+    # All other coordinate kinds still match the frozen filter, entry for entry.
+    kinds = E.state_kinds(lay)
+    iign = first(E.belief_index(bl, :pit, :ignited))
+    @test kinds[iign] === :unit
+    kinds[iign] = :ignited
+    @test bl.n == lay.n_state && bl.kinds == kinds
     @test first.(bl.groups) == vcat(["brisket." * g for g in ("T", "W", "C", "F", "S", "bark")], collect(STATE_GROUPS[7:end]))
     @test [r for (_, r) in bl.groups] == [r for (_, r) in state_groups(lay)]
     # the same physical state in both packings
@@ -78,7 +84,7 @@ run_set("layout") && @testset "the belief layout of one slab is the filter's; th
     xdec = belief_decode(y_sys, bl); xfil = state_from_coord(y_fil, lay)
     small_pos = [i for i in 1:bl.n if !(i in big) && bl.kinds[i] === :positive]; small_unit = [i for i in 1:bl.n if !(i in big) && bl.kinds[i] === :unit]
     @test maximum(abs.(xdec[big] .- xfil[big])) < 1e-9
-    @test maximum(abs.(xdec[small_pos] .- xfil[small_pos])) < 2e-6                            # at a positive floor the belief holds 1e-6 off it
+    @test maximum(abs.(xdec[small_pos] .- xfil[small_pos])) < 2e-6                            # agreement through the numerical boundary layer
     @test maximum(abs.(xdec[small_unit] .- xfil[small_unit])) < 2e-3                           # at a fraction's floor a thousandth
     xb = xdec
     @test maximum(abs.(system_from_belief(xb, bl)[bl.sys_index] .- xs[bl.sys_index])[big]) < 1e-9

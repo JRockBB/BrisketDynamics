@@ -1,0 +1,5 @@
+module CurvatureRegression
+    const BrisketEstimator=Main.BrisketEstimator
+    const E=BrisketEstimator
+    include(joinpath(@__DIR__,"../../estimator/test/test_curvature_audit.jl"))
+end

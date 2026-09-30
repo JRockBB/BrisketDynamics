@@ -1,0 +1,18 @@
+model=consistency_model(nx=4,suite=:pit,stop=60.0)
+sm=conditional_init(model;axes=[:core_depth_fraction],orders=(3,5),lag=0,record_limit=2)
+for rec in [MeasurementRecord(:pit,0.0,294.0),MeasurementRecord(:pit,10.0,294.4)]
+    r=assimilate!(sm,rec)
+    println("UNOBSERVED RESULT ",r.committed," ",r.diagnostics);flush(stdout)
+    if !r.committed && haskey(r,:candidate)
+        p=r.candidate;kz=sm.anchor.key_z;depth=E.latent_index(model.blk,:core_depth_fraction)
+        means=hcat([c.mean for c in p.nodes]...);means[p.offsets[kz][depth],:].=0
+        println("MODE SPREAD ",maximum(maximum(means;dims=2)-minimum(means;dims=2)));flush(stdout)
+        for c in p.nodes
+            println("COMP ",c.coordinates," mode ",c.mean[p.offsets[kz]]," obj ",c.solve.F," grad ",c.solve.gradient)
+        end
+    end
+end
+# Run transport oracle independently of the failed transaction set.
+src=read(joinpath(@__DIR__,"../../../estimator/test/test_conditional_online.jl"),String)
+a=first(findfirst("@testset \"nonlinear innovation",src))
+Base.include_string(Main,src[a:end],"transport_oracle.jl")

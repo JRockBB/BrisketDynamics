@@ -1,0 +1,125 @@
+[
+  {
+    "case": "core_guarded_prefix",
+    "conditional_sd_shift": 0.0067893845733016135,
+    "max_state_shift": 1.6141127616720041e-6,
+    "q": [
+      0.0
+    ]
+  },
+  {
+    "case": "core_guarded_prefix",
+    "conditional_sd_shift": 0.0006745856994145447,
+    "max_state_shift": 1.3006702310747187e-6,
+    "q": [
+      -0.25
+    ]
+  },
+  {
+    "case": "core_guarded_prefix",
+    "conditional_sd_shift": 0.002582483756937999,
+    "max_state_shift": 2.2000332933203026e-6,
+    "q": [
+      0.25
+    ]
+  },
+  {
+    "case": "core_guarded_prefix",
+    "conditional_sd_shift": 0.004700084396666423,
+    "max_state_shift": 2.3163631794886896e-6,
+    "q": [
+      0.75
+    ]
+  },
+  {
+    "case": "core_guarded_full_1d",
+    "conditional_sd_shift": 0.0005390559135531421,
+    "max_state_shift": 4.87500909152061e-6,
+    "q": [
+      0.0
+    ]
+  },
+  {
+    "case": "core_guarded_full_1d",
+    "conditional_sd_shift": 0.0016555395461421393,
+    "max_state_shift": 4.4185276291131e-6,
+    "q": [
+      0.75
+    ]
+  },
+  {
+    "case": "core_guarded_full_1d",
+    "conditional_sd_shift": 0.0010624478701283758,
+    "max_state_shift": 5.220614045953198e-6,
+    "q": [
+      0.125
+    ]
+  },
+  {
+    "case": "core_guarded_full_1d",
+    "conditional_sd_shift": 0.00557219673403013,
+    "max_state_shift": 6.091692151599659e-6,
+    "q": [
+      -0.125
+    ]
+  },
+  {
+    "case": "two_core_guarded_full_1d",
+    "conditional_sd_shift": 0.002208271063115506,
+    "max_state_shift": 9.616332507178527e-6,
+    "q": [
+      0.0
+    ]
+  },
+  {
+    "case": "two_core_guarded_full_1d",
+    "conditional_sd_shift": 0.0009739054994226933,
+    "max_state_shift": 9.662913296182296e-6,
+    "q": [
+      0.75
+    ]
+  },
+  {
+    "case": "two_core_guarded_full_1d",
+    "conditional_sd_shift": 0.0010586537219401753,
+    "max_state_shift": 1.0281385913302188e-5,
+    "q": [
+      1.5
+    ]
+  },
+  {
+    "case": "two_core_guarded_full_1d",
+    "conditional_sd_shift": 0.00098773912941496,
+    "max_state_shift": 1.0625642373085498e-5,
+    "q": [
+      0.125
+    ]
+  },
+  {
+    "case": "two_core_guarded_full_2d",
+    "conditional_sd_shift": 0.002750149469678302,
+    "max_state_shift": 1.0616297780430273e-5,
+    "q": [
+      0.0,
+      0.0
+    ]
+  },
+  {
+    "case": "two_core_guarded_full_2d",
+    "conditional_sd_shift": 0.0003304245609951751,
+    "max_state_shift": 2.7219468528016932e-6,
+    "q": [
+      2.0,
+      1.0
+    ]
+  },
+  {
+    "case": "two_core_guarded_full_2d",
+    "conditional_sd_shift": 0.0033085328242437833,
+    "max_state_shift": 1.0702684138053087e-5,
+    "q": [
+      1.0,
+      -0.5
+    ]
+  }
+]

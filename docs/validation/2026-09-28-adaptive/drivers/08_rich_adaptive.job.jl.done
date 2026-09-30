@@ -1,0 +1,26 @@
+println("RICH ADAPTIVE AXIS EXTENSION");flush(stdout)
+for suite in (:full,:pit_core)
+    rich=deserialize(joinpath(@__DIR__,"../curvature_audit/$(suite).jls"))
+    source=rich.result.candidate.transported.source;anchor=rich.failed.bank.anchor
+    shape=E.conditional_shape_diagnostic(rich.result.candidate.transported;key=anchor.key_z)
+    selected=copy(source.axes);remaining=setdiff(eachindex(shape.scores),[i for (_,i) in selected])
+    push!(selected,(anchor.key_z,remaining[argmax(shape.scores[remaining])]))
+    ia=[source.offsets[k][i] for (k,i) in selected]
+    cc=source.mean[ia];ss=Matrix(cholesky(Symmetric(source.covariance[ia,ia])).L)
+    println("RICH ",suite," axes ",[anchor.model.blk.names[i] for (_,i) in selected]);flush(stdout)
+    t=time();outcome=nothing
+    try
+        candidate=adaptive_conditional_fit(anchor.graph;axes=selected,center=cc,scale=ss,
+            lower=fill(-4.,length(cc)),upper=fill(4.,length(cc)),tolerance=.01,max_nodes=729,
+            orders=(3,5),curvature=polished_gn_conditional_curvature,step_bounds=Dict(anchor.key_z=>anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL,
+            shape_key=anchor.key_z,progress=adaptive_progress)
+        outcome=(ok=true,diagnostics=candidate.diagnostics)
+        serialize(joinpath(@__DIR__,"$(suite)_adaptive_gn.jls"),candidate)
+    catch err
+        outcome=(ok=false,error=sprint(showerror,err))
+        println("RICH FAILURE ",suite," ",outcome.error);flush(stdout)
+    end
+    write(joinpath(@__DIR__,"$(suite)_adaptive_gn.json"),E.json_document((suite=suite,axes=selected,center=cc,scale=ss,
+        wall=time()-t,outcome=outcome)))
+    println("RICH DONE ",suite," wall ",time()-t);flush(stdout)
+end

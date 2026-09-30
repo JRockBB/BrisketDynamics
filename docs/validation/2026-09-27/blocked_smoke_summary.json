@@ -1,0 +1,134 @@
+{
+    "date":  "2026-09-27",
+    "target_backend":  "d13260bf551f",
+    "validation":  "a72461cf51eb",
+    "candidate_kernel":  "3be77d24382a",
+    "status":  "Frozen independent smoke only; statistical calibration not established",
+    "initial_particles":  1024,
+    "maximum_particles":  4096,
+    "systems":  8,
+    "moves":  4,
+    "records":  [
+                    {
+                        "file":  "blocked_heldout_core.json",
+                        "suite":  "core",
+                        "seed":  20003.0,
+                        "times_seconds":  [
+                                              0.0,
+                                              300.0,
+                                              900.0
+                                          ],
+                        "completed":  true,
+                        "mc_precision_ok":  true,
+                        "particles_per_system":  1024.0,
+                        "systems":  8.0,
+                        "ess":  2611.4578411171947,
+                        "tail_ess":  2631.077647058826,
+                        "joint_mean_mc_error":  0.007394753002706688,
+                        "state_nees":  1.1144543078713331,
+                        "gaussian_state_nees":  18.000028065629035,
+                        "wall_seconds":  190.14600014686584
+                    },
+                    {
+                        "file":  "blocked_heldout_full.json",
+                        "suite":  "full",
+                        "seed":  20003.0,
+                        "times_seconds":  [
+                                              0.0,
+                                              300.0,
+                                              900.0
+                                          ],
+                        "completed":  true,
+                        "mc_precision_ok":  true,
+                        "particles_per_system":  1024.0,
+                        "systems":  8.0,
+                        "ess":  2691.3752528092373,
+                        "tail_ess":  1840.0208773903262,
+                        "joint_mean_mc_error":  0.006714183940065758,
+                        "state_nees":  1.0096505360094519,
+                        "gaussian_state_nees":  0.9884692737326902,
+                        "wall_seconds":  376.12599992752075
+                    },
+                    {
+                        "file":  "blocked_heldout_full_long.json",
+                        "suite":  "full",
+                        "seed":  20004.0,
+                        "times_seconds":  [
+                                              0.0,
+                                              240.0,
+                                              840.0,
+                                              1800.0
+                                          ],
+                        "completed":  true,
+                        "mc_precision_ok":  true,
+                        "particles_per_system":  1024.0,
+                        "systems":  8.0,
+                        "ess":  1276.6496311646904,
+                        "tail_ess":  669.4994983336258,
+                        "joint_mean_mc_error":  0.009030830428792703,
+                        "state_nees":  2.3023932412155945,
+                        "gaussian_state_nees":  10.492813293513827,
+                        "wall_seconds":  856.3919999599457
+                    },
+                    {
+                        "file":  "blocked_heldout_pit.json",
+                        "suite":  "pit",
+                        "seed":  20003.0,
+                        "times_seconds":  [
+                                              0.0,
+                                              300.0,
+                                              900.0
+                                          ],
+                        "completed":  true,
+                        "mc_precision_ok":  true,
+                        "particles_per_system":  1024.0,
+                        "systems":  8.0,
+                        "ess":  1853.4534889315178,
+                        "tail_ess":  1025.3828172293365,
+                        "joint_mean_mc_error":  0.007512296787129066,
+                        "state_nees":  1.1888230745009933,
+                        "gaussian_state_nees":  8.348188990637045,
+                        "wall_seconds":  220.6340000629425
+                    },
+                    {
+                        "file":  "blocked_heldout_pit_core.json",
+                        "suite":  "pit_core",
+                        "seed":  20003.0,
+                        "times_seconds":  [
+                                              0.0,
+                                              300.0,
+                                              900.0
+                                          ],
+                        "completed":  true,
+                        "mc_precision_ok":  true,
+                        "particles_per_system":  1024.0,
+                        "systems":  8.0,
+                        "ess":  2733.212223792583,
+                        "tail_ess":  3072.2967319559966,
+                        "joint_mean_mc_error":  0.006284209051429595,
+                        "state_nees":  1.1109970467322854,
+                        "gaussian_state_nees":  41.38664345676173,
+                        "wall_seconds":  224.4100000858307
+                    },
+                    {
+                        "file":  "blocked_heldout_two_core.json",
+                        "suite":  "two_core",
+                        "seed":  20003.0,
+                        "times_seconds":  [
+                                              0.0,
+                                              300.0,
+                                              900.0
+                                          ],
+                        "completed":  true,
+                        "mc_precision_ok":  true,
+                        "particles_per_system":  1024.0,
+                        "systems":  8.0,
+                        "ess":  3968.507569035112,
+                        "tail_ess":  3298.8907865168544,
+                        "joint_mean_mc_error":  0.005452980524569517,
+                        "state_nees":  0.8887803654529571,
+                        "gaussian_state_nees":  8.38300681861619,
+                        "wall_seconds":  152.67799997329712
+                    }
+                ]
+}

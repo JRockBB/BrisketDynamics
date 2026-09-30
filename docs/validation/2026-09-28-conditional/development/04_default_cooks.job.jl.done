@@ -1,0 +1,32 @@
+const conditional_default_cases=Dict{Symbol,Any}()
+const conditional_default_rows=NamedTuple[]
+function conditional_state_score(p,k,truth)
+    idx=collect(p.offsets[k]);mu=p.mean[idx]
+    design=reduce(vcat,[sqrt(w).*vcat(c.root[idx,:]',(c.mean[idx]-mu)') for (w,c) in zip(p.weights,p.nodes)])
+    scales=vec(sqrt.(sum(abs2,design;dims=1)));R=Matrix(qr(design./scales').R)
+    error=LowerTriangular(R')\((mu-truth)./scales)
+    return sum(abs2,error)/length(error)
+end
+for case in ONLINE_COMPARISON_CASES
+    println("DEFAULT CONDITIONAL CASE ",case.suite);flush(stdout)
+    rows=NamedTuple[];started=time()
+    try
+        model=consistency_model(nx=4,suite=case.suite,stop=maximum(case.times))
+        batches,truths=comparison_readings(model,case)
+        sm=conditional_init(model;axes=[:a0,:k_spread],lag=1,record_limit=0)
+        for (i,batch) in enumerate(batches)
+            result=assimilate!(sm,batch)
+            candidate=result.committed ? sm.posterior : get(result,:candidate,nothing)
+            score=candidate===nothing ? NaN : conditional_state_score(candidate,last(filter(k->k.entity==:state,candidate.keys)),truths[i][length(model.blk)+1:end])
+            push!(rows,(t=last(batch).t,committed=result.committed,wall=result.wall,diagnostics=result.diagnostics,state_score=score))
+            conditional_default_cases[case.suite]=(sm=deepcopy(sm),candidate=candidate,batches=batches,truths=truths,model=model,arrival=i)
+            println("DEFAULT CONDITIONAL ARRIVAL ",case.suite," ",last(rows));flush(stdout)
+            result.committed || break
+        end
+        push!(conditional_default_rows,(suite=case.suite,arrivals=rows,wall=time()-started))
+    catch err
+        showerror(stdout,err,catch_backtrace());println();flush(stdout)
+        push!(conditional_default_rows,(suite=case.suite,arrivals=rows,error=sprint(showerror,err),wall=time()-started))
+    end
+    write(joinpath(@__DIR__,"cook_default.json"),E.json_document((backend=backend_fingerprint(),purpose="development only; not a consistency study",axes=["a0","k_spread"],orders=[5,9],lag=1,records=conditional_default_rows)))
+end

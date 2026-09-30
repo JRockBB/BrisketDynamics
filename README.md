@@ -27,6 +27,13 @@ second-order control affordable ([docs/monolith.md](docs/monolith.md)).
 
 ## Results
 
+**Estimator status (2026-09-27):** `sampled_init` and `sampled_fit` provide joint non-Gaussian online
+and offline inference. See the [API and limitations](docs/sampled-estimation.md) and
+[current validation record](docs/validation/2026-09-27-online/README.md). The four-suite comparison
+failed: one final online update exhausted sampling precision after about 94 minutes. Live-use performance
+and real-cook calibration remain unresolved; the existing Gaussian pilot is a separate path. The estimator
+results below describe earlier implementations, not a general consistency guarantee for the current backend.
+
 | | |
 |---|---|
 | **Derivative correctness** | 3-level FD verification: Julia (residual Jacobian / JVP vs FD; Picard→monolith convergence), the Tesseract endpoints against each other (jvp = J·v, vjp = Jᵀ·w), and `jax.grad` through `coupled_cook`. See [docs/verification.md](docs/verification.md) |
@@ -102,6 +109,11 @@ reports r̂ / ESS. The cheap-posterior scoreboard (per-site 1-Wasserstein to
 NUTS, Pareto-khat, wall time) lands in `data/calibration/approx_summary.md`.
 
 ## Using it on your own cook (`brisket` CLI)
+
+The experimental deterministic factor-graph work is described in
+[conditional estimation](docs/conditional-estimation.md), including offline and
+online interfaces, nonlinear uncertainty transport, and the validation limits.
+It has not replaced the live controller or established real-cook consistency.
 
 The supported chain has one entry point (run from `app/`):
 

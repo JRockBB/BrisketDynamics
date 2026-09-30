@@ -1,0 +1,36 @@
+let F=MappedRun
+    setup=deserialize(joinpath(@__DIR__,"late_two_target.jls"));reports=NamedTuple[];start=time()
+    for method in (:affine,:triangular)
+        p=deserialize(joinpath(@__DIR__,"late_two_$(method).jls"));d=p.density;off=p.decoder.offsets
+        masses=[F.AdaptiveDensities._logmass([c],d.integration_order) for c in d.cells]
+        ids=sortperm(masses;rev=true)[1:min(3,length(masses))];checks=NamedTuple[]
+        target(u)=begin
+            x=E._conditional_decode(p.decoder,u)
+            sum(f isa E.DynamicsFactor ? sum(abs2,u[off[f.key_y1]])/2 :
+                E.loss(f,[x[off[key]] for key in E.vars(f)]) for f in p.decoder.graph.factors)
+        end
+        for id in ids
+            cell=d.cells[id];q=(cell.lo+cell.hi)/2;n=F.adaptive_geometry(d,q)
+            u=copy(p.decoder.mean);u[p.axisrows]=F.chart_forward(p.chart,q);u[p.free]=n.mean
+            root=zeros(length(u),length(p.free));root[p.free,:]=n.root
+            base=target(u);scores=zeros(length(off[setup.anchor.key_z]))
+            for (j,row) in enumerate(off[setup.anchor.key_z])
+                sd=norm(root[row,:]);sd>0 || continue
+                v=root*(root[row,:]/sd);h=.001
+                linear=(target(u+h*v)-target(u-h*v))/(2h)
+                scores[j]=max(abs(target(u+v)-base-linear-.5),abs(target(u-v)-base+linear-.5))
+            end
+            old=findfirst(s->s.q==q,p.diagnostics.shape_checks)
+            discrepancy=old===nothing ? nothing : maximum(abs.(scores-p.diagnostics.shape_checks[old].scores))
+            # Repeated mode solves have finite score tolerances; record the discrepancy.
+            push!(checks,(q=q,maximum_defect=maximum(scores),scores=scores,
+                previous_check_difference=discrepancy,cell_mass=exp(masses[id]-d.log_normalizer)))
+        end
+        push!(reports,(method=method,checks=checks,maximum_defect=maximum(c.maximum_defect for c in checks),
+            cached_shape_pass=all(c.maximum_defect<=.25 for c in checks)))
+        println("CACHED SHAPE ",(method=method,defect=last(reports).maximum_defect));flush(stdout)
+    end
+    write(joinpath(@__DIR__,"late_two_cached_shape.json"),F.adaptive_strict_json((wall=time()-start,
+        additional_graph_fits=0,uses_exact_interpolation_nodes=true,reports=reports,
+        integration_qualified=false,target_validated=false,consistent=false)))
+end

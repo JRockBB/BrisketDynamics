@@ -1,0 +1,18 @@
+include(joinpath(@__DIR__,"../../estimator/scripts/curvature_audit.jl"))
+@testset "cooking innovation gradient against independent scalar differences" begin
+    for suite in (:two_core,:core,:full,:pit_core)
+        snap=deserialize(joinpath(@__DIR__,string(suite)*".jls"))
+        p=snap.result.candidate.transported
+        ref=deepcopy(p.components[argmax(p.source.weights)])
+        for f in ref.dynamics;f.relin_tol=0.;f.relin_tol_state=0.;end
+        n=size(ref.root,2)
+        for phase in (0.,1.)
+            q=normalize(sin.(collect(1:n).+phase));u=ref.mean+.2ref.root*q
+            a=innovation_target(ref,u;gradient=true);h=.001
+            fd=(innovation_target(ref,u+h*ref.root*q)-innovation_target(ref,u-h*ref.root*q))/(2h)
+            ad=dot(ref.root'*a.gradient,q)
+            println("GRADIENT ",suite," difference ",abs(fd-ad));flush(stdout)
+            @test isapprox(fd,ad;atol=2e-4,rtol=1e-4)
+        end
+    end
+end

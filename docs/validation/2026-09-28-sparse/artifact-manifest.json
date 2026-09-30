@@ -1,0 +1,1166 @@
+[
+    {
+        "path":  "analytic_interaction.json",
+        "sha256":  "bb92e5b53fa990798a3c2c493d9773329f92aa2f00b1b3a93b4ef698d2a66050"
+    },
+    {
+        "path":  "artifact_checks.json",
+        "sha256":  "9ea25439f83d0bf32e051538558afba7a7e4cb50317e551e81dbfe414ba02a22"
+    },
+    {
+        "path":  "benchmark-source-manifest.json",
+        "sha256":  "cff16e1e850074c14968e51ba2f3b1b400289f4eff2a48ce6c9425a0207e8edf"
+    },
+    {
+        "path":  "common_offgrid.json",
+        "sha256":  "faad3077c1050a04d070d64faff58c889b1ecd45709edbd2d5d60a03632589b9"
+    },
+    {
+        "path":  "common_offgrid_final.json",
+        "sha256":  "8ec0878b609a1341973b492b7074465b013d96468b40243ace4bbd5e6d6b9074"
+    },
+    {
+        "path":  "common_summary.json",
+        "sha256":  "dd3bfbf0099ad32a2eebc430157dd027b0057e55cee64d20d2fae9dea01fe432"
+    },
+    {
+        "path":  "core_degree64.json",
+        "sha256":  "f91c25f9bc6a7c9296f1b4d0497599d735a546adcd88db4006964d3b9cb74e90"
+    },
+    {
+        "path":  "core_sparse.json",
+        "sha256":  "09b40014f7753b54d8f62ab01103518fa1a9c998a3ea7721624edb6fa64d16d6"
+    },
+    {
+        "path":  "core_tensor.json",
+        "sha256":  "d4418d80c441bc4cec07766b6fa8a28ea3e0d437cba074bb7bf804f7709b8403"
+    },
+    {
+        "path":  "core_verified_capacity.json",
+        "sha256":  "9bf1725bacef8b4a122969b0e20a9de15c475f72de01a7c1eb6ba4e049be46cc"
+    },
+    {
+        "path":  "degree64_tests.json",
+        "sha256":  "bd662619a6e59d43b956b7157caab7de44c604112ae4185b6f43bdce1d370fac"
+    },
+    {
+        "path":  "degree64-source-archive-manifest.json",
+        "sha256":  "8ae3763b042fbc5f158d5e4790979b84235f7c8c114bc89f8f96c65521b0f526"
+    },
+    {
+        "path":  "drivers/01_tests.job.jl.done",
+        "sha256":  "fe90885e6c41a671b2defa6d3d994d64f5d6d34ead79ffc5dc90418539c5c4ae"
+    },
+    {
+        "path":  "drivers/02_tests.job.jl.done",
+        "sha256":  "f6a89505e37e6cc3be293aed4bd1df87bfb84d305fc49bf595a2ab2b9f32a4d5"
+    },
+    {
+        "path":  "drivers/03_bench_setup.job.jl.done",
+        "sha256":  "072b7a1157d9a1df5a13cc91e6b026eed294cf694c1f4433c5af6f1108ec55a0"
+    },
+    {
+        "path":  "drivers/04_diagnostics.job.jl.done",
+        "sha256":  "9cc52aac28a1e383070493e31b6ffd4c28975bf89cfb5c874c7fe5c773fb860a"
+    },
+    {
+        "path":  "drivers/05_regression.job.jl.done",
+        "sha256":  "ff40d8268463a67e15f061d7f1fa02c77440fab898f263b11a6e57239201928b"
+    },
+    {
+        "path":  "drivers/06_tests.job.jl.done",
+        "sha256":  "1a3edcbf5798e93076f8443bda19f4869ed40c5a3e15d2f66b759821990ecca4"
+    },
+    {
+        "path":  "drivers/07_bench_setup.job.jl.done",
+        "sha256":  "bf0b78a2632f9ae96e1b914f2973f23cb4a826df137d83425aa5e4c2b0cd162f"
+    },
+    {
+        "path":  "drivers/08_warmup.job.jl.done",
+        "sha256":  "dc09090f7b80790681f99cf3990ca3e02cd8a0bbbd30bed71c14840e573216a1"
+    },
+    {
+        "path":  "drivers/09_core.job.jl.done",
+        "sha256":  "2f3476e96a9abac06c900f934c43a2385addf966e11d06dcdbb51fc5a5719b49"
+    },
+    {
+        "path":  "drivers/10_late_two.job.jl.done",
+        "sha256":  "f402b080e191904d00a1164f378501e95be74304769ff38944c6c7e8be489583"
+    },
+    {
+        "path":  "drivers/11_full.job.jl.done",
+        "sha256":  "80dc9bce62f1ea47982791abfce7452bc2fb8fc2476737cdaa3f4152e8e71366"
+    },
+    {
+        "path":  "drivers/12_mapped.job.jl.done",
+        "sha256":  "2dd5d3ff0231893b1deb20c36dd2895b8d7848c50e419666ab47b0e0f8cdacbd"
+    },
+    {
+        "path":  "drivers/13_online.job.jl.done",
+        "sha256":  "5d42dc1fe577a59ebbb95d06fbcfb1b45c0ef43f06019ca042a896e974d57f63"
+    },
+    {
+        "path":  "drivers/14_capacity.job.jl.done",
+        "sha256":  "ec9eb839e8ed53f5d343b9b689a545c0fdba39d08fde4aa1fc72ffa83a8be14e"
+    },
+    {
+        "path":  "drivers/15_analytic.job.jl.done",
+        "sha256":  "a9ba8e97ebd8615981c2a80ecb83b5caca419e9fc3c614005edc1bce68fc27e9"
+    },
+    {
+        "path":  "drivers/15a_offgrid.job.jl.done",
+        "sha256":  "10bc615a74deb1dc00f94e02ffb4b9459b58551e82bf41fc429123c042421e7c"
+    },
+    {
+        "path":  "drivers/15b_smoothness.job.jl.done",
+        "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+        "path":  "drivers/15c_smoothness_tv.job.jl.done",
+        "sha256":  "5df1f27701ba495310fc4d5423dc33fbc57f7fe82fb42067439073e28acaf493"
+    },
+    {
+        "path":  "drivers/15d_smoothness_tv_refined.job.jl.done",
+        "sha256":  "8eef53fe78ac808aa60ca43d108d2e4c3e21c9606efce8d70d8e53fbb519f6b3"
+    },
+    {
+        "path":  "drivers/16_final_tests.job.jl.done",
+        "sha256":  "dc8bc5f9d2e032a393f67e1aab60740e448e57bfd207447077c1ecf6a7efd62c"
+    },
+    {
+        "path":  "drivers/18_promotion.job.jl.done",
+        "sha256":  "ae82004d557f75eae9ceac5c9a8a180f30a3e8296cad89d07e69feabe3893c2d"
+    },
+    {
+        "path":  "drivers/19_numerical.job.jl.done",
+        "sha256":  "7914abef17f81909eaa9424e0b06b7051dac340a80e00ae233c29a12f573580b"
+    },
+    {
+        "path":  "drivers/20_online_final.job.jl.done",
+        "sha256":  "8b6f9b5d66092abafc1678171b1b099aa782ba00c7f3872e52dbc506271f9633"
+    },
+    {
+        "path":  "drivers/21_mapped_final.job.jl.done",
+        "sha256":  "18ef687974510867868e9660026a5277d58c66a1cf49b4da5368a011cedd8680"
+    },
+    {
+        "path":  "drivers/22_local_tests.job.jl.done",
+        "sha256":  "8152390fc8e866705768b7d7b30a22b1cd42c4ef15c5f411ed95a977256c8a98"
+    },
+    {
+        "path":  "drivers/23_local_setup.job.jl.done",
+        "sha256":  "4fbc8a4a9d0deb9135f2128ab4a0121bbab23f8c514be839c2a329a12232f9db"
+    },
+    {
+        "path":  "drivers/24_local_online.job.jl.done",
+        "sha256":  "515e4a527af4c9a4e37791fc6bbf08d4d3b7025c635ebd7e7985d7a9941299fe"
+    },
+    {
+        "path":  "drivers/25_verified_tests.job.jl.done",
+        "sha256":  "8dc303d08fa12d07c8cc6b433b5468922f772dfdf88cff0cb46f6c61cb674f7c"
+    },
+    {
+        "path":  "drivers/26_common_final.job.jl.done",
+        "sha256":  "294c01b74f3f0c48c965632dc50d9d8d96bf30120ec27609fd76983cb8268f5a"
+    },
+    {
+        "path":  "drivers/27_hybrid_control.job.jl.done",
+        "sha256":  "d74d137ecc026cb2419b1885037cb68c9834c29898070bf2efe260569eecadec"
+    },
+    {
+        "path":  "drivers/28_artifact_audit.job.jl.done",
+        "sha256":  "e363564ed4af586997a517c3713b248658a0b15d9ad5ec61013dc12b9be5b124"
+    },
+    {
+        "path":  "drivers/29_verified_capacity.job.jl.done",
+        "sha256":  "230a79ae8f3f86510126172486d041c18a0452e94c5f091b850d84f5b84fc2fe"
+    },
+    {
+        "path":  "drivers/worker.jl",
+        "sha256":  "c9e02666889fb5e2c0b4792dcaa5360b507e50d0b3ce242fe6f9b4ba8d0527d4"
+    },
+    {
+        "path":  "final_numerical_audit.json",
+        "sha256":  "e2d617428fe75bc78bb4a510222a5d68a4716bf22a23eabff7f1423de4cfaf9e"
+    },
+    {
+        "path":  "final_tests.json",
+        "sha256":  "1ed7e07fce4593becfed2119e8329b7f0de6bbd95d232865d102bee6909c5d31"
+    },
+    {
+        "path":  "final-source-archive-manifest.json",
+        "sha256":  "956c065006b5d44fb38ed95510d41e2428643691cb1c97bfbd00ed6ab868ae6b"
+    },
+    {
+        "path":  "full_expanding.json",
+        "sha256":  "c230b35738bba56f9d03476a63093c2f047268b4be7f4325a51239ba66f158eb"
+    },
+    {
+        "path":  "full_sparse.json",
+        "sha256":  "8cd430475f79d3f82d90e45456db3320c54ffd70a5ed013755370241abc7a50a"
+    },
+    {
+        "path":  "hybrid_control.json",
+        "sha256":  "548b515bbbebefd16a8cebd85eeb1649622c5de154cbd848e8011a51852999e2"
+    },
+    {
+        "path":  "input-manifest.json",
+        "sha256":  "cd868fcc5e286c7b9e4d669301163f241b383cbc9310e50b2f33082aa9809dc0"
+    },
+    {
+        "path":  "late_two_mapped_final.json",
+        "sha256":  "e51cd260982545261c9e0cfd1c42074732d8270ab0f1b04018f107ad57ac3934"
+    },
+    {
+        "path":  "late_two_mapped_sparse.json",
+        "sha256":  "9f09b9987e9109114ad9c31b7f92e838d6112cf0707080df47447b18873300ff"
+    },
+    {
+        "path":  "late_two_sparse.json",
+        "sha256":  "8cc60d41151e6f6fa6aac8364f04447b3215b7b59d6cf7693341280232c62a9e"
+    },
+    {
+        "path":  "local-candidate-manifest.json",
+        "sha256":  "a0e5e7dc1183f40db76c9ed8fac66d11da3ac199f1bad4548bbefb916214101f"
+    },
+    {
+        "path":  "online_replay.json",
+        "sha256":  "25f688a45d02a2590fd264af75098ec7b36feac82de3a8db8ca2185545721801"
+    },
+    {
+        "path":  "online_replay_degree64.json",
+        "sha256":  "ed3f2180291d87514f9c572c48471dc0de1e85513fe96e23cc2b05ced29b8509"
+    },
+    {
+        "path":  "online_replay_final.json",
+        "sha256":  "943b7788153de06b7544afe2092743f62d7d5e4aa6ebd70643b50e930c0ce3b8"
+    },
+    {
+        "path":  "online-source-archive-manifest.json",
+        "sha256":  "e6796191a32274492cd7b2b68dd5caa33f33c651c88f0fa9b366031a718a4501"
+    },
+    {
+        "path":  "promotion_audit.json",
+        "sha256":  "6e9f568abe0495eafe8d05dc022e6880ff691051c99e5694ed00f963aaa1cb51"
+    },
+    {
+        "path":  "README.md",
+        "sha256":  "a32fac27d254e319d0c6c5d9c5d105861aa1637199ef5673e0382144fe1ad4ab"
+    },
+    {
+        "path":  "reproduce.jl",
+        "sha256":  "25e0ce5c1590d9eb7dc51ded30ea1ab22f029bd35b48f98700b70d0c873c663e"
+    },
+    {
+        "path":  "smoothness_control.json",
+        "sha256":  "e5b1e8277d9c7c36b4d8ea7671d4315f58b759eae84047e8bd35eec44493d2de"
+    },
+    {
+        "path":  "smoothness_tv.json",
+        "sha256":  "3efb94d41068be987f9799ad1eac5f361205c1de5240aa982b9712b861a56e85"
+    },
+    {
+        "path":  "smoothness_tv_refined.json",
+        "sha256":  "5f2a8185a9bec2d5605d0b99b41155cb5cfaac32791c1afc3263512ebe1407f7"
+    },
+    {
+        "path":  "source-manifest.json",
+        "sha256":  "2006929eee48320f93fce00ca64c526905b9bc4375cdb561e9b810f9fb2e1b70"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/sparse_conditional.jl",
+        "sha256":  "a56eed9692c1b1de71e1d2e3536714c75f7790bc346154fe5332d01853b71a2f"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/validate_sparse.jl",
+        "sha256":  "f12b8d510379ff839d9f3601191cd7ab9cf284a19213fc6bbe3aff2a83b0397b"
+    },
+    {
+        "path":  "sources/benchmark/estimator/scripts/validate_sparse_mapped.jl",
+        "sha256":  "225f8b8694141eb7c80f448c58a7d43868f515a1cb30e1e81ba45e3a3d680eed"
+    },
+    {
+        "path":  "sources/benchmark/estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+        "path":  "sources/benchmark/estimator/src/conditional_charts.jl",
+        "sha256":  "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+        "path":  "sources/benchmark/estimator/src/sparse_density.jl",
+        "sha256":  "7e307fbe6fdd4ab71972839c840a5bb5ffd040a6cbb33d6248757a0d63fd361f"
+    },
+    {
+        "path":  "sources/degree64/data/calibration/prior_next_cook.json",
+        "sha256":  "a6d481505e65d8ef11270dd7fd7b3f2e068fe026dea437ed0d5e0545901ef0a7"
+    },
+    {
+        "path":  "sources/degree64/docs/validation/2026-09-28-adaptive/plot_refinement.ps1",
+        "sha256":  "4a37eaf38a8f2524f437df7bb50d9d49722e8885d4144d2aa946e1415b1e7fcd"
+    },
+    {
+        "path":  "sources/degree64/docs/validation/2026-09-28-curvature/summarize.ps1",
+        "sha256":  "8299b2d07955d928941a736e9b2a4f85803b03b9ff548ee24cd1281a85592a55"
+    },
+    {
+        "path":  "sources/degree64/estimator/Manifest.toml",
+        "sha256":  "be5ca01d0b85b62dc5be6f821cf9ddc4e00176a07672de3cbf7f9cf011635336"
+    },
+    {
+        "path":  "sources/degree64/estimator/Project.toml",
+        "sha256":  "ab88594b11ffb7f01cbea886022181f64f398c35ff02a7210163842cb7d2be4e"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/consistency_control.jl",
+        "sha256":  "efe327ddec12711a2b9d384643fac6eb4583dd7aa326eb4a4ebaf00d5bc4d650"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/freeze_deterministic_failures.jl",
+        "sha256":  "24ae93f9cc2d637be670aa1aa8f906e1f8fb4aa84fe3c21e593afd946c5fcf2c"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/mapped_diagnostics.jl",
+        "sha256":  "c4a7a286953dda09aaa878469f2fd285f3e55712304fc11b4297821524c7fcbf"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/posterior_comparison.jl",
+        "sha256":  "29fea9dbb0137e5b6d84e6073a79b55f64511689a0cba3ecc3bf174f2f6cf2b1"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/sparse_conditional.jl",
+        "sha256":  "b593bf7e722d871f6db606afb154a5e2c72fac1fdd1445090fe18c5d13cc49ab"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/validate_deterministic.jl",
+        "sha256":  "189bf9117a3c687aea5c19223d567d5ea27a1e393058d1892313e67d59851b0b"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/validate_sampled_online.jl",
+        "sha256":  "74512c215f3dd94cdb2b48548ceb70c6f6903bd2893f151cd8a76b77d630efff"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/validate_sparse.jl",
+        "sha256":  "473cc4508a989c487656aec4f9350c87706ecdb5b984faa599f2b0fbd6427745"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/validate_sparse_mapped.jl",
+        "sha256":  "4aa5ba5abbe3042a7a6998b535d70fa166a8d2e474e69f4449ebe7cb8395e9fb"
+    },
+    {
+        "path":  "sources/degree64/estimator/scripts/validate_transport.jl",
+        "sha256":  "885095ed0357443dbf4287e337373bc7c358533880cfc64de6f7afdba9126bb4"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/als.jl",
+        "sha256":  "59d0f3a0c4c5023320a8ebca0f346efba942cc4b2951ec9d333196ec96901033"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/bench_fit.jl",
+        "sha256":  "f831ad22377a3f154231418ed4b2b33416362e35239e242563f013b0ed062a10"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/BrisketEstimator.jl",
+        "sha256":  "641f25068a4ed141bf5dc04c28f20f1fa5e41b1a21e3f22989804f41c5b90e83"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/channels.jl",
+        "sha256":  "86174e867c9d8a24179aa95396122e688d786fc8e8fdc09b7ce81e4a1c149f73"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/conditional.jl",
+        "sha256":  "d49f857d6b8bd864d9f2ab795f9537c26adf699052c76ea55ec2981ce7f8bf1a"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/conditional_charts.jl",
+        "sha256":  "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/conditional_density.jl",
+        "sha256":  "ed81352d3bbb74e46eea70ac746ca65890091fc6af49e33dae132735c2a66a0e"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/conditional_online.jl",
+        "sha256":  "b5a37aea78918c9e8b020bebf61c1a0ce05f4bbd84185ce72245c199366a136e"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/conditional_transport.jl",
+        "sha256":  "50cbd7a846d256d2bf9932247dab9ecd01738fe144057b2f263e9a1e0f07641e"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/deterministic_online.jl",
+        "sha256":  "28f5ba3e8f28b0f89296182a5583f01c5c2c2fb408a2e464eaf53cfca0183383"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/drift.jl",
+        "sha256":  "7c13ade3f3c2c026f10ddf5986af88cf111b5f25b794cb875d565e5f9c61ca57"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/factors.jl",
+        "sha256":  "b07851fa7440ba3dfda32e75dc1bc6fedae9c9c014a8a21290667c9e10237bf3"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/horizon.jl",
+        "sha256":  "f9ac37745577cd03c46062cab29e27f059a5fa4d255061c41455b720d5ee17cd"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/iterated.jl",
+        "sha256":  "70f9c47aa615d7aef59ad10fc7db0530e2b5db7730c2ef6a11ae8b1cebef6485"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/misfit.jl",
+        "sha256":  "a1253b29ccab62b7bf773ed3ecb516fdf549e9dac6d80dec10d5418b2d25e818"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/noise.jl",
+        "sha256":  "640bf2837f4f605d6efdb30f2eb39c46002ddcba97189bd6b2a79ef7130ef3ba"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/noise_marginal.jl",
+        "sha256":  "7fb0b3c27f3d01577bf0de684edc7fe741d81f7f44d188b80cdb91b74d824728"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/offline.jl",
+        "sha256":  "5a91ad0d5d307bc77ff493d03200b874704a672387237ba37cd0d2efa5a3e15b"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/online.jl",
+        "sha256":  "67eca97805f6971cdc394618f31ee0dc0e44b94f84b2e67cbaa594a3cb9522de"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/particle_online.jl",
+        "sha256":  "4ee25dc26689432c6abf1a51a3e229233364a41b57de2e504f9606369a578dd4"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/physics2d.jl",
+        "sha256":  "5ae8f205e605070e157b0f2d91b5b33029f9c23f4d39d729632da2222f9ae811"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/plan_system.jl",
+        "sha256":  "3f14e0689b705008d4c0d1d9a563ec1facecd074cbd760c42ad915f59037c157"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/posterior_sampling.jl",
+        "sha256":  "bae9032e0aa21efe60e1637e742390716f229f7f6c07fe28d240780d9aaebe75"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/posterior_smc.jl",
+        "sha256":  "adfd99beb822f15f151795ad2c3f07f69af9b833981f9c022a45c72ae15ac9e1"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/realcook.jl",
+        "sha256":  "8a2cefa928167fb8af383a8c328ad7550b52115607e386e7e68b1e4f3ab34ca6"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/ridge.jl",
+        "sha256":  "4eb3bcaccce8855c8c1721995c05eef0b1af5eccc98047571549a3f26f90768d"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/rom.jl",
+        "sha256":  "6c461b073a03603d2c4631ed92899ae1cc000b379a5b4f27c13a5da793532565"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/sampled_offline.jl",
+        "sha256":  "0ba7af379ccb48d127f27ae28c8fd8e0372160b50d61512ade41e10cdab82a99"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/sampled_online.jl",
+        "sha256":  "e4013eb5ce0c0830a2258c13868078a3c4b3c7f73b811f1bdd6b23ac66908f37"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/sampled_planning.jl",
+        "sha256":  "889d14fe73b5a5228ee424ec5298468d636e7b12909b0a434e1aafb3f5cd9a4d"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/segments.jl",
+        "sha256":  "8e40ec1f0984ae59cd0c5e01b717a408c36afb171c01dba6ff6a96b465534c29"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/semantic.jl",
+        "sha256":  "e6eaedfdd206a604347da8d5a9039c93a4d1b3c3e1ff61651ff75b69e0d85e57"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/sequential.jl",
+        "sha256":  "31b9c1d58b7584c7e6728ca6ff7846ae5e790e1ff57ecdb4e48379c033374d32"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/smoother.jl",
+        "sha256":  "878f00eb4c141c86bf5d36c278cda12990e1b1d8947b97ed62cef9cd7b66c160"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/sparse_density.jl",
+        "sha256":  "892b4422d1ffbc713bd0ab4ef015db94e3d01a492e05941dea5ce904081c3f0c"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/stream.jl",
+        "sha256":  "7c2d55b4cd9e256a8d73bdfef37787c7325dcf0902f9ae0c8f0e8ad2161b3351"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/system_state.jl",
+        "sha256":  "668a6626e6aaa4bd670c45581ada11b40eed58aaea37073664c34831600ded68"
+    },
+    {
+        "path":  "sources/degree64/estimator/src/volatility.jl",
+        "sha256":  "112a77180b85cbb9bc8cc28c9e7830026b85c2eff1445d71c6edddaae04d1b90"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_adaptive_conditional.jl",
+        "sha256":  "4dcac545673e50e007b9601e3ff5b91e74d7eeee6ac5b2372988baf41b0909a2"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_adaptive_curvature.jl",
+        "sha256":  "02ef94f7a437fa5c1ff0ab51e5734b963d3c116873b104c25a670d907376f255"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_adaptive_density.jl",
+        "sha256":  "27d90033aab4972f8f801b91f53c3e33fa0591e74441a7af4f9513d7c73470c9"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_conditional.jl",
+        "sha256":  "a2f804c414da294b4edc5bb2e5b62b9295fc4c5af9e644e785dadf0684a738c2"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_conditional_charts.jl",
+        "sha256":  "60cfda11f3ec73cb918663e700dd39832f3c285e9023c1ff1cc5337728765496"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_conditional_density.jl",
+        "sha256":  "bd4a54e3adc004b7e4b3c01503c78fd173fa0c703ec888630570407e71074928"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_conditional_online.jl",
+        "sha256":  "76254564da9b50c2fbb96e0db7f5ddd079bc8b51c5398fe561887f3b6be6d9bd"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_consistency.jl",
+        "sha256":  "f09716655d5f33c42d0500d3a1ee0f1a1046307793ef5b7a0f502f7293f28749"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_curvature_audit.jl",
+        "sha256":  "39e2512d6ce18861f85219d949bebbe23f9e9780bad0b10ee1ff1ec1e0ee86fd"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_deterministic_online.jl",
+        "sha256":  "bb8c557821b1cdb7fb205f7c2835bc9811ad16c3a54b5e9d6c4bf92b1e38bf27"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_factors.jl",
+        "sha256":  "bbe358532f4781f0114e9a46887f07b825745f5f41eee5973daa56cefe8f6039"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_mapped_conditional.jl",
+        "sha256":  "f221ccb838decb921de7b57fcd2c9fed055b8e70ba11d094989f295b8537ee31"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_sparse_conditional.jl",
+        "sha256":  "2364f454020b4c36af57a9ee18ec2d9faf2899ee16d08601eb9dfa578d14b938"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_sparse_density.jl",
+        "sha256":  "3da3fe3eb1aaf0be0965fc195960a42254c126d88c8b9f468d62feace63e33a3"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_target_ownership.jl",
+        "sha256":  "b8a5561a190050e8efeda1ec18f2ba45f9d22132549a39c66adf353df9a9a180"
+    },
+    {
+        "path":  "sources/degree64/estimator/test/test_transport_budget.jl",
+        "sha256":  "8f8e2768f2d3bfe98f176e35fc1d22db88b08167a762441c2ba95e6ed8c12c64"
+    },
+    {
+        "path":  "sources/degree64/src/BrisketDynamics.jl",
+        "sha256":  "29db495ff60e3dba133a4e182ed5173ed1991c2129b89bc9bd2ec36970d0a193"
+    },
+    {
+        "path":  "sources/degree64/src/cookers/common.jl",
+        "sha256":  "1b7f4dc1ef415965ee9cb6dc19517a906241d45beb5d608c2909b70517c75fc3"
+    },
+    {
+        "path":  "sources/degree64/src/cookers/offset.jl",
+        "sha256":  "9648f756bd6399a8e758f36d88c4a9e1a196988f1c1cf9c62d6c0a0cb385efef"
+    },
+    {
+        "path":  "sources/degree64/src/cookers/pellet.jl",
+        "sha256":  "ccf03039283519d4e117eb1f1643cc1e792440609debff18a71a63da20c35efb"
+    },
+    {
+        "path":  "sources/degree64/src/cookers/pibil.jl",
+        "sha256":  "ed54a1b943b6c257442348c46951fc63b824f747563d1d2e6b24ff63f7c2a3ee"
+    },
+    {
+        "path":  "sources/degree64/src/cookers/smoker.jl",
+        "sha256":  "8501986681aeac902f2a5e701ffe71ba1e2f54416df72594a2af5c71439b7bb8"
+    },
+    {
+        "path":  "sources/degree64/src/cookers/sous_vide.jl",
+        "sha256":  "80cdc01109c47653d1066471ce5dba4039c3cf4e149341baf3c77448a9308ed9"
+    },
+    {
+        "path":  "sources/degree64/src/interpolation.jl",
+        "sha256":  "a437fd5b458cdb644b7406c56ad262efc2bc62b6796edb80019407c6c5e43200"
+    },
+    {
+        "path":  "sources/degree64/src/meats/brisket.jl",
+        "sha256":  "c0c35439b20f26502e561f038e09db579301c8fc2608dc1bf047bb1d4b45d0cb"
+    },
+    {
+        "path":  "sources/degree64/src/meats/chicken.jl",
+        "sha256":  "730e7af9bb7ef94d24c542594468039db26c857b38bbfda28028551655001fe3"
+    },
+    {
+        "path":  "sources/degree64/src/meats/common.jl",
+        "sha256":  "3a8922d8c9586ddc8416586c2653da09cf12a308997a122345ae8e4c0d8c5a56"
+    },
+    {
+        "path":  "sources/degree64/src/meats/grid3d.jl",
+        "sha256":  "d15681a32bc3c32f4e71dc6eb727cf9bca2620209fd93d81531c2185a40714e8"
+    },
+    {
+        "path":  "sources/degree64/src/meats/newman.jl",
+        "sha256":  "9d22642e0f348c8751dc6bfc5613d16366aa17a5476b9ca2a61dee2ddc14c808"
+    },
+    {
+        "path":  "sources/degree64/src/meats/pork_butt.jl",
+        "sha256":  "0d1410a7ca2d01f8d702c54b539cf9018179a23be6010167d643b963de1ac03c"
+    },
+    {
+        "path":  "sources/degree64/src/meats/ribs.jl",
+        "sha256":  "20c4aaa14b6fbe8918e9ec9e88b22dc532af148de9231dc91b6685c1c5d40f01"
+    },
+    {
+        "path":  "sources/degree64/src/meats/salmon.jl",
+        "sha256":  "cdb257208e5cc4b572ebfd034156eb13d6dcfd3de1def3c2a16351436bbb52e7"
+    },
+    {
+        "path":  "sources/degree64/src/meats/sausage.jl",
+        "sha256":  "6e0fa9d7d0f28cd05cf3db676b42c2d36e1cd783f3eef1df1c3fcf429a217424"
+    },
+    {
+        "path":  "sources/degree64/src/meats/slab2d.jl",
+        "sha256":  "945f1c21ef39ba16a0b7f0aebba98272c2c697d4fda7c29c29b440a69aca4724"
+    },
+    {
+        "path":  "sources/degree64/src/monolith.jl",
+        "sha256":  "806d9a8ed9c60c5ae5bb068bf5db5a4e955739e64befb9b786f313f811bec520"
+    },
+    {
+        "path":  "sources/degree64/src/system.jl",
+        "sha256":  "61390a0ba643d13e57063e0093a358190d39e1778dd1f6f85d85e8fada5ed523"
+    },
+    {
+        "path":  "sources/degree64/src/thermophysics.jl",
+        "sha256":  "cf5fa23825628315bdd1feebbdb6e3c847d1d411c38a254dc36899c3f6a98599"
+    },
+    {
+        "path":  "sources/final/data/calibration/prior_next_cook.json",
+        "sha256":  "a6d481505e65d8ef11270dd7fd7b3f2e068fe026dea437ed0d5e0545901ef0a7"
+    },
+    {
+        "path":  "sources/final/docs/validation/2026-09-28-adaptive/plot_refinement.ps1",
+        "sha256":  "4a37eaf38a8f2524f437df7bb50d9d49722e8885d4144d2aa946e1415b1e7fcd"
+    },
+    {
+        "path":  "sources/final/docs/validation/2026-09-28-curvature/summarize.ps1",
+        "sha256":  "8299b2d07955d928941a736e9b2a4f85803b03b9ff548ee24cd1281a85592a55"
+    },
+    {
+        "path":  "sources/final/estimator/Manifest.toml",
+        "sha256":  "be5ca01d0b85b62dc5be6f821cf9ddc4e00176a07672de3cbf7f9cf011635336"
+    },
+    {
+        "path":  "sources/final/estimator/Project.toml",
+        "sha256":  "ab88594b11ffb7f01cbea886022181f64f398c35ff02a7210163842cb7d2be4e"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/consistency_control.jl",
+        "sha256":  "efe327ddec12711a2b9d384643fac6eb4583dd7aa326eb4a4ebaf00d5bc4d650"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/freeze_deterministic_failures.jl",
+        "sha256":  "24ae93f9cc2d637be670aa1aa8f906e1f8fb4aa84fe3c21e593afd946c5fcf2c"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/mapped_diagnostics.jl",
+        "sha256":  "c4a7a286953dda09aaa878469f2fd285f3e55712304fc11b4297821524c7fcbf"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/posterior_comparison.jl",
+        "sha256":  "29fea9dbb0137e5b6d84e6073a79b55f64511689a0cba3ecc3bf174f2f6cf2b1"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/sparse_conditional.jl",
+        "sha256":  "52179d3c6c86024e0b2b7b96677c113d7742be19ea59a1565c8d5771d15a4f61"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/validate_deterministic.jl",
+        "sha256":  "189bf9117a3c687aea5c19223d567d5ea27a1e393058d1892313e67d59851b0b"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/validate_sampled_online.jl",
+        "sha256":  "74512c215f3dd94cdb2b48548ceb70c6f6903bd2893f151cd8a76b77d630efff"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/validate_sparse.jl",
+        "sha256":  "ec9f5ffd1ca5cac89e94878a40cb854c2319532e4e803ff59b169106cc464b02"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/validate_sparse_mapped.jl",
+        "sha256":  "8c6b021239c5b17253d4c47b1d1436cb73f4e5c6df4400a49ab621ad0e471827"
+    },
+    {
+        "path":  "sources/final/estimator/scripts/validate_transport.jl",
+        "sha256":  "885095ed0357443dbf4287e337373bc7c358533880cfc64de6f7afdba9126bb4"
+    },
+    {
+        "path":  "sources/final/estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+        "path":  "sources/final/estimator/src/als.jl",
+        "sha256":  "59d0f3a0c4c5023320a8ebca0f346efba942cc4b2951ec9d333196ec96901033"
+    },
+    {
+        "path":  "sources/final/estimator/src/bench_fit.jl",
+        "sha256":  "f831ad22377a3f154231418ed4b2b33416362e35239e242563f013b0ed062a10"
+    },
+    {
+        "path":  "sources/final/estimator/src/BrisketEstimator.jl",
+        "sha256":  "641f25068a4ed141bf5dc04c28f20f1fa5e41b1a21e3f22989804f41c5b90e83"
+    },
+    {
+        "path":  "sources/final/estimator/src/channels.jl",
+        "sha256":  "86174e867c9d8a24179aa95396122e688d786fc8e8fdc09b7ce81e4a1c149f73"
+    },
+    {
+        "path":  "sources/final/estimator/src/conditional.jl",
+        "sha256":  "d49f857d6b8bd864d9f2ab795f9537c26adf699052c76ea55ec2981ce7f8bf1a"
+    },
+    {
+        "path":  "sources/final/estimator/src/conditional_charts.jl",
+        "sha256":  "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+        "path":  "sources/final/estimator/src/conditional_density.jl",
+        "sha256":  "ed81352d3bbb74e46eea70ac746ca65890091fc6af49e33dae132735c2a66a0e"
+    },
+    {
+        "path":  "sources/final/estimator/src/conditional_online.jl",
+        "sha256":  "b5a37aea78918c9e8b020bebf61c1a0ce05f4bbd84185ce72245c199366a136e"
+    },
+    {
+        "path":  "sources/final/estimator/src/conditional_transport.jl",
+        "sha256":  "50cbd7a846d256d2bf9932247dab9ecd01738fe144057b2f263e9a1e0f07641e"
+    },
+    {
+        "path":  "sources/final/estimator/src/deterministic_online.jl",
+        "sha256":  "28f5ba3e8f28b0f89296182a5583f01c5c2c2fb408a2e464eaf53cfca0183383"
+    },
+    {
+        "path":  "sources/final/estimator/src/drift.jl",
+        "sha256":  "7c13ade3f3c2c026f10ddf5986af88cf111b5f25b794cb875d565e5f9c61ca57"
+    },
+    {
+        "path":  "sources/final/estimator/src/factors.jl",
+        "sha256":  "b07851fa7440ba3dfda32e75dc1bc6fedae9c9c014a8a21290667c9e10237bf3"
+    },
+    {
+        "path":  "sources/final/estimator/src/horizon.jl",
+        "sha256":  "f9ac37745577cd03c46062cab29e27f059a5fa4d255061c41455b720d5ee17cd"
+    },
+    {
+        "path":  "sources/final/estimator/src/iterated.jl",
+        "sha256":  "70f9c47aa615d7aef59ad10fc7db0530e2b5db7730c2ef6a11ae8b1cebef6485"
+    },
+    {
+        "path":  "sources/final/estimator/src/misfit.jl",
+        "sha256":  "a1253b29ccab62b7bf773ed3ecb516fdf549e9dac6d80dec10d5418b2d25e818"
+    },
+    {
+        "path":  "sources/final/estimator/src/noise.jl",
+        "sha256":  "640bf2837f4f605d6efdb30f2eb39c46002ddcba97189bd6b2a79ef7130ef3ba"
+    },
+    {
+        "path":  "sources/final/estimator/src/noise_marginal.jl",
+        "sha256":  "7fb0b3c27f3d01577bf0de684edc7fe741d81f7f44d188b80cdb91b74d824728"
+    },
+    {
+        "path":  "sources/final/estimator/src/offline.jl",
+        "sha256":  "5a91ad0d5d307bc77ff493d03200b874704a672387237ba37cd0d2efa5a3e15b"
+    },
+    {
+        "path":  "sources/final/estimator/src/online.jl",
+        "sha256":  "67eca97805f6971cdc394618f31ee0dc0e44b94f84b2e67cbaa594a3cb9522de"
+    },
+    {
+        "path":  "sources/final/estimator/src/particle_online.jl",
+        "sha256":  "4ee25dc26689432c6abf1a51a3e229233364a41b57de2e504f9606369a578dd4"
+    },
+    {
+        "path":  "sources/final/estimator/src/physics2d.jl",
+        "sha256":  "5ae8f205e605070e157b0f2d91b5b33029f9c23f4d39d729632da2222f9ae811"
+    },
+    {
+        "path":  "sources/final/estimator/src/plan_system.jl",
+        "sha256":  "3f14e0689b705008d4c0d1d9a563ec1facecd074cbd760c42ad915f59037c157"
+    },
+    {
+        "path":  "sources/final/estimator/src/posterior_sampling.jl",
+        "sha256":  "bae9032e0aa21efe60e1637e742390716f229f7f6c07fe28d240780d9aaebe75"
+    },
+    {
+        "path":  "sources/final/estimator/src/posterior_smc.jl",
+        "sha256":  "adfd99beb822f15f151795ad2c3f07f69af9b833981f9c022a45c72ae15ac9e1"
+    },
+    {
+        "path":  "sources/final/estimator/src/realcook.jl",
+        "sha256":  "8a2cefa928167fb8af383a8c328ad7550b52115607e386e7e68b1e4f3ab34ca6"
+    },
+    {
+        "path":  "sources/final/estimator/src/ridge.jl",
+        "sha256":  "4eb3bcaccce8855c8c1721995c05eef0b1af5eccc98047571549a3f26f90768d"
+    },
+    {
+        "path":  "sources/final/estimator/src/rom.jl",
+        "sha256":  "6c461b073a03603d2c4631ed92899ae1cc000b379a5b4f27c13a5da793532565"
+    },
+    {
+        "path":  "sources/final/estimator/src/sampled_offline.jl",
+        "sha256":  "0ba7af379ccb48d127f27ae28c8fd8e0372160b50d61512ade41e10cdab82a99"
+    },
+    {
+        "path":  "sources/final/estimator/src/sampled_online.jl",
+        "sha256":  "e4013eb5ce0c0830a2258c13868078a3c4b3c7f73b811f1bdd6b23ac66908f37"
+    },
+    {
+        "path":  "sources/final/estimator/src/sampled_planning.jl",
+        "sha256":  "889d14fe73b5a5228ee424ec5298468d636e7b12909b0a434e1aafb3f5cd9a4d"
+    },
+    {
+        "path":  "sources/final/estimator/src/segments.jl",
+        "sha256":  "8e40ec1f0984ae59cd0c5e01b717a408c36afb171c01dba6ff6a96b465534c29"
+    },
+    {
+        "path":  "sources/final/estimator/src/semantic.jl",
+        "sha256":  "e6eaedfdd206a604347da8d5a9039c93a4d1b3c3e1ff61651ff75b69e0d85e57"
+    },
+    {
+        "path":  "sources/final/estimator/src/sequential.jl",
+        "sha256":  "31b9c1d58b7584c7e6728ca6ff7846ae5e790e1ff57ecdb4e48379c033374d32"
+    },
+    {
+        "path":  "sources/final/estimator/src/smoother.jl",
+        "sha256":  "878f00eb4c141c86bf5d36c278cda12990e1b1d8947b97ed62cef9cd7b66c160"
+    },
+    {
+        "path":  "sources/final/estimator/src/sparse_density.jl",
+        "sha256":  "98c63a40cee1383e4d6b719940b42bb4d95624f21ed7631adb23660ee37fbc9e"
+    },
+    {
+        "path":  "sources/final/estimator/src/stream.jl",
+        "sha256":  "7c2d55b4cd9e256a8d73bdfef37787c7325dcf0902f9ae0c8f0e8ad2161b3351"
+    },
+    {
+        "path":  "sources/final/estimator/src/system_state.jl",
+        "sha256":  "668a6626e6aaa4bd670c45581ada11b40eed58aaea37073664c34831600ded68"
+    },
+    {
+        "path":  "sources/final/estimator/src/volatility.jl",
+        "sha256":  "112a77180b85cbb9bc8cc28c9e7830026b85c2eff1445d71c6edddaae04d1b90"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_adaptive_conditional.jl",
+        "sha256":  "4dcac545673e50e007b9601e3ff5b91e74d7eeee6ac5b2372988baf41b0909a2"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_adaptive_curvature.jl",
+        "sha256":  "02ef94f7a437fa5c1ff0ab51e5734b963d3c116873b104c25a670d907376f255"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_adaptive_density.jl",
+        "sha256":  "27d90033aab4972f8f801b91f53c3e33fa0591e74441a7af4f9513d7c73470c9"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_conditional.jl",
+        "sha256":  "a2f804c414da294b4edc5bb2e5b62b9295fc4c5af9e644e785dadf0684a738c2"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_conditional_charts.jl",
+        "sha256":  "60cfda11f3ec73cb918663e700dd39832f3c285e9023c1ff1cc5337728765496"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_conditional_density.jl",
+        "sha256":  "bd4a54e3adc004b7e4b3c01503c78fd173fa0c703ec888630570407e71074928"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_conditional_online.jl",
+        "sha256":  "76254564da9b50c2fbb96e0db7f5ddd079bc8b51c5398fe561887f3b6be6d9bd"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_consistency.jl",
+        "sha256":  "f09716655d5f33c42d0500d3a1ee0f1a1046307793ef5b7a0f502f7293f28749"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_curvature_audit.jl",
+        "sha256":  "39e2512d6ce18861f85219d949bebbe23f9e9780bad0b10ee1ff1ec1e0ee86fd"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_deterministic_online.jl",
+        "sha256":  "bb8c557821b1cdb7fb205f7c2835bc9811ad16c3a54b5e9d6c4bf92b1e38bf27"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_factors.jl",
+        "sha256":  "bbe358532f4781f0114e9a46887f07b825745f5f41eee5973daa56cefe8f6039"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_mapped_conditional.jl",
+        "sha256":  "f221ccb838decb921de7b57fcd2c9fed055b8e70ba11d094989f295b8537ee31"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_sparse_conditional.jl",
+        "sha256":  "5197e8e8c356b87b2ff8d50b33c85886ff9ac9e18ede8864837f7a156d2d2f57"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_sparse_density.jl",
+        "sha256":  "a86e8a8f0ad79b539c20999222d6d7ff3c8c5717aab7529c2c5a071b416834c7"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_target_ownership.jl",
+        "sha256":  "b8a5561a190050e8efeda1ec18f2ba45f9d22132549a39c66adf353df9a9a180"
+    },
+    {
+        "path":  "sources/final/estimator/test/test_transport_budget.jl",
+        "sha256":  "8f8e2768f2d3bfe98f176e35fc1d22db88b08167a762441c2ba95e6ed8c12c64"
+    },
+    {
+        "path":  "sources/final/src/BrisketDynamics.jl",
+        "sha256":  "29db495ff60e3dba133a4e182ed5173ed1991c2129b89bc9bd2ec36970d0a193"
+    },
+    {
+        "path":  "sources/final/src/cookers/common.jl",
+        "sha256":  "1b7f4dc1ef415965ee9cb6dc19517a906241d45beb5d608c2909b70517c75fc3"
+    },
+    {
+        "path":  "sources/final/src/cookers/offset.jl",
+        "sha256":  "9648f756bd6399a8e758f36d88c4a9e1a196988f1c1cf9c62d6c0a0cb385efef"
+    },
+    {
+        "path":  "sources/final/src/cookers/pellet.jl",
+        "sha256":  "ccf03039283519d4e117eb1f1643cc1e792440609debff18a71a63da20c35efb"
+    },
+    {
+        "path":  "sources/final/src/cookers/pibil.jl",
+        "sha256":  "ed54a1b943b6c257442348c46951fc63b824f747563d1d2e6b24ff63f7c2a3ee"
+    },
+    {
+        "path":  "sources/final/src/cookers/smoker.jl",
+        "sha256":  "8501986681aeac902f2a5e701ffe71ba1e2f54416df72594a2af5c71439b7bb8"
+    },
+    {
+        "path":  "sources/final/src/cookers/sous_vide.jl",
+        "sha256":  "80cdc01109c47653d1066471ce5dba4039c3cf4e149341baf3c77448a9308ed9"
+    },
+    {
+        "path":  "sources/final/src/interpolation.jl",
+        "sha256":  "a437fd5b458cdb644b7406c56ad262efc2bc62b6796edb80019407c6c5e43200"
+    },
+    {
+        "path":  "sources/final/src/meats/brisket.jl",
+        "sha256":  "c0c35439b20f26502e561f038e09db579301c8fc2608dc1bf047bb1d4b45d0cb"
+    },
+    {
+        "path":  "sources/final/src/meats/chicken.jl",
+        "sha256":  "730e7af9bb7ef94d24c542594468039db26c857b38bbfda28028551655001fe3"
+    },
+    {
+        "path":  "sources/final/src/meats/common.jl",
+        "sha256":  "3a8922d8c9586ddc8416586c2653da09cf12a308997a122345ae8e4c0d8c5a56"
+    },
+    {
+        "path":  "sources/final/src/meats/grid3d.jl",
+        "sha256":  "d15681a32bc3c32f4e71dc6eb727cf9bca2620209fd93d81531c2185a40714e8"
+    },
+    {
+        "path":  "sources/final/src/meats/newman.jl",
+        "sha256":  "9d22642e0f348c8751dc6bfc5613d16366aa17a5476b9ca2a61dee2ddc14c808"
+    },
+    {
+        "path":  "sources/final/src/meats/pork_butt.jl",
+        "sha256":  "0d1410a7ca2d01f8d702c54b539cf9018179a23be6010167d643b963de1ac03c"
+    },
+    {
+        "path":  "sources/final/src/meats/ribs.jl",
+        "sha256":  "20c4aaa14b6fbe8918e9ec9e88b22dc532af148de9231dc91b6685c1c5d40f01"
+    },
+    {
+        "path":  "sources/final/src/meats/salmon.jl",
+        "sha256":  "cdb257208e5cc4b572ebfd034156eb13d6dcfd3de1def3c2a16351436bbb52e7"
+    },
+    {
+        "path":  "sources/final/src/meats/sausage.jl",
+        "sha256":  "6e0fa9d7d0f28cd05cf3db676b42c2d36e1cd783f3eef1df1c3fcf429a217424"
+    },
+    {
+        "path":  "sources/final/src/meats/slab2d.jl",
+        "sha256":  "945f1c21ef39ba16a0b7f0aebba98272c2c697d4fda7c29c29b440a69aca4724"
+    },
+    {
+        "path":  "sources/final/src/monolith.jl",
+        "sha256":  "806d9a8ed9c60c5ae5bb068bf5db5a4e955739e64befb9b786f313f811bec520"
+    },
+    {
+        "path":  "sources/final/src/system.jl",
+        "sha256":  "61390a0ba643d13e57063e0093a358190d39e1778dd1f6f85d85e8fada5ed523"
+    },
+    {
+        "path":  "sources/final/src/thermophysics.jl",
+        "sha256":  "cf5fa23825628315bdd1feebbdb6e3c847d1d411c38a254dc36899c3f6a98599"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/sparse_conditional.jl",
+        "sha256":  "52179d3c6c86024e0b2b7b96677c113d7742be19ea59a1565c8d5771d15a4f61"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/validate_sparse.jl",
+        "sha256":  "ec9f5ffd1ca5cac89e94878a40cb854c2319532e4e803ff59b169106cc464b02"
+    },
+    {
+        "path":  "sources/online/estimator/scripts/validate_sparse_mapped.jl",
+        "sha256":  "8c6b021239c5b17253d4c47b1d1436cb73f4e5c6df4400a49ab621ad0e471827"
+    },
+    {
+        "path":  "sources/online/estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+        "path":  "sources/online/estimator/src/conditional_charts.jl",
+        "sha256":  "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+        "path":  "sources/online/estimator/src/sparse_density.jl",
+        "sha256":  "b9fa86cd954bc6166cdd86a4974544d78a42db72ad3800fd1a48e65616a3331e"
+    },
+    {
+        "path":  "summary.json",
+        "sha256":  "0e86afa6df013e7e6cec09417db68cdf929ac833a8c518c15c150d144989d849"
+    },
+    {
+        "path":  "two_core_degree64.json",
+        "sha256":  "bcb9ec7d10d3279b9b8f51daa15603a9ae26736a9b5e0df575d75ff3f6b104bf"
+    },
+    {
+        "path":  "two_core_verified_capacity.json",
+        "sha256":  "0dd852b8f3fa5e161248d0107e5185436f3272d66f09a3608c92d5f8dde923cb"
+    },
+    {
+        "path":  "verify.ps1",
+        "sha256":  "0e5f2efa468b53baee0c1a52b806cd8fb5c9d4ea64e6a0dbc445e7ceae06c335"
+    },
+    {
+        "path":  "worker.err",
+        "sha256":  "44de9069d25f1f88706a0a67592a19a3b75337d4a342f5d4ca73ea6e563cba58"
+    },
+    {
+        "path":  "worker.log",
+        "sha256":  "498466a80b78431636cbc013f2cf94a60ff3a597ac3a0fb6bf52b2fae78fd7c6"
+    }
+]

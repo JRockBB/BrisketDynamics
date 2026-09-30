@@ -1,0 +1,54 @@
+{
+  "errors": 0.0,
+  "fails": 0.0,
+  "files": [
+    "test_adaptive_density.jl",
+    "test_adaptive_conditional.jl",
+    "test_adaptive_curvature.jl",
+    "test_conditional_charts.jl",
+    "test_mapped_conditional.jl",
+    "test_transport_budget.jl",
+    "test_target_ownership.jl",
+    "test_sparse_density.jl",
+    "test_sparse_conditional.jl"
+  ],
+  "hashes": [
+    {
+      "path": "estimator/test/test_adaptive_density.jl",
+      "sha256": "27d90033aab4972f8f801b91f53c3e33fa0591e74441a7af4f9513d7c73470c9"
+    },
+    {
+      "path": "estimator/test/test_adaptive_conditional.jl",
+      "sha256": "4dcac545673e50e007b9601e3ff5b91e74d7eeee6ac5b2372988baf41b0909a2"
+    },
+    {
+      "path": "estimator/test/test_adaptive_curvature.jl",
+      "sha256": "02ef94f7a437fa5c1ff0ab51e5734b963d3c116873b104c25a670d907376f255"
+    },
+    {
+      "path": "estimator/test/test_conditional_charts.jl",
+      "sha256": "60cfda11f3ec73cb918663e700dd39832f3c285e9023c1ff1cc5337728765496"
+    },
+    {
+      "path": "estimator/test/test_mapped_conditional.jl",
+      "sha256": "f221ccb838decb921de7b57fcd2c9fed055b8e70ba11d094989f295b8537ee31"
+    },
+    {
+      "path": "estimator/test/test_transport_budget.jl",
+      "sha256": "8f8e2768f2d3bfe98f176e35fc1d22db88b08167a762441c2ba95e6ed8c12c64"
+    },
+    {
+      "path": "estimator/test/test_target_ownership.jl",
+      "sha256": "b8a5561a190050e8efeda1ec18f2ba45f9d22132549a39c66adf353df9a9a180"
+    },
+    {
+      "path": "estimator/test/test_sparse_density.jl",
+      "sha256": "a86e8a8f0ad79b539c20999222d6d7ff3c8c5717aab7529c2c5a071b416834c7"
+    },
+    {
+      "path": "estimator/test/test_sparse_conditional.jl",
+      "sha256": "5197e8e8c356b87b2ff8d50b33c85886ff9ac9e18ede8864837f7a156d2d2f57"
+    }
+  ],
+  "passes": 285.0
+}

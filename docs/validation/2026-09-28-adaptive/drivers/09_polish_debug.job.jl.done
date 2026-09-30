@@ -1,0 +1,41 @@
+src=read(joinpath(@__DIR__,"../../estimator/scripts/adaptive_conditional.jl"),String)
+Base.include_string(Main,src[first(findfirst("function adaptive_conditional_fit",src)):end])
+include(joinpath(@__DIR__,"../../estimator/scripts/adaptive_curvature.jl"))
+failed_polish=Ref{Any}(nothing)
+function debug_polish(node,ref)
+    failed_polish[]=(node=node,ref=deepcopy(ref))
+    return polished_gn_conditional_curvature(node,ref)
+end
+try
+    adaptive_conditional_fit(core_snapshot.failed.bank.anchor.graph;axes=d0.transported.source.axes,center,scale,
+        lower=[-4.],upper=[4.],tolerance=.002,max_nodes=9,orders=(7,11),curvature=debug_polish,
+        step_bounds=Dict(core_snapshot.failed.bank.anchor.key_z=>core_snapshot.failed.bank.anchor.latent_step),
+        newton_tol=E.ONLINE_NEWTON_TOL,progress=adaptive_progress)
+catch err
+    println("POLISH FAILURE ",sprint(showerror,err));flush(stdout)
+end
+let ref=curvature_accuracy_ref(failed_polish[].ref,.0001)
+    for f in ref.dynamics;f.relin_tol=0.;f.relin_tol_state=0.;end
+    u=copy(ref.mean);trace=NamedTuple[]
+    for iteration in 1:30
+        a=innovation_target(ref,u;gradient=true);g=ref.root'*a.gradient
+        trials=NamedTuple[];accepted=false
+        for alpha in (1.,.5,.25,.125,.0625,.01,.001,.0001)
+            trial=u-alpha*ref.root*g;b=innovation_target(ref,trial;gradient=true)
+            gt=ref.root'*b.gradient
+            push!(trials,(alpha=alpha,delta=b.value-a.value,score=norm(gt),predicted=-alpha*dot(g,g),directional=dot(gt,g)))
+            if b.value<=a.value-1e-4alpha*dot(g,g)
+                u=trial;accepted=true;break
+            end
+        end
+        push!(trace,(iteration=iteration,score=norm(g),objective=a.value,trials=trials))
+        println("POLISH TRACE ",last(trace));flush(stdout)
+        norm(g)<1e-5 && break
+        accepted || break
+    end
+    write(joinpath(@__DIR__,"polishing_trace.json"),E.json_document(trace))
+end
+module PolishedCurvatureTestsFinal
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_curvature.jl"))
+end

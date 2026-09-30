@@ -1,0 +1,22 @@
+Base.include(E,joinpath(@__DIR__,"mixture_trial.jl"))
+const continuous_cases=Dict{Symbol,Any}();const continuous_rows=NamedTuple[]
+for case in ONLINE_COMPARISON_CASES
+    saved=conditional_default_cases[case.suite];model=saved.model;rows=NamedTuple[]
+    sm=E.mixture_trial_init(model;axes=[:a0,:k_spread],lag=1,record_limit=0)
+    try
+        for (i,batch) in enumerate(saved.batches)
+            result=assimilate!(sm,batch)
+            candidate=result.committed ? sm.posterior : get(result,:candidate,nothing)
+            score=candidate===nothing ? NaN : conditional_state_score(candidate,last(filter(k->k.entity==:state,candidate.keys)),saved.truths[i][length(model.blk)+1:end])
+            push!(rows,(t=last(batch).t,committed=result.committed,wall=result.wall,diagnostics=result.diagnostics,state_score=score))
+            continuous_cases[case.suite]=(sm=deepcopy(sm),candidate=candidate,batches=saved.batches,truths=saved.truths,model=model,arrival=i)
+            println("CONTINUOUS ARRIVAL ",case.suite," ",last(rows));flush(stdout)
+            result.committed || break
+        end
+        push!(continuous_rows,(suite=case.suite,arrivals=rows))
+    catch err
+        showerror(stdout,err,catch_backtrace());println();flush(stdout)
+        push!(continuous_rows,(suite=case.suite,arrivals=rows,error=sprint(showerror,err)))
+    end
+    write(joinpath(@__DIR__,"cook_continuous.json"),E.json_document((backend=backend_fingerprint(),purpose="prototype continuous components; not consistency validation",fraction=.5,axes=["a0","k_spread"],orders=[5,9],lag=1,records=continuous_rows)))
+end

@@ -1,0 +1,4 @@
+module LocalSparseFinal
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_sparse.jl"))
+end

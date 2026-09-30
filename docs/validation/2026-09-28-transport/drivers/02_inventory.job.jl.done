@@ -1,0 +1,4 @@
+for name in (:core,:two_core,:full,:pit_core)
+    snap=deserialize(joinpath(@__DIR__,"../curvature_audit/$(name).jls"));g=snap.failed.bank.anchor.graph
+    println("SNAPSHOT ",(name=name,case=snap.case,variables=sum(values(g.dims)),axes=snap.result.candidate.transported.source.axes,last=last(snap.failed.bank.anchor.nodes)[1],batches=length(snap.batches)));flush(stdout)
+end

@@ -1,0 +1,32 @@
+# Numerical convergence study only. Preserve the SAME W, innovation chart,
+# parameters, observations and modes while resolving the ODE more accurately.
+for suite in (:two_core,:core,:full,:pit_core)
+    snap=deserialize(joinpath(@__DIR__,string(suite)*".jls"))
+    p=snap.result.candidate.transported;original=p.components[argmax(p.source.weights)]
+    key=snap.accepted.bank.anchor.key_z;records=NamedTuple[]
+    for factor in (1.,.01,.0001)
+        ref=deepcopy(original)
+        for f in ref.dynamics
+            m=f.model
+            f.model=E.SystemModel(m.sys,m.log,m.blk,m.bl,m.sn,m.abstol*factor,m.reltol*factor,m.rom)
+            c=f.cache
+            f.cache=merge(c,(z=fill(NaN,length(c.z)),y0=fill(NaN,length(c.y0)),jz=nothing,jy0=nothing,Jy=nothing,Jz=nothing))
+        end
+        audit=innovation_curvature(ref;key,steps=(.02,.01,.005))
+        directions=curvature_direction_report(ref,audit;key)
+        checks=NamedTuple[];n=size(ref.root,2)
+        for phase in (0.,1.)
+            q=normalize(sin.(collect(1:n).+phase));u=ref.mean+.2ref.root*q
+            a=innovation_target(ref,u;gradient=true);ad=dot(ref.root'*a.gradient,q)
+            for h in (.01,.001,.0001)
+                fd=(innovation_target(ref,u+h*ref.root*q)-innovation_target(ref,u-h*ref.root*q))/(2h)
+                push!(checks,(phase=phase,step=h,ad=ad,fd=fd,difference=abs(fd-ad)))
+            end
+        end
+        push!(records,(factor=factor,objective=audit.objective,gradient=norm(audit.gradient),
+            checks=audit.checks,directions=directions,gn_whitening_error=audit.gn_whitening_error,
+            gradient_checks=checks))
+        println("TOLERANCE ",suite," factor ",factor," final ",last(audit.checks));flush(stdout)
+    end
+    write(joinpath(@__DIR__,string(suite)*"_tolerance.json"),E.json_document(records))
+end

@@ -1,0 +1,6 @@
+{
+  "innovation_roundtrip_norm": 1.232806073422422e-10,
+  "process_noise_changed": false,
+  "solver_factor": 0.0001,
+  "target_roundtrip_error": 1.5987211554602254e-14
+}

@@ -1,0 +1,63 @@
+TRANSPORT WORKER READY base=411c33d5521d
+START 01_guided_oracles.job.jl
+LoadError: ParseError:
+# Error @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\guided\03_oracles.job.jl:18:44
+        result=E._guided_transport_extend(old,ref,u,before.draw,Float64[])
+        j<=8 && @test result.log_incrementâ‰ˆexpected_weight atol=1e-9
+#                                          ╙ ── unknown unicode character '‰'
+Stacktrace:
+ [1] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\guided\03_oracles.job.jl:18
+ [2] include(fname::String)
+   @ Main .\sysimg.jl:38
+ [3] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\transport\01_guided_oracles.job.jl:2
+ [4] include(fname::String)
+   @ Main .\sysimg.jl:38
+ [5] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\transport\worker.jl:12
+ [6] include(mod::Module, _path::String)
+   @ Base .\Base.jl:562
+ [7] exec_options(opts::Base.JLOptions)
+   @ Base .\client.jl:316
+ [8] _start()
+   @ Base .\client.jl:524
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\guided\03_oracles.job.jl:18
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\transport\01_guided_oracles.job.jl:2
+FAIL 01_guided_oracles.job.jl
+START 02_affine_oracles.job.jl
+Test Summary:                             | Pass  Total     Time
+joint affine proposal change of variables |   27     27  3m46.7s
+PASS 02_affine_oracles.job.jl
+START 01b_guided_oracles.job.jl
+Test Summary:                                                 | Pass  Total  Time
+guided initial Gaussian conditional and exact marginal weight |   12     12  7.2s
+Test Summary:                                          | Pass  Total  Time
+defensive guide evaluates the complete mixture density |   32     32  0.5s
+Test Summary:                                         | Pass  Total  Time
+guided transition conditions on retained OU residuals |   24     24  0.4s
+Test Summary:                                      | Pass  Total  Time
+nonlinear guide uses the exact change of variables |    2      2  4.6s
+PASS 01b_guided_oracles.job.jl
+START 03_affine_development.job.jl
+AFFINE DEVELOPMENT (t = 0.0, precision_ok = false, particles = 1024, weight_ess = 1039.7689298605133, mean_ess = 273.34472431402935, min_tail_ess = 66.31548220489366, joint_mean_mc_error = 0.0359142052437189, wall = 2.751000165939331)
+AFFINE DEVELOPMENT (t = 120.0, precision_ok = true, particles = 4096, weight_ess = 8156.74917364776, mean_ess = 2025.726847139492, min_tail_ess = 522.3797277020473, joint_mean_mc_error = 0.005927432390386997, wall = 26.493000030517578)
+AFFINE DEVELOPMENT (t = 600.0, precision_ok = false, particles = 4096, weight_ess = 3451.8323590381, mean_ess = 686.9700247587921, min_tail_ess = 154.2578263182479, joint_mean_mc_error = 0.010464815132261008, wall = 56.748000144958496)
+PASS 03_affine_development.job.jl
+START 04_weak_development.job.jl
+WEAK BASELINE (precision_ok = false, mean_ess = 437.5216099699081, tail_ess = 352.36490398818347, joint_mc_error = 0.0097288918873734, worst_means = [46, 2, 5, 11, 7, 10], mean_ess_by_coordinate = [4087.49698608362, 1145.5077261967, 8192.0, 8192.0, 1715.2189022885518, 4489.624410146128, 1928.5413740604251, 8191.999999999981, 5183.022099659137, 2838.820847115492, 1792.3663710102073, 4243.463334172464, 6585.772941307765, 5825.601180087169, 3814.838928842692, 8191.999999999986, 6254.924843427931, 4734.410047177439, 4722.464202427074, 4717.5638738537955, 4741.449786737889, 8191.999999999996, 8192.0, 8191.999999999965, 8192.0, 8192.0, 8191.999999999953, 8191.999999999979, 8175.907540229072, 8192.0, 8191.999999999982, 8191.999999999967, 8191.999999999972, 8192.0, 8191.999999999985, 8192.0, 8191.999999999992, 5463.732255345138, 8191.999999999996, 8191.999999999981, 4937.628532671448, 8191.999999999985, 7961.289812324621, 7860.281688304759, 5595.525018388926, 437.5216099699081], wall = 33.555999994277954)
+WEAK ALTERNATIVE (precision_ok = false, mean_ess = 82.97526267955655, tail_ess = 49.13175339832492, joint_mc_error = 0.021680328143254907, worst_means = [46, 2, 41, 39, 19, 18], mean_ess_by_coordinate = [5703.449455703218, 736.6942200442045, 4032.0862241768723, 1712.008830539474, 1495.3325553909401, 6706.275561660714, 7555.130372483834, 8192.0, 5891.29968715374, 3841.097265038648, 5262.127727259654, 8191.999999999956, 4465.579366375215, 4951.614792901938, 4016.4580847188795, 2168.5223686587515, 6533.045509501278, 1478.0628873134592, 1477.4367157622514, 1482.0787081939168, 1478.072719039343, 1719.4793796978397, 1716.5943237839772, 1723.153392462337, 1719.4829436259165, 5830.343123717106, 5914.27117954113, 5875.153711207141, 5903.017866416878, 4189.943664312641, 4187.060045686787, 4158.353489563284, 4157.678783998613, 2693.907486236279, 2698.9690779171647, 2706.598024288508, 2706.165080997897, 2128.174411437889, 1185.9301344075989, 8192.0, 769.5079476050253, 4677.559749809385, 8192.0, 2366.480153561836, 2824.630904838737, 82.97526267955655], wall = 39.77899980545044)
+julia.exe :   Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+At line:7 char:1
++ & 'C:/Users/jmurp/.julia/juliaup/julia-1.11.9+0.x64.w64.mingw32/bin/j ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (  Activating pr...mics\estimator`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Test Summary:                     | Pass  Total  Time
+posterior kernel analytic oracles |    7      7  4.7s
+Test Summary:                                | Pass  Total  Time
+posterior weak block preserves joint targets |    8      8  8.8s
+Test Summary:                | Pass  Total   Time
+tempered posterior particles |   23     23  32.1s
+PASS 04_weak_development.job.jl

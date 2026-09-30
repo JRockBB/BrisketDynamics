@@ -1,0 +1,32 @@
+[
+    {
+        "method":  "late_two_affine",
+        "max_logmass":  0.077354066680641154,
+        "max_kl":  0.06106214478647954,
+        "outside":  0
+    },
+    {
+        "method":  "late_two_mapped_degree64",
+        "max_logmass":  0.042345930245403451,
+        "max_kl":  0.018852544891494384,
+        "outside":  0
+    },
+    {
+        "method":  "late_two_mapped_sparse",
+        "max_logmass":  0.11040579606236632,
+        "max_kl":  0.022301312449653127,
+        "outside":  0
+    },
+    {
+        "method":  "late_two_sparse",
+        "max_logmass":  0.16982251510376045,
+        "max_kl":  0.049526735169629479,
+        "outside":  0
+    },
+    {
+        "method":  "late_two_triangular",
+        "max_logmass":  0.013229554220401951,
+        "max_kl":  0.0039238070620746966,
+        "outside":  0
+    }
+]

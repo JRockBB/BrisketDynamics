@@ -1,0 +1,31 @@
+src=read(joinpath(@__DIR__,"../../estimator/scripts/adaptive_conditional.jl"),String)
+Base.include_string(Main,src[first(findfirst("function adaptive_arrival_candidate",src)):first(findfirst("function adaptive_conditional_logpdf",src))-1])
+println("ONLINE FULL HISTORY REPLAY");flush(stdout)
+anchor=core_snapshot.accepted.bank.anchor;saved_anchor=deepcopy(anchor)
+t=time()
+online_candidate=adaptive_arrival_candidate(anchor,core_snapshot.batches[core_snapshot.arrival];
+    axes=d0.transported.source.axes,center,scale,lower=[-4.],upper=[4.],tolerance=.01,max_nodes=129,
+    orders=(7,11),shape_key=anchor.key_z,progress=adaptive_progress)
+online_comparison=AdaptiveDensities.adaptive_density_distance(core_adaptive.density,online_candidate.candidate.density)
+noise_equal=all(a.cache.W==b.cache.W && a.cache.wy==b.cache.wy for (a,b) in zip(core_adaptive.decoder.dynamics,online_candidate.candidate.decoder.dynamics))
+unchanged=E._same_decoder_value(saved_anchor,anchor)
+@testset "adaptive online candidate transaction and offline target agreement" begin
+    @test !online_candidate.committed
+    @test online_candidate.candidate.density.diagnostics.resolved
+    @test online_candidate.candidate.diagnostics.shape_pass
+    @test unchanged
+    @test noise_equal
+    @test online_comparison.tv_bound_estimate<.001
+    @test last(anchor.nodes)[1]==75.
+    @test last(online_candidate.anchor.nodes)[1]==510.
+    @test_throws ArgumentError adaptive_arrival_candidate(anchor,E.MeasurementRecord[])
+    short=deepcopy(anchor);short.lag=3
+    @test_throws ArgumentError adaptive_arrival_candidate(short,core_snapshot.batches[core_snapshot.arrival])
+end
+write(joinpath(@__DIR__,"online_replay.json"),E.json_document((wall=time()-t,comparison=online_comparison,
+    noise_equal=noise_equal,anchor_unchanged=unchanged,committed=online_candidate.committed,
+    diagnostics=online_candidate.candidate.diagnostics)))
+println("CURVATURE DENSITY COMPARISON");flush(stdout)
+cc=AdaptiveDensities.adaptive_density_distance(core_adaptive.density,core_observed.density)
+write(joinpath(@__DIR__,"curvature_density_comparison.json"),E.json_document(cc))
+println("CURVATURE DENSITY ",cc);flush(stdout)

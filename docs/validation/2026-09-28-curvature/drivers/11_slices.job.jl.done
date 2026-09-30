@@ -1,0 +1,19 @@
+curves=NamedTuple[]
+for suite in (:full,:pit_core)
+    snap=deserialize(joinpath(@__DIR__,string(suite)*".jls"))
+    p=snap.result.candidate.transported;j=argmax(p.source.weights);ref=curvature_accuracy_ref(p.components[j],.0001)
+    for f in ref.dynamics;f.relin_tol=0.;f.relin_tol_state=0.;end
+    report=JSON.parsefile(joinpath(@__DIR__,string(suite)*"_tight_full_curvature.json");allownan=true)["report"]
+    c=only(c for c in report["components"] if c["component"]==j)
+    candidates=sort(c["directions"];by=d->only(v["observed_defect"] for v in d["values"] if v["radius"]==1.),rev=true)
+    base=innovation_target(ref,ref.mean;gradient=true);gradient=ref.root'*base.gradient
+    key=snap.accepted.bank.anchor.key_z
+    for direction in first(candidates,2)
+        i=direction["index"];row=ref.offsets[key][i];q=normalize(ref.root[row,:])
+        grid=collect(range(-3.,3.;length=121));slope=dot(gradient,q)
+        loss=[innovation_target(ref,ref.mean+t*ref.root*q)-base.value for t in grid]
+        push!(curves,(suite=suite,time=snap.arrivals[end].t,component=j,weight=p.source.weights[j],
+            parameter=snap.model.blk.names[i],grid=grid,loss=loss,slope=slope,curvature=direction["curvature"]))
+    end
+end
+write(joinpath(@__DIR__,"slices.json"),E.json_document(curves))

@@ -1,0 +1,15 @@
+println("LOAD CORE");flush(stdout)
+snap=deserialize(joinpath(@__DIR__,"../curvature_audit/core.jls"))
+p=snap.result.candidate
+println("CORE axes ",p.transported.source.axes," center ",p.center," scale ",p.scale," base ",p.base_mean," ",p.base_root);flush(stdout)
+ref=curvature_accuracy_ref(p.transported.components[argmax(p.transported.source.weights)],.0001)
+function pure_innovation_loss(ref,u)
+    x=E._conditional_decode(ref,u);off=ref.offsets
+    return sum(f isa E.DynamicsFactor ? sum(abs2,u[off[f.key_y1]])/2 : E.loss(f,[x[off[k]] for k in E.vars(f)]) for f in ref.graph.factors)
+end
+q=Matrix{Float64}(I,size(ref.root,2),size(ref.root,2))[:,1:2]
+f(v)=pure_innovation_loss(ref,ref.mean+ref.root*q*v)
+println("HESSIAN TEST n=2");flush(stdout)
+t=time();h=ForwardDiff.hessian(f,zeros(2));println("HESSIAN n2 ",h," wall ",time()-t);flush(stdout)
+a=innovation_curvature(ref;key=snap.accepted.bank.anchor.key_z,basis=q,steps=(.02,.01))
+println("HESSIAN FD ",a.hessian," error ",opnorm(h-a.hessian));flush(stdout)

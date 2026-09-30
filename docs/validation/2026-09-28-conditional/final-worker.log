@@ -1,0 +1,135 @@
+DEPENDENCIES READY
+READY e4081f532840
+START 01_conditional.job.jl
+Test Summary:                                            | Pass  Total   Time
+conditional integration: curved joint density and volume |   17     17  25.8s
+Test Summary:                                                    | Pass  Total  Time
+conditional integration: general linear graph and tiny contrasts |   41     41  0.5s
+Test Summary:                             | Pass  Total  Time
+conditional evidence survives elimination |    2      2  3.6s
+PASS 01_conditional.job.jl
+START 02_online_transport.job.jl
+Test Summary:                                      | Pass  Total     Time
+conditional online transactions and bounded memory |   43     43  1m28.2s
+Test Summary:                                                 | Pass  Total  Time
+nonlinear innovation transport preserves the generative prior |   15     15  2.2s
+PASS 02_online_transport.job.jl
+START 03_regression.job.jl
+REGRESSION test_factors.jl
+Test Summary:                                                                                                | Pass  Total  Time
+the linear oracle: the graph's full-history solve is the RTS smoother, its newest marginal the Kalman filter |   29     29  5.8s
+Test Summary:                                                                                          | Pass  Total  Time
+fixed lag: marginalization keeps every window marginal at the smoother's, and the past is the filter's |  163    163  0.4s
+Test Summary:                                                         | Pass  Total  Time
+delayed insertion, dropout and sensor subsets against the same oracle |    6      6  1.1s
+Test Summary:                                                     | Pass  Total  Time
+hierarchy: cooks around a population, the planted value recovered |   11     11  0.9s
+Test Summary:                      | Pass  Total  Time
+the censored site and the OU chain |    8      8  0.6s
+Test Summary:           | Pass  Total  Time
+the graph's bookkeeping |    8      8  0.1s
+Test Summary:                                   | Pass  Total  Time
+solver safeguards, stationarity and rank checks |   23     23  1.6s
+test_factors.jl: done
+REGRESSION test_consistency.jl
+Test Summary:                        | Pass  Total   Time
+factor graph consistency regressions |   90     90  11.5s
+PASS 03_regression.job.jl
+START 04_cooks.job.jl
+DEFAULT CONDITIONAL CASE full
+FINAL CONDITIONAL ARRIVAL full t=0.0 committed=true wall=1.4100000858306885 reason=ok state_score=0.8442887109987354
+FINAL CONDITIONAL ARRIVAL full t=120.0 committed=false wall=9.961999893188477 reason=quadrature_resolution state_score=0.8241715508657113
+DEFAULT CONDITIONAL CASE pit_core
+FINAL CONDITIONAL ARRIVAL pit_core t=0.0 committed=true wall=0.4869999885559082 reason=ok state_score=1.5667100893726356
+FINAL CONDITIONAL ARRIVAL pit_core t=90.0 committed=false wall=7.234999895095825 reason=quadrature_resolution state_score=1.262004113990589
+DEFAULT CONDITIONAL CASE core
+FINAL CONDITIONAL ARRIVAL core t=0.0 committed=true wall=0.2609999179840088 reason=ok state_score=0.541870801513764
+FINAL CONDITIONAL ARRIVAL core t=75.0 committed=false wall=4.503000020980835 reason=quadrature_resolution state_score=0.5585490397869656
+DEFAULT CONDITIONAL CASE two_core
+FINAL CONDITIONAL ARRIVAL two_core t=0.0 committed=true wall=0.4960000514984131 reason=ok state_score=1.0179819912635861
+FINAL CONDITIONAL ARRIVAL two_core t=150.0 committed=false wall=4.432999849319458 reason=quadrature_resolution state_score=1.0881349538625258
+PASS 04_cooks.job.jl
+START 05_density.job.jl
+Test Summary:                                                    | Pass  Total   Time
+continuous density: correlated Gaussian between and beyond nodes |   62     62  22.8s
+Test Summary:                                               | Pass  Total  Time
+continuous density retains curvature and heteroscedasticity |   50     50  0.3s
+FRESH DENSITY MODULE 2a21377c842f
+PASS 05_density.job.jl
+START 06_online_density.job.jl
+Test Summary:                                                       | Pass  Total     Time
+continuous online posterior: invariance, snapshots and transactions |   28     28  1m45.9s
+Test Summary:                                        | Pass  Total  Time
+density comparison requires the same physics decoder |    5      5  1.0s
+FRESH ONLINE DENSITY MODULE ab9d30b5cf8c
+PASS 06_online_density.job.jl
+START 07_final_regression.job.jl
+VALIDATION BACKEND d31877a10f94 PHYSICS c2c7bbf8c0ec
+VALIDATION test_conditional.jl
+Test Summary:                                            | Pass  Total   Time
+conditional integration: curved joint density and volume |   17     17  17.5s
+Test Summary:                                                    | Pass  Total  Time
+conditional integration: general linear graph and tiny contrasts |   41     41  0.7s
+Test Summary:                             | Pass  Total  Time
+conditional evidence survives elimination |    2      2  4.3s
+VALIDATION test_conditional_online.jl
+Test Summary:                                      | Pass  Total     Time
+conditional online transactions and bounded memory |   43     43  1m30.7s
+Test Summary:                                                 | Pass  Total  Time
+nonlinear innovation transport preserves the generative prior |   15     15  0.8s
+VALIDATION test_conditional_density.jl
+Test Summary:                                                        | Pass  Total  Time
+density discrepancy separates integration error from posterior error |    4      4  6.6s
+Test Summary:                                                    | Pass  Total  Time
+continuous density: correlated Gaussian between and beyond nodes |   62     62  2.9s
+Test Summary:                                               | Pass  Total  Time
+continuous density retains curvature and heteroscedasticity |   50     50  0.1s
+VALIDATION test_deterministic_online.jl
+Test Summary:                                                    | Pass  Total  Time
+adaptive charts preserve an unobserved prior and model ownership |   11     11  4.1s
+Test Summary:                                                       | Pass  Total  Time
+continuous online posterior: invariance, snapshots and transactions |   28     28  4.7s
+Test Summary:                                        | Pass  Total  Time
+density comparison requires the same physics decoder |    5      5  1.1s
+REGRESSION test_factors.jl
+Test Summary:                                                                                                | Pass  Total  Time
+the linear oracle: the graph's full-history solve is the RTS smoother, its newest marginal the Kalman filter |   29     29  2.3s
+Test Summary:                                                                                          | Pass  Total  Time
+fixed lag: marginalization keeps every window marginal at the smoother's, and the past is the filter's |  163    163  0.4s
+Test Summary:                                                         | Pass  Total  Time
+delayed insertion, dropout and sensor subsets against the same oracle |    6      6  1.6s
+Test Summary:                                                     | Pass  Total  Time
+hierarchy: cooks around a population, the planted value recovered |   11     11  1.0s
+Test Summary:                      | Pass  Total  Time
+the censored site and the OU chain |    8      8  0.3s
+Test Summary:           | Pass  Total  Time
+the graph's bookkeeping |    8      8  0.2s
+Test Summary:                                   | Pass  Total  Time
+solver safeguards, stationarity and rank checks |   23     23  1.8s
+test_factors.jl: done
+REGRESSION test_consistency.jl
+Test Summary:                        | Pass  Total   Time
+factor graph consistency regressions |   90     90  14.3s
+PASS 07_final_regression.job.jl
+START 08_final_cooks.job.jl
+DETERMINISTIC full t=0.0 committed=true reason=ok seconds=1.377000093460083
+DETERMINISTIC full t=120.0 committed=true reason=ok seconds=11.447999954223633
+DETERMINISTIC full t=600.0 committed=false reason=conditional_shape seconds=436.9760000705719
+DETERMINISTIC pit_core t=0.0 committed=true reason=ok seconds=0.04800009727478027
+DETERMINISTIC pit_core t=90.0 committed=true reason=ok seconds=1.8459999561309814
+DETERMINISTIC pit_core t=420.0 committed=true reason=ok seconds=2.0369999408721924
+DETERMINISTIC pit_core t=1800.0 committed=false reason=conditional_shape seconds=262.08399987220764
+DETERMINISTIC core t=0.0 committed=true reason=ok seconds=0.028999805450439453
+DETERMINISTIC core t=75.0 committed=true reason=ok seconds=0.8949999809265137
+DETERMINISTIC core t=510.0 committed=false reason=density_resolution seconds=30.636000156402588
+DETERMINISTIC two_core t=0.0 committed=true reason=ok seconds=0.08100008964538574
+DETERMINISTIC two_core t=150.0 committed=true reason=ok seconds=0.5740001201629639
+DETERMINISTIC two_core t=630.0 committed=false reason=density_resolution seconds=14.442999839782715
+PASS 08_final_cooks.job.jl
+START 09_unseen_sparse.job.jl
+DETERMINISTIC core t=0.0 committed=true reason=ok seconds=0.0409998893737793
+DETERMINISTIC core t=80.0 committed=true reason=ok seconds=1.2349998950958252
+DETERMINISTIC core t=360.0 committed=true reason=ok seconds=1.2740001678466797
+DETERMINISTIC two_core t=0.0 committed=true reason=ok seconds=0.04500007629394531
+DETERMINISTIC two_core t=110.0 committed=false reason=density_resolution seconds=14.900000095367432
+PASS 09_unseen_sparse.job.jl

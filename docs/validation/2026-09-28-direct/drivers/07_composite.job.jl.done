@@ -1,0 +1,20 @@
+module DirectV2
+const E=Main.E
+using Main.BrisketEstimator, BrisketDynamics, LinearAlgebra, Random, JSON, Statistics, Serialization, Test
+include(joinpath(@__DIR__,"../../estimator/scripts/direct_online.jl"))
+end
+let sm=direct_core_case[1],truth=direct_core_case[3]
+    progress=h->(h.evaluations%5000<150 ? (println("COMPOSITE ",h);flush(stdout)) : nothing)
+    global direct_core_composite=DirectV2.direct_posterior_fit(sm;max_evaluations=150000,max_seconds=600.,rule=:composite,max_level=8,progress)
+    p=direct_core_composite;nz=length(sm.model.blk);err=p.mean-vcat(truth.z,truth.y)
+    r=core_reference
+    compare=(max_mean_sd=maximum(abs.(p.mean-r.mean)./sqrt.(diag(r.covariance))),
+        max_sd_relative=maximum(abs.(sqrt.(diag(p.covariance))./sqrt.(diag(r.covariance)).-1)),
+        reference_quality=r.diagnostics.mc_precision_ok)
+    record=(diagnostics=p.diagnostics,mean=p.mean,covariance=p.covariance,physical_mean=p.physical_mean,
+        physical_variance=p.physical_variance,truth=vcat(truth.z,truth.y),comparison=compare,
+        nees_z=p.diagnostics.moments_valid ? dot(err[1:nz],p.covariance[1:nz,1:nz]\err[1:nz])/nz : nothing,
+        nees_y=p.diagnostics.moments_valid ? dot(err[nz+1:end],p.covariance[nz+1:end,nz+1:end]\err[nz+1:end])/sm.model.bl.n : nothing)
+    write(joinpath(@__DIR__,"core_direct_composite.json"),E.json_document(record))
+    println("COMPOSITE RESULT ",(resolved=p.diagnostics.resolved,reason=p.diagnostics.reason,Z=p.normalizer,eval=p.diagnostics.evaluations,valid=p.diagnostics.moments_valid,wall=p.diagnostics.wall,nees=record.nees_y,comparison=compare));flush(stdout)
+end

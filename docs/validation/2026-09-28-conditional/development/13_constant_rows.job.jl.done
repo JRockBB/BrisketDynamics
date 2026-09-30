@@ -1,0 +1,5 @@
+src=read(joinpath(@__DIR__,"../../../estimator/src/conditional.jl"),String)
+for ex in Meta.parseall(src).args;isstructexpr(ex) || Core.eval(E,ex);end
+src=read(joinpath(@__DIR__,"../../../estimator/test/test_conditional.jl"),String)
+Base.include_string(Main,src[first(findfirst("@testset",src)):end],"conditional_final_oracles.jl")
+include(joinpath(@__DIR__,"../../../estimator/test/test_conditional_online.jl"))

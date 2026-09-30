@@ -1,0 +1,30 @@
+let F=LocalCookFinal
+    cases=(coupled_c1=q->max(q[1]-.137,0.)^2*(1+.2q[2]),
+        tilted_c1=q->max(q[1]+.45q[2]-.137,0.)^2)
+    rows=NamedTuple[]
+    for (name,meanfun) in pairs(cases)
+        oracle(q)=(logmass=-sum(abs2,q)/2,mean=[meanfun(q)],root=reshape([.02],1,1))
+        for method in (:global,:local,:tensor)
+            fit=method==:global ? F.sparse_density : method==:local ? F.local_sparse_density : F.adaptive_density
+            start=time();p=fit(oracle,fill(-2.,2),fill(2.,2);max_nodes=257,tolerance=.002,orders=(7,11))
+            regions=method==:local ? [(lo=c.lower,hi=c.upper) for c in p.patches] : p.cells
+            tv=Float64[];mass=sqrt(2pi)*Main.SpecialFunctions.erf(sqrt(2.))
+            for order in (19,31)
+                value=0.
+                for c in regions,(q,w) in F.AdaptiveDensities._points(c,order)
+                    n=F.adaptive_geometry(p,q)
+                    value+=w*exp(-sum(abs2,q)/2)/mass^2*Main.SpecialFunctions.erf(abs(n.mean[1]-meanfun(q))/(2sqrt(2.)*.02))
+                end
+                push!(tv,value)
+            end
+            push!(rows,(case=name,method=method,wall=time()-start,nodes=p.diagnostics.nodes,
+                resolved=p.diagnostics.resolved,reason=p.diagnostics.reason,diagnostics=p.diagnostics,
+                conditional_tv_estimates=tv,quadrature_change=abs(tv[2]-tv[1]),
+                marginal_log_error=maximum(abs(F.adaptive_marginal_logpdf(p,q)-(-sum(abs2,q)/2-2log(mass))) for q in ([.213,-.719],[-.487,.331],[1.37,-1.83])),
+                conditional_root_error=maximum(abs(F.adaptive_geometry(p,q).root[1,1]-.02) for q in ([.213,-.719],[-.487,.331],[1.37,-1.83]))))
+        end
+    end
+    write(joinpath(@__DIR__,"analytic_comparison_final.json"),F.adaptive_strict_json((rows=rows,
+        settings=(budget=257,tolerance=.002,orders=(7,11),box=[-2.,2.]),
+        matched_diagnostics=false,true_posterior_bound=false)))
+end

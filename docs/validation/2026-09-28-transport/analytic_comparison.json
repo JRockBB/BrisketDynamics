@@ -1,0 +1,334 @@
+[
+  {
+    "diagnostics": {
+      "cells": 18.0,
+      "conditional_validated": false,
+      "history": [
+        {
+          "cells": 1.0,
+          "complete": true,
+          "indicator": 6.810642342208632e36,
+          "integration_error": null,
+          "log_indicator": 84.81154978687755,
+          "log_integration_error": 4021.4435624435478,
+          "log_normalizer": 905.243249342598,
+          "nodes": 21.0
+        },
+        {
+          "cells": 2.0,
+          "complete": true,
+          "indicator": 0.8815543636886906,
+          "integration_error": null,
+          "log_indicator": -0.12606860724925317,
+          "log_integration_error": 2949.033493247904,
+          "log_normalizer": 772.5755384524751,
+          "nodes": 37.0
+        },
+        {
+          "cells": 3.0,
+          "complete": true,
+          "indicator": 0.24454381630991393,
+          "integration_error": null,
+          "log_indicator": -1.408360778311503,
+          "log_integration_error": 2947.686152028837,
+          "log_normalizer": 773.2297324909817,
+          "nodes": 53.0
+        },
+        {
+          "cells": 4.0,
+          "complete": true,
+          "indicator": 2.478096749171097,
+          "integration_error": null,
+          "log_indicator": 0.9074908256938132,
+          "log_integration_error": 1263.084303623659,
+          "log_normalizer": 197.32407601117774,
+          "nodes": 69.0
+        },
+        {
+          "cells": 5.0,
+          "complete": true,
+          "indicator": 0.0017802578285410209,
+          "integration_error": null,
+          "log_indicator": -6.330997077672573,
+          "log_integration_error": 998.1927158478693,
+          "log_normalizer": 203.0315551284134,
+          "nodes": 85.0
+        },
+        {
+          "cells": 6.0,
+          "complete": true,
+          "indicator": 3.1091088352549274e11,
+          "integration_error": null,
+          "log_indicator": 26.46277215991334,
+          "log_integration_error": 880.2329663938342,
+          "log_normalizer": 96.99720709761088,
+          "nodes": 101.0
+        },
+        {
+          "cells": 7.0,
+          "complete": true,
+          "indicator": 1.7474259423418931e46,
+          "integration_error": 5.534505084084865e282,
+          "log_indicator": 106.47705809275041,
+          "log_integration_error": 651.0399983707808,
+          "log_normalizer": 16.98292052071003,
+          "nodes": 113.0
+        },
+        {
+          "cells": 8.0,
+          "complete": true,
+          "indicator": 2.469321692019652,
+          "integration_error": null,
+          "log_indicator": 0.9039434943097635,
+          "log_integration_error": 819.9664780653906,
+          "log_normalizer": 123.45997861346044,
+          "nodes": 125.0
+        },
+        {
+          "cells": 9.0,
+          "complete": true,
+          "indicator": 3.0491133671631596,
+          "integration_error": null,
+          "log_indicator": 1.1148508490673237,
+          "log_integration_error": 816.520273871204,
+          "log_normalizer": 126.21303562708701,
+          "nodes": 141.0
+        },
+        {
+          "cells": 10.0,
+          "complete": true,
+          "indicator": 2.613156481923422,
+          "integration_error": 1.8364089344674564e186,
+          "log_indicator": 0.9605588706709197,
+          "log_integration_error": 428.8886392954813,
+          "log_normalizer": 29.83563978589836,
+          "nodes": 153.0
+        },
+        {
+          "cells": 11.0,
+          "complete": true,
+          "indicator": 0.42253729984210914,
+          "integration_error": 2.948048154381506e132,
+          "log_indicator": -0.8614775524317181,
+          "log_integration_error": 305.02237558400117,
+          "log_normalizer": 31.434087114659825,
+          "nodes": 169.0
+        },
+        {
+          "cells": 12.0,
+          "complete": true,
+          "indicator": 0.38823211509710154,
+          "integration_error": 6.093332616009289e130,
+          "log_indicator": -0.9461518834436149,
+          "log_integration_error": 301.14325724886106,
+          "log_normalizer": 31.433541273918266,
+          "nodes": 185.0
+        },
+        {
+          "cells": 13.0,
+          "complete": true,
+          "indicator": 0.38823298778747684,
+          "integration_error": 3.3158768089151885e128,
+          "log_indicator": -0.9461496355888894,
+          "log_integration_error": 295.9296139893127,
+          "log_normalizer": 31.433542337237785,
+          "nodes": 197.0
+        },
+        {
+          "cells": 14.0,
+          "complete": true,
+          "indicator": 0.38823297858543193,
+          "integration_error": 1.0911780928657992e117,
+          "log_indicator": -0.9461496592912675,
+          "log_integration_error": 269.48971381202284,
+          "log_normalizer": 31.433542344368362,
+          "nodes": 209.0
+        },
+        {
+          "cells": 15.0,
+          "complete": true,
+          "indicator": 1.0208021358552721,
+          "integration_error": 4.4017985811477536e85,
+          "log_indicator": 0.02058872594090961,
+          "log_integration_error": 197.2017461303377,
+          "log_normalizer": 18.088239179254582,
+          "nodes": 221.0
+        },
+        {
+          "cells": 16.0,
+          "complete": true,
+          "indicator": 1.0204572382153514,
+          "integration_error": 4.096279121645525e75,
+          "log_indicator": 0.02025079961211097,
+          "log_integration_error": 174.10396100490186,
+          "log_normalizer": 18.088758060337085,
+          "nodes": 237.0
+        },
+        {
+          "cells": 17.0,
+          "complete": true,
+          "indicator": 1.0204572383837422,
+          "integration_error": 5.6108458115549703e85,
+          "log_indicator": 0.020250799777126002,
+          "log_integration_error": 197.44443438121218,
+          "log_normalizer": 18.08875806033709,
+          "nodes": 249.0
+        },
+        {
+          "cells": 18.0,
+          "complete": false,
+          "indicator": null,
+          "integration_error": 2.80542290577748e85,
+          "log_indicator": null,
+          "log_integration_error": 196.75128720065223,
+          "log_normalizer": 18.08875806033709,
+          "nodes": 257.0
+        }
+      ],
+      "integration_error": 2.80542290577748e85,
+      "lower": [
+        -4.0,
+        -4.0
+      ],
+      "nodes": 257.0,
+      "reason": "node_budget",
+      "refinement_indicator": null,
+      "resolved": false,
+      "tail_validated": false,
+      "target_validated": false,
+      "upper": [
+        4.0,
+        4.0
+      ]
+    },
+    "exact_domain_logmass": 1.837813721839486,
+    "known_target_mass_in_domain": 0.9999366574363656,
+    "mean_y": -5.347047625037326e-5,
+    "method": "affine",
+    "normalizer_error": 1.1420770747484045e7,
+    "pilot_fits": 0.0,
+    "total_oracle_evaluations": 257.0,
+    "wall": 2.0249998569488525
+  },
+  {
+    "diagnostics": {
+      "cells": 9.0,
+      "conditional_validated": false,
+      "history": [
+        {
+          "cells": 1.0,
+          "complete": true,
+          "indicator": 6.451675504338339e-15,
+          "integration_error": 9.048392483922242e7,
+          "log_indicator": -32.67443652972243,
+          "log_integration_error": 18.320682766806833,
+          "log_normalizer": 1.838200316552908,
+          "nodes": 21.0
+        },
+        {
+          "cells": 2.0,
+          "complete": true,
+          "indicator": 3.3978300392850725e-15,
+          "integration_error": 30360.80473254895,
+          "log_indicator": -33.31563939077972,
+          "log_integration_error": 10.320907737500471,
+          "log_normalizer": 1.8379753458592316,
+          "nodes": 37.0
+        },
+        {
+          "cells": 3.0,
+          "complete": true,
+          "indicator": 4.504875982489928e-15,
+          "integration_error": 15182.110152099254,
+          "log_indicator": -33.03361603308837,
+          "log_integration_error": 9.627873049990997,
+          "log_normalizer": 1.837862866838872,
+          "nodes": 53.0
+        },
+        {
+          "cells": 4.0,
+          "complete": true,
+          "indicator": 5.2349941240336426e-15,
+          "integration_error": 0.00042606155523414586,
+          "log_indicator": -32.88341067302747,
+          "log_integration_error": -7.760926726278622,
+          "log_normalizer": 1.8377503751655582,
+          "nodes": 65.0
+        },
+        {
+          "cells": 5.0,
+          "complete": true,
+          "indicator": 4.49100591341102e-15,
+          "integration_error": 0.00037268744677152127,
+          "log_indicator": -33.036699684081164,
+          "log_integration_error": -7.894770433904314,
+          "log_normalizer": 1.8377503754485573,
+          "nodes": 81.0
+        },
+        {
+          "cells": 6.0,
+          "complete": true,
+          "indicator": 4.509600884454652e-15,
+          "integration_error": 0.00031931333833927554,
+          "log_indicator": -33.0325677409984,
+          "log_integration_error": -8.04933768542585,
+          "log_normalizer": 1.8377503757315576,
+          "nodes": 97.0
+        },
+        {
+          "cells": 7.0,
+          "complete": true,
+          "indicator": 4.064232212048336e-15,
+          "integration_error": 0.0002659392299371201,
+          "log_indicator": -33.13655154747544,
+          "log_integration_error": -8.232242734166288,
+          "log_normalizer": 1.837750376014557,
+          "nodes": 109.0
+        },
+        {
+          "cells": 8.0,
+          "complete": true,
+          "indicator": 2.641979671683555e-15,
+          "integration_error": 0.00021256512156534027,
+          "log_indicator": -33.56724788313101,
+          "log_integration_error": -8.456262162122238,
+          "log_normalizer": 1.8377503762975558,
+          "nodes": 121.0
+        },
+        {
+          "cells": 9.0,
+          "complete": true,
+          "indicator": 2.6355740696411712e-15,
+          "integration_error": 0.00016203103592685614,
+          "log_indicator": -33.56967537340468,
+          "log_integration_error": -8.727722661285547,
+          "log_normalizer": 1.8377503765676961,
+          "nodes": 137.0
+        }
+      ],
+      "integration_error": 0.00016203103592685614,
+      "lower": [
+        -4.0,
+        -4.0
+      ],
+      "nodes": 137.0,
+      "reason": "resolution",
+      "refinement_indicator": 2.6355740696411712e-15,
+      "resolved": true,
+      "tail_validated": false,
+      "target_validated": false,
+      "upper": [
+        4.0,
+        4.0
+      ]
+    },
+    "exact_domain_logmass": 1.8377503774295731,
+    "known_target_mass_in_domain": 0.9998733190449375,
+    "mean_y": 0.9989292890214777,
+    "method": "triangular",
+    "normalizer_error": 8.618770138307344e-10,
+    "pilot_fits": 5.0,
+    "total_oracle_evaluations": 142.0,
+    "wall": 1.1110000610351562
+  }
+]

@@ -132,12 +132,14 @@ end
 
 "ζ from a plan in seconds (the warm start of a replan); decisions outside the free set are ignored."
 function encode_system_plan(plan, f::SystemFreeSet, s::SystemSchedule)
-    clampf(x) = clamp(x, 0.02, 0.98)
+    # Encoding is also used to evaluate an already decoded plan. Preserve every interior
+    # decision; the prior's 2% bounds must not silently change a candidate's objective.
+    clampf(x) = clamp(x, eps(Float64), 1 - eps(Float64))
     ζ = Float64[]
-    f.damper && append!(ζ, lgt.(clamp.(resample_knots(plan.u, N_KNOTS), 0.02, 0.98)))
+    f.damper && append!(ζ, lgt.(clampf.(resample_knots(plan.u, N_KNOTS))))
     for p in f.pieces
         pp = plan.pieces[p]
-        rem = max(pp.t_pull - s.t_now, 600.0)
+        rem = max(pp.t_pull - s.t_now, eps(Float64))
         f.wrap[p] && push!(ζ, lgt(clampf((pp.t_wrap - s.t_now) / rem)))
         f.pull[p] && push!(ζ, lgt(clampf(rem / (T_SERVE_MAX - s.t_now))))
         if f.spritz[p]
@@ -145,9 +147,9 @@ function encode_system_plan(plan, f::SystemFreeSet, s::SystemSchedule)
             append!(ζ, [lgt(clampf((sp.t - s.t_now) / rem)), log(sp.dt / 3600), log(sp.m)])
         end
     end
-    t_last = max(maximum(plan.pieces[p].t_pull for p in f.pieces), s.t_now + 600.0)
-    f.add && push!(ζ, lgt(clampf((plan.t_add - s.t_now) / (t_last - s.t_now))))
-    f.serve && push!(ζ, lgt(clampf((plan.t_serve - t_last) / max(T_SERVE_MAX - t_last, 600.0))))
+    t_last = maximum(plan.pieces[p].t_pull for p in f.pieces)
+    f.add && push!(ζ, lgt(clampf((plan.t_add - s.t_now) / max(t_last - s.t_now, eps(Float64)))))
+    f.serve && push!(ζ, lgt(clampf((plan.t_serve - t_last) / max(T_SERVE_MAX - t_last, eps(Float64)))))
     return ζ
 end
 
@@ -261,7 +263,8 @@ end
 function _planning_piece_quality(snap::BeliefSnapshot, pc::PieceModel, po, o, plan, tg, goals, η=(0.0, 0.0))
     corrected = _planning_piece_output(snap, pc, po, tg, η)
     oi = (; corrected..., m_fuel=o.m_fuel)
-    return cook_outputs(oi, tg, diff(plan.u), plan.pieces[pc.id].t_pull, plan.t_add, plan.t_serve,
+    t_add = isnan(_primal(plan.t_add)) ? BrisketDynamics.ADD_NEVER : plan.t_add
+    return cook_outputs(oi, tg, diff(plan.u), plan.pieces[pc.id].t_pull, t_add, plan.t_serve,
                         pc.cfg, goals[pc.id]; past=snap.past[pc.id])
 end
 
@@ -326,6 +329,13 @@ end
 
 "Joint latent/state sigma draws from a belief snapshot, mean first."
 belief_plan_draws(snap::BeliefSnapshot; n_dirs::Int=2) = sigma_draws(vcat(snap.z, snap.y), snap.zy_cov; n_dirs)
+
+_planning_context(snap::BeliefSnapshot,draw)=(snap,_split_plan_draw(snap,draw))
+function _planning_scan(snap,zs,c,f,s,goals,control)
+    context,d=_planning_context(snap,first(zs))
+    return 0.5sum(abs2,system_goal_residuals(system_plan_outputs(context,d.z,c,f,s,goals;y=d.y)[1],
+        goals,snap.sys.layout.pieces;control))
+end
 
 function _plan_residual(snap, v, ζ, f, s, goals, control, k, n_draws, hedge)
     d = _split_plan_draw(snap, v)
@@ -406,6 +416,9 @@ end
 residual(f::PlanFactor, vals) = _plan_eval!(f, vals[1]; jac=false).r
 jacobians(f::PlanFactor, vals) = [_plan_eval!(f, vals[1]; jac=true).J]
 
+_planning_factor(snap::BeliefSnapshot,draw,key,f,s,goals,control,k,N,hedge,n_out)=
+    PlanFactor(key,snap,collect(Float64,draw),f,s,goals,control,k,N,hedge,n_out,nothing)
+
 """
     replan_system(snap, zs, s, goals; ζ_init=nothing, iters=50, scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0), scan_damper=true, hedge=true, cold_start=true, plan_sd=PLAN_SD, verbose=false)
 
@@ -417,7 +430,7 @@ prior-regularized objective represented by the graph. Nonstationary starts are n
 Returns the decoded plan, ζ, the objective, the goals' objective, the covariance, the history, convergence, the
 free set and the starts' count, as `replan_on_graph`.
 """
-function replan_system(snap::BeliefSnapshot, zs, s::SystemSchedule, goals::AbstractDict{Symbol,PlanGoals}; ζ_init=nothing, iters::Int=50,
+function _replan_system(snap, zs, s::SystemSchedule, goals::AbstractDict{Symbol,PlanGoals}; ζ_init=nothing, iters::Int=50,
                        scan_wrap=(0.4, 0.55, 0.7, 0.85), scan_rest=(1.5, 3.0, 5.0), scan_damper::Bool=true, hedge::Bool=true,
                        cold_start::Bool=true, plan_sd::Float64=PLAN_SD, control::SystemControlGoals=SystemControlGoals(),
                        verbose::Bool=false, tol::Float64=1e-4, ftol::Float64=1e-4, gtol::Float64=2e-3, soc::Int=10)
@@ -426,9 +439,8 @@ function replan_system(snap::BeliefSnapshot, zs, s::SystemSchedule, goals::Abstr
     goals_d = Dict{Symbol,PlanGoals}(goals)
     mζ, Λζ = system_plan_prior(f, s; plan_sd)
     c0 = ζ_init === nothing ? copy(mζ) : copy(ζ_init)
-    dmean = _split_plan_draw(snap, zs[1])
-    objective_scan(c) = 0.5 * sum(abs2, system_goal_residuals(
-        system_plan_outputs(snap, dmean.z, c, f, s, goals_d; y=dmean.y)[1], goals_d, snap.sys.layout.pieces; control))
+    context,dmean = _planning_context(snap, zs[1])
+    objective_scan(c) = _planning_scan(snap,zs,c,f,s,goals_d,control)
     objective_goals(c) = sum(0.5 * sum(abs2, _plan_residual(snap, draw, c, f, s, goals_d, control, k, N, hedge))
                              for (k, draw) in enumerate(zs))
     # the coordinates of the scan
@@ -479,7 +491,7 @@ function replan_system(snap::BeliefSnapshot, zs, s::SystemSchedule, goals::Abstr
         b2 = scan_from(copy(mζ))
         distinct(b2[2]) && push!(starts, b2[2])
     end
-    n_out = length(system_goal_residuals(system_plan_outputs(snap, dmean.z, c0, f, s, goals_d; y=dmean.y)[1],
+    n_out = length(system_goal_residuals(system_plan_outputs(context, dmean.z, c0, f, s, goals_d; y=dmean.y)[1],
                                          goals_d, snap.sys.layout.pieces; control))
     key = VarKey(:plan, :zeta, 0)
     r = nothing; F_goals = Inf
@@ -488,7 +500,7 @@ function replan_system(snap::BeliefSnapshot, zs, s::SystemSchedule, goals::Abstr
         add_variable!(g, key, c)
         add_factor!(g, GaussianPrior(key, mζ, Matrix(sqrt.(Λζ)); source="the plan prior"))
         for (k, draw) in enumerate(zs)
-            add_factor!(g, PlanFactor(key, snap, collect(Float64, draw), f, s, goals_d, control, k, N, hedge, n_out, nothing))
+            add_factor!(g, _planning_factor(snap,draw,key,f,s,goals_d,control,k,N,hedge,n_out))
         end
         # A plan coordinate changes an event time by at most about 21_600 seconds per unit.
         # gtol=2e-3 is therefore a <=43-second local KKT displacement, below both this planner's
@@ -513,6 +525,9 @@ function replan_system(snap::BeliefSnapshot, zs, s::SystemSchedule, goals::Abstr
     r === nothing && throw(PlanConvergenceError("no planning start reached a stationary solution; keep the standing plan"))
     return (plan=decode_system_plan(r.ζ, f, s), ζ=r.ζ, F=r.F, F_goals=F_goals, cov=r.cov, hist=r.hist, converged=r.converged, free=f, n_starts=length(starts))
 end
+
+replan_system(snap::BeliefSnapshot,zs,s::SystemSchedule,goals::AbstractDict{Symbol,PlanGoals};kwargs...)=
+    _replan_system(snap,zs,s,goals;kwargs...)
 
 "Replan directly from the snapshot's joint latent/state uncertainty."
 function replan_system(snap::BeliefSnapshot, s::SystemSchedule, goals::AbstractDict{Symbol,PlanGoals}; n_dirs::Int=2, kw...)

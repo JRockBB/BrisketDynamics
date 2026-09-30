@@ -1,0 +1,6 @@
+for suite in (:core,:two_core)
+    F=FinalAdaptiveVerification
+    path=joinpath(@__DIR__,"$(suite)_guarded_prefix.json")
+    p=F.validate_adaptive_snapshot(joinpath(@__DIR__,"../curvature_audit/$(suite).jls"),path;mode=:polished_gn)
+    p===nothing || serialize(joinpath(@__DIR__,"$(suite)_guarded_prefix.jls"),p)
+end

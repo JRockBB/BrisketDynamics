@@ -1,0 +1,1 @@
+The first comparison process was stopped at the start of its third case, after records for full and pit_core had been written. The independent warm worker completed the core and two_core cases with production methods restored from the frozen files. No in-progress pit_core result was discarded. Process exit 1 is expected from this intentional boundary stop.

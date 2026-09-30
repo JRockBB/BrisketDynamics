@@ -1,0 +1,5 @@
+module SparseTests
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_sparse_density.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_sparse_conditional.jl"))
+end

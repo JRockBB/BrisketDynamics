@@ -1,0 +1,7 @@
+module MappedDiagnosticVerification
+const E=Main.E
+using SpecialFunctions
+include(joinpath(@__DIR__,"../../estimator/test/test_mapped_conditional.jl"))
+end
+Base.include(MappedRun,joinpath(@__DIR__,"../../estimator/scripts/validate_transport.jl"))
+println("COMPARISON DRIVER READY");flush(stdout)

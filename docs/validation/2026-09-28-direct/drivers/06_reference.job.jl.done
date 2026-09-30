@@ -1,0 +1,10 @@
+let sm=direct_core_case[1],truth=direct_core_case[3]
+    rng=MersenneTwister(87131)
+    global core_reference=E.sample_posterior(sm;n=32768,rng)
+    p=core_reference;nz=length(sm.model.blk);err=p.mean-vcat(truth.z,truth.y)
+    record=(diagnostics=p.diagnostics,mean=p.mean,covariance=p.covariance,quantiles=E.posterior_quantile(p),
+        nees_z=dot(err[1:nz],p.covariance[1:nz,1:nz]\err[1:nz])/nz,
+        nees_y=dot(err[nz+1:end],p.covariance[nz+1:end,nz+1:end]\err[nz+1:end])/sm.model.bl.n)
+    write(joinpath(@__DIR__,"core_reference.json"),E.json_document(record))
+    println("REFERENCE ",(quality=p.diagnostics.mc_precision_ok,ess=p.diagnostics.ess,wall=:diagnostic_only,nees=record.nees_y));flush(stdout)
+end

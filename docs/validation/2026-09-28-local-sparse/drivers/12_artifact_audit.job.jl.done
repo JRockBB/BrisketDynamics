@@ -1,0 +1,38 @@
+module LocalArtifactAudit
+using SHA,JSON
+const E=Main.E
+const ROOT=normpath(joinpath(@__DIR__,"../.."))
+const REPORT=joinpath(ROOT,"docs/validation/2026-09-28-local-sparse")
+checks=0
+for filename in filter(f->endswith(f,".json"),readdir(@__DIR__))
+    JSON.parsefile(joinpath(@__DIR__,filename);allownan=false);global checks+=1
+end
+for manifest in ("source-manifest.json","final-source-manifest.json")
+    entries=JSON.parsefile(joinpath(REPORT,manifest));@assert entries isa Vector
+    for entry in entries
+        @assert bytes2hex(sha256(read(joinpath(REPORT,entry["archive"]))))==entry["sha256"]
+        global checks+=1
+    end
+end
+function valid_ast(x)
+    x isa Expr || return true
+    x.head in (:error,:incomplete) && return false
+    all(valid_ast,x.args)
+end
+for path in ("estimator/src/local_sparse_density.jl","estimator/scripts/sparse_conditional.jl",
+    "estimator/scripts/validate_sparse.jl","estimator/scripts/validate_sparse_mapped.jl",
+    "docs/validation/2026-09-28-local-sparse/reproduce.jl")
+    @assert valid_ast(Meta.parseall(read(joinpath(ROOT,path),String)));global checks+=1
+end
+for (name,version) in ((:InitialLocalReplaySmoke,"sources"),(:FinalLocalReplaySmoke,"sources-final"))
+    m=Module(name);Core.eval(m,:(const E=Main.E))
+    Core.eval(m,:(include(path)=Base.include(@__MODULE__,path)))
+    Base.include(m,joinpath(REPORT,version,"estimator/scripts/validate_sparse.jl"))
+    Base.include(m,joinpath(REPORT,version,"estimator/scripts/validate_sparse_mapped.jl"))
+    @assert isdefined(m,:validate_sparse_graph) && isdefined(m,:validate_sparse_mapped)
+    global checks+=1
+end
+write(joinpath(@__DIR__,"artifact_checks.json"),JSON.json((checks=checks,failures=0,
+    archived_versions_loaded=["initial","final"],replay_parsed=true,cook_rerun=false)))
+println("LOCAL ARTIFACT CHECKS ",checks)
+end

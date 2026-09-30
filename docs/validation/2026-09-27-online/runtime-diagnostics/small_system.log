@@ -1,0 +1,36 @@
+START 07_pit_core_diagnostic.job.jl
+    GN it  1  F 1.39618  |step| 2.78  alpha 1 (1 trials, 0 soc)  gain 1  damping 0
+    GN final  F 1.39618  gradient 9.63e-07  Newton step 9.63e-07 (0.00 posterior sd)  converged true
+PIT CORE GRAPH t=0.0 converged=true wall=2.884000062942505
+    GN it  1  F 1.48033  |step| 0.86  alpha 1 (1 trials, 6 soc)  gain 1.4  damping 0
+    GN it  2  F 1.48023  |step| 0.00674  alpha 1 (1 trials, 0 soc)  gain 0.996  damping 0
+    GN it  3  F 1.48023  |step| 0.000108  alpha 0.1 (2 trials, 1 soc)  gain 2.09  damping 0
+    GN it  4  F 1.48023  |step| 7.56e-09  alpha 0.00225 (4 trials, 0 soc)  gain 16  damping 0
+    GN it  5  F 1.48023  |step| 3.35e-06  alpha 0.0451 (3 trials, 1 soc)  gain 0.971  damping 0
+    GN final  F 1.48023  gradient 5.41e-05  Newton step 2.21e-07 (0.00 posterior sd)  converged true
+PIT CORE GRAPH t=90.0 converged=true wall=0.20300006866455078
+    GN it  1  F 2.74905  |step| 0.65  alpha 1 (1 trials, 1 soc)  gain 1.01  damping 0
+    GN it  2  F 2.74904  |step| 0.00228  alpha 1 (1 trials, 0 soc)  gain 0.934  damping 0
+    GN it  3  F 2.74903  |step| 0.000175  alpha 1 (1 trials, 0 soc)  gain 0.674  damping 0
+    GN final  F 2.74903  gradient 3.04e-05  Newton step 2.63e-05 (0.00 posterior sd)  converged true
+PIT CORE GRAPH t=420.0 converged=true wall=0.17600011825561523
+    GN it  1  F 1546.11  |step| 0.352  alpha 0.122 (2 trials, 2 soc)  gain 0.983  damping 0  bounded
+    GN it  2  F 1389.06  |step| 0.387  alpha 0.138 (2 trials, 1 soc)  gain 0.936  damping 0  bounded
+    GN it  3  F 1231.22  |step| 0.434  alpha 0.159 (2 trials, 1 soc)  gain 0.872  damping 0  bounded
+    GN it  4  F 1074.17  |step| 0.499  alpha 0.191 (2 trials, 1 soc)  gain 0.782  damping 0  bounded
+    GN it  5  F 921.805  |step| 0.599  alpha 0.243 (2 trials, 1 soc)  gain 0.651  damping 0  bounded
+    GN it  6  F 782.087  |step| 0.765  alpha 0.339 (2 trials, 1 soc)  gain 0.468  damping 0  bounded
+    GN it  7  F 698.603  |step| 1.96  alpha 1 (1 trials, 1 soc)  gain 0.174  damping 0  bounded
+    GN it  8  F 141.432  |step| 0.834  alpha 1 (1 trials, 1 soc)  gain 0.933  damping 0  bounded
+    GN it  9  F 33.2896  |step| 0.554  alpha 1 (1 trials, 3 soc)  gain 0.869  damping 0  bounded
+    GN it 10  F 32.462  |step| 0.862  alpha 1 (1 trials, 3 soc)  gain -Inf  damping 0  bounded
+    GN it 11  F 3.59471  |step| 0.199  alpha 1 (1 trials, 1 soc)  gain 1  damping 0
+    GN final  F 3.59471  gradient 2.05e-05  Newton step 0.00764 (0.00 posterior sd)  converged true
+PIT CORE GRAPH t=1800.0 converged=true wall=1.1460001468658447
+PIT CORE PROPOSAL center_potential=3.5947076466432106 center_norm=2.119713652302995 dimension=133
+posterior SMC stage 1: beta 0.032419, weight ESS 102, 677 evaluations
+posterior SMC stage 2: beta 0.492157, weight ESS 102, 1039 evaluations
+posterior SMC stage 3: beta 0.954768, weight ESS 102, 1422 evaluations
+posterior SMC stage 4: beta 1.000000, weight ESS 128, 2927 evaluations
+PIT CORE DIAGNOSTIC FINISHED wall=16.835999965667725
+PASS 07_pit_core_diagnostic.job.jl

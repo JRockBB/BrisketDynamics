@@ -1,0 +1,79 @@
+{
+  "additional_graph_fits": 0.0,
+  "rows": [
+    {
+      "evaluations": 90.0,
+      "name": "core_sparse",
+      "new_error": 2.6083663267685265e-5,
+      "new_resolved": true,
+      "normalizer_change": 0.0,
+      "old_error": 2.6083663267685265e-5
+    },
+    {
+      "evaluations": 1802.0,
+      "name": "late_two_sparse",
+      "new_error": 0.00019101105197610817,
+      "new_resolved": true,
+      "normalizer_change": 0.0,
+      "old_error": 0.00019101105197610817
+    },
+    {
+      "evaluations": 2014.0,
+      "name": "late_two_mapped_sparse",
+      "new_error": 0.00019886849632681016,
+      "new_resolved": true,
+      "normalizer_change": 0.0,
+      "old_error": 0.00019886849632681016
+    }
+  ],
+  "sources": [
+    {
+      "path": "estimator/src/adaptive_density.jl",
+      "sha256": "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+      "path": "estimator/src/sparse_density.jl",
+      "sha256": "892b4422d1ffbc713bd0ab4ef015db94e3d01a492e05941dea5ce904081c3f0c"
+    },
+    {
+      "path": "estimator/src/conditional_charts.jl",
+      "sha256": "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+      "path": "estimator/scripts/adaptive_conditional.jl",
+      "sha256": "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+      "path": "estimator/scripts/sparse_conditional.jl",
+      "sha256": "b593bf7e722d871f6db606afb154a5e2c72fac1fdd1445090fe18c5d13cc49ab"
+    },
+    {
+      "path": "estimator/scripts/adaptive_curvature.jl",
+      "sha256": "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+      "path": "estimator/scripts/curvature_audit.jl",
+      "sha256": "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+      "path": "estimator/scripts/target_ownership.jl",
+      "sha256": "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+      "path": "estimator/scripts/validate_sparse.jl",
+      "sha256": "473cc4508a989c487656aec4f9350c87706ecdb5b984faa599f2b0fbd6427745"
+    }
+  ],
+  "tests": {
+    "broken": 0.0,
+    "cumulative_broken": 0.0,
+    "cumulative_errors": 0.0,
+    "cumulative_fails": 0.0,
+    "cumulative_passes": 0.0,
+    "customized": true,
+    "duration": "4.3s",
+    "errors": 0.0,
+    "fails": 0.0,
+    "passes": 12.0
+  }
+}

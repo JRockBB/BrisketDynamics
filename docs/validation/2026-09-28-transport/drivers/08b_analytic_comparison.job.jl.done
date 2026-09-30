@@ -1,0 +1,26 @@
+let F=MappedRun
+    radius=4.;width=.3;beta=.2
+    base=F.AffineChart([0.,radius^2/2],[1. 0.;0. radius/2+width*exp(beta*radius)])
+    target(z)=-z[1]^2/2-((z[2]-z[1]^2)/(width*exp(beta*z[1])))^2/2-log(width)-beta*z[1]
+    fitted=F.fit_triangular_chart(base,p->(mean=[p[1],p[1]^2],root=reshape([0.,width*exp(beta*p[1])],2,1)))
+    reports=NamedTuple[]
+    for (method,chart,pilots) in ((:affine,base,0),(:triangular,fitted.chart,fitted.diagnostics.fits))
+        start=time()
+        oracle(q)=(logmass=target(F.chart_forward(chart,q))+F.chart_logjac(chart,q),mean=Float64[],root=zeros(0,0))
+        d=F.adaptive_density(oracle,fill(-radius,2),fill(radius,2);tolerance=.002,max_nodes=257-pilots,orders=(5,9))
+        x,w=F.AdaptiveDensities._legendre(201)
+        exact=if method==:triangular
+            (sqrt(2pi)*erf(radius/sqrt(2)))^2
+        else
+            lo=F.chart_forward(chart,[-radius,-radius]);hi=F.chart_forward(chart,[radius,radius])
+            sum((hi[1]-lo[1])*wi*exp(-z^2/2)*sqrt(2pi)*
+                (.5erfc(-(hi[2]-z^2)/(width*exp(beta*z)*sqrt(2)))-.5erfc(-(lo[2]-z^2)/(width*exp(beta*z)*sqrt(2))))
+                for (z,wi) in zip(lo[1].+(hi[1]-lo[1]).*x,w))
+        end
+        push!(reports,(method=method,wall=time()-start,pilot_fits=pilots,total_oracle_evaluations=d.diagnostics.nodes+pilots,
+            diagnostics=d.diagnostics,exact_domain_logmass=log(exact),normalizer_error=abs(expm1(d.log_normalizer-log(exact))),
+            known_target_mass_in_domain=exact/(2pi),mean_y=F.adaptive_expectation((q,n)->F.chart_forward(chart,q)[2],d)))
+    end
+    write(joinpath(@__DIR__,"analytic_comparison.json"),F.adaptive_strict_json(reports))
+    println("ANALYTIC COMPARISON ",[(method=r.method,resolved=r.diagnostics.resolved,nodes=r.total_oracle_evaluations,error=r.normalizer_error) for r in reports]);flush(stdout)
+end

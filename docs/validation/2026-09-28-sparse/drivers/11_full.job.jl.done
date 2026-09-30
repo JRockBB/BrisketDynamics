@@ -1,0 +1,6 @@
+let F=SparseBenchFinal,t=SparseBenchFinal.frozen("full";extra=true)
+    F.run("full_sparse",t;method=:sparse,budget=729,tolerance=.01,orders=(3,5))
+end
+let F=SparseBenchFinal,t=SparseBenchFinal.frozen("full")
+    F.run("full_expanding",t;method=:expanding,budget=729,tolerance=.01,orders=(3,5))
+end

@@ -1,0 +1,48 @@
+START 07_final_regression.job.jl
+VALIDATION BACKEND d31877a10f94 PHYSICS c2c7bbf8c0ec
+VALIDATION test_conditional.jl
+Test Summary:                                            | Pass  Total   Time
+conditional integration: curved joint density and volume |   17     17  17.5s
+Test Summary:                                                    | Pass  Total  Time
+conditional integration: general linear graph and tiny contrasts |   41     41  0.7s
+Test Summary:                             | Pass  Total  Time
+conditional evidence survives elimination |    2      2  4.3s
+VALIDATION test_conditional_online.jl
+Test Summary:                                      | Pass  Total     Time
+conditional online transactions and bounded memory |   43     43  1m30.7s
+Test Summary:                                                 | Pass  Total  Time
+nonlinear innovation transport preserves the generative prior |   15     15  0.8s
+VALIDATION test_conditional_density.jl
+Test Summary:                                                        | Pass  Total  Time
+density discrepancy separates integration error from posterior error |    4      4  6.6s
+Test Summary:                                                    | Pass  Total  Time
+continuous density: correlated Gaussian between and beyond nodes |   62     62  2.9s
+Test Summary:                                               | Pass  Total  Time
+continuous density retains curvature and heteroscedasticity |   50     50  0.1s
+VALIDATION test_deterministic_online.jl
+Test Summary:                                                    | Pass  Total  Time
+adaptive charts preserve an unobserved prior and model ownership |   11     11  4.1s
+Test Summary:                                                       | Pass  Total  Time
+continuous online posterior: invariance, snapshots and transactions |   28     28  4.7s
+Test Summary:                                        | Pass  Total  Time
+density comparison requires the same physics decoder |    5      5  1.1s
+REGRESSION test_factors.jl
+Test Summary:                                                                                                | Pass  Total  Time
+the linear oracle: the graph's full-history solve is the RTS smoother, its newest marginal the Kalman filter |   29     29  2.3s
+Test Summary:                                                                                          | Pass  Total  Time
+fixed lag: marginalization keeps every window marginal at the smoother's, and the past is the filter's |  163    163  0.4s
+Test Summary:                                                         | Pass  Total  Time
+delayed insertion, dropout and sensor subsets against the same oracle |    6      6  1.6s
+Test Summary:                                                     | Pass  Total  Time
+hierarchy: cooks around a population, the planted value recovered |   11     11  1.0s
+Test Summary:                      | Pass  Total  Time
+the censored site and the OU chain |    8      8  0.3s
+Test Summary:           | Pass  Total  Time
+the graph's bookkeeping |    8      8  0.2s
+Test Summary:                                   | Pass  Total  Time
+solver safeguards, stationarity and rank checks |   23     23  1.8s
+test_factors.jl: done
+REGRESSION test_consistency.jl
+Test Summary:                        | Pass  Total   Time
+factor graph consistency regressions |   90     90  14.3s
+PASS 07_final_regression.job.jl

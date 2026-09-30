@@ -1,0 +1,13 @@
+module KernelRegression
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_density.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_conditional.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_curvature.jl"))
+end
+module TransportValidation
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_conditional_charts.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_mapped_conditional.jl"))
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_adaptive.jl"))
+end
+println("TRANSPORT SOURCE VERIFIED");flush(stdout)

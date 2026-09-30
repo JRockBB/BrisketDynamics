@@ -1,0 +1,4 @@
+for suite in (:core,:two_core)
+    MappedRun.compare_transport_snapshot(joinpath(@__DIR__,"../curvature_audit/$(suite).jls"),joinpath(@__DIR__,string(suite));
+        max_nodes=129,tolerance=.002,orders=(7,11),max_seconds=600.)
+end

@@ -1,0 +1,27 @@
+[
+    {
+        "path":  "scratchpad/sparse_work/core_sparse.jls",
+        "sha256":  "66ca1ee8f297e273f791f25beaf33f75f5126aa6bd6a1de2140d9994117f24d1",
+        "bytes":  948231
+    },
+    {
+        "path":  "scratchpad/sparse_work/core_tensor.jls",
+        "sha256":  "02ee4a98c74b0132530fbc49c470d72368718b266682f7f87918453cb439d854",
+        "bytes":  2616184
+    },
+    {
+        "path":  "scratchpad/sparse_work/late_two_mapped_final.jls",
+        "sha256":  "bbba9a29e5a353984ac050ae91cd3ec23e3e78b291f879a319697f42d30de65b",
+        "bytes":  18268337
+    },
+    {
+        "path":  "scratchpad/sparse_work/late_two_mapped_sparse.jls",
+        "sha256":  "5b0bd5ba1a4289442702c300884bf34789aba81574d6922e2c0368847868cd70",
+        "bytes":  18735140
+    },
+    {
+        "path":  "scratchpad/sparse_work/late_two_sparse.jls",
+        "sha256":  "23c48ff294654c5cc23b478f1913e3205ec2f5f15e851006fba58f56c334b5a9",
+        "bytes":  19358520
+    }
+]

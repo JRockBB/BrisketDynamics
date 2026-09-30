@@ -1,0 +1,61 @@
+START 10_production_regression.job.jl
+FINAL PRODUCTION REGRESSION backend=84201766a16f physics=4e4a6800e4a2
+PRODUCTION TEST FILE test_posterior_sampling.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                | Pass  Total  Time
+nonlinear posterior sampling |   32     32  6.0s
+FILE PASS test_posterior_sampling.jl
+PRODUCTION TEST FILE test_posterior_smc.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                     | Pass  Total  Time
+posterior kernel analytic oracles |    7      7  3.1s
+Test Summary:                                | Pass  Total  Time
+posterior weak block preserves joint targets |    8      8  3.8s
+Test Summary:                | Pass  Total  Time
+tempered posterior particles |   23     23  7.9s
+FILE PASS test_posterior_smc.jl
+PRODUCTION TEST FILE test_sampled_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                  | Pass  Total  Time
+sampled estimator transactions |   26     26  5.4s
+FILE PASS test_sampled_online.jl
+PRODUCTION TEST FILE test_particle_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                            | Pass  Total  Time
+incremental likelihood equals full correlated likelihood |   10     10  0.1s
+Test Summary:                                            | Pass  Total  Time
+online joint particles, repeat readings and continuation |   28     28  2.5s
+Test Summary:                           | Pass  Total  Time
+online precision budgets and interfaces |    6      6  0.1s
+Test Summary:                                              | Pass  Total  Time
+arrival batching preserves the chronological process model |    4      4  2.2s
+FILE PASS test_particle_online.jl
+PRODUCTION TEST FILE test_sampled_offline.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                      | Pass  Total  Time
+offline sampled entry point and retained histories |   10     10  5.5s
+FILE PASS test_sampled_offline.jl
+PRODUCTION TEST FILE test_sampled_planning.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                  | Pass  Total  Time
+joint sampled histories reach prediction and weighted planning |   39     39  3.2s
+Test Summary:                                                  | Pass  Total  Time
+plan encoding preserves interior decisions and committed pulls |    5      5  0.0s
+Test Summary:                                                           | Pass  Total  Time
+posterior forecasts preserve draws and add declared process uncertainty |   19     19  1.0s
+FILE PASS test_sampled_planning.jl
+PRODUCTION TEST FILE test_particle_logweights.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                          | Pass  Total  Time
+log weights preserve temporarily negligible hypotheses |   20     20  0.0s
+Test Summary:                                              | Pass  Total  Time
+continuation checkpoints and rollback preserve log weights |   14     14  1.3s
+Test Summary:                                                | Pass  Total  Time
+actual sequential likelihood recovers underflowed hypotheses |    6      6  0.9s
+FILE PASS test_particle_logweights.jl
+PRODUCTION TEST FILE test_sampled_history_snapshot.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                | Pass  Total  Time
+retained posterior forecasts survive later accepted readings |    9      9  0.9s
+FILE PASS test_sampled_history_snapshot.jl
+PASS 10_production_regression.job.jl

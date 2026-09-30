@@ -1,0 +1,15 @@
+for suite in (:core,:two_core,:pit_core)
+    a=conditional_default_cases[suite].candidate;b=refined_cases[suite].candidate
+    kz=refined_cases[suite].sm.anchor.key_z;ky=last(filter(k->k.entity==:state,b.keys));idx=vcat(collect(b.offsets[kz]),collect(b.offsets[ky]));mu=b.mean[idx]
+    design=reduce(vcat,[sqrt(w).*vcat(c.root[idx,:]',(c.mean[idx]-mu)') for (w,c) in zip(b.weights,b.nodes)])
+    scales=vec(sqrt.(sum(abs2,design;dims=1)));R=Matrix(qr(design./scales').R);W=LowerTriangular(R')\Diagonal(1 ./ scales)
+    C=zeros(length(idx),length(idx));m=zeros(length(idx))
+    for (w,c) in zip(a.weights,a.nodes)
+        delta=W*(c.mean[idx]-mu);L=W*c.root[idx,:];m+=w*delta;C+=w*(L*L'+delta*delta')
+    end
+    eig=eigen(Symmetric(C-m*m'-I));j=argmax(abs.(eig.values));v=W'*eig.vectors[:,j];v./=maximum(abs.(v))
+    model=refined_cases[suite].model;nz=length(model.blk);labels=vcat(model.blk.names,[string(i) for i in 1:model.bl.n])
+    inds=sortperm(abs.(v);rev=true)[1:8]
+    println("RESOLUTION DIRECTION ",suite," ",eig.values[j]," ",[(labels[i],v[i]) for i in inds]);flush(stdout)
+    println("GROUPS ",model.bl.groups);flush(stdout)
+end

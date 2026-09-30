@@ -1,0 +1,29 @@
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+┌ Warning: Assignment to `model` in soft scope is ambiguous because a global variable by the same name exists: `model` will be treated as a new local. Disambiguate by using `local model` to suppress this warning or `global model` to assign to the existing global variable.
+└ @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic_final\04_cooks.job.jl:15
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+ERROR: LoadError: IOError: open("C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\scratchpad\\online_work\\deterministic_final\\09_unseen_sparse.job.jl", 0, 0): no such file or directory (ENOENT)
+Stacktrace:
+  [1] uv_error
+    @ .\libuv.jl:106 [inlined]
+  [2] open(path::String, flags::UInt16, mode::Int64)
+    @ Base.Filesystem .\filesystem.jl:190
+  [3] open
+    @ .\filesystem.jl:182 [inlined]
+  [4] sendfile(src::String, dst::String)
+    @ Base.Filesystem .\file.jl:1125
+  [5] cp(src::String, dst::String; force::Bool, follow_symlinks::Bool)
+    @ Base.Filesystem .\file.jl:386
+  [6] cp
+    @ .\file.jl:378 [inlined]
+  [7] rename(src::String, dst::String; force::Bool)
+    @ Base.Filesystem .\file.jl:1114
+  [8] rename
+    @ .\file.jl:1110 [inlined]
+  [9] #mv#15
+    @ .\file.jl:428 [inlined]
+ [10] top-level scope
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic_final\worker.jl:17
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic_final\worker.jl:8

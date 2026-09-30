@@ -1,0 +1,38 @@
+[
+    {
+        "path":  "estimator/src/direct_quadrature.jl",
+        "sha256":  "22edc418aa1676f05ca3cff7deb115129946e988d63e6001a9fe1c0b6b7ebb02"
+    },
+    {
+        "path":  "estimator/scripts/direct_posterior.jl",
+        "sha256":  "78bb772197ff921ce07a425c7c1d5a6384c6132878c0df05d2ddc2957779e7bb"
+    },
+    {
+        "path":  "estimator/scripts/direct_transport.jl",
+        "sha256":  "3a2101759e116876fcc24aa80e0d50b889a2882d339959671e8fdc679ed9b1f8"
+    },
+    {
+        "path":  "estimator/scripts/direct_online.jl",
+        "sha256":  "fcba9149d9f10c6a3b5d2d41dc6e57af4dc01f89c88a36646eee1e4c3aede0c1"
+    },
+    {
+        "path":  "estimator/scripts/consistency_direct.jl",
+        "sha256":  "df73d67feb04ed0e05fb3b83b70e61d4f8a4bb986770b3d2db31c8f70b79d112"
+    },
+    {
+        "path":  "estimator/test/test_direct_quadrature.jl",
+        "sha256":  "76b869e645bb8da6f65aeffd2700e3f12b50c9831e1694898ebb08867f8d8d4c"
+    },
+    {
+        "path":  "estimator/test/test_direct_transport.jl",
+        "sha256":  "47475c5408f4eda1db960c5fcdedd4025709cd474e6c6d9e541d483186a775d7"
+    },
+    {
+        "path":  "estimator/test/test_direct_posterior.jl",
+        "sha256":  "076d41661553d87aecae92053b3585aacaa8060f14b83320819bbe1d26539856"
+    },
+    {
+        "path":  "estimator/test/test_consistency_direct.jl",
+        "sha256":  "b459176d8550e634f6a0546847658169e81e5aaa9bba182f9ab3570f4c92e0d3"
+    }
+]

@@ -1,0 +1,2 @@
+MappedRun.compare_transport_snapshot(joinpath(@__DIR__,"../curvature_audit/full.jls"),joinpath(@__DIR__,"full");
+    add_axis=true,max_nodes=729,tolerance=.01,orders=(3,5),max_seconds=600.,methods=(:triangular,:affine))

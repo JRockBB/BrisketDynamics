@@ -1,0 +1,1 @@
+The duplicate prototype job 21_continuation was stopped after the fresh final-module run 08_final_cooks started the same suite. Jobs 01-20 had completed. The final-module run continues in PID 24432. No result is inferred for the interrupted prototype job.

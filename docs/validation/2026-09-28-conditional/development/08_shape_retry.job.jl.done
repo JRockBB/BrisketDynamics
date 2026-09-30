@@ -1,0 +1,25 @@
+function conditional_shape_probe(p,k;max_components=3)
+    ids=sortperm(p.weights;rev=true)[1:min(max_components,length(p.weights))]
+    scores=zeros(length(p.offsets[k]));evaluations=0
+    for j in ids
+        c=p.nodes[j];g=deepcopy(c.graph);off,_=E._offsets(g);x=copy(c.mean)
+        J,r,_,_=linearize(g);F=objective(g)
+        for i in eachindex(scores)
+            row=off[k][i];sigma=norm(c.root[row,:]);sigma>1e-12 || continue
+            delta=c.root*(c.root[row,:]/sigma);linear=dot(r,J*delta);quad=sum(abs2,J*delta)/2
+            fp=E._objective_at(g,x+delta,off);fm=E._objective_at(g,x-delta,off)
+            err=max(abs(fp-F-linear-quad),abs(fm-F+linear-quad))
+            scores[i]+=p.weights[j]*err/sum(p.weights[ids]);evaluations+=2
+        end
+    end
+    return (scores=scores,max=maximum(scores),evaluations=evaluations)
+end
+empty!(shape_rows)
+for case in ONLINE_COMPARISON_CASES
+    d=conditional_default_cases[case.suite];p=d.candidate;k=d.sm.anchor.key_z
+    audit=conditional_shape_probe(p,k)
+    order=sortperm(audit.scores;rev=true)[1:5]
+    println("SHAPE ",case.suite," ",[(d.model.blk.names[i],audit.scores[i]) for i in order]);flush(stdout)
+    push!(shape_rows,(suite=case.suite,names=d.model.blk.names,scores=audit.scores,evaluations=audit.evaluations))
+end
+write(joinpath(@__DIR__,"conditional_shape.json"),E.json_document(shape_rows))

@@ -1,0 +1,17 @@
+for suite in (:two_core,:core,:full,:pit_core)
+    snap=deserialize(joinpath(@__DIR__,string(suite)*".jls"))
+    p=snap.result.candidate.transported;ref=deepcopy(p.components[argmax(p.source.weights)])
+    key=snap.accepted.bank.anchor.key_z
+    audit=innovation_curvature(ref;key,steps=(.04,.02,.01,.005,.0025,.00125))
+    # Compare derivatives of gradients with independently differenced scalar loss.
+    Q=audit.basis;values=NamedTuple[]
+    for j in axes(Q,2)
+        q=Q[:,j];du=ref.root*q;data=NamedTuple[]
+        for h in (.04,.02,.01,.005,.0025,.00125)
+            fp=innovation_target(ref,ref.mean+h*du);fm=innovation_target(ref,ref.mean-h*du)
+            push!(data,(step=h,gradient=(fp-fm)/(2h),curvature=(fp+fm-2audit.objective)/h^2))
+        end
+        push!(values,(direction=j,ad_gradient=dot(audit.gradient,q),gradient_curvature=audit.hessian[j,j],scalar=data))
+    end
+    write(joinpath(@__DIR__,string(suite)*"_steps.json"),E.json_document((checks=audit.checks,scalar=values)))
+end

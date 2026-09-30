@@ -1,0 +1,41 @@
+let F=SparseBenchFinal
+    reports=NamedTuple[]
+    for kind in (:smooth,:piecewise_c1)
+        oracle(q)=(logmass=-q[1]^2/2,mean=[kind==:smooth ? q[1]^2 : max(q[1]-.137,0.)^2],root=reshape([.02],1,1))
+        for method in (:tensor,:sparse)
+            p=method==:tensor ? F.adaptive_density(oracle,[-4.],[4.];tolerance=.002,max_nodes=129,orders=(7,11)) :
+                F.sparse_density(oracle,[-4.],[4.];tolerance=.002,max_nodes=129,max_degree=64,orders=(7,11))
+            cuts=vcat([-4.,4.,.137],4 .* F.SparseDensities.leja(65))
+            for cell in p.cells;append!(cuts,[cell.lo[1],(cell.lo[1]+cell.hi[1])/2,cell.hi[1]]);end
+            sort!(unique!(cuts));tvs=Float64[];truth_logz=log(sqrt(2pi)*erf(4/sqrt(2)));sd_error=0.
+            for order in (15,31)
+                x,w=F.AdaptiveDensities._legendre(order);total=0.
+                for i in 1:length(cuts)-1
+                    lo=cuts[i];hi=cuts[i+1]
+                    for (u,weight) in zip(x,w)
+                        q=lo+(hi-lo)*u;n=F.adaptive_geometry(p,[q]);m=oracle([q]).mean[1]
+                        sd_error=max(sd_error,abs(n.root[1,1]-.02))
+                        pa=exp(n.logmass-p.log_normalizer);pb=exp(-q*q/2-truth_logz);delta=m-n.mean[1]
+                        difference=if delta==0
+                            abs(pa-pb)/2
+                        else
+                            cross=(m+n.mean[1])/2+.02^2*log(pa/pb)/delta
+                            fa=.5erfc(-(cross-n.mean[1])/(sqrt(2)*.02));fb=.5erfc(-(cross-m)/(sqrt(2)*.02))
+                            abs(pa*(2fa-1)-pb*(2fb-1))/2
+                        end
+                        total+=(hi-lo)*weight*difference
+                    end
+                end
+                push!(tvs,total)
+            end
+            push!(reports,(kind=kind,method=method,nodes=p.diagnostics.nodes,resolved=p.diagnostics.resolved,
+                reason=p.diagnostics.reason,joint_tv_estimate=last(tvs),joint_tv_order_change=abs(last(tvs)-first(tvs)),
+                conditional_sd_error=sd_error,quadrature_intervals=length(cuts)-1))
+            println("SPLIT SMOOTHNESS TV ",last(reports));flush(stdout)
+        end
+    end
+    write(joinpath(@__DIR__,"smoothness_tv_refined.json"),F.adaptive_strict_json((reports=reports,
+        settings=(budget=129,tolerance=.002,radius=4.,orders=(7,11),degree_cap=64),source_version=:archived_benchmark,
+        diagnostic_orders=(15,31),diagnostic_splits=:interpolation_nodes_and_known_analytic_kink,
+        diagnostic_outside_fit_budget=true,cook_specific=false,consistent=false)))
+end

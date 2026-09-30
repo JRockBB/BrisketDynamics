@@ -1,0 +1,62 @@
+[
+    {
+        "path":  "estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7",
+        "archive":  "sources/benchmark/estimator/scripts/adaptive_conditional.jl"
+    },
+    {
+        "path":  "estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961",
+        "archive":  "sources/benchmark/estimator/scripts/adaptive_curvature.jl"
+    },
+    {
+        "path":  "estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309",
+        "archive":  "sources/benchmark/estimator/scripts/curvature_audit.jl"
+    },
+    {
+        "path":  "estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4",
+        "archive":  "sources/benchmark/estimator/scripts/fit_conditional_chart.jl"
+    },
+    {
+        "path":  "estimator/scripts/sparse_conditional.jl",
+        "sha256":  "a56eed9692c1b1de71e1d2e3536714c75f7790bc346154fe5332d01853b71a2f",
+        "archive":  "sources/benchmark/estimator/scripts/sparse_conditional.jl"
+    },
+    {
+        "path":  "estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e",
+        "archive":  "sources/benchmark/estimator/scripts/target_ownership.jl"
+    },
+    {
+        "path":  "estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9",
+        "archive":  "sources/benchmark/estimator/scripts/validate_adaptive.jl"
+    },
+    {
+        "path":  "estimator/scripts/validate_sparse.jl",
+        "sha256":  "f12b8d510379ff839d9f3601191cd7ab9cf284a19213fc6bbe3aff2a83b0397b",
+        "archive":  "sources/benchmark/estimator/scripts/validate_sparse.jl"
+    },
+    {
+        "path":  "estimator/scripts/validate_sparse_mapped.jl",
+        "sha256":  "225f8b8694141eb7c80f448c58a7d43868f515a1cb30e1e81ba45e3a3d680eed",
+        "archive":  "sources/benchmark/estimator/scripts/validate_sparse_mapped.jl"
+    },
+    {
+        "path":  "estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1",
+        "archive":  "sources/benchmark/estimator/src/adaptive_density.jl"
+    },
+    {
+        "path":  "estimator/src/conditional_charts.jl",
+        "sha256":  "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8",
+        "archive":  "sources/benchmark/estimator/src/conditional_charts.jl"
+    },
+    {
+        "path":  "estimator/src/sparse_density.jl",
+        "sha256":  "7e307fbe6fdd4ab71972839c840a5bb5ffd040a6cbb33d6248757a0d63fd361f",
+        "archive":  "sources/benchmark/estimator/src/sparse_density.jl"
+    }
+]

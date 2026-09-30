@@ -218,7 +218,7 @@ lifted to the system's state (the latches at zero), integrated over the slice, e
 the ignited fraction from the latent a0 rather than from the state (the cook's first slice, as the filter).
 Duals in `y0` and `z` flow through the solve (the factor's Jacobian). Also returns the slice's outputs.
 """
-function propagate(m::SystemModel, y0::AbstractVector, z::AbstractVector, t0::Real, t1::Real; first_slice::Bool=false)
+function propagate(m::SystemModel, y0::AbstractVector, z::AbstractVector, t0::Real, t1::Real; first_slice::Bool=false, output_times=nothing)
     _validate_rom_use(m.rom, m.blk, z, t0, t1)
     p, play, tk = _slice_params(m, z, t0, t1)
     x_b = belief_decode(y0, m.bl)
@@ -228,8 +228,11 @@ function propagate(m::SystemModel, y0::AbstractVector, z::AbstractVector, t0::Re
         x0[first(state_index(m.sys.layout, :pit, :ignited))] = p[play[(:pit, :phi)][7]]
     end
     correction = m.rom === nothing ? nothing : (t -> _rom_dynamics_correction(m.rom, t))
-    A = system_solve_raw(m.sys, p, x0, tk, [Float64(t0), Float64(t1)]; correction, abstol=m.abstol, reltol=m.reltol)
-    o = system_outputs(m.sys, A, p, tk, [Float64(t0), Float64(t1)]; correction)
+    save = output_times===nothing ? [Float64(t0),Float64(t1)] : collect(Float64,output_times)
+    output_times===nothing || (length(save)>=2 && first(save)==t0 && last(save)==t1 && all(isfinite,save) && all(>(0),diff(save))) ||
+        throw(ArgumentError("propagation output times must increase from t0 through t1"))
+    A = system_solve_raw(m.sys, p, x0, tk, save; correction, abstol=m.abstol, reltol=m.reltol)
+    o = system_outputs(m.sys, A, p, tk, save; correction)
     y1 = belief_encode(belief_from_system(A[:, end], m.bl), m.bl)
     return y1, o
 end
@@ -276,8 +279,10 @@ export assemble_latents, split_permutation
     DynamicsFactor(model, key_z, key_y0, key_y1, t0, t1; first=false, events=Symbol[], key_m=nothing, split=nothing)
 
 x_{k+1} = f(x_k, z) + w over the slice `[t0, t1]`: r = W (y1 − f(y0, z)), W the inverse lower square root
-of the process covariance of the interval in the belief's coordinates at the propagated state (the rates of
+of the process covariance of the interval in the belief's coordinates at the initial prediction (the rates of
 the model's `StateNoise` over the interval's hours plus the disturbances of the lid-open `events` crossed).
+That covariance is fixed for the lifetime of the factor. Relinearization changes the dynamics Jacobian, not
+the probability model. A state-dependent covariance would instead require its derivatives and log determinant.
 The Jacobian is ForwardDiff through the solve, in chunks, over the state and the latents; the factor keeps
 its last solve (the slice's outputs, for the past's integrals) and its last linearization by point. With a
 `split`, the latents are `key_z` (the static entries) and `key_m` (the moving copy in force over the slice).
@@ -296,7 +301,7 @@ mutable struct DynamicsFactor <: Factor
     chunk::Int
     relin_tol::Float64          # the latents' move (∞-norm, their coordinates) beyond which the linearization is retaken
     relin_tol_state::Float64    # the start node's move (∞-norm, the belief's coordinates) beyond which it is retaken
-    cache::Any          # (z, y0, f, W, o) at the last solve; (jz, jy0, Jy, Jz) at the last linearization
+    cache::Any          # (z, y0, f, o) at the last solve; fixed (W, wy); (jz, jy0, Jy, Jz) at the last linearization
     n_solves::Int
     n_jacobians::Int
 end
@@ -356,6 +361,9 @@ function _process_cov_sens(f::DynamicsFactor, y1, names::AbstractVector{<:Abstra
     function cov_of(θ)
         var_of(g) = (i = get(idx, _als_group_name(bl, g), 0); (i == 0 ? θ0[findfirst(x -> first(x) == g, bl.groups)] : θ[i]) * Δh)
         Q = _belief_process_var(bl, m.sn, var_of)
+        # The coordinate cap is nonlinear in total variance: fixed event disturbances must be present
+        # when differentiating, even though their own derivative with respect to a rate is zero.
+        _add_event_disturbances!(Q, bl, m.sn, f.events)
         return vec(_process_cov_coord(f, y1, Q; to_coord=_cov_to_coord_var))
     end
     θ = zeros(length(names))
@@ -369,11 +377,9 @@ function _process_cov_sens(f::DynamicsFactor, y1, names::AbstractVector{<:Abstra
 end
 # the solve at (y0, z), cached by point; the Jacobian when asked, kept while the point stays within `relin_tol` of the
 # one it was taken at (a node whose neighbours have settled is not re-solved nineteen times per iteration). The
-# whitener W is FROZEN with the linearization: it depends on the state it is mapped at (the coordinate cap and the
-# floors move with a node's value), and taken afresh at every line-search trial it made the trials compare objectives
-# under different whitenings (the moving-surrogate defect the remediation report records for the filter; here it showed
-# as a Gauss-Newton direction twenty times too long at every iteration of the two-piece bench). It is refreshed with
-# the Jacobian, and `gauss_newton!` re-evaluates its baseline after every relinearization.
+# whitener W is fixed at the factor's initial prediction, including its coordinate cap and integrator floor.
+# Refreshing it with the Jacobian changed the loss at an unchanged graph value, while omitting the covariance
+# derivatives and normalization of a state-dependent Gaussian. Keep the reference `wy` for the calibration's dQ.
 function _dyn_eval!(f::DynamicsFactor, z, y0; jac::Bool)
     c = f.cache
     fresh = c !== nothing && c.z == z && c.y0 == y0
@@ -381,15 +387,15 @@ function _dyn_eval!(f::DynamicsFactor, z, y0; jac::Bool)
         fy, o = propagate(f.model, y0, z, f.t0, f.t1; first_slice=f.first)
         f.n_solves += 1
         W = c === nothing ? _whitener(f, fy) : c.W
-        c = c === nothing ? (z=copy(z), y0=copy(y0), f=fy, W=W, o=o, jz=nothing, jy0=nothing, Jy=nothing, Jz=nothing) :
-                            (z=copy(z), y0=copy(y0), f=fy, W=W, o=o, jz=c.jz, jy0=c.jy0, Jy=c.Jy, Jz=c.Jz)
+        c = c === nothing ? (z=copy(z), y0=copy(y0), f=fy, W=W, wy=copy(fy), o=o, jz=nothing, jy0=nothing, Jy=nothing, Jz=nothing) :
+                            (z=copy(z), y0=copy(y0), f=fy, W=W, wy=c.wy, o=o, jz=c.jz, jy0=c.jy0, Jy=c.Jy, Jz=c.Jz)
     end
     if jac && (c.Jy === nothing || norm(z .- c.jz, Inf) > f.relin_tol || norm(y0 .- c.jy0, Inf) > f.relin_tol_state)
         ny = length(y0)
         g(v) = propagate(f.model, v[1:ny], v[(ny + 1):end], f.t0, f.t1; first_slice=f.first)[1]
         J = _chunked_jacobian(g, vcat(y0, z), ndim(f), f.chunk)
         f.n_jacobians += 1
-        c = (z=c.z, y0=c.y0, f=c.f, W=_whitener(f, c.f), o=c.o, jz=copy(z), jy0=copy(y0), Jy=J[:, 1:ny], Jz=J[:, (ny + 1):end])
+        c = (z=c.z, y0=c.y0, f=c.f, W=c.W, wy=c.wy, o=c.o, jz=copy(z), jy0=copy(y0), Jy=J[:, 1:ny], Jz=J[:, (ny + 1):end])
     end
     f.cache = c
     return c
@@ -434,7 +440,7 @@ end
 function _invalidate_linearization!(f::DynamicsFactor)
     c = f.cache
     c === nothing && return f
-    f.cache = (z=c.z, y0=c.y0, f=c.f, W=c.W, o=c.o,
+    f.cache = (z=c.z, y0=c.y0, f=c.f, W=c.W, wy=c.wy, o=c.o,
                jz=nothing, jy0=nothing, Jy=nothing, Jz=nothing)
     return f
 end
@@ -628,7 +634,7 @@ mutable struct FactorGraph
 end
 FactorGraph() = FactorGraph(VarKey[], Dict{VarKey,Int}(), Dict{VarKey,Vector{Float64}}(), Factor[])
 has_variable(g::FactorGraph, k::VarKey) = haskey(g.dims, k)
-"Ensure cached dynamics Jacobians (and their frozen whiteners) were made at the graph's exact current point."
+"Ensure cached dynamics Jacobians were made at the graph's exact current point, preserving their noise model."
 function _ensure_current_dynamics!(g::FactorGraph)
     for f in g.factors
         f isa DynamicsFactor || continue
@@ -1042,8 +1048,8 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         push!(hist, (it=it, F=F, F_trial=Fn, step=stepn, alpha=α, damping=λ, trials=trials, soc=nsoc,
                      accepted=true, bounded=bounded, gradient=grad, gain=gain, wall=time() - t0))
         verbose && @printf("    GN it %2d  F %.6g  |step| %.3g  alpha %.3g (%d trials, %d soc)  gain %.3g  damping %.2g%s\n", it, F, stepn, α, trials, nsoc, gain, λ, bounded ? "  bounded" : "")
-        # A small move/drop only asks for a stationarity check at the accepted point.  This also refreshes
-        # every IRLS whitener there, so a returned covariance uses the same final surrogate as the mean.
+        # A small move/drop only asks for a stationarity check at the accepted point. Refresh the dynamics
+        # Jacobians so the returned covariance and mean use the same local model of the fixed objective.
         if moved < tol || (dropped < ftol && α == 1.0 && λ < 1e-2 && !bounded)
             _ensure_current_dynamics!(g)
             Jf, rf, _, _ = linearize(g; order, sparse)

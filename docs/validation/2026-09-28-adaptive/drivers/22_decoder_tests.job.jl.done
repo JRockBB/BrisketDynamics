@@ -1,0 +1,8 @@
+module SharedDecoderVerification
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_density.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_conditional.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_curvature.jl"))
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_adaptive.jl"))
+end
+println("SHARED DECODER SOURCE VERIFIED");flush(stdout)

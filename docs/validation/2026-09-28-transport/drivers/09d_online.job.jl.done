@@ -1,0 +1,28 @@
+let F=MappedRun
+    snap=deserialize(joinpath(@__DIR__,"../curvature_audit/core.jls"))
+    offline=deserialize(joinpath(@__DIR__,"core_triangular.jls"))
+    anchor=snap.accepted.bank.anchor;saved=deepcopy(anchor);start=time()
+    online=F.adaptive_arrival_candidate(anchor,snap.batches[snap.arrival];axes=offline.axes,
+        chart=offline.chart,lower=[-4.],upper=[4.],tolerance=.002,max_nodes=129,
+        orders=(7,11),shape_key=anchor.key_z,curvature=F.polished_gn_conditional_curvature)
+    wall=time()-start
+    comparison=F.mapped_density_distance(offline,online.candidate)
+    noise_equal=all(a.cache.W==b.cache.W && a.cache.wy==b.cache.wy for (a,b) in zip(offline.decoder.dynamics,online.candidate.decoder.dynamics))
+    unchanged=E._same_decoder_value(saved,anchor)
+    @testset "mapped online cook target and ownership" begin
+        @test !online.committed
+        @test online.candidate.density.diagnostics.resolved
+        @test online.candidate.diagnostics.shape_pass
+        @test unchanged
+        @test noise_equal
+        @test comparison.tv_bound_estimate<1e-8
+        @test comparison.integration_change<1e-8
+        @test last(anchor.nodes)[1]==75.
+        @test last(online.anchor.nodes)[1]==510.
+    end
+    write(joinpath(@__DIR__,"mapped_online_replay.json"),F.adaptive_strict_json((wall=wall,
+        comparison=comparison,noise_equal=noise_equal,anchor_unchanged=unchanged,
+        map_dimension=1,nonlinear_chart_reuse_qualified=false,committed=false,consistent=false,
+        diagnostics=online.candidate.diagnostics)))
+    println("MAPPED ONLINE ",(wall=wall,tv=comparison.tv_bound_estimate));flush(stdout)
+end

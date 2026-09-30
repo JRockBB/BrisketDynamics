@@ -1,0 +1,8 @@
+# Same coherent module types, reload the changed functions after the preceding job.
+const R=RecenterValidation
+for name in ("conditional_density.jl","deterministic_online.jl")
+    src=read(joinpath(@__DIR__,"../../../estimator/src",name),String)
+    for ex in Meta.parseall(src).args;isstructexpr(ex) || Core.eval(R.E,ex);end
+end
+Base.include(R,joinpath(@__DIR__,"../../../estimator/scripts/validate_deterministic.jl"))
+R.validate_deterministic(output=joinpath(@__DIR__,"adaptive_integrator_development.json"))

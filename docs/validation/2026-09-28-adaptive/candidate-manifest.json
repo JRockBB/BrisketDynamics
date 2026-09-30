@@ -1,0 +1,97 @@
+[
+  {
+    "bytes": 1.704876e6,
+    "path": "scratchpad/adaptive_work/core_adaptive_gn.jls",
+    "sha256": "88123a6862537146da8a56289f83aeaa1da5fb55ca0c191f7c4e1207173765a7"
+  },
+  {
+    "bytes": 1.707057e6,
+    "path": "scratchpad/adaptive_work/core_adaptive_observed.jls",
+    "sha256": "7a2297fc8cda82fd8dc284a67d38ba5b6fc381b4d5cfdbc14c0ff69d7906fc77"
+  },
+  {
+    "bytes": 4.869763e6,
+    "path": "scratchpad/adaptive_work/core_decoder_full_1d.jls",
+    "sha256": "b473f3d6d7a2eb5d3096f75ac9bad1dcfd37ddd67f7a59139c71388018f7b60a"
+  },
+  {
+    "bytes": 2.61494e6,
+    "path": "scratchpad/adaptive_work/core_decoder_prefix.jls",
+    "sha256": "70d728ed80e99f0bc446bf92ca594950847922231a90ffd8cc3734d902a6be94"
+  },
+  {
+    "bytes": 1.2066635e7,
+    "path": "scratchpad/adaptive_work/core_fine.jls",
+    "sha256": "491b615d70ddd6b22fc86922ea128ee4ed1581d0f98dbfe732b73776bd565db6"
+  },
+  {
+    "bytes": 4.869415e6,
+    "path": "scratchpad/adaptive_work/core_full_cook.jls",
+    "sha256": "3dff3c46569d0fd440f3f21e340af3bbc4ae91e517cbcecdc3c3c43e3a1e4a3f"
+  },
+  {
+    "bytes": 4.869763e6,
+    "path": "scratchpad/adaptive_work/core_guarded_full_1d.jls",
+    "sha256": "ae2922e14cc62449cd3a40bc9cd6133eac412e0ca82905fee12cc4be30efcf55"
+  },
+  {
+    "bytes": 2.61494e6,
+    "path": "scratchpad/adaptive_work/core_guarded_prefix.jls",
+    "sha256": "d60011d73587332bbc2020c8c9cb91304c75adaa85b62623111f7a47588e6754"
+  },
+  {
+    "bytes": 2.614628e6,
+    "path": "scratchpad/adaptive_work/core_polished_gn.jls",
+    "sha256": "e3de7d4a430762b962d0367c4c9be75dcb5978e41dd9bea64ce1fedd484b6b25"
+  },
+  {
+    "bytes": 2.617388e6,
+    "path": "scratchpad/adaptive_work/core_polished_observed.jls",
+    "sha256": "61053bbced8173ac31713facd0213a0c071e722b662effde7880117b2f75785c"
+  },
+  {
+    "bytes": 2.796474e6,
+    "path": "scratchpad/adaptive_work/core_polished_wide_bfgs.jls",
+    "sha256": "2933cc05f5500b66a06e694ced7696687adcd4cf1e9bc426a1b80099768730e4"
+  },
+  {
+    "bytes": 2.2410826e7,
+    "path": "scratchpad/adaptive_work/full_adaptive_polished.jls",
+    "sha256": "975716749be3b201d2691cebc38fb7de8ceb99a702e59a68f9d739c2fd2a4a67"
+  },
+  {
+    "bytes": 4.776451e6,
+    "path": "scratchpad/adaptive_work/two_core_decoder_full_1d.jls",
+    "sha256": "69051a5ac2a42f3bbdaa8f4b52d9fc1bbd30f68acbd2c9090c9aa65f1c9e6761"
+  },
+  {
+    "bytes": 3.092367e6,
+    "path": "scratchpad/adaptive_work/two_core_decoder_prefix.jls",
+    "sha256": "a3df734f4be30c391007e9be9c1d7a5a472f1bf45a4dc94b83ae32ad76a637d0"
+  },
+  {
+    "bytes": 4.776121e6,
+    "path": "scratchpad/adaptive_work/two_core_full_cook.jls",
+    "sha256": "a6dda61b66b6bb5ee59d88a1606b7c527d662142f52299a4214da3e41f765733"
+  },
+  {
+    "bytes": 4.776451e6,
+    "path": "scratchpad/adaptive_work/two_core_guarded_full_1d.jls",
+    "sha256": "4e9ae0c5279fda2457254780fe595006c16f5a2746e7edb8e8b2eb32711af3e3"
+  },
+  {
+    "bytes": 1.4855411e7,
+    "path": "scratchpad/adaptive_work/two_core_guarded_full_2d.jls",
+    "sha256": "4e40421be5ded7521f818b76ace828f1d53f6335fb7d2255b0c264faae0d81f9"
+  },
+  {
+    "bytes": 3.092367e6,
+    "path": "scratchpad/adaptive_work/two_core_guarded_prefix.jls",
+    "sha256": "439fb1542ae41e72299b26dcda6c60b59406eaa589153c46271fbc162028753a"
+  },
+  {
+    "bytes": 3.092019e6,
+    "path": "scratchpad/adaptive_work/two_core_polished_gn.jls",
+    "sha256": "6619d6a15c8305e9bdbbf33e996774855223589b59202b143d888b67ded829fe"
+  }
+]

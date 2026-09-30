@@ -1,0 +1,10 @@
+module SparseLegacyRegression
+const E=Main.E
+using Test
+const result=@testset "legacy adapter regressions" begin
+    for f in ("test_adaptive_density.jl","test_adaptive_conditional.jl","test_adaptive_curvature.jl","test_conditional_charts.jl","test_mapped_conditional.jl","test_transport_budget.jl","test_target_ownership.jl")
+        include(joinpath(@__DIR__,"../../estimator/test",f))
+    end
+end
+println("LEGACY COUNTS ",Test.get_test_counts(result))
+end

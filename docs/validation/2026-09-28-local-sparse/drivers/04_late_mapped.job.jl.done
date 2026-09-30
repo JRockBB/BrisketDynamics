@@ -1,0 +1,1 @@
+LocalCookBench.run("late_two_mapped","late_two";method=:mapped)

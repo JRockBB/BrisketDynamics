@@ -1,0 +1,26 @@
+START 05_baseline_sparse.job.jl
+┌ Warning: Assignment to `path` in soft scope is ambiguous because a global variable by the same name exists: `path` 
+will be treated as a new local. Disambiguate by using `local path` to suppress this warning or `global path` to assign 
+to the existing global variable.
+└ @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\transport\05_baseline_sparse.job.jl:5
+┌ Warning: Assignment to `source` in soft scope is ambiguous because a global variable by the same name exists: 
+`source` will be treated as a new local. Disambiguate by using `local source` to suppress this warning or `global 
+source` to assign to the existing global variable.
+└ @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\transport\05_baseline_sparse.job.jl:5
+BASELINE METHODS RESTORED 411c33d5521d threads=4
+ONLINE CASE core seed 22003
+ARRIVAL core (t = 0.0, channels = [:core], committed = true, update = :incremental, particles = 1024, mean_ess = 1316.6990937184678, min_tail_ess = 795.1649534236074, joint_mean_mc_error = 0.01719322306664317, wall = 1.6180000305175781)
+ARRIVAL core (t = 75.0, channels = [:core], committed = true, update = :incremental, particles = 1024, mean_ess = 929.6215955795199, min_tail_ess = 406.33668364192437, joint_mean_mc_error = 0.017573515510438304, wall = 6.136999845504761)
+ARRIVAL core (t = 510.0, channels = [:core], committed = true, update = :full_history_refresh, particles = 1024, mean_ess = 4016.9537520609665, min_tail_ess = 3167.4826887966806, joint_mean_mc_error = 0.00568300372220023, wall = 150.16299986839294)
+ARRIVAL core (t = 1800.0, channels = [:core], committed = true, update = :incremental, particles = 1024, mean_ess = 1036.4937567842803, min_tail_ess = 724.1752602111582, joint_mean_mc_error = 0.015905418743540553, wall = 9.990999937057495)
+COMPARISON core (max_mean_mc_z = 2.9945878625718, max_mean_posterior_sd = 0.06847839941592207, max_cdf_mc_z = 3.0249623796312393, max_cdf_difference = 0.034416618707221014, max_joint_moment_mc_z = 3.0400992500175383, max_joint_moment_difference = 0.06438501681513302, passed = true)
+ONLINE CASE two_core seed 22004
+ARRIVAL two_core (t = 0.0, channels = [:core, :second], committed = true, update = :incremental, particles = 1024, mean_ess = 1277.9396476828986, min_tail_ess = 1032.2542083445119, joint_mean_mc_error = 0.015025610555895786, wall = 0.4460000991821289)
+ARRIVAL two_core (t = 150.0, channels = [:core], committed = true, update = :incremental, particles = 1024, mean_ess = 1185.887603067131, min_tail_ess = 1057.87931112387, joint_mean_mc_error = 0.01385411960457487, wall = 4.697000026702881)
+ARRIVAL two_core (t = 630.0, channels = [:second], committed = true, update = :full_history_refresh, particles = 1024, mean_ess = 3874.442455545305, min_tail_ess = 3239.165465346535, joint_mean_mc_error = 0.005917762551721025, wall = 354.50600004196167)
+ARRIVAL two_core (t = 1800.0, channels = [:core, :second], committed = true, update = :full_history_refresh, particles = 1024, mean_ess = 4246.99326545174, min_tail_ess = 3999.458581907091, joint_mean_mc_error = 0.005737304687499999, wall = 519.260999917984)
+COMPARISON two_core (max_mean_mc_z = 2.723645123633629, max_mean_posterior_sd = 0.04786363473731717, max_cdf_mc_z = 3.032102611016155, max_cdf_difference = 0.0242919921875, max_joint_moment_mc_z = 3.097784452657992, max_joint_moment_difference = 0.05438423024136452, passed = true)
+PASS 05_baseline_sparse.job.jl
+START 06_profile.job.jl
+PROFILE COMPLETE wall=4.493000030517578
+PASS 06_profile.job.jl

@@ -1,0 +1,10 @@
+for suite in (:full,:pit_core,:core,:two_core)
+    haskey(deterministic_cases,suite) || continue
+    r=deterministic_cases[suite].result
+    p=get(r,:candidate,get(r,:posterior,nothing));p===nothing && continue
+    sm=deterministic_cases[suite].sm
+    a=conditional_shape_diagnostic(p.transported;key=sm.bank.anchor.key_z)
+    order=sortperm(a.scores;rev=true)
+    println("SHAPE DIRECTIONS ",suite," ",[(sm.bank.anchor.model.blk.names[i],a.scores[i]) for i in order[1:min(5,length(order))]])
+    flush(stdout)
+end

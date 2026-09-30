@@ -1,0 +1,35 @@
+let F=SparseBenchFinal
+    snap=deserialize(joinpath(@__DIR__,"../curvature_audit/core.jls"));a=snap.accepted.bank.anchor
+    before=F.target_state_fingerprint(a);start=time();axes=F.frozen("core").axes
+    offline=F.expanding_sparse_fit(snap.failed.bank.anchor.graph;axes,shape_key=a.key_z,max_nodes=129,
+        radius=4.,tolerance=.002,orders=(7,11),curvature=F.polished_gn_conditional_curvature,
+        step_bounds=Dict(a.key_z=>a.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+    result=F.sparse_arrival_candidate(a,snap.batches[snap.arrival];axes,shape_key=a.key_z,max_nodes=129,
+        radius=4.,tolerance=.002,orders=(7,11),curvature=F.polished_gn_conditional_curvature)
+    online=result.candidate;errors=Float64[];conditional=Float64[]
+    for q in ([v] for v in (-2.,-1.,0.,1.,2.))
+        n=F.adaptive_geometry(offline.density,q);u=zeros(length(offline.decoder.mean))
+        u[offline.axisrows]=F.chart_forward(offline.chart,q);u[offline.free]=n.mean
+        x=E._conditional_decode(offline.decoder,u)
+        push!(errors,abs(F.adaptive_conditional_logpdf(offline,x)-F.adaptive_conditional_logpdf(online,x)))
+        qo=F.chart_inverse(online.chart,u[online.axisrows]);m=F.adaptive_geometry(online.density,qo)
+        push!(conditional,F.AdaptiveDensities._kl(n,m))
+    end
+    noise=all(x.cache.W==y.cache.W && x.cache.wy==y.cache.wy for (x,y) in zip(offline.decoder.dynamics,online.decoder.dynamics))
+    unchanged=before==F.target_state_fingerprint(a)
+    tests=@testset "sparse online offline original target" begin
+        @test !result.committed
+        @test offline.axes==online.axes
+        @test offline.diagnostics.resolved==online.diagnostics.resolved
+        @test offline.diagnostics.shape_pass==online.diagnostics.shape_pass
+        @test maximum(errors)<1e-5
+        @test maximum(conditional)<1e-9
+        @test noise && unchanged
+        @test last(a.nodes)[1]==75. && last(result.anchor.nodes)[1]==510.
+        @test online.diagnostics.total_graph_solves<=129
+    end
+    write(joinpath(@__DIR__,"online_replay.json"),F.adaptive_strict_json((wall=time()-start,
+        offline=offline.diagnostics,online=online.diagnostics,max_logpdf_difference=maximum(errors),
+        max_conditional_kl=maximum(conditional),noise_equal=noise,anchor_unchanged=unchanged,
+        tests=Test.get_test_counts(tests),committed=false,consistent=false,full_history=true)))
+end

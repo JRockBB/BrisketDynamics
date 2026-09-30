@@ -1,0 +1,37 @@
+include(joinpath(@__DIR__,"../../estimator/scripts/direct_online.jl"))
+@testset "direct posterior analytic prior and online ownership" begin
+    model=consistency_model(nx=4,stop=120.,suite=:core)
+    anchor=online_init(model;lag=typemax(Int),record_limit=0)
+    original=deepcopy(anchor)
+    p=direct_posterior_fit(anchor;max_evaluations=15000,max_seconds=120.)
+    @test p.diagnostics.resolved
+    @test anchor.graph.values==original.graph.values
+    @test isempty(anchor.obs)
+    @test p.normalizer≈1 atol=1e-8
+    @test p.mean[1:length(model.blk)]≈[z_moments(s)[1] for s in model.blk.sites] atol=1e-8
+    @test p.covariance[1:length(model.blk),1:length(model.blk)]≈Matrix(Diagonal([z_moments(s)[2] for s in model.blk.sites])) atol=1e-8
+    for i in (1,length(model.blk)),z in (-1.,.3,1.7)
+        mu,variance=z_moments(model.blk.sites[i])
+        c=direct_cdf(p,i,mu+sqrt(variance)*z;max_evaluations=15000,max_seconds=120.)
+        @test c.resolved
+        @test c.value≈.5E.erfc(-z/sqrt(2)) atol=1e-8
+    end
+    global initial_direct_posterior=p
+    stream=DirectSmoother(anchor,p,(atol=.002,rtol=.002,max_evaluations=15000,max_level=5,max_seconds=120.))
+    rec=MeasurementRecord(:core,0.,294.)
+    result=assimilate!(stream,rec)
+    @test result.committed
+    if result.committed
+        offline=direct_fit(model,[rec];max_evaluations=15000,max_seconds=120.,record_limit=0)
+        @test offline.diagnostics.resolved
+        @test offline.mean≈stream.posterior.mean atol=1e-10
+        @test offline.covariance≈stream.posterior.covariance atol=1e-10
+    end
+    before=deepcopy(stream)
+    stream.settings=merge(stream.settings,(max_evaluations=1,))
+    rejected=assimilate!(stream,MeasurementRecord(:core,10.,294.3))
+    @test !rejected.committed
+    @test stream.posterior.mean==before.posterior.mean
+    @test stream.anchor.graph.values==before.anchor.graph.values
+    @test length(stream.anchor.obs)==length(before.anchor.obs)
+end

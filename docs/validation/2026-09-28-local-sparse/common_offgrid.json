@@ -1,0 +1,578 @@
+{
+  "extra_fits": 9.0,
+  "graph_unchanged": true,
+  "grid": "central_affine_gauss3",
+  "missing": [],
+  "rows": [
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 0.43832163687613956,
+          "conditional_kl": 1.6945788252144793,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 1.505690433726438
+        },
+        {
+          "absolute_logmass_error": 0.37209395718957694,
+          "conditional_kl": 0.42331487970609794,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.4184499446149349
+        },
+        {
+          "absolute_logmass_error": 0.0012736136117155183,
+          "conditional_kl": 0.015596299677328248,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 0.01551013235898739
+        },
+        {
+          "absolute_logmass_error": 0.15969272418385572,
+          "conditional_kl": 3.1569395823878605,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 3.111576614970713
+        },
+        {
+          "absolute_logmass_error": 0.2536447032900355,
+          "conditional_kl": 1.2091279372802042,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 1.2109729347927622
+        },
+        {
+          "absolute_logmass_error": 0.07735406668064115,
+          "conditional_kl": 0.06106214478647954,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 0.06077958744794913
+        },
+        {
+          "absolute_logmass_error": 0.0057332070593361095,
+          "conditional_kl": 0.003923807062074697,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.00391862525268058
+        }
+      ],
+      "logmass": -462.75596072498485,
+      "point": [
+        -1.3249519871718203,
+        -0.388644286526711
+      ],
+      "q": [
+        -1.5491933384829648,
+        -1.5491933384829648
+      ],
+      "quadrature_weight": 1.2345679012345745
+    },
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 0.0027104151585604086,
+          "conditional_kl": 0.0008650119740138748,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 0.0008653179799157203
+        },
+        {
+          "absolute_logmass_error": 0.05270142717114368,
+          "conditional_kl": 0.006038924353935448,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.006024742700476624
+        },
+        {
+          "absolute_logmass_error": 0.01678692491145739,
+          "conditional_kl": 0.018852544891494384,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 0.018909202947374765
+        },
+        {
+          "absolute_logmass_error": 0.33003305422261064,
+          "conditional_kl": 0.19070065580129755,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 0.17725967642134027
+        },
+        {
+          "absolute_logmass_error": 0.34354309600337274,
+          "conditional_kl": 6.183296716437494,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 6.0058650295812495
+        },
+        {
+          "absolute_logmass_error": 0.0041689823322599295,
+          "conditional_kl": 0.0003031892778907042,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 0.0003034884688383524
+        },
+        {
+          "absolute_logmass_error": 0.013154520644320655,
+          "conditional_kl": 0.0005579815399732122,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.0005594262112996818
+        }
+      ],
+      "logmass": -462.6936790137322,
+      "point": [
+        -1.3249519871718203,
+        0.32002643615951754
+      ],
+      "q": [
+        -1.5491933384829648,
+        1.7763568394002505e-15
+      ],
+      "quadrature_weight": 1.975308641975309
+    },
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 0.33525695844440406,
+          "conditional_kl": 2.9427938884151073,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 2.9107986172531906
+        },
+        {
+          "absolute_logmass_error": 0.18095167195411932,
+          "conditional_kl": 0.09769164808324055,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.0982053725586994
+        },
+        {
+          "absolute_logmass_error": 0.04234593024540345,
+          "conditional_kl": 0.0013157032640639984,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 0.0013167298319137987
+        },
+        {
+          "absolute_logmass_error": 0.21789843649582963,
+          "conditional_kl": 0.03342535157100221,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 0.031877649192471595
+        },
+        {
+          "absolute_logmass_error": 0.29092059800939296,
+          "conditional_kl": 17.03600993446555,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 15.195870145379123
+        },
+        {
+          "absolute_logmass_error": 0.010536336406630653,
+          "conditional_kl": 0.010924044164035718,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 0.010803346090010432
+        },
+        {
+          "absolute_logmass_error": 0.013229554220401951,
+          "conditional_kl": 0.0005920549617428035,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.0005917534664295105
+        }
+      ],
+      "logmass": -466.20882882202585,
+      "point": [
+        -1.3249519871718203,
+        1.0286971588457454
+      ],
+      "q": [
+        -1.5491933384829648,
+        1.5491933384829668
+      ],
+      "quadrature_weight": 1.2345679012345716
+    },
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 0.3246658472146464,
+          "conditional_kl": 1.8716789407278804,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 1.7321610074523035
+        },
+        {
+          "absolute_logmass_error": 0.04697681887142835,
+          "conditional_kl": 0.002781318165125121,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.0028000666628776915
+        },
+        {
+          "absolute_logmass_error": 0.0009797638099939832,
+          "conditional_kl": 2.004562779479796e-5,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 2.0046414725533616e-5
+        },
+        {
+          "absolute_logmass_error": 0.027235582520518165,
+          "conditional_kl": 0.20110928839410605,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 0.2042774616278444
+        },
+        {
+          "absolute_logmass_error": 0.06361099643129364,
+          "conditional_kl": 0.034798850915112305,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.034918962237987204
+        },
+        {
+          "absolute_logmass_error": 0.002171180294737951,
+          "conditional_kl": 8.093898189441971e-5,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 8.092724614017844e-5
+        },
+        {
+          "absolute_logmass_error": 0.001100903054407354,
+          "conditional_kl": 2.29225978944553e-5,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 2.2920517562067738e-5
+        }
+      ],
+      "logmass": -460.81376182441846,
+      "point": [
+        0.19886442331432413,
+        -0.29623545873564394
+      ],
+      "q": [
+        1.7763568394002505e-15,
+        -1.5491933384829648
+      ],
+      "quadrature_weight": 1.975308641975309
+    },
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 7.75508510741929e-8,
+          "conditional_kl": 3.353722344625499e-13,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 3.3537219463803914e-13
+        },
+        {
+          "absolute_logmass_error": 0.0034711843202330783,
+          "conditional_kl": 0.00010482473626418219,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.00010467716438513552
+        },
+        {
+          "absolute_logmass_error": 1.2646055552067992e-5,
+          "conditional_kl": 4.600172137230716e-8,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 4.600215819679216e-8
+        },
+        {
+          "absolute_logmass_error": 7.75508510741929e-8,
+          "conditional_kl": 3.353722346780284e-13,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 3.3537219482906016e-13
+        },
+        {
+          "absolute_logmass_error": 0.001040557881026416,
+          "conditional_kl": 7.443571357466535e-5,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 7.449248709945575e-5
+        },
+        {
+          "absolute_logmass_error": 7.75508510741929e-8,
+          "conditional_kl": 3.3537224087509576e-13,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 3.3537220098554003e-13
+        },
+        {
+          "absolute_logmass_error": 9.28394837274027e-6,
+          "conditional_kl": 1.7535283271522988e-6,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 1.7536360042657201e-6
+        }
+      ],
+      "logmass": -459.3975950236391,
+      "point": [
+        0.19886442331432413,
+        0.41243526395058466
+      ],
+      "q": [
+        1.7763568394002505e-15,
+        1.7763568394002505e-15
+      ],
+      "quadrature_weight": 3.1604938271604786
+    },
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 0.031824352164505854,
+          "conditional_kl": 6.001911453512972,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 5.7852098195956065
+        },
+        {
+          "absolute_logmass_error": 0.030462253088103353,
+          "conditional_kl": 0.010705909464960204,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.010871170742557421
+        },
+        {
+          "absolute_logmass_error": 0.0010284693306630288,
+          "conditional_kl": 1.4615726409100245e-5,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 1.4621477799342698e-5
+        },
+        {
+          "absolute_logmass_error": 0.461922785310378,
+          "conditional_kl": 28.44262388311342,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 22.94657466458498
+        },
+        {
+          "absolute_logmass_error": 0.03502184225249039,
+          "conditional_kl": 0.08415277155289408,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.08185049744156855
+        },
+        {
+          "absolute_logmass_error": 0.02193450923527962,
+          "conditional_kl": 0.01217299195088018,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 0.012026414840427838
+        },
+        {
+          "absolute_logmass_error": 0.0008761047899383811,
+          "conditional_kl": 1.896645681014858e-5,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 1.8955695834263077e-5
+        }
+      ],
+      "logmass": -460.56101884740286,
+      "point": [
+        0.19886442331432413,
+        1.1211059866368127
+      ],
+      "q": [
+        1.7763568394002505e-15,
+        1.5491933384829668
+      ],
+      "quadrature_weight": 1.9753086419753048
+    },
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 0.18756251121357082,
+          "conditional_kl": 1.7352587579157692,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 1.669350640852846
+        },
+        {
+          "absolute_logmass_error": 0.09481027360880034,
+          "conditional_kl": 0.01364379531303469,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.013687502568099733
+        },
+        {
+          "absolute_logmass_error": 0.006442984218608672,
+          "conditional_kl": 0.0023110478924940818,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 0.0023093112110495017
+        },
+        {
+          "absolute_logmass_error": 0.07553170298126588,
+          "conditional_kl": 1.9810808212375688,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 2.0092955815938645
+        },
+        {
+          "absolute_logmass_error": 0.09379711876925967,
+          "conditional_kl": 0.0638485603707001,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.06262852156743634
+        },
+        {
+          "absolute_logmass_error": 0.0019306252735304952,
+          "conditional_kl": 6.261296209964251e-5,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 6.26151709616983e-5
+        },
+        {
+          "absolute_logmass_error": 0.0038917123605415327,
+          "conditional_kl": 9.748636146960877e-5,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 9.761009969640697e-5
+        }
+      ],
+      "logmass": -461.8363953379053,
+      "point": [
+        1.722680833800467,
+        -0.20382663094457687
+      ],
+      "q": [
+        1.5491933384829668,
+        -1.5491933384829648
+      ],
+      "quadrature_weight": 1.2345679012345716
+    },
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 0.0016287483464907382,
+          "conditional_kl": 0.00019996402584667215,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 0.0001999212214570092
+        },
+        {
+          "absolute_logmass_error": 0.002779905702823271,
+          "conditional_kl": 0.007260849462240137,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.007266388965960686
+        },
+        {
+          "absolute_logmass_error": 0.005647866950482694,
+          "conditional_kl": 6.368452065603627e-5,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 6.377067854058083e-5
+        },
+        {
+          "absolute_logmass_error": 0.0005431830188058484,
+          "conditional_kl": 2.191297213723238e-5,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 2.1908136094634048e-5
+        },
+        {
+          "absolute_logmass_error": 0.01908424650599727,
+          "conditional_kl": 0.40994902422358864,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.4089941721713169
+        },
+        {
+          "absolute_logmass_error": 0.0023586512594988562,
+          "conditional_kl": 0.002065134532829163,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 0.002067044230954767
+        },
+        {
+          "absolute_logmass_error": 0.0010425741798485433,
+          "conditional_kl": 0.00035165041502005246,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.00035172948140597336
+        }
+      ],
+      "logmass": -460.6570520706332,
+      "point": [
+        1.722680833800467,
+        0.5048440917416517
+      ],
+      "q": [
+        1.5491933384829668,
+        1.7763568394002505e-15
+      ],
+      "quadrature_weight": 1.9753086419753048
+    },
+    {
+      "comparisons": [
+        {
+          "absolute_logmass_error": 0.17159811794715552,
+          "conditional_kl": 3.472926609260157,
+          "method": "final_local_affine",
+          "outside": false,
+          "reverse_kl": 3.2961025869107123
+        },
+        {
+          "absolute_logmass_error": 0.011069965756348665,
+          "conditional_kl": 0.00556409009419302,
+          "method": "final_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.00555184887573842
+        },
+        {
+          "absolute_logmass_error": 0.009104922316851116,
+          "conditional_kl": 0.002686524007749439,
+          "method": "global_mapped_degree64",
+          "outside": false,
+          "reverse_kl": 0.002693893102907887
+        },
+        {
+          "absolute_logmass_error": 0.4383422590603345,
+          "conditional_kl": 30.822364573112335,
+          "method": "initial_local_affine",
+          "outside": false,
+          "reverse_kl": 24.92040709915327
+        },
+        {
+          "absolute_logmass_error": 0.15127550635736497,
+          "conditional_kl": 0.04701341168570826,
+          "method": "initial_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.046397152073754784
+        },
+        {
+          "absolute_logmass_error": 0.013534976231028395,
+          "conditional_kl": 0.01571665584144245,
+          "method": "old_local_affine",
+          "outside": false,
+          "reverse_kl": 0.015576566276605931
+        },
+        {
+          "absolute_logmass_error": 0.007637324574432114,
+          "conditional_kl": 0.0007218828215505933,
+          "method": "old_local_mapped",
+          "outside": false,
+          "reverse_kl": 0.0007228047390789512
+        }
+      ],
+      "logmass": -461.7610858529312,
+      "point": [
+        1.722680833800467,
+        1.2135148144278798
+      ],
+      "q": [
+        1.5491933384829668,
+        1.5491933384829668
+      ],
+      "quadrature_weight": 1.234567901234569
+    }
+  ],
+  "true_posterior_bound": false,
+  "wall": 9.180000066757202,
+  "within_comparison_budget": false
+}

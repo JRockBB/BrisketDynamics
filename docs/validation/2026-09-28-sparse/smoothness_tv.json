@@ -1,0 +1,61 @@
+{
+  "consistent": false,
+  "cook_specific": false,
+  "diagnostic_orders": [
+    401.0,
+    801.0
+  ],
+  "diagnostic_outside_fit_budget": true,
+  "reports": [
+    {
+      "joint_tv_estimate": 4.402255329716764e-12,
+      "joint_tv_order_change": 6.143567351929512e-18,
+      "kind": "smooth",
+      "method": "tensor",
+      "nodes": 9.0,
+      "reason": "resolution",
+      "resolved": true,
+      "wall": 0.7880001068115234
+    },
+    {
+      "joint_tv_estimate": 4.402191673733348e-12,
+      "joint_tv_order_change": 2.9001138205954454e-18,
+      "kind": "smooth",
+      "method": "sparse",
+      "nodes": 8.0,
+      "reason": "finite_checks",
+      "resolved": true,
+      "wall": 0.9570000171661377
+    },
+    {
+      "joint_tv_estimate": 2.7230315305434853e-5,
+      "joint_tv_order_change": 8.76142527041479e-6,
+      "kind": "piecewise_c1",
+      "method": "tensor",
+      "nodes": 29.0,
+      "reason": "resolution",
+      "resolved": true,
+      "wall": 0.09399986267089844
+    },
+    {
+      "joint_tv_estimate": 0.004332452144133979,
+      "joint_tv_order_change": 4.889694998817459e-5,
+      "kind": "piecewise_c1",
+      "method": "sparse",
+      "nodes": 69.0,
+      "reason": "degree_budget",
+      "resolved": false,
+      "wall": 0.10700011253356934
+    }
+  ],
+  "settings": {
+    "budget": 129.0,
+    "degree_cap": 64.0,
+    "orders": [
+      7.0,
+      11.0
+    ],
+    "radius": 4.0,
+    "tolerance": 0.002
+  }
+}

@@ -1,0 +1,2 @@
+Base.include(FinalConditionalValidation,joinpath(@__DIR__,"../../../estimator/scripts/validate_deterministic.jl"))
+FinalConditionalValidation.validate_deterministic(output=joinpath(@__DIR__,"final_cooks.json"))

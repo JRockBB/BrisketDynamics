@@ -1,0 +1,10 @@
+println("FULL AD HESSIAN");flush(stdout)
+fullfun(v)=pure_innovation_loss(ref,ref.mean+ref.root*v)
+v0=zeros(size(ref.root,2));config=ForwardDiff.HessianConfig(fullfun,v0,ForwardDiff.Chunk{4}())
+t=time();H_ad=ForwardDiff.hessian(fullfun,v0,config);firstwall=time()-t
+println("FULL AD first wall ",firstwall," n ",length(v0));flush(stdout)
+t=time();H_ad=ForwardDiff.hessian(fullfun,v0,config);wall=time()-t
+println("FULL AD repeat wall ",wall," eig ",extrema(eigvals(Symmetric(H_ad))));flush(stdout)
+t=time();audit_full=innovation_curvature(ref;key=snap.accepted.bank.anchor.key_z,basis=:full,steps=(.02,.01));fdwall=time()-t
+println("FULL FD wall ",fdwall," difference ",opnorm(H_ad-audit_full.hessian)," asym ",opnorm(H_ad-H_ad'));flush(stdout)
+write(joinpath(@__DIR__,"hessian_benchmark.json"),E.json_document((n=length(v0),first_wall=firstwall,repeat_wall=wall,fd_wall=fdwall,error=opnorm(H_ad-audit_full.hessian),fd_checks=audit_full.checks)))

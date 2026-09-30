@@ -1,0 +1,18 @@
+let F=FinalAdaptiveVerification
+    rows=NamedTuple[]
+    for name in ("core_guarded_prefix","core_guarded_full_1d","two_core_guarded_full_1d","two_core_guarded_full_2d")
+        path=joinpath(@__DIR__,name*".jls");isfile(path) || continue
+        p=deserialize(path);hi=F.curvature_accuracy_ref(p.decoder,.0001)
+        probes=vcat([zeros(length(p.axes))],[c.q for c in p.diagnostics.shape_checks])
+        for q in probes
+            n=F.AdaptiveDensities.adaptive_geometry(p.density,q)
+            u=copy(p.decoder.mean);u[p.axisrows]=p.center+p.scale*q;u[p.free]=n.mean
+            x=E._conditional_decode(hi,u);low=E._conditional_decode(p.decoder,u)
+            transformed=E._conditional_encode(p.decoder,x)-u
+            push!(rows,(case=name,q=q,max_state_shift=maximum(abs.(x-low)),
+                conditional_sd_shift=norm(LowerTriangular(n.root)\transformed[p.free])))
+        end
+    end
+    write(joinpath(@__DIR__,"decoder_accuracy_probe.json"),F.adaptive_strict_json(rows))
+    println("DECODER ACCURACY ",rows);flush(stdout)
+end

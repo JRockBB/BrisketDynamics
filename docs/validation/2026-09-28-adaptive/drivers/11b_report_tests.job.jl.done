@@ -1,0 +1,9 @@
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_adaptive.jl"))
+@testset "strict adaptive reports" begin
+    text=adaptive_strict_json((bad=Inf,nan=NaN,good=.1,reason=:node_budget))
+    parsed=E.JSON.parse(text)
+    @test parsed["bad"]===nothing
+    @test parsed["nan"]===nothing
+    @test parsed["good"]==.1
+    @test parsed["reason"]=="node_budget"
+end

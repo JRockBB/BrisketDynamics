@@ -1,0 +1,21 @@
+let F=FinalAdaptiveVerification
+    p=deserialize(joinpath(@__DIR__,"two_core_guarded_full_1d.jls"))
+    check=p.diagnostics.shape_checks[argmax([c.maximum_defect for c in p.diagnostics.shape_checks])]
+    snap=deserialize(joinpath(@__DIR__,"../curvature_audit/two_core.jls"));anchor=snap.failed.bank.anchor
+    t=time();outcome=nothing
+    try
+        node=E._conditional_node!(deepcopy(p.decoder.graph),p.axes,p.center+p.scale*check.q;
+            iters=80,tol=1e-6,ftol=1e-8,step_bounds=Dict(anchor.key_z=>anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+        ref=E._conditional_transport(node);fit=F.polish_conditional_innovations(ref)
+        audit=F.innovation_curvature(fit.ref;key=anchor.key_z,basis=:full,steps=(.02,.01))
+        corrected=F.curvature_corrected_report(fit.ref,audit;key=anchor.key_z)
+        directions=F.curvature_direction_report(fit.ref,audit;key=anchor.key_z)
+        outcome=(status=:diagnostic,polish_score=fit.score,audit_checks=audit.checks,
+            eigen_min=minimum(eigvals(Symmetric(audit.hessian))),corrected=corrected,directions=directions)
+    catch err
+        err isa InterruptException && rethrow()
+        outcome=(status=:failed,error=sprint(showerror,err))
+    end
+    write(joinpath(@__DIR__,"two_core_full_curvature_probe.json"),F.adaptive_strict_json((q=check.q,
+        original_shape_defect=check.maximum_defect,wall=time()-t,outcome=outcome,consistent=false,committed=false)))
+end

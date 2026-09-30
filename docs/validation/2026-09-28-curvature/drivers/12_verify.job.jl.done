@@ -1,0 +1,28 @@
+include(joinpath(@__DIR__,"../../estimator/scripts/curvature_audit.jl"))
+@testset "resolved cooking derivatives preserve the process-noise law" begin
+    for suite in (:two_core,:core,:full,:pit_core)
+        snap=deserialize(joinpath(@__DIR__,string(suite)*".jls"))
+        p=snap.result.candidate.transported;original=p.components[argmax(p.source.weights)]
+        ref=curvature_accuracy_ref(original,.0001)
+        @test ref.mean==original.mean
+        @test ref.root==original.root
+        @test all(a.cache.W==b.cache.W && a.cache.wy==b.cache.wy for (a,b) in zip(ref.dynamics,original.dynamics))
+        @test all(a.model.abstol==b.model.abstol*.0001 && a.model.reltol==b.model.reltol*.0001 for (a,b) in zip(ref.dynamics,original.dynamics))
+        @test all(f.model.abstol==1e-10 && f.model.reltol==1e-8 for f in original.dynamics)
+        for f in ref.dynamics;f.relin_tol=0.;f.relin_tol_state=0.;end
+        n=size(ref.root,2)
+        for phase in (0.,1.)
+            q=normalize(sin.(collect(1:n).+phase));u=ref.mean+.2ref.root*q
+            a=innovation_target(ref,u;gradient=true);h=.001
+            fd=(innovation_target(ref,u+h*ref.root*q)-innovation_target(ref,u-h*ref.root*q))/(2h)
+            ad=dot(ref.root'*a.gradient,q)
+            println("RESOLVED GRADIENT ",suite," difference ",abs(fd-ad));flush(stdout)
+            @test isapprox(fd,ad;atol=2e-4,rtol=1e-4)
+        end
+    end
+end
+module FinalCurvatureRegression
+    const BrisketEstimator=Main.BrisketEstimator
+    const E=BrisketEstimator
+    include(joinpath(@__DIR__,"../../estimator/test/test_curvature_audit.jl"))
+end

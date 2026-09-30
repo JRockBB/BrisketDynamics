@@ -1,0 +1,14 @@
+include(joinpath(@__DIR__,"all_parameters.jl"))
+let sm=direct_core_case[1],truth=direct_core_case[3]
+    progress=h->(h.evaluations%100<30 ? (println("PARAMETERS ",h);flush(stdout)) : nothing)
+    global core_parameters=AllParameterRun.fit(sm;max_evaluations=3000,max_seconds=600.,progress)
+    p=core_parameters;r=core_reference;nz=length(sm.model.blk);target=vcat(truth.z,truth.y);err=p.mean-target
+    comparison=(mean_sd=maximum(abs.(p.mean-r.mean)./sqrt.(diag(r.covariance))),
+        sd_relative=maximum(abs.(sqrt.(abs.(diag(p.covariance)))./sqrt.(diag(r.covariance)).-1)),
+        reference_quality=r.diagnostics.mc_precision_ok)
+    record=(mean=p.mean,covariance=p.covariance,valid=p.valid,diagnostics=p.diagnostics,
+        comparison=comparison,wall=p.wall,conditional_gaussian_validated=false,
+        nees_y=p.valid ? dot(err[nz+1:end],p.covariance[nz+1:end,nz+1:end]\err[nz+1:end])/sm.model.bl.n : nothing)
+    write(joinpath(@__DIR__,"core_all_parameters.json"),E.json_document(record))
+    println("PARAMETERS RESULT ",(valid=p.valid,diagnostics=p.diagnostics.reason,resolved=p.diagnostics.resolved,wall=p.wall,nees=record.nees_y,comparison=comparison));flush(stdout)
+end

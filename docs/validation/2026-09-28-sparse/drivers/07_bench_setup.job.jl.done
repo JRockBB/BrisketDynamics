@@ -1,0 +1,27 @@
+module SparseBenchFinal
+const E=Main.E
+using LinearAlgebra,Serialization,Test
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_sparse.jl"))
+const root=@__DIR__
+function frozen(name;extra=false)
+    snap=deserialize(joinpath(root,"../curvature_audit",name*".jls"))
+    old=snap.result.candidate;source=old.transported.source;a=snap.failed.bank.anchor
+    axes=copy(source.axes)
+    if extra
+        shape=E.conditional_shape_diagnostic(old.transported;key=a.key_z)
+        remaining=setdiff(eachindex(shape.scores),last.(axes))
+        push!(axes,(a.key_z,remaining[argmax(shape.scores[remaining])]))
+    end
+    rows=[source.offsets[k][j] for (k,j) in axes]
+    (anchor=a,axes=axes,center=source.mean[rows],scale=Matrix(cholesky(Symmetric(source.covariance[rows,rows])).L))
+end
+function run(name,target;method=:sparse,budget=257,tolerance=.002,orders=(5,9),seconds=600.)
+    a=target.anchor
+    out=validate_sparse_graph(a.graph,joinpath(root,name*".json");axes=target.axes,center=target.center,
+        scale=target.scale,shape_key=a.key_z,method,max_nodes=budget,tolerance,orders,max_seconds=seconds,
+        step_bounds=Dict(a.key_z=>a.latent_step),newton_tol=E.ONLINE_NEWTON_TOL,
+        metadata=(name=name,t=last(a.nodes)[1],development_only=true))
+    out.candidate===nothing || serialize(joinpath(root,name*".jls"),out.candidate)
+    out
+end
+end

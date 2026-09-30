@@ -1,0 +1,14 @@
+let
+    M=DirectStrongRun
+    p=M.direct_posterior_fit(direct_core_case[1];transport_axes=2,moments=false,
+        max_evaluations=200000,max_seconds=480.,progress=x->begin
+            if haskey(x,:evaluations)&&x.evaluations%10000<300
+                println("STRONG ",x);flush(stdout)
+            end
+        end)
+    println("STRONG RESULT ",(resolved=p.diagnostics.resolved,reason=p.diagnostics.reason,
+        normalizer=p.normalizer,error=p.diagnostics.normalizer_error,evaluations=p.diagnostics.evaluations,
+        wall=p.diagnostics.total_wall))
+    write(joinpath(@__DIR__,"core_strong.json"),E.json_document((diagnostics=p.diagnostics,settings=p.settings)))
+    global direct_core_strong=p
+end

@@ -1,0 +1,48 @@
+module MappedRun
+const E=Main.E
+include(joinpath(@__DIR__,"../../docs/validation/2026-09-28-sparse/sources/benchmark/estimator/scripts/adaptive_conditional.jl"))
+end
+module SparseFinalAudit
+const E=Main.E
+include(joinpath(@__DIR__,"../../docs/validation/2026-09-28-sparse/sources/degree64/estimator/scripts/validate_sparse.jl"))
+end
+let F=LocalCookFinal,t=LocalCookFinal.frozen("late_two")
+    a=t.anchor;before=F.target_state_fingerprint(a);start=time();candidates=Dict{String,Any}();missing=String[]
+    requested=(("old_local_affine",MappedRun,"../transport_work/late_two_affine.jls"),
+        ("old_local_mapped",MappedRun,"../transport_work/late_two_triangular.jls"),
+        ("global_mapped_degree64",SparseFinalAudit,"../sparse_work/late_two_mapped_final.jls"),
+        ("initial_local_affine",LocalCookBench,"late_two_affine.jls"),
+        ("initial_local_mapped",LocalCookBench,"late_two_mapped.jls"),
+        ("final_local_affine",F,"late_two_affine_final.jls"),
+        ("final_local_mapped",F,"late_two_mapped_final.jls"))
+    for (name,M,path) in requested
+        fullpath=joinpath(@__DIR__,path)
+        if isfile(fullpath);candidates[name]=(module_=M,p=deserialize(fullpath));else;push!(missing,name);end
+    end
+    rows=NamedTuple[];xs,ws=F.AdaptiveDensities._legendre(3)
+    for i in 1:3,j in 1:3
+        q=4 .* [xs[i],xs[j]].-2;z=t.center+t.scale*q
+        reference=F.sparse_conditional_fit(a.graph;axes=t.axes,center=z,scale=Matrix{Float64}(I,2,2),
+            lower=fill(-1.,2),upper=fill(1.,2),screen_only=true,max_nodes=1,
+            curvature=F.polished_gn_conditional_curvature,step_bounds=Dict(a.key_z=>a.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+        actual=F.adaptive_geometry(reference.density,zeros(2));comparisons=NamedTuple[]
+        for name in sort(collect(keys(candidates)))
+            item=candidates[name];M=item.module_;p=item.p
+            E._same_conditional_decoder(reference.decoder,p.decoder) || error("different decoder")
+            p.axes==reference.axes && p.free==reference.free || error("different coordinates")
+            qp=M.chart_inverse(p.chart,z)
+            if !(all(p.density.diagnostics.lower.<=qp) && all(qp.<=p.density.diagnostics.upper))
+                push!(comparisons,(method=name,outside=true));continue
+            end
+            n=M.adaptive_geometry(p.density,qp)
+            node=F.AdaptiveDensities.Node((logmass=n.logmass-M.chart_logjac(p.chart,qp),mean=n.mean,root=n.root))
+            push!(comparisons,(method=name,outside=false,absolute_logmass_error=abs(node.logmass-actual.logmass),
+                conditional_kl=F.AdaptiveDensities._kl(actual,node),reverse_kl=F.AdaptiveDensities._kl(node,actual)))
+        end
+        push!(rows,(q=q,point=z,quadrature_weight=16ws[i]*ws[j],logmass=actual.logmass,comparisons=comparisons))
+        println("COMMON LOCAL ",last(rows));flush(stdout)
+    end
+    write(joinpath(@__DIR__,"common_offgrid.json"),F.adaptive_strict_json((rows=rows,wall=time()-start,
+        missing=missing,extra_fits=length(rows),within_comparison_budget=false,grid=:central_affine_gauss3,
+        graph_unchanged=before==F.target_state_fingerprint(a),true_posterior_bound=false)))
+end

@@ -1,0 +1,22 @@
+[
+    {
+        "path":  "scratchpad/curvature_audit/core.jls",
+        "bytes":  15206635,
+        "sha256":  "cf07598d2bed4835a3c0cfa321a83162c537a49e2bd0cf40a93d072748c93e8a"
+    },
+    {
+        "path":  "scratchpad/curvature_audit/full.jls",
+        "bytes":  76314364,
+        "sha256":  "608f4f531ff4fdf7fa650340c92d88c4dc1ee5fea0cf6367360405de850d91d1"
+    },
+    {
+        "path":  "scratchpad/curvature_audit/pit_core.jls",
+        "bytes":  692670510,
+        "sha256":  "9a5a288953ad080e958c0b6c6b4afdd00cf6ddae1aecfb2f2b064a4a9a116131"
+    },
+    {
+        "path":  "scratchpad/curvature_audit/two_core.jls",
+        "bytes":  20672583,
+        "sha256":  "be1566358448f383dd3091fc6b121d1f3da93028145b21545e9a6d2ff790fed0"
+    }
+]

@@ -1,0 +1,44 @@
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.innovation_target :: Tuple{Any, Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.innovation_curvature :: Tuple{Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.curvature_direction_report :: Tuple{Any, Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.audit_candidate :: Tuple{Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.polish_conditional_innovations :: Tuple{Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalAdaptiveVerification.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.FinalAdaptiveVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.innovation_target :: Tuple{Any, Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.innovation_curvature :: Tuple{Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.curvature_direction_report :: Tuple{Any, Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.audit_candidate :: Tuple{Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.polish_conditional_innovations :: Tuple{Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SharedDecoderVerification.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.SharedDecoderVerification`
+└ @ Base.Docs docs\Docs.jl:243

@@ -1,0 +1,556 @@
+{
+  "consistent": false,
+  "diagnostics": {
+    "cells": 7.0,
+    "conditional_validated": false,
+    "diagnostic_kind": "local_integrated_joint_refinement",
+    "fallback": "local_tensor",
+    "fallback_reason": "degree_budget",
+    "history": [
+      {
+        "cells": 1.0,
+        "complete": true,
+        "indicator": 1.9999850108917605,
+        "integration_error": 9514.372779137062,
+        "log_indicator": 0.6931396859777412,
+        "log_integration_error": 9.16055885839165,
+        "log_normalizer": 0.918882683288186,
+        "nodes": 71.0
+      },
+      {
+        "cells": 2.0,
+        "complete": true,
+        "indicator": 0.11416194771910457,
+        "integration_error": 8.884419828514726e-7,
+        "log_indicator": -2.170137244649493,
+        "log_integration_error": -13.93379648934361,
+        "log_normalizer": 0.918875188705982,
+        "nodes": 75.0
+      },
+      {
+        "cells": 3.0,
+        "complete": true,
+        "indicator": 0.09151767867454884,
+        "integration_error": 4.4428059738714334e-7,
+        "log_indicator": -2.3912231158053134,
+        "log_integration_error": -14.626809498029814,
+        "log_normalizer": 0.918875188710384,
+        "nodes": 79.0
+      },
+      {
+        "cells": 4.0,
+        "complete": true,
+        "indicator": 0.05684096376330391,
+        "integration_error": 4.4422133662752607e-7,
+        "log_indicator": -2.8674980201738327,
+        "log_integration_error": -14.626942892809131,
+        "log_normalizer": 0.918875188710384,
+        "nodes": 83.0
+      },
+      {
+        "cells": 5.0,
+        "complete": true,
+        "indicator": 0.029969494721304966,
+        "integration_error": 4.4422133632433185e-7,
+        "log_indicator": -3.5075752572783383,
+        "log_integration_error": -14.62694289349166,
+        "log_normalizer": 0.918875188710384,
+        "nodes": 87.0
+      },
+      {
+        "cells": 6.0,
+        "complete": true,
+        "indicator": 0.006301508380752194,
+        "integration_error": 4.442213362612184e-7,
+        "log_indicator": -5.0669662487261435,
+        "log_integration_error": -14.626942893633737,
+        "log_normalizer": 0.918875188710384,
+        "nodes": 90.0
+      },
+      {
+        "cells": 7.0,
+        "complete": true,
+        "indicator": 5.8941270705055604e-5,
+        "integration_error": 4.442213362612192e-7,
+        "log_indicator": -9.73896902158859,
+        "log_integration_error": -14.626942893633736,
+        "log_normalizer": 0.9188751887103842,
+        "nodes": 94.0
+      }
+    ],
+    "integration_error": 4.442213362612192e-7,
+    "lower": [
+      -4.0
+    ],
+    "nodes": 94.0,
+    "quadrature_evaluation_bound": 257784.0,
+    "reason": "resolution",
+    "refinement_indicator": 5.8941270705055604e-5,
+    "resolved": true,
+    "sparse_history": [
+      {
+        "complete": true,
+        "frontier_error": 0.999329299739067,
+        "nodes": 2.0,
+        "terms": 1.0,
+        "validation_error": null
+      },
+      {
+        "complete": true,
+        "frontier_error": 1.9999997749296758,
+        "nodes": 3.0,
+        "terms": 2.0,
+        "validation_error": null
+      },
+      {
+        "complete": true,
+        "frontier_error": 1.0,
+        "nodes": 8.0,
+        "terms": 3.0,
+        "validation_error": 1.0000000000000002
+      },
+      {
+        "complete": true,
+        "frontier_error": 1.0,
+        "nodes": 9.0,
+        "terms": 4.0,
+        "validation_error": 1.0000000000000002
+      },
+      {
+        "complete": true,
+        "frontier_error": 1.0,
+        "nodes": 10.0,
+        "terms": 5.0,
+        "validation_error": 1.0000000000000002
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.9796635714156565,
+        "nodes": 11.0,
+        "terms": 6.0,
+        "validation_error": 1.0000000000000002
+      },
+      {
+        "complete": true,
+        "frontier_error": 1.0,
+        "nodes": 12.0,
+        "terms": 7.0,
+        "validation_error": 1.0000000000000002
+      },
+      {
+        "complete": true,
+        "frontier_error": 1.0,
+        "nodes": 13.0,
+        "terms": 8.0,
+        "validation_error": 1.0
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.04782921924581067,
+        "nodes": 14.0,
+        "terms": 9.0,
+        "validation_error": 0.956672958080951
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.6608132639224884,
+        "nodes": 15.0,
+        "terms": 10.0,
+        "validation_error": 0.9370380505680622
+      },
+      {
+        "complete": true,
+        "frontier_error": 1.0,
+        "nodes": 16.0,
+        "terms": 11.0,
+        "validation_error": 0.5352236386853895
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.6082238964762121,
+        "nodes": 17.0,
+        "terms": 12.0,
+        "validation_error": 0.12501310014489975
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.3701515831488148,
+        "nodes": 18.0,
+        "terms": 13.0,
+        "validation_error": 0.17731721963309988
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.027954243090455577,
+        "nodes": 19.0,
+        "terms": 14.0,
+        "validation_error": 0.08140732176226997
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.0803208675864716,
+        "nodes": 20.0,
+        "terms": 15.0,
+        "validation_error": 0.07955101531068053
+      },
+      {
+        "complete": true,
+        "frontier_error": 1.0,
+        "nodes": 21.0,
+        "terms": 16.0,
+        "validation_error": 0.07187526774730685
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.46710204295461466,
+        "nodes": 22.0,
+        "terms": 17.0,
+        "validation_error": 0.3586977857653608
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.795379979350716,
+        "nodes": 23.0,
+        "terms": 18.0,
+        "validation_error": 0.1740477435188428
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.10452388574566637,
+        "nodes": 24.0,
+        "terms": 19.0,
+        "validation_error": 0.2712259061670388
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.3692173849959568,
+        "nodes": 25.0,
+        "terms": 20.0,
+        "validation_error": 0.3629211201180207
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.06592390952154349,
+        "nodes": 26.0,
+        "terms": 21.0,
+        "validation_error": 0.0604832647901456
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.131552944487634,
+        "nodes": 27.0,
+        "terms": 22.0,
+        "validation_error": 0.0776221523713207
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.06269484314362388,
+        "nodes": 28.0,
+        "terms": 23.0,
+        "validation_error": 0.06193601054205761
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.16108626393011027,
+        "nodes": 29.0,
+        "terms": 24.0,
+        "validation_error": 0.0694736629983152
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.030297397693593676,
+        "nodes": 30.0,
+        "terms": 25.0,
+        "validation_error": 0.023263584345512178
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.06281689683977909,
+        "nodes": 31.0,
+        "terms": 26.0,
+        "validation_error": 0.02689531071516943
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.4308892953759492,
+        "nodes": 32.0,
+        "terms": 27.0,
+        "validation_error": 0.019439459923698166
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.3616727715846201,
+        "nodes": 33.0,
+        "terms": 28.0,
+        "validation_error": 0.0865561524106087
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.16198781347203095,
+        "nodes": 34.0,
+        "terms": 29.0,
+        "validation_error": 0.05234634388274223
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.15847913560523447,
+        "nodes": 35.0,
+        "terms": 30.0,
+        "validation_error": 0.05886701599526291
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.11638604890216175,
+        "nodes": 36.0,
+        "terms": 31.0,
+        "validation_error": 0.0623398752150785
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.09289858445559296,
+        "nodes": 37.0,
+        "terms": 32.0,
+        "validation_error": 0.03621328522794859
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.1755686599833134,
+        "nodes": 38.0,
+        "terms": 33.0,
+        "validation_error": 0.04781602526002254
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.3316866313704513,
+        "nodes": 39.0,
+        "terms": 34.0,
+        "validation_error": 0.03226045973743921
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.1544540283868301,
+        "nodes": 40.0,
+        "terms": 35.0,
+        "validation_error": 0.041894273899370074
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.22308034707605146,
+        "nodes": 41.0,
+        "terms": 36.0,
+        "validation_error": 0.058557384621078
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.12176732467968948,
+        "nodes": 42.0,
+        "terms": 37.0,
+        "validation_error": 0.037967101912419386
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.21565823070271994,
+        "nodes": 43.0,
+        "terms": 38.0,
+        "validation_error": 0.041552715429077514
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.050342672822953134,
+        "nodes": 44.0,
+        "terms": 39.0,
+        "validation_error": 0.02601532041310914
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.057121452333852574,
+        "nodes": 45.0,
+        "terms": 40.0,
+        "validation_error": 0.02569956166331172
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.025426047957444187,
+        "nodes": 46.0,
+        "terms": 41.0,
+        "validation_error": 0.021830594618073917
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.026933456602563802,
+        "nodes": 47.0,
+        "terms": 42.0,
+        "validation_error": 0.04172637285837181
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.013510020031759495,
+        "nodes": 48.0,
+        "terms": 43.0,
+        "validation_error": 0.021872265371965217
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.01311257957226146,
+        "nodes": 49.0,
+        "terms": 44.0,
+        "validation_error": 0.032706054269314555
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.03488147278580322,
+        "nodes": 50.0,
+        "terms": 45.0,
+        "validation_error": 0.021905176257875084
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.013983704647424489,
+        "nodes": 51.0,
+        "terms": 46.0,
+        "validation_error": 0.01324048010552542
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.06849432864019338,
+        "nodes": 52.0,
+        "terms": 47.0,
+        "validation_error": 0.009958530066618045
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.045227529942777275,
+        "nodes": 53.0,
+        "terms": 48.0,
+        "validation_error": 0.04289207053974147
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.031182860312095606,
+        "nodes": 54.0,
+        "terms": 49.0,
+        "validation_error": 0.027664131381481973
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.04620107289069057,
+        "nodes": 55.0,
+        "terms": 50.0,
+        "validation_error": 0.04200010222224315
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.028425629598505253,
+        "nodes": 56.0,
+        "terms": 51.0,
+        "validation_error": 0.015286784991997038
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.01392229578190021,
+        "nodes": 57.0,
+        "terms": 52.0,
+        "validation_error": 0.010782467964182307
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.06235399582056732,
+        "nodes": 58.0,
+        "terms": 53.0,
+        "validation_error": 0.014966386125131625
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.079028861976288,
+        "nodes": 59.0,
+        "terms": 54.0,
+        "validation_error": 0.05581007152596923
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.08292302626682274,
+        "nodes": 60.0,
+        "terms": 55.0,
+        "validation_error": 0.02767739807386165
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.08276071139987629,
+        "nodes": 61.0,
+        "terms": 56.0,
+        "validation_error": 0.018295886622121168
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.036060582713804884,
+        "nodes": 62.0,
+        "terms": 57.0,
+        "validation_error": 0.026532583735555948
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.009061117621644854,
+        "nodes": 63.0,
+        "terms": 58.0,
+        "validation_error": 0.012334354969517791
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.009627387170797641,
+        "nodes": 64.0,
+        "terms": 59.0,
+        "validation_error": 0.013373706372605784
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.03485552332526537,
+        "nodes": 65.0,
+        "terms": 60.0,
+        "validation_error": 0.011279813396975091
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.016702182164207713,
+        "nodes": 66.0,
+        "terms": 61.0,
+        "validation_error": 0.027497724667641724
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.03289299000115395,
+        "nodes": 67.0,
+        "terms": 62.0,
+        "validation_error": 0.041552024459530074
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.02286848913595869,
+        "nodes": 68.0,
+        "terms": 63.0,
+        "validation_error": 0.020281663494208534
+      },
+      {
+        "complete": true,
+        "frontier_error": 0.011474845283254709,
+        "nodes": 69.0,
+        "terms": 64.0,
+        "validation_error": 0.008435344596774585
+      }
+    ],
+    "sparse_nodes": 69.0,
+    "sparse_terms": 65.0,
+    "tail_validated": false,
+    "target_validated": false,
+    "upper": [
+      4.0
+    ]
+  },
+  "maximum_standardized_mean_error": 0.004815360000000005,
+  "nodes": 94.0,
+  "settings": {
+    "max_nodes": 129.0,
+    "tolerance": 0.002
+  },
+  "source_version": "final",
+  "sparse_nodes": 69.0
+}

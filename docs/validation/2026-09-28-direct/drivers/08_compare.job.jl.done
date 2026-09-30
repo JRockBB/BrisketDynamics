@@ -1,0 +1,8 @@
+let a=direct_core_fixed,b=core_reference
+    valid=a.diagnostics.moments_valid
+    result=(mean_standardized=abs.(a.mean-b.mean)./sqrt.(diag(b.covariance)),
+        sd_relative=valid ? sqrt.(diag(a.covariance))./sqrt.(diag(b.covariance)).-1 : nothing,
+        reference_precision=b.diagnostics.mc_precision_ok)
+    write(joinpath(@__DIR__,"core_gauss_rule_reference_comparison.json"),E.json_document(result))
+    println("REFERENCE COMPARISON ",(mean_sd=maximum(result.mean_standardized),sd_relative=maximum(abs,result.sd_relative),reference_precision=result.reference_precision))
+end

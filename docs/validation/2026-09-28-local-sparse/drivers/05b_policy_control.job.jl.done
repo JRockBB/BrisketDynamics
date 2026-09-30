@@ -1,0 +1,10 @@
+let A=LocalCookBench,B=LocalSparseRegressionFinal
+    quartic(q)=(logmass=-sum(abs2,q)/2,mean=[q[1]^4+.3q[1]*q[2]^2],root=reshape([1e-7],1,1))
+    rows=NamedTuple[]
+    for (label,F) in ((:bounded_policy,A),(:unsaturated_policy,B))
+        p=F.local_sparse_density(quartic,fill(-2.,2),fill(2.,2);max_nodes=65,tolerance=1e-5,orders=(7,11))
+        push!(rows,(policy=label,diagnostics=p.diagnostics))
+    end
+    write(joinpath(@__DIR__,"saturation_control.json"),B.adaptive_strict_json((rows=rows,
+        settings=(max_nodes=65,tolerance=1e-5,orders=(7,11)),cook_specific=false)))
+end

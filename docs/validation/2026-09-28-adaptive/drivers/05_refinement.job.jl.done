@@ -1,0 +1,30 @@
+# Add the comparison methods to the already-loaded module without replacing its types.
+src=read(joinpath(@__DIR__,"../../estimator/src/adaptive_density.jl"),String)
+Base.include_string(AdaptiveDensities,src[first(findfirst("function _outside",src)):first(findlast("end # module",src))-1])
+function gn_refinement(snapshot;radius=4.,tolerance=.002)
+    old=snapshot.result.candidate
+    cc=old.center+old.scale*old.base_mean;ss=old.scale*old.base_root
+    anchor=snapshot.failed.bank.anchor
+    return adaptive_conditional_fit(anchor.graph;axes=old.transported.source.axes,center=cc,scale=ss,
+        lower=fill(-radius,length(cc)),upper=fill(radius,length(cc)),tolerance,max_nodes=257,orders=(7,11),
+        step_bounds=Dict(anchor.key_z=>anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL,
+        shape_key=anchor.key_z,progress=adaptive_progress)
+end
+println("CORE REFINEMENT CHECK");flush(stdout)
+t=time();core_fine=gn_refinement(core_snapshot)
+core_compare=AdaptiveDensities.adaptive_density_distance(core_adaptive.density,core_fine.density)
+println("CORE COARSE/FINE ",core_compare);flush(stdout)
+write(joinpath(@__DIR__,"core_refinement.json"),E.json_document((wall=time()-t,comparison=core_compare,diagnostics=core_fine.diagnostics)))
+serialize(joinpath(@__DIR__,"core_fine.jls"),core_fine)
+println("CORE DOMAIN CHECK");flush(stdout)
+t=time();core_wide=gn_refinement(core_snapshot;radius=6.)
+core_domain=AdaptiveDensities.adaptive_density_distance(core_fine.density,core_wide.density)
+println("CORE DOMAIN COMPARISON ",core_domain);flush(stdout)
+write(joinpath(@__DIR__,"core_domain.json"),E.json_document((wall=time()-t,comparison=core_domain,diagnostics=core_wide.diagnostics)))
+serialize(joinpath(@__DIR__,"core_wide.jls"),core_wide)
+println("TWO CORE REPLAY");flush(stdout)
+t=time();two_snapshot=deserialize(joinpath(@__DIR__,"../curvature_audit/two_core.jls"))
+two_adaptive=gn_refinement(two_snapshot;tolerance=.01)
+println("TWO CORE FINISHED ",two_adaptive.density.diagnostics," shape ",two_adaptive.diagnostics.shape_defect);flush(stdout)
+write(joinpath(@__DIR__,"two_core_adaptive_gn.json"),E.json_document((wall=time()-t,diagnostics=two_adaptive.diagnostics)))
+serialize(joinpath(@__DIR__,"two_core_adaptive_gn.jls"),two_adaptive)

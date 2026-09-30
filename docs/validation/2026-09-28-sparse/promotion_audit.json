@@ -1,0 +1,292 @@
+{
+  "committed": false,
+  "consistent": false,
+  "diagnostics": {
+    "automatic_axis_promotion": true,
+    "axis_stages": [
+      {
+        "axes": [
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            15.0
+          ],
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            11.0
+          ]
+        ],
+        "fits": 1.0,
+        "reason": "shape_screen",
+        "resolved": false,
+        "screen": true,
+        "shape_defect": 0.696643062714033,
+        "shape_pass": false
+      },
+      {
+        "axes": [
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            15.0
+          ],
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            11.0
+          ],
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            14.0
+          ]
+        ],
+        "fits": 1.0,
+        "reason": "shape_screen",
+        "resolved": false,
+        "screen": true,
+        "shape_defect": 0.3573941027027967,
+        "shape_pass": false
+      },
+      {
+        "axes": [
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            15.0
+          ],
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            11.0
+          ],
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            14.0
+          ],
+          [
+            {
+              "entity": "params",
+              "k": 0.0,
+              "name": "cook",
+              "scope": [
+                "cook"
+              ]
+            },
+            17.0
+          ]
+        ],
+        "fits": 1.0,
+        "reason": "shape_screen",
+        "resolved": false,
+        "screen": true,
+        "shape_defect": 0.19119792590490547,
+        "shape_pass": true
+      }
+    ],
+    "committed": false,
+    "conditional_validated": false,
+    "consistent": false,
+    "curvature": "corrected",
+    "diagnostic_kind": "finite_point_joint_discrepancy",
+    "frontier_error": null,
+    "graph_solves": 1.0,
+    "history": [],
+    "integration_error": null,
+    "interpolation_checks_pass": false,
+    "lower": [
+      -4.0,
+      -4.0,
+      -4.0,
+      -4.0
+    ],
+    "nodes": [
+      {
+        "chart_logjac": -0.28355307762510684,
+        "curvature": {
+          "iterations": 2.0,
+          "method": "polished_gauss_newton",
+          "process_noise_changed": false,
+          "score": 4.0570125083048585e-6
+        },
+        "gradient": 1.2027764031320807e-5,
+        "initial_solve_converged": true,
+        "logmass": -373.6016543471674,
+        "point": [
+          0.060026720307202575,
+          -0.4497327202182505,
+          -7.7278997689368305,
+          -0.1324523839411851
+        ],
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    ],
+    "oracle_points": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "quadrature_evaluations": 0.0,
+    "quadrature_reason": "screen_only",
+    "reason": "node_budget",
+    "resolved": false,
+    "shape_budget_exhausted": false,
+    "shape_checks": [
+      {
+        "cell_mass": null,
+        "maximum_defect": 0.19119792590490547,
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scores": [
+          1.294448733091258e-6,
+          0.19119792590490547,
+          0.03684069423167102,
+          0.02677198071641751,
+          0.046654789914623684,
+          0.007285028449435238,
+          6.069399658414909e-7,
+          0.0039753131851139045,
+          0.10752036746775406,
+          0.14434642933439612,
+          0.0,
+          0.03500768426015277,
+          0.06748019496002744,
+          0.0,
+          0.0,
+          0.02631522933387842,
+          0.0
+        ]
+      }
+    ],
+    "shape_complete": true,
+    "shape_defect": 0.19119792590490547,
+    "shape_pass": true,
+    "tail_validated": false,
+    "target_validated": false,
+    "terms": 1.0,
+    "total_graph_solves": 3.0,
+    "upper": [
+      4.0,
+      4.0,
+      4.0,
+      4.0
+    ],
+    "validation_error": null
+  },
+  "extra_fits": 3.0,
+  "graph_unchanged": true,
+  "sources": [
+    {
+      "path": "estimator/src/adaptive_density.jl",
+      "sha256": "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+      "path": "estimator/src/sparse_density.jl",
+      "sha256": "892b4422d1ffbc713bd0ab4ef015db94e3d01a492e05941dea5ce904081c3f0c"
+    },
+    {
+      "path": "estimator/src/conditional_charts.jl",
+      "sha256": "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+      "path": "estimator/scripts/adaptive_conditional.jl",
+      "sha256": "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+      "path": "estimator/scripts/sparse_conditional.jl",
+      "sha256": "b593bf7e722d871f6db606afb154a5e2c72fac1fdd1445090fe18c5d13cc49ab"
+    },
+    {
+      "path": "estimator/scripts/adaptive_curvature.jl",
+      "sha256": "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+      "path": "estimator/scripts/curvature_audit.jl",
+      "sha256": "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+      "path": "estimator/scripts/target_ownership.jl",
+      "sha256": "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+      "path": "estimator/scripts/validate_sparse.jl",
+      "sha256": "473cc4508a989c487656aec4f9350c87706ecdb5b984faa599f2b0fbd6427745"
+    }
+  ],
+  "tests": {
+    "broken": 0.0,
+    "cumulative_broken": 0.0,
+    "cumulative_errors": 0.0,
+    "cumulative_fails": 0.0,
+    "cumulative_passes": 0.0,
+    "customized": true,
+    "duration": "0.0s",
+    "errors": 0.0,
+    "fails": 0.0,
+    "passes": 5.0
+  },
+  "wall": 16.121000051498413,
+  "within_comparison_budget": false
+}

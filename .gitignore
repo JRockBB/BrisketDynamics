@@ -19,3 +19,19 @@ tesseracts/*/BrisketDynamics/
 # juliapkg manages the repository project on Windows (PYTHON_JULIAPKG_PROJECT): its lock file
 lock.pid
 pyjuliapkg/
+
+# Local estimator consistency experiments and isolated Julia depot
+scratchpad/consistency_work/
+scratchpad/online_work/
+scratchpad/curvature_audit/
+scratchpad/adaptive_work/
+
+scratchpad/transport_work/
+scratchpad/sparse_work/
+scratchpad/local_sparse_work/
+scratchpad/direct_work/
+
+scratchpad/qmc_work/
+
+# Frozen posterior snapshots from the Codex consistency experiments (hundreds of MB, kept on disk only)
+docs/validation/**/*.jls

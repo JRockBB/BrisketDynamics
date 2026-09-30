@@ -1,0 +1,18 @@
+include(joinpath(@__DIR__,"../../estimator/scripts/adaptive_conditional.jl"))
+println("ADAPTIVE CORE GN");flush(stdout)
+core_snapshot=deserialize(joinpath(@__DIR__,"../curvature_audit/core.jls"))
+d0=core_snapshot.result.candidate
+center=d0.center+d0.scale*d0.base_mean;scale=d0.scale*d0.base_root
+function adaptive_progress(h)
+    println("ADAPT ",h);flush(stdout)
+end
+t=time()
+core_adaptive=adaptive_conditional_fit(core_snapshot.failed.bank.anchor.graph;
+    axes=d0.transported.source.axes,center,scale,lower=[-4.],upper=[4.],
+    tolerance=.01,max_nodes=129,orders=(7,11),
+    step_bounds=Dict(core_snapshot.failed.bank.anchor.key_z=>core_snapshot.failed.bank.anchor.latent_step),
+    newton_tol=E.ONLINE_NEWTON_TOL,shape_key=core_snapshot.failed.bank.anchor.key_z,progress=adaptive_progress)
+println("ADAPTIVE CORE FINISHED wall ",time()-t," ",core_adaptive.density.diagnostics," shape ",core_adaptive.diagnostics.shape_defect);flush(stdout)
+write(joinpath(@__DIR__,"core_adaptive_gn.json"),E.json_document((wall=time()-t,diagnostics=core_adaptive.diagnostics,
+    mean=adaptive_expectation((q,n)->q,core_adaptive.density),second=adaptive_expectation((q,n)->q*q',core_adaptive.density))))
+serialize(joinpath(@__DIR__,"core_adaptive_gn.jls"),core_adaptive)

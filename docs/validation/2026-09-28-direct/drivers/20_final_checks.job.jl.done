@@ -1,0 +1,24 @@
+module DirectFinalChecks
+const E=Main.E
+const consistency_model=Main.consistency_model
+const binomial_quantile=Main.binomial_quantile
+const control_cook=Main.control_cook
+using Main.BrisketEstimator, Test, BrisketDynamics, LinearAlgebra
+include(joinpath(@__DIR__,"../../estimator/test/test_consistency_direct.jl"))
+end
+let
+    M=DirectFinalChecks
+    sm,gaussian,truth=direct_core_case
+    p=M.direct_posterior_fit(sm;max_evaluations=60000,max_seconds=180.)
+    @test p.settings.transport_axes==0
+    @test !p.settings.physical_moments
+    target=vcat(truth.z,truth.y);nz=length(sm.model.blk)
+    nees=p.diagnostics.moments_valid ? M.direct_radius(p,target;indices=nz+1:length(target),allow_unresolved=true)/sm.model.bl.n : nothing
+    record=(purpose="exposed development case; not a statistical qualification",suite=:core,seed=3005,
+        diagnostics=p.diagnostics,settings=p.settings,mean=p.mean,covariance=p.covariance,
+        state_nees=nees,gaussian_state_nees=dot(gaussian.y-truth.y,gaussian.y_cov\(gaussian.y-truth.y))/sm.model.bl.n,
+        reference_state_nees=1.242357422290208)
+    write(joinpath(@__DIR__,"core_current.json"),E.JSON.json(M._direct_json_value(record)))
+    println("CURRENT RESULT ",(resolved=p.diagnostics.resolved,reason=p.diagnostics.reason,
+        valid=p.diagnostics.moments_valid,nees=nees,evaluations=p.diagnostics.evaluations,wall=p.diagnostics.total_wall))
+end

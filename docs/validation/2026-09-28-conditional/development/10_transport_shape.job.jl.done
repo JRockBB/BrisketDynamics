@@ -1,0 +1,10 @@
+include(joinpath(@__DIR__,"transport_trial.jl"))
+const transport_shape_rows=NamedTuple[]
+for case in ONLINE_COMPARISON_CASES
+    d=conditional_default_cases[case.suite];p=d.candidate;k=d.sm.anchor.key_z
+    audit=transported_shape_probe(p,k)
+    order=sortperm(audit.scores;rev=true)[1:5]
+    println("TRANSPORT SHAPE ",case.suite," ",[(d.model.blk.names[i],audit.scores[i]) for i in order]);flush(stdout)
+    push!(transport_shape_rows,(suite=case.suite,names=d.model.blk.names,scores=audit.scores,evaluations=audit.evaluations))
+end
+write(joinpath(@__DIR__,"transport_shape.json"),E.json_document(transport_shape_rows))

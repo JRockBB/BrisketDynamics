@@ -1,0 +1,11 @@
+let F=SparseBenchFinal
+    four(q)=(logmass=-sum(abs2,q)/2,mean=[8prod(q)],root=ones(1,1))
+    start=time();p=F.sparse_density(four,fill(-1.,4),fill(1.,4);max_nodes=257,tolerance=1e-5,orders=(5,7))
+    exact=(sqrt(2pi)*erf(1/sqrt(2)))^4
+    report=(wall=time()-start,nodes=p.diagnostics.nodes,terms=p.diagnostics.terms,resolved=p.diagnostics.resolved,
+        log_normalizer=p.log_normalizer,relative_normalizer_error=abs(expm1(p.log_normalizer-log(exact))),
+        diagnostics=p.diagnostics,known_domain_mass=erf(1/sqrt(2))^4,
+        old_tensor_first_check_floor=3^4+8*3^3,consistent=false)
+    write(joinpath(@__DIR__,"analytic_interaction.json"),F.adaptive_strict_json(report))
+    println("FOUR WAY ",report)
+end

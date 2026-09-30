@@ -1,0 +1,28 @@
+module AdaptiveValidation
+    include(joinpath(@__DIR__,"../../../estimator/src/BrisketEstimator.jl"))
+    using .BrisketEstimator, BrisketDynamics, Test, LinearAlgebra
+    const E=BrisketEstimator
+    include(joinpath(@__DIR__,"../../../estimator/scripts/validate_sampled_online.jl"))
+    const cases=Dict{Symbol,Any}();const rows=NamedTuple[]
+    for case in ONLINE_COMPARISON_CASES
+        arrivals=NamedTuple[];started=time()
+        println("ADAPTIVE CASE ",case.suite);flush(stdout)
+        try
+            model=consistency_model(nx=4,suite=case.suite,stop=maximum(case.times))
+            batches,truths=comparison_readings(model,case)
+            sm=deterministic_init(model;record_limit=0)
+            for batch in batches
+                r=assimilate!(sm,batch)
+                push!(arrivals,(t=last(batch).t,committed=r.committed,reason=get(r,:reason,:ok),wall=r.wall,diagnostics=r.diagnostics))
+                println("ADAPTIVE ARRIVAL ",case.suite," ",last(arrivals));flush(stdout)
+                cases[case.suite]=(model=model,batches=batches,sm=deepcopy(sm),result=r,truths=truths)
+                r.committed || break
+            end
+            push!(rows,(suite=case.suite,arrivals=arrivals,wall=time()-started))
+        catch err
+            showerror(stdout,err,catch_backtrace());println();flush(stdout)
+            push!(rows,(suite=case.suite,arrivals=arrivals,error=sprint(showerror,err),wall=time()-started))
+        end
+        write(joinpath(@__DIR__,"adaptive_development.json"),E.json_document(rows))
+    end
+end

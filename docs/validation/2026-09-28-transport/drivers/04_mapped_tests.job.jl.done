@@ -1,0 +1,8 @@
+module MappedRun
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_conditional_charts.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_mapped_conditional.jl"))
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_adaptive.jl"))
+include(joinpath(@__DIR__,"../../estimator/scripts/mapped_diagnostics.jl"))
+end
+println("MAPPED SOURCE READY");flush(stdout)

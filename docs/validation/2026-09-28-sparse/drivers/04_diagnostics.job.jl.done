@@ -1,0 +1,6 @@
+let F=SparseTests2
+    four(q)=(logmass=-sum(abs2,q)/2,mean=[8prod(q)],root=ones(1,1))
+    p=F.sparse_density(four,fill(-1.,4),fill(1.,4);max_nodes=257,tolerance=1e-5,orders=(5,7),progress=println)
+    println("RECOVERED ",p.diagnostics)
+end
+include(joinpath(@__DIR__,"../../estimator/test/test_sparse_conditional.jl"))

@@ -1,0 +1,574 @@
+DEPENDENCIES READY
+READY 5a155dcb9833
+START 01_oracles.job.jl
+conditional integration: curved joint density and volume: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional.jl:35
+  Expression: all((c->begin
+            #= C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional.jl:35 =#
+            c.mean[2] ≈ c.mean[1] ^ 2
+        end), p.nodes)
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional.jl:35 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional.jl:21
+Test Summary:                                            | Pass  Fail  Total   Time
+conditional integration: curved joint density and volume |   16     1     17  28.9s
+LoadError: Some tests did not pass: 16 passed, 1 failed, 0 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional.jl:20
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\01_oracles.job.jl:1
+FAIL 01_oracles.job.jl
+START 02_oracles.job.jl
+Test Summary:                                            | Pass  Total  Time
+conditional integration: curved joint density and volume |   17     17  1.1s
+Test Summary:                                                    | Pass  Total  Time
+conditional integration: general linear graph and tiny contrasts |   38     38  0.4s
+Test Summary:                             | Pass  Total  Time
+conditional evidence survives elimination |    2      2  3.8s
+PASS 02_oracles.job.jl
+START 03_cooks.job.jl
+CONDITIONAL CASE full
+CONDITIONAL ARRIVAL full (t = 0.0, committed = true, wall = 0.45600008964538574, diagnostics = (mean_error = 5.2093703135325866e-12, covariance_error = 4.11295356739984e-12, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [3, 5], nodes = [9, 25]))
+CONDITIONAL ARRIVAL full (t = 120.0, committed = false, wall = 2.8299999237060547, diagnostics = (mean_error = 0.05187005686895984, covariance_error = 0.7139976125733846, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [3, 5], nodes = [9, 25]))
+CONDITIONAL CASE pit_core
+CONDITIONAL ARRIVAL pit_core (t = 0.0, committed = true, wall = 0.12199997901916504, diagnostics = (mean_error = 1.4445878425426406e-12, covariance_error = 9.405821687602994e-12, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [3, 5], nodes = [9, 25]))
+CONDITIONAL ARRIVAL pit_core (t = 90.0, committed = false, wall = 1.5130000114440918, diagnostics = (mean_error = 0.0036970914022092, covariance_error = 0.3118217784797077, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [3, 5], nodes = [9, 25]))
+CONDITIONAL CASE core
+CONDITIONAL ARRIVAL core (t = 0.0, committed = true, wall = 0.07299995422363281, diagnostics = (mean_error = 1.2158524933863059e-14, covariance_error = 2.4858162981407984e-14, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [3, 5], nodes = [9, 25]))
+CONDITIONAL ARRIVAL core (t = 75.0, committed = false, wall = 0.9639999866485596, diagnostics = (mean_error = 0.0010675135138466, covariance_error = 0.30591026270013133, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [3, 5], nodes = [9, 25]))
+CONDITIONAL CASE two_core
+CONDITIONAL ARRIVAL two_core (t = 0.0, committed = true, wall = 0.11600017547607422, diagnostics = (mean_error = 5.257078766141889e-15, covariance_error = 1.249382618310902e-14, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [3, 5], nodes = [9, 25]))
+CONDITIONAL ARRIVAL two_core (t = 150.0, committed = false, wall = 0.9190001487731934, diagnostics = (mean_error = 0.0034559321256592856, covariance_error = 0.2262767901683553, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [3, 5], nodes = [9, 25]))
+PASS 03_cooks.job.jl
+START 04_default_cooks.job.jl
+DEFAULT CONDITIONAL CASE full
+DEFAULT CONDITIONAL ARRIVAL full (t = 0.0, committed = true, wall = 1.6729998588562012, diagnostics = (mean_error = 9.915620468295666e-13, covariance_error = 3.5743088332931465e-12, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 0.8442887109905309)
+DEFAULT CONDITIONAL ARRIVAL full (t = 120.0, committed = false, wall = 10.496999979019165, diagnostics = (mean_error = 0.02027474105327839, covariance_error = 0.1797988071261266, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 0.8244475330371984)
+DEFAULT CONDITIONAL CASE pit_core
+DEFAULT CONDITIONAL ARRIVAL pit_core (t = 0.0, committed = true, wall = 0.38000011444091797, diagnostics = (mean_error = 1.5700268429521446e-12, covariance_error = 8.494361997032989e-13, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 1.566710089366367)
+DEFAULT CONDITIONAL ARRIVAL pit_core (t = 90.0, committed = false, wall = 7.51800012588501, diagnostics = (mean_error = 0.0005268866381837692, covariance_error = 0.18844549715177888, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 1.2641073937234995)
+DEFAULT CONDITIONAL CASE core
+DEFAULT CONDITIONAL ARRIVAL core (t = 0.0, committed = true, wall = 0.21199989318847656, diagnostics = (mean_error = 4.157402942655754e-15, covariance_error = 4.023621413812239e-15, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 0.5418708015135865)
+DEFAULT CONDITIONAL ARRIVAL core (t = 75.0, committed = false, wall = 4.177999973297119, diagnostics = (mean_error = 2.4446045235837353e-5, covariance_error = 0.35184927551127554, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 0.5687534161688225)
+DEFAULT CONDITIONAL CASE two_core
+DEFAULT CONDITIONAL ARRIVAL two_core (t = 0.0, committed = true, wall = 0.3689999580383301, diagnostics = (mean_error = 4.138941400526336e-15, covariance_error = 6.297699714032874e-15, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 1.01798199124815)
+DEFAULT CONDITIONAL ARRIVAL two_core (t = 150.0, committed = false, wall = 5.581000089645386, diagnostics = (mean_error = 6.318786176913578e-5, covariance_error = 0.5286252473557773, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 1.0693397781866085)
+PASS 04_default_cooks.job.jl
+START 05_continuous.job.jl
+CONTINUOUS ARRIVAL full (t = 0.0, committed = true, wall = 1.505000114440918, diagnostics = (mean_error = 5.9762437219335e-16, covariance_error = 2.452085775460353e-15, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 0.8442887109981415)
+CONTINUOUS ARRIVAL full (t = 120.0, committed = false, wall = 10.720999956130981, diagnostics = (mean_error = 0.001091843189907885, covariance_error = 0.2258784231775433, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 0.8239927125280351)
+CONTINUOUS ARRIVAL pit_core (t = 0.0, committed = true, wall = 0.3989999294281006, diagnostics = (mean_error = 7.858478143009148e-16, covariance_error = 2.213504871250907e-15, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 1.5667100893674029)
+CONTINUOUS ARRIVAL pit_core (t = 90.0, committed = false, wall = 6.004999876022339, diagnostics = (mean_error = 0.0011862458219244027, covariance_error = 0.15615547992255246, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 1.2609680743546214)
+CONTINUOUS ARRIVAL core (t = 0.0, committed = true, wall = 0.24099993705749512, diagnostics = (mean_error = 4.80115880538765e-16, covariance_error = 2.1975259687072258e-15, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 0.541870801508538)
+CONTINUOUS ARRIVAL core (t = 75.0, committed = false, wall = 4.011999845504761, diagnostics = (mean_error = 1.9517424296608515e-5, covariance_error = 0.20888369750437977, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 0.5603274749946473)
+CONTINUOUS ARRIVAL two_core (t = 0.0, committed = true, wall = 0.45600008964538574, diagnostics = (mean_error = 7.78341983245117e-16, covariance_error = 2.5771245322596553e-15, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 1.0179819912559875)
+CONTINUOUS ARRIVAL two_core (t = 150.0, committed = false, wall = 4.692999839782715, diagnostics = (mean_error = 1.7542608448179927e-5, covariance_error = 0.3327112650290954, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 1, orders = [5, 9], nodes = [25, 81]), state_score = 1.0852121717063528)
+PASS 05_continuous.job.jl
+START 06_refined.job.jl
+REFINED ARRIVAL full (t = 0.0, committed = true, wall = 3.4630000591278076, diagnostics = (mean_error = 1.7864497801011356e-12, covariance_error = 1.4097117303618948e-12, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 3, orders = [9, 13], nodes = [81, 169]), state_score = 0.8442887110340351)
+REFINED ARRIVAL full (t = 120.0, committed = true, wall = 30.259999990463257, diagnostics = (mean_error = 0.00447979033061062, covariance_error = 0.007322956721837947, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 3, orders = [9, 13], nodes = [81, 169]), state_score = 0.8243915485798347)
+REFINED ARRIVAL full (t = 600.0, committed = false, wall = 50.99199986457825, diagnostics = (order = 9, node = 69, coordinates = [2.076847978677832, -2.3031421315309153], solve = (F = 16.503381165028358, hist = NamedTuple[(it = 1, F = 16.541991978075192, F_trial = 16.541991978075192, step = 58.81656048973298, alpha = 1.0, damping = 0.0, trials = 1, soc = 5, accepted = true, bounded = false, gradient = 58.19409082584987, gain = -Inf, wall = 0.03600001335144043), (it = 2, F = 16.51561066682272, F_trial = 16.51561066682272, step = 0.10455376562089304, alpha = 0.01, damping = 0.0, trials = 3, soc = 1, accepted = true, bounded = true, gradient = 0.041564026119031934, gain = -Inf, wall = 0.04999995231628418), (it = 3, F = 16.513237744131665, F_trial = 16.513237744131665, step = 0.10772357860294479, alpha = 0.01054202573939387, damping = 0.0, trials = 4, soc = 1, accepted = true, bounded = true, gradient = 0.04031341426561096, gain = 0.44830453528136116, wall = 0.06599998474121094), (it = 4, F = 16.512956824681204, F_trial = 16.512956824681204, step = 1.6508024132963304, alpha = 0.475813788946048, damping = 0.0, trials = 2, soc = 1, accepted = true, bounded = false, gradient = 0.03900298696612593, gain = -Inf, wall = 0.042999982833862305), (it = 5, F = 16.512956824681204, F_trial = Inf, step = 0.23623527990904253, alpha = 0.0, damping = 0.001, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.019507630726974024, wall = 0.09800004959106445), (it = 6, F = 16.512956824681204, F_trial = Inf, step = 0.022803858091881807, alpha = 0.0, damping = 0.01, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.019507630726974024, wall = 0.0969998836517334), (it = 7, F = 16.506587147361454, F_trial = 16.506587147361454, step = 0.022390592894331325, alpha = 1.0, damping = 0.0033333333333333335, trials = 1, soc = 0, accepted = true, bounded = false, gradient = 0.019507630726974024, gain = 0.6784630018942079, wall = 0.016000032424926758), (it = 8, F = 16.503391544651517, F_trial = 16.503391544651517, step = 0.012761871006375491, alpha = 1.0, damping = 0.0011111111111111111, trials = 1, soc = 0, accepted = true, bounded = false, gradient = 0.00911884647262242, gain = 0.9994131871824669, wall = 0.009000062942504883), (it = 9, F = 16.503391544651517, F_trial = Inf, step = 0.005112786993484081, alpha = 0.0, damping = 0.011111111111111112, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004410277373083811, wall = 0.07500004768371582), (it = 10, F = 16.50338696944135, F_trial = 16.50338696944135, step = 2.804502308040658e-5, alpha = 1.12567553437303e-5, damping = 0.011111111111111112, trials = 6, soc = 3, accepted = true, bounded = true, gradient = 0.004410277373083811, gain = 6.066380279044896, wall = 0.06200003623962402), (it = 11, F = 16.50338696944135, F_trial = Inf, step = 0.0050006084643710435, alpha = 0.0, damping = 0.11111111111111112, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004409016750810572, wall = 0.09000015258789062), (it = 12, F = 16.50338696944135, F_trial = Inf, step = 0.004441241322653569, alpha = 0.0, damping = 1.1111111111111112, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004409016750810572, wall = 0.06799983978271484), (it = 13, F = 16.503383555568522, F_trial = 16.503383555568522, step = 1.5076782599082555e-5, alpha = 3.81350660321485e-5, damping = 1.1111111111111112, trials = 6, soc = 1, accepted = true, bounded = true, gradient = 0.004409016750810572, gain = -Inf, wall = 0.05200004577636719), (it = 14, F = 16.503383555568522, F_trial = Inf, step = 0.002152520613983248, alpha = 0.0, damping = 11.11111111111111, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.0044041400175131055, wall = 0.08700013160705566), (it = 15, F = 16.503383555568522, F_trial = Inf, step = 0.0003641452357703497, alpha = 0.0, damping = 111.11111111111111, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.0044041400175131055, wall = 0.06499981880187988), (it = 16, F = 16.50338317494728, F_trial = 16.50338317494728, step = 3.928787627041917e-11, alpha = 1.0000000000000002e-6, damping = 111.11111111111111, trials = 7, soc = 0, accepted = true, bounded = false, gradient = 0.0044041400175131055, gain = 1.6149448554317236e6, wall = 0.07599997520446777), (it = 17, F = 16.50338317494728, F_trial = Inf, step = 3.928811962339818e-5, alpha = 0.0, damping = 1111.111111111111, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004404139995003508, wall = 0.07700014114379883), (it = 18, F = 16.50338317494728, F_trial = Inf, step = 3.960385066531809e-6, alpha = 0.0, damping = 11111.111111111111, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004404139995003508, wall = 0.07800006866455078), (it = 19, F = 16.503381168172943, F_trial = 16.503381168172943, step = 6.799621291010456e-6, alpha = 1.0, damping = 3703.703703703704, trials = 1, soc = 2, accepted = true, bounded = false, gradient = 0.004404139995003508, gain = 155.58992987796765, wall = 0.018999814987182617), (it = 20, F = 16.50338116817289, F_trial = 16.50338116817289, step = 5.945003200057969e-13, alpha = 5.000000000000001e-7, damping = 3703.703703703704, trials = 8, soc = 0, accepted = true, bounded = false, gradient = 0.004403913984858322, gain = 16.123687787257893, wall = 0.06400012969970703), (it = 21, F = 16.50338116560496, F_trial = 16.50338116560496, step = 5.945449614988669e-12, alpha = 5.0e-6, damping = 3703.703703703704, trials = 7, soc = 0, accepted = true, bounded = false, gradient = 0.004403913984401904, gain = 72792.33624135499, wall = 0.06500005722045898), (it = 22, F = 16.503381165028564, F_trial = 16.503381165028564, step = 4.888510678347593e-13, alpha = 4.111157602303049e-7, damping = 3703.703703703704, trials = 8, soc = 0, accepted = true, bounded = false, gradient = 0.004403913980907457, gain = 209964.347726273, wall = 0.06500005722045898), (it = 23, F = 16.503381165028564, F_trial = Inf, step = 1.1890848949789414e-6, alpha = 0.0, damping = 37037.03703703704, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004403913980626438, wall = 0.059999942779541016), (it = 24, F = 16.503381165028564, F_trial = Inf, step = 1.1893721953913609e-7, alpha = 0.0, damping = 370370.37037037034, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004403913980626438, wall = 0.06100010871887207), (it = 25, F = 16.503381165028358, F_trial = 16.503381165028358, step = 2.4424969869069963e-14, alpha = 2.05402730751035e-6, damping = 370370.37037037034, trials = 8, soc = 0, accepted = true, bounded = false, gradient = 0.004403913980626438, gain = 1651.1956285103058, wall = 0.06799983978271484), (it = 26, F = 16.503381165028358, F_trial = Inf, step = 1.1894009339540942e-8, alpha = 0.0, damping = 3.7037037037037034e6, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004403913980276992, wall = 0.04800009727478027), (it = 27, F = 16.503381165028358, F_trial = Inf, step = 1.18940380790593e-9, alpha = 0.0, damping = 3.703703703703703e7, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004403913980276992, wall = 0.042999982833862305), (it = 28, F = 16.503381165028358, F_trial = Inf, step = 1.1894040953019126e-10, alpha = 0.0, damping = 3.7037037037037027e8, trials = 8, soc = 0, accepted = false, bounded = false, gradient = 0.004403913980276992, wall = 0.06500005722045898)], converged = false, gradient = 0.004403913980276992, newton_step = 0.18232176457515983, newton_sd = 0.013421121546446747)), state_score = NaN)
+REFINED ARRIVAL pit_core (t = 0.0, committed = true, wall = 1.0170001983642578, diagnostics = (mean_error = 6.477845430892494e-13, covariance_error = 3.638199759629924e-12, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 3, orders = [9, 13], nodes = [81, 169]), state_score = 1.5667100893501313)
+REFINED ARRIVAL pit_core (t = 90.0, committed = false, wall = 20.008999824523926, diagnostics = (mean_error = 0.0008062002778857405, covariance_error = 0.1318029099218208, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 3, orders = [9, 13], nodes = [81, 169]), state_score = 1.261657217493946)
+REFINED ARRIVAL core (t = 0.0, committed = true, wall = 0.5939998626708984, diagnostics = (mean_error = 1.7733559428232354e-15, covariance_error = 5.148856184885148e-15, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 3, orders = [9, 13], nodes = [81, 169]), state_score = 0.5418708014945589)
+REFINED ARRIVAL core (t = 75.0, committed = false, wall = 13.559000015258789, diagnostics = (mean_error = 2.2629808110517234e-5, covariance_error = 0.3509847480302304, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 3, orders = [9, 13], nodes = [81, 169]), state_score = 0.5499921333055997)
+REFINED ARRIVAL two_core (t = 0.0, committed = true, wall = 1.1299998760223389, diagnostics = (mean_error = 6.867980550185554e-15, covariance_error = 1.3566127717808136e-14, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 3, orders = [9, 13], nodes = [81, 169]), state_score = 1.017981991307044)
+REFINED ARRIVAL two_core (t = 150.0, committed = false, wall = 13.23199987411499, diagnostics = (mean_error = 1.7155181212189413e-5, covariance_error = 1.1200686918950624, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 3, orders = [9, 13], nodes = [81, 169]), state_score = 1.0906410664564852)
+PASS 06_refined.job.jl
+START 07_shape.job.jl
+LoadError: UndefVarError: `_offsets` not defined in `Main`
+Stacktrace:
+ [1] conditional_shape_probe(p::ConditionalPosterior, k::VarKey; max_components::Int64)
+   @ Main C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\07_shape.job.jl:5
+ [2] conditional_shape_probe(p::ConditionalPosterior, k::VarKey)
+   @ Main C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\07_shape.job.jl:1
+ [3] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\07_shape.job.jl:20
+ [4] include(fname::String)
+   @ Main .\sysimg.jl:38
+ [5] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\worker.jl:13
+ [6] include(mod::Module, _path::String)
+   @ Base .\Base.jl:562
+ [7] exec_options(opts::Base.JLOptions)
+   @ Base .\client.jl:316
+ [8] _start()
+   @ Base .\client.jl:524
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\07_shape.job.jl:18
+FAIL 07_shape.job.jl
+START 08_shape_retry.job.jl
+SHAPE full [("h_c", 3929.3084172723893), ("k_m", 155.22372174417904), ("k_mult", 89.81798700344558), ("m_conv", 19.33780080611346), ("r_max", 10.866243144671232)]
+SHAPE pit_core [("h_c", 2893.0533656531975), ("k_m", 139.2438672400432), ("k_mult", 35.309185665846584), ("L", 20.773946656099948), ("m_conv", 18.832864491675732)]
+SHAPE core [("h_c", 1826.3840266843408), ("k_m", 85.56404759354535), ("C_th", 50.916199527985526), ("dH_eff", 20.570102132616068), ("k_mult", 17.024580727619366)]
+SHAPE two_core [("h_c", 5306.1628327789), ("C_th", 473.75879721562177), ("dH_eff", 212.8505832055933), ("k_m", 194.98352637369953), ("r_max", 149.1360833956511)]
+PASS 08_shape_retry.job.jl
+START 09_resolution_direction.job.jl
+RESOLUTION DIRECTION core -0.350984748030229 [("20", 1.0), ("17", -0.3259807716812939), ("18", -0.3142147714066032), ("19", -0.3130971391266771), ("8", 0.0010714856607812963), ("7", -0.00036348838024760817), ("5", -0.0003546210088517905), ("6", -0.00035208480943506174)]
+GROUPS Pair{String, UnitRange{Int64}}["brisket.T" => 1:4, "brisket.W" => 5:8, "brisket.C" => 9:12, "brisket.F" => 13:16, "brisket.S" => 17:20, "brisket.bark" => 21:23, "T_pit" => 24:24, "m_fuel" => 25:25, "m_pan" => 26:26, "T_pan" => 27:27, "T_fb" => 28:28, "ignited" => 29:29]
+RESOLUTION DIRECTION two_core 1.1200686918950662 [("19", -1.0), ("17", 0.3264382733259852), ("18", 0.32643819682030795), ("20", 0.32444787810862363), ("8", -0.00315482294865535), ("7", 0.0010935021543053058), ("5", 0.0010356077321451904), ("6", 0.0010215155141817722)]
+GROUPS Pair{String, UnitRange{Int64}}["brisket.T" => 1:4, "brisket.W" => 5:8, "brisket.C" => 9:12, "brisket.F" => 13:16, "brisket.S" => 17:20, "brisket.bark" => 21:23, "T_pit" => 24:24, "m_fuel" => 25:25, "m_pan" => 26:26, "T_pan" => 27:27, "T_fb" => 28:28, "ignited" => 29:29]
+RESOLUTION DIRECTION pit_core -0.13180290992182123 [("17", -1.0), ("20", -0.9969884569833668), ("19", -0.9572690141284261), ("18", -0.9561183776561534), ("8", -0.03848601890537512), ("7", 0.013099545683590372), ("5", 0.012722297093744657), ("6", 0.012618798969648168)]
+GROUPS Pair{String, UnitRange{Int64}}["brisket.T" => 1:4, "brisket.W" => 5:8, "brisket.C" => 9:12, "brisket.F" => 13:16, "brisket.S" => 17:20, "brisket.bark" => 21:23, "T_pit" => 24:24, "m_fuel" => 25:25, "m_pan" => 26:26, "T_pan" => 27:27, "T_fb" => 28:28, "ignited" => 29:29]
+PASS 09_resolution_direction.job.jl
+START 10_transport_shape.job.jl
+TRANSPORT SHAPE full [("k_m", 0.12262282938679225), ("r_max", 0.10145502959599538), ("k_e", 0.012768581008333755), ("core_depth_fraction", 0.008055109931774135), ("C_th", 0.006572281961194042)]
+TRANSPORT SHAPE pit_core [("r_max", 0.04816068454105261), ("u_leak", 0.00890810631107011), ("A_meat", 0.0015033754064048327), ("C_th", 0.00116739353335215), ("h_c", 0.0009730230793099214)]
+TRANSPORT SHAPE core [("core_depth_fraction", 0.0023107312692272394), ("h_c", 4.446615176068987e-5), ("L", 3.357932601572585e-5), ("k_mult", 1.5369850506859935e-5), ("k_m", 1.1602560144865684e-5)]
+TRANSPORT SHAPE two_core [("core_depth_fraction", 0.001602332699405113), ("k_mult", 0.00012972328526912014), ("h_c", 6.449179640105498e-5), ("L", 3.4338611265966374e-5), ("C_th", 1.5024304316895309e-5)]
+PASS 10_transport_shape.job.jl
+START 11_online_tests.job.jl
+REFRESHED 60895f66e26b
+conditional online transactions and bounded memory: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:21
+  Expression: result.committed
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:21 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:22
+  Test threw exception
+  Expression: ≈(result.z[depth], 0.0, atol = 1.0e-8)
+  type NamedTuple has no field z
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:22 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:23
+  Test threw exception
+  Expression: ≈(result.z_cov[depth, depth], 1.0, atol = 1.0e-8)
+  type NamedTuple has no field z_cov
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:23 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:26
+  Test threw exception
+  Expression: size(result.zy_cov) == (length(model.blk) + model.bl.n, length(model.blk) + model.bl.n)
+  type NamedTuple has no field zy_cov
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:26 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:27
+  Test threw exception
+  Expression: haskey(result.pieces, :brisket)
+  type NamedTuple has no field pieces
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:27 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:27 [inlined]
+   [5] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [6] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:28
+  Test threw exception
+  Expression: result.T_pit[2] > 0
+  type NamedTuple has no field T_pit
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:28 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:21
+  Expression: result.committed
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:21 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:22
+  Test threw exception
+  Expression: ≈(result.z[depth], 0.0, atol = 1.0e-8)
+  type NamedTuple has no field z
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:22 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:23
+  Test threw exception
+  Expression: ≈(result.z_cov[depth, depth], 1.0, atol = 1.0e-8)
+  type NamedTuple has no field z_cov
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:23 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:26
+  Test threw exception
+  Expression: size(result.zy_cov) == (length(model.blk) + model.bl.n, length(model.blk) + model.bl.n)
+  type NamedTuple has no field zy_cov
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:26 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:27
+  Test threw exception
+  Expression: haskey(result.pieces, :brisket)
+  type NamedTuple has no field pieces
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:27 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:27 [inlined]
+   [5] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [6] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:28
+  Test threw exception
+  Expression: result.T_pit[2] > 0
+  type NamedTuple has no field T_pit
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{ok::Bool, reason::Symbol, diagnostics::@NamedTuple{mean_error::Float64, covariance_error::Float64, resolved::Bool, inference::Symbol, conditional_gaussian_validated::Bool, lag::Int64, orders::Vector{Int64}, nodes::Vector{Int64}}, candidate::ConditionalPosterior, committed::Bool, converged::Bool, wall::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:28 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:31
+  Expression: length(sm.anchor.records) == 2
+   Evaluated: 1 == 2
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:31 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:33
+  Expression: (assimilate!(batched, recs)).committed
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:33 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:34
+  Expression: ≈((belief_at(batched)).zy_cov, (belief_at(sm)).zy_cov, rtol = 1.0e-8, atol = 1.0e-8)
+   Evaluated: [0.14158060992679092 0.0 … 0.0 0.0; 0.0 0.06667419277218041 … 0.0 0.0; … ; 0.0 0.0 … 3.9619060911702824 0.0; 0.0 0.0 … 0.0 1.4606696234730132] ≈ [0.14158060992679092 0.0 … 0.0 0.0; 0.0 0.06667419277218041 … 0.0 0.0; … ; 0.0 0.0 … 3.9619060911702824 0.0; 0.0 0.0 … 0.0 1.4606696234730132] (rtol=1.0e-8, atol=1.0e-8)
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:34 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:35
+  Expression: ≈((belief_at(batched)).y, (belief_at(sm)).y, atol = 1.0e-8)
+   Evaluated: [281.14999999, 281.14999999, 281.14999999, 281.14999999, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, -18.420680733952366, -18.420680733952366  …  -18.42068073895237, -18.42068073895237, -18.42068073895237, -18.420680733952366, 293.14999998999997, 6.999087692008034, -18.42068073895237, 293.14999998999997, 293.14999998999997, 3.096868145633917] ≈ [281.14999999, 281.14999999, 281.14999999, 281.14999999, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, -18.420680733952366, -18.420680733952366  …  -18.42068073895237, -18.42068073895237, -18.42068073895237, -18.420680733952366, 293.69125216066107, 6.999087692008034, -18.42068073895237, 293.14999998999997, 293.14999998999997, 3.096868145633917] (atol=1.0e-8)
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:35 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+conditional online transactions and bounded memory: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:37
+  Expression: assimilate!(sm, MeasurementRecord(:pit, 19.0, 300.0))
+    Expected: ArgumentError
+  No exception thrown
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:37 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [3] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:9
+Test Summary:                                      | Pass  Fail  Error  Total   Time
+conditional online transactions and bounded memory |   26     7     10     43  19.1s
+LoadError: Some tests did not pass: 26 passed, 7 failed, 10 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_conditional_online.jl:8
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\11_online_tests.job.jl:16
+FAIL 11_online_tests.job.jl
+START 12_unobserved_debug.job.jl
+UNOBSERVED RESULT true (mean_error = 8.001125118279201e-16, covariance_error = 6.387793459340221e-15, resolved = true, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 0, orders = [3, 5], nodes = [3, 5])
+UNOBSERVED RESULT false (mean_error = 4.430153514695091e-5, covariance_error = 0.13003177147709555, resolved = false, inference = :conditional_laplace, conditional_gaussian_validated = false, lag = 0, orders = [3, 5], nodes = [3, 5])
+MODE SPREAD 0.0001048552377277967
+COMP [1.3322676295501878e-15] mode [-18.69440006407541, -6.282668553292581, 2.3725244719222838, -3.2447829998394826, -0.06891101131516164, -7.599748440708289, -1.971361614928513, 0.0007535618211295217, 10.529023588957662, 2.9133764791107857, -0.15597662799525974, 16.560798538658364, -0.05605655938737831, -7.502831724901901, -0.049426645715513376, -2.118966009267075, 1.3322676295501878e-15] obj 0.21542006351604662 grad 8.012012230441563e-5
+COMP [-1.3556261799742608] mode [-18.694400063867267, -6.2826699684738045, 2.3725230242740336, -3.2447824241857264, -0.06891083152104355, -7.599748593475202, -1.9713616149313482, 0.0007480363984253972, 10.528985821958083, 2.913376419746072, -0.15587359327425143, 16.560821666972497, -0.05603296910341327, -7.502831725383936, -0.049422960155676744, -2.1189656347353316, -1.3556261799742608] obj 1.1342793875511359 grad 2.282891230784833e-5
+COMP [1.3556261799742677] mode [-18.69440006407541, -6.282668553325827, 2.3725244698733428, -3.24478299981734, -0.06891101132918741, -7.599748440708759, -1.971361614928513, 0.0007535597543754464, 10.529022402828346, 2.913376478969721, -0.1559734346213815, 16.560799262171514, -0.05605563457870767, -7.502831723783588, -0.04942620406161151, -2.118966010531606, 1.3556261799742677] obj 1.1342808118519065 grad 6.575044772228134e-5
+COMP [-2.8569700138728] mode [-18.69440006407541, -6.282668553197195, 2.372524423612836, -3.244782999862107, -0.06891101132351009, -7.599748440706983, -1.9713616149285127, 0.0007534892375224596, 10.528985675696898, 2.913376419727313, -0.15587177275753195, 16.56082172564595, -0.056026809946446564, -7.502831690783694, -0.049408976753762594, -2.1189660646744213, -2.8569700138728] obj 4.296557785825445 grad 8.018632413780798e-5
+COMP [2.8569700138728056] mode [-18.69440006407541, -6.2826685533178726, 2.372524469630679, -3.2447829998223496, -0.06891101132434095, -7.5997484407087015, -1.971361614928513, 0.0007535593022438185, 10.529022349825937, 2.9133764792373826, -0.15597331435684303, 16.56079929447648, -0.05605559180572085, -7.5028317277804835, -0.049426162282024566, -2.1189660110920685, 2.8569700138728056] obj 4.2965569692907275 grad 4.644149603993306e-5
+Test Summary:                                                 | Pass  Total  Time
+nonlinear innovation transport preserves the generative prior |   15     15  0.4s
+PASS 12_unobserved_debug.job.jl
+START 13_constant_rows.job.jl
+Test Summary:                                            | Pass  Total  Time
+conditional integration: curved joint density and volume |   17     17  5.6s
+Test Summary:                                                    | Pass  Total  Time
+conditional integration: general linear graph and tiny contrasts |   41     41  0.3s
+Test Summary:                             | Pass  Total  Time
+conditional evidence survives elimination |    2      2  0.6s
+Test Summary:                                      | Pass  Total  Time
+conditional online transactions and bounded memory |   43     43  4.6s
+Test Summary:                                                 | Pass  Total  Time
+nonlinear innovation transport preserves the generative prior |   15     15  0.1s
+PASS 13_constant_rows.job.jl
+START 14_density_oracle.job.jl
+CONTINUOUS DENSITY LINEAR ORACLE PASS
+DENSITY DEVELOPMENT full (tv_bound_estimate = 0.24838421667649455, integration_change = 0.025047659581407006, normalization_error = 0.011244892906875137, history = [0.22333655709508754, 0.24838421667649455]) wall=0.44300007820129395
+DENSITY DEVELOPMENT pit_core (tv_bound_estimate = 0.025843814046339744, integration_change = 0.010831967735837209, normalization_error = 0.0007063933249771281, history = [0.015011846310502536, 0.025843814046339744]) wall=0.16900014877319336
+DENSITY DEVELOPMENT core (tv_bound_estimate = 0.00047263988593402234, integration_change = 9.896054825571073e-6, normalization_error = 2.875419857772954e-8, history = [0.0004825359407595934, 0.00047263988593402234]) wall=0.14400005340576172
+DENSITY DEVELOPMENT two_core (tv_bound_estimate = 0.00017645805559990055, integration_change = 4.747769758833113e-5, normalization_error = 5.754997411955287e-8, history = [0.00012898035801156942, 0.00017645805559990055]) wall=0.15199995040893555
+PASS 14_density_oracle.job.jl
+START 15_density_cubic.job.jl
+CONTINUOUS DENSITY LINEAR ORACLE PASS
+DENSITY DEVELOPMENT full (tv_bound_estimate = 0.08376552960267583, integration_change = 0.010789642762732601, normalization_error = 0.001997631849489423, history = [0.09455517236540843, 0.08376552960267583]) wall=0.4119999408721924
+DENSITY DEVELOPMENT pit_core (tv_bound_estimate = 0.00246383098180827, integration_change = 0.0018980494912796447, normalization_error = 5.397450119870584e-5, history = [0.004361880473087915, 0.00246383098180827]) wall=0.25300002098083496
+DENSITY DEVELOPMENT core (tv_bound_estimate = 0.0004865072391226079, integration_change = 5.1312927701646107e-5, normalization_error = 8.304742671327858e-9, history = [0.000537820166824254, 0.0004865072391226079]) wall=0.29200005531311035
+DENSITY DEVELOPMENT two_core (tv_bound_estimate = 0.00018857488529588752, integration_change = 2.3887116839071834e-5, normalization_error = 1.4253183522328072e-8, history = [0.00016468776845681568, 0.00018857488529588752]) wall=0.25300002098083496
+PASS 15_density_cubic.job.jl
+START 16_deterministic.job.jl
+Test Summary:                                      | Pass  Total   Time
+conditional online transactions and bounded memory |   43     43  11.7s
+Test Summary:                                                 | Pass  Total  Time
+nonlinear innovation transport preserves the generative prior |   15     15  0.2s
+DETERMINISTIC CASE full
+DETERMINISTIC ARRIVAL full (t = 0.0, committed = false, reason = :conditional_shape, wall = 0.9280002117156982, diagnostics = (tv_bound_estimate = 1.0501719959368422e-11, integration_change = 2.3850908966744165e-12, normalization_error = 4.440892098500626e-16, history = [8.116629062694005e-12, 1.0501719959368422e-11], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.34879618588543804, shape_checked_mass = 0.3634973306469957))
+DETERMINISTIC CASE pit_core
+DETERMINISTIC ARRIVAL pit_core (t = 0.0, committed = true, reason = :ok, wall = 0.38300013542175293, diagnostics = (tv_bound_estimate = 8.17098922306996e-12, integration_change = 2.3839078879455402e-12, normalization_error = 4.440892098500626e-16, history = [5.7870813351244205e-12, 8.17098922306996e-12], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 5.111405998560741e-7, shape_checked_mass = 0.3634973306469942))
+DETERMINISTIC ARRIVAL pit_core (t = 90.0, committed = true, reason = :ok, wall = 8.601999998092651, diagnostics = (tv_bound_estimate = 0.0024601347850096407, integration_change = 0.0018358206919806023, normalization_error = 5.356881154394699e-5, history = [0.004295955476990243, 0.0024601347850096407], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.04815674708791637, shape_checked_mass = 0.376197842123555))
+DETERMINISTIC ARRIVAL pit_core (t = 420.0, committed = true, reason = :ok, wall = 9.658999919891357, diagnostics = (tv_bound_estimate = 0.0029325257567482496, integration_change = 0.0017181066261689935, normalization_error = 5.323880902263767e-5, history = [0.004650632382917243, 0.0029325257567482496], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.06571546072786098, shape_checked_mass = 0.37622539029025226))
+DETERMINISTIC ARRIVAL pit_core (t = 1800.0, committed = false, reason = :density_resolution, wall = 44.263999938964844, diagnostics = (tv_bound_estimate = 0.4825126186469135, integration_change = 0.10580435786833309, normalization_error = 0.00019115209343123496, history = [0.5883169765152466, 0.4825126186469135], resolved = false, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport))
+DETERMINISTIC CASE core
+DETERMINISTIC ARRIVAL core (t = 0.0, committed = true, reason = :ok, wall = 0.28600001335144043, diagnostics = (tv_bound_estimate = 1.1037155376722814e-11, integration_change = 2.887878893608924e-12, normalization_error = 4.440892098500626e-16, history = [8.14927648311389e-12, 1.1037155376722814e-11], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 9.730294570380865e-7, shape_checked_mass = 0.36349733064699535))
+DETERMINISTIC ARRIVAL core (t = 75.0, committed = true, reason = :ok, wall = 3.75, diagnostics = (tv_bound_estimate = 0.00047452085993156614, integration_change = 1.374047139686581e-5, normalization_error = 9.456070593216737e-9, history = [0.00048826133132843196, 0.00047452085993156614], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.0023097263224008046, shape_checked_mass = 0.36349790276732163))
+DETERMINISTIC ARRIVAL core (t = 510.0, committed = false, reason = :conditional_shape, wall = 28.43400001525879, diagnostics = (tv_bound_estimate = 0.0021982963841249894, integration_change = 0.0002880833894649813, normalization_error = 3.7314745204852784e-7, history = [0.0024863797735899707, 0.0021982963841249894], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.7192535089469898, shape_checked_mass = 0.3634999555281255))
+DETERMINISTIC CASE two_core
+DETERMINISTIC ARRIVAL two_core (t = 0.0, committed = true, reason = :ok, wall = 0.4100000858306885, diagnostics = (tv_bound_estimate = 1.052416091139336e-11, integration_change = 6.340954186692702e-12, normalization_error = 4.440892098500626e-16, history = [4.183206724700658e-12, 1.052416091139336e-11], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 1.055971785426992e-6, shape_checked_mass = 0.3634973306469942))
+DETERMINISTIC ARRIVAL two_core (t = 150.0, committed = true, reason = :ok, wall = 3.63100004196167, diagnostics = (tv_bound_estimate = 0.0003028728332085835, integration_change = 3.368030383135663e-5, normalization_error = 1.5338650793950137e-8, history = [0.0003365531370399401, 0.0003028728332085835], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.0016034002778466294, shape_checked_mass = 0.3634987343433265))
+DETERMINISTIC ARRIVAL two_core (t = 630.0, committed = false, reason = :conditional_shape, wall = 23.836999893188477, diagnostics = (tv_bound_estimate = 0.006040020669064855, integration_change = 0.00013361595794498474, normalization_error = 1.1574352421384049e-5, history = [0.00617363662700984, 0.006040020669064855], resolved = true, orders = [5, 9], nodes = [25, 81], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 6.311914331045971, shape_checked_mass = 0.3641292877369232))
+PASS 16_deterministic.job.jl
+START 17_directions.job.jl
+SHAPE DIRECTIONS full [("k_m", 0.34879618588543804), ("r_max", 0.018117641892639), ("L", 0.0027870400975470743), ("A_meat", 0.002714534404188582), ("u_leak", 0.0005446437239983421)]
+SHAPE DIRECTIONS pit_core [("core_depth_fraction", 8.155033915960665), ("r_max", 7.790616032667971), ("A_meat", 1.470305025285343), ("u_leak", 0.9127409173869915), ("k_mult", 0.5917013543754072)]
+SHAPE DIRECTIONS core [("core_depth_fraction", 0.7192535089469898), ("k_mult", 0.05496807335704089), ("L", 0.034146034458880675), ("h_c", 0.0017769680087761264), ("k_m", 0.0004594541488918368)]
+SHAPE DIRECTIONS two_core [("second_depth_fraction", 6.311914331045971), ("k_mult", 0.06725513757848073), ("L", 0.03628739627666615), ("h_c", 0.006302719625634149), ("C_th", 0.0025027986029272056)]
+PASS 17_directions.job.jl
+START 18_adaptive.job.jl
+ADAPTIVE CASE full
+ADAPTIVE ARRIVAL full (t = 0.0, committed = true, reason = :ok, wall = 2.485999822616577, diagnostics = (tv_bound_estimate = 0.022732313488831535, integration_change = 0.004313318140871707, normalization_error = 0.0005735969240456829, history = [0.018418995347959828, 0.022732313488831535], resolved = true, axes = ["k_m"], orders = [5, 9, 13], nodes = [5, 9, 13], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.025548672975351457, shape_checked_mass = 0.7795085503873207))
+ADAPTIVE ARRIVAL full (t = 120.0, committed = false, reason = :density_resolution, wall = 13.138000011444092, diagnostics = (tv_bound_estimate = 0.03825270414161903, integration_change = 0.018996589656418768, normalization_error = 0.00024693270667519585, history = [0.01925611448520026, 0.03825270414161903], resolved = false, axes = ["a0"], orders = [5, 9, 13, 17], nodes = [5, 9, 13, 17], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.12020888024079256, shape_checked_mass = 0.8271509591103778))
+ADAPTIVE CASE pit_core
+ADAPTIVE ARRIVAL pit_core (t = 0.0, committed = true, reason = :ok, wall = 0.04800009727478027, diagnostics = (tv_bound_estimate = 5.508769229865854e-12, integration_change = 4.105313256106296e-12, normalization_error = 2.220446049250313e-16, history = [1.4034559737595577e-12, 5.508769229865854e-12], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 5.111407088596593e-7, shape_checked_mass = 0.8945442121390859))
+ADAPTIVE ARRIVAL pit_core (t = 90.0, committed = true, reason = :ok, wall = 1.9279999732971191, diagnostics = (tv_bound_estimate = 0.002739874830309034, integration_change = 0.0012978718077252859, normalization_error = 9.03481169212128e-5, history = [0.00403774663803432, 0.002739874830309034], resolved = true, axes = ["a0"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.04553317919843747, shape_checked_mass = 0.9052689069363405))
+ADAPTIVE ARRIVAL pit_core (t = 420.0, committed = true, reason = :ok, wall = 2.3010001182556152, diagnostics = (tv_bound_estimate = 0.00285948373987613, integration_change = 0.0014061293741350132, normalization_error = 8.721776476483534e-5, history = [0.004265613114011143, 0.00285948373987613], resolved = true, axes = ["a0"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.0661258808947341, shape_checked_mass = 0.9052853968466368))
+MethodError: Cannot `convert` an object of type 
+  Tuple{Int64,Int64} to an object of type 
+  Tuple{Int64}
+This error has been manually thrown, explicitly, so the method may exist but be intentionally marked as unimplemented.
+
+Closest candidates are:
+  convert(::Type{T}, ::NTuple{N, Any}) where {N, T<:Tuple}
+   @ Base essentials.jl:601
+  (::Type{T})(::Tuple) where T<:Tuple
+   @ Base tuple.jl:450
+  (::Type{T})(::Any) where T<:Tuple
+   @ Base tuple.jl:455
+  ...
+
+Stacktrace:
+  [1] _tuple_error(T::Type, x::Tuple{Int64, Int64})
+    @ Base .\essentials.jl:598
+  [2] convert(::Type{Tuple{Int64}}, x::Tuple{Int64, Int64})
+    @ Base .\essentials.jl:605
+  [3] setindex!(h::Dict{Tuple{Int64}, Nothing}, v0::Nothing, key0::Tuple{Int64, Int64})
+    @ Base .\dict.jl:346
+  [4] push!(s::Set{Tuple{Int64}}, x::Tuple{Int64, Int64})
+    @ Base .\set.jl:137
+  [5] _deterministic_advance!(sm::Main.AdaptiveValidation.BrisketEstimator.DeterministicSmoother, recs::Vector{Main.AdaptiveValidation.BrisketEstimator.MeasurementRecord}; verbose::Bool)
+    @ Main.AdaptiveValidation.BrisketEstimator C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\deterministic_online.jl:153
+  [6] _deterministic_advance!
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\deterministic_online.jl:120 [inlined]
+  [7] assimilate!(sm::Main.AdaptiveValidation.BrisketEstimator.DeterministicSmoother, recs::Vector{Main.AdaptiveValidation.BrisketEstimator.MeasurementRecord}; verbose::Bool)
+    @ Main.AdaptiveValidation.BrisketEstimator C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\deterministic_online.jl:189
+  [8] assimilate!
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\deterministic_online.jl:173 [inlined]
+  [9] top-level scope
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\18_adaptive.job.jl:15
+ [10] include(fname::String)
+    @ Main .\sysimg.jl:38
+ [11] top-level scope
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\worker.jl:13
+ [12] include(mod::Module, _path::String)
+    @ Base .\Base.jl:562
+ [13] exec_options(opts::Base.JLOptions)
+    @ Base .\client.jl:316
+ [14] _start()
+    @ Base .\client.jl:524
+ADAPTIVE CASE core
+ADAPTIVE ARRIVAL core (t = 0.0, committed = true, reason = :ok, wall = 0.03900003433227539, diagnostics = (tv_bound_estimate = 7.1974417044682534e-12, integration_change = 3.186401452200081e-12, normalization_error = 2.220446049250313e-16, history = [4.0110402522681724e-12, 7.1974417044682534e-12], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 9.730294567957258e-7, shape_checked_mass = 0.8945442121390845))
+ADAPTIVE ARRIVAL core (t = 75.0, committed = true, reason = :ok, wall = 0.9179999828338623, diagnostics = (tv_bound_estimate = 0.0001715657862976146, integration_change = 4.832244534341422e-5, normalization_error = 1.7444212740969078e-9, history = [0.00012324334095420038, 0.0001715657862976146], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.0023260831537092446, shape_checked_mass = 0.894544222425778))
+ADAPTIVE ARRIVAL core (t = 510.0, committed = false, reason = :density_resolution, wall = 27.658999919891357, diagnostics = (tv_bound_estimate = 0.04868901448502077, integration_change = 0.010863514290706873, normalization_error = 0.0030419076652266064, history = [0.037825500194313896, 0.04868901448502077], resolved = false, axes = ["core_depth_fraction"], orders = [5, 9, 13], nodes = [5, 9, 13], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.05401835637516117, shape_checked_mass = 0.8573778340984142))
+ADAPTIVE CASE two_core
+ADAPTIVE ARRIVAL two_core (t = 0.0, committed = true, reason = :ok, wall = 0.05099987983703613, diagnostics = (tv_bound_estimate = 6.6926757699200675e-12, integration_change = 4.028179771669339e-12, normalization_error = 2.220446049250313e-16, history = [2.6644959982507286e-12, 6.6926757699200675e-12], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 1.055971854815931e-6, shape_checked_mass = 0.8945442121390845))
+ADAPTIVE ARRIVAL two_core (t = 150.0, committed = true, reason = :ok, wall = 0.5889999866485596, diagnostics = (tv_bound_estimate = 9.850506018694361e-5, integration_change = 2.8024309539994034e-5, normalization_error = 5.370503597390552e-9, history = [7.048075064694958e-5, 9.850506018694361e-5], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.0015963172855681335, shape_checked_mass = 0.8945441781778928))
+ADAPTIVE ARRIVAL two_core (t = 630.0, committed = false, reason = :density_resolution, wall = 11.640000104904175, diagnostics = (tv_bound_estimate = 0.07926655959303595, integration_change = 0.04270961936808921, normalization_error = 0.00268892167466106, history = [0.036556940224946745, 0.07926655959303595], resolved = false, axes = ["second_depth_fraction"], orders = [5, 9, 13, 17], nodes = [5, 9, 13, 17], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.015425738919987858, shape_checked_mass = 0.9487581048030462))
+PASS 18_adaptive.job.jl
+START 19_recenter.job.jl
+RECENTER CASE full
+RECENTER ARRIVAL full (t = 0.0, committed = true, reason = :ok, wall = 1.6110000610351562, diagnostics = (tv_bound_estimate = 0.006173214355810218, integration_change = 0.002426112053696902, normalization_error = 0.0009756320302178878, history = [0.00859932640950712, 0.006173214355810218], resolved = true, axes = ["k_m"], orders = [5, 9, 13], nodes = [5, 9, 13], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.030132628759336748, shape_checked_mass = 0.8183062314602225))
+RECENTER ARRIVAL full (t = 120.0, committed = false, reason = :density_resolution, wall = 11.396999835968018, diagnostics = (tv_bound_estimate = 0.005292778879017529, integration_change = 0.04046931612770777, normalization_error = 0.0007264121834382742, history = [0.045762095006725304, 0.005292778879017529], resolved = false, axes = ["a0"], orders = [5, 9, 13, 17], nodes = [5, 9, 13, 17], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.1210891479332698, shape_checked_mass = 0.6995821791773281))
+RECENTER CASE pit_core
+RECENTER ARRIVAL pit_core (t = 0.0, committed = true, reason = :ok, wall = 0.03399991989135742, diagnostics = (tv_bound_estimate = 5.508769229865854e-12, integration_change = 4.105313256106296e-12, normalization_error = 2.220446049250313e-16, history = [1.4034559737595577e-12, 5.508769229865854e-12], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 5.111407088596593e-7, shape_checked_mass = 0.8945442121390859))
+RECENTER ARRIVAL pit_core (t = 90.0, committed = true, reason = :ok, wall = 1.6340000629425049, diagnostics = (tv_bound_estimate = 0.002739874830309034, integration_change = 0.0012978718077252859, normalization_error = 9.03481169212128e-5, history = [0.00403774663803432, 0.002739874830309034], resolved = true, axes = ["a0"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.04553317919843747, shape_checked_mass = 0.9052689069363405))
+RECENTER ARRIVAL pit_core (t = 420.0, committed = true, reason = :ok, wall = 1.9119999408721924, diagnostics = (tv_bound_estimate = 0.00285948373987613, integration_change = 0.0014061293741350132, normalization_error = 8.721776476483534e-5, history = [0.004265613114011143, 0.00285948373987613], resolved = true, axes = ["a0"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.0661258808947341, shape_checked_mass = 0.9052853968466368))
+MethodError: Cannot `convert` an object of type 
+  Tuple{Int64,Int64} to an object of type 
+  Tuple{Int64}
+This error has been manually thrown, explicitly, so the method may exist but be intentionally marked as unimplemented.
+
+Closest candidates are:
+  convert(::Type{T}, ::NTuple{N, Any}) where {N, T<:Tuple}
+   @ Base essentials.jl:601
+  (::Type{T})(::Tuple) where T<:Tuple
+   @ Base tuple.jl:450
+  (::Type{T})(::Any) where T<:Tuple
+   @ Base tuple.jl:455
+  ...
+
+Stacktrace:
+  [1] _tuple_error(T::Type, x::Tuple{Int64, Int64})
+    @ Base .\essentials.jl:598
+  [2] convert(::Type{Tuple{Int64}}, x::Tuple{Int64, Int64})
+    @ Base .\essentials.jl:605
+  [3] setindex!(h::Dict{Tuple{Int64}, Nothing}, v0::Nothing, key0::Tuple{Int64, Int64})
+    @ Base .\dict.jl:346
+  [4] push!(s::Set{Tuple{Int64}}, x::Tuple{Int64, Int64})
+    @ Base .\set.jl:137
+  [5] _deterministic_advance!(sm::Main.RecenterValidation.BrisketEstimator.DeterministicSmoother, recs::Vector{Main.RecenterValidation.BrisketEstimator.MeasurementRecord}; verbose::Bool)
+    @ Main.RecenterValidation.BrisketEstimator C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\deterministic_online.jl:178
+  [6] _deterministic_advance!
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\deterministic_online.jl:145 [inlined]
+  [7] assimilate!(sm::Main.RecenterValidation.BrisketEstimator.DeterministicSmoother, recs::Vector{Main.RecenterValidation.BrisketEstimator.MeasurementRecord}; verbose::Bool)
+    @ Main.RecenterValidation.BrisketEstimator C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\deterministic_online.jl:217
+  [8] assimilate!
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\deterministic_online.jl:201 [inlined]
+  [9] top-level scope
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\19_recenter.job.jl:15
+ [10] include(fname::String)
+    @ Main .\sysimg.jl:38
+ [11] top-level scope
+    @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic\worker.jl:13
+ [12] include(mod::Module, _path::String)
+    @ Base .\Base.jl:562
+ [13] exec_options(opts::Base.JLOptions)
+    @ Base .\client.jl:316
+ [14] _start()
+    @ Base .\client.jl:524
+RECENTER CASE core
+RECENTER ARRIVAL core (t = 0.0, committed = true, reason = :ok, wall = 0.02500009536743164, diagnostics = (tv_bound_estimate = 7.1974417044682534e-12, integration_change = 3.186401452200081e-12, normalization_error = 2.220446049250313e-16, history = [4.0110402522681724e-12, 7.1974417044682534e-12], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 9.730294567957258e-7, shape_checked_mass = 0.8945442121390845))
+RECENTER ARRIVAL core (t = 75.0, committed = true, reason = :ok, wall = 0.7939999103546143, diagnostics = (tv_bound_estimate = 0.0001715657862976146, integration_change = 4.832244534341422e-5, normalization_error = 1.7444212740969078e-9, history = [0.00012324334095420038, 0.0001715657862976146], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.0023260831537092446, shape_checked_mass = 0.894544222425778))
+RECENTER ARRIVAL core (t = 510.0, committed = false, reason = :density_resolution, wall = 28.704999923706055, diagnostics = (tv_bound_estimate = 0.06415837852419165, integration_change = 0.021840796169018704, normalization_error = 0.0031316646148260574, history = [0.042317582355172946, 0.06415837852419165], resolved = false, axes = ["core_depth_fraction"], orders = [5, 9, 13], nodes = [5, 9, 13], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.05350754014427006, shape_checked_mass = 0.81246044330944))
+RECENTER CASE two_core
+RECENTER ARRIVAL two_core (t = 0.0, committed = true, reason = :ok, wall = 0.09099984169006348, diagnostics = (tv_bound_estimate = 6.6926757699200675e-12, integration_change = 4.028179771669339e-12, normalization_error = 2.220446049250313e-16, history = [2.6644959982507286e-12, 6.6926757699200675e-12], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 1.055971854815931e-6, shape_checked_mass = 0.8945442121390845))
+RECENTER ARRIVAL two_core (t = 150.0, committed = true, reason = :ok, wall = 0.7109999656677246, diagnostics = (tv_bound_estimate = 9.850506018694361e-5, integration_change = 2.8024309539994034e-5, normalization_error = 5.370503597390552e-9, history = [7.048075064694958e-5, 9.850506018694361e-5], resolved = true, axes = ["D_eff"], orders = [5, 9], nodes = [5, 9], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.0015963172855681335, shape_checked_mass = 0.8945441781778928))
+RECENTER ARRIVAL two_core (t = 630.0, committed = false, reason = :density_resolution, wall = 13.234999895095825, diagnostics = (tv_bound_estimate = 0.027253586823225123, integration_change = 0.012356388338104402, normalization_error = 0.0010519619882867204, history = [0.039609975161329525, 0.027253586823225123], resolved = false, axes = ["second_depth_fraction"], orders = [5, 9, 13, 17], nodes = [5, 9, 13, 17], conditional_gaussian_validated = false, inference = :conditional_transport, shape_defect = 0.01590224992239648, shape_checked_mass = 0.8092033924840487))
+PASS 19_recenter.job.jl
+START 20_integrator.job.jl
+DETERMINISTIC full t=0.0 committed=true reason=ok seconds=1.071000099182129
+DETERMINISTIC full t=120.0 committed=true reason=ok seconds=11.494999885559082
+DETERMINISTIC full t=600.0 committed=false reason=conditional_solve seconds=24.86299991607666
+DETERMINISTIC pit_core t=0.0 committed=true reason=ok seconds=0.04999995231628418
+DETERMINISTIC pit_core t=90.0 committed=true reason=ok seconds=1.7649998664855957
+DETERMINISTIC pit_core t=420.0 committed=true reason=ok seconds=1.8650000095367432
+DETERMINISTIC pit_core t=1800.0 committed=false reason=conditional_shape seconds=264.6710000038147
+DETERMINISTIC core t=0.0 committed=true reason=ok seconds=0.03800010681152344
+DETERMINISTIC core t=75.0 committed=true reason=ok seconds=1.0750000476837158
+DETERMINISTIC core t=510.0 committed=false reason=density_resolution seconds=39.82200002670288
+DETERMINISTIC two_core t=0.0 committed=true reason=ok seconds=0.08100008964538574
+DETERMINISTIC two_core t=150.0 committed=true reason=ok seconds=0.9259998798370361
+DETERMINISTIC two_core t=630.0 committed=false reason=density_resolution seconds=18.563000202178955
+PASS 20_integrator.job.jl
+START 21_continuation.job.jl
+DETERMINISTIC full t=0.0 committed=true reason=ok seconds=1.8610000610351562
+DETERMINISTIC full t=120.0 committed=true reason=ok seconds=15.083999872207642

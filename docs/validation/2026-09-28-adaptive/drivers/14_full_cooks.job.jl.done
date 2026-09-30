@@ -1,0 +1,31 @@
+println("FULL COOK CONTINUATIONS");flush(stdout)
+for suite in (:core,:two_core)
+    snap=deserialize(joinpath(@__DIR__,"../curvature_audit/$(suite).jls"));anchor=deepcopy(snap.failed.bank.anchor)
+    t=time();outcome=nothing;selected=Tuple{E.VarKey,Int}[]
+    try
+        for batch in snap.batches[snap.arrival+1:end]
+            r=E.assimilate!(anchor,batch);r.committed || error("full-history anchor solve did not converge")
+        end
+        c=E._conditional_node!(deepcopy(anchor.graph),Tuple{E.VarKey,Int}[],Float64[];
+            iters=80,tol=1e-6,ftol=1e-8,step_bounds=Dict(anchor.key_z=>anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+        c.solve.converged || error("axis-selection solve did not converge")
+        p=E._conditional_posterior([c],[0.],Tuple{E.VarKey,Int}[])
+        shape=E.conditional_shape_diagnostic(E.conditional_transport(p);key=anchor.key_z)
+        selected=[(anchor.key_z,argmax(shape.scores))]
+        row=p.offsets[anchor.key_z][selected[1][2]]
+        cc=[p.mean[row]];ss=reshape([sqrt(p.covariance[row,row])],1,1)
+        println("FULL COOK ",suite," t ",last(anchor.nodes)[1]," selected ",anchor.model.blk.names[selected[1][2]]);flush(stdout)
+        candidate=adaptive_conditional_fit(anchor.graph;axes=selected,center=cc,scale=ss,
+            lower=[-4.],upper=[4.],tolerance=.002,max_nodes=129,orders=(7,11),
+            curvature=polished_gn_conditional_curvature,step_bounds=Dict(anchor.key_z=>anchor.latent_step),
+            newton_tol=E.ONLINE_NEWTON_TOL,shape_key=anchor.key_z,progress=adaptive_progress)
+        outcome=(ok=true,diagnostics=candidate.diagnostics,selection_scores=shape.scores)
+        serialize(joinpath(@__DIR__,"$(suite)_full_cook.jls"),candidate)
+    catch err
+        err isa InterruptException && rethrow()
+        outcome=(ok=false,error=sprint(showerror,err))
+        println("FULL COOK FAILURE ",suite," ",outcome.error);flush(stdout)
+    end
+    write(joinpath(@__DIR__,"$(suite)_full_cook.json"),E.json_document((suite=suite,t=last(anchor.nodes)[1],
+        wall=time()-t,axes=selected,outcome=outcome,committed=false)))
+end

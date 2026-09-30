@@ -1,0 +1,46 @@
+[
+    {
+        "path":  "scratchpad/local_sparse_work/core_local_final.jls",
+        "sha256":  "aa33f7543336a151b539baff5966fa66271c4ac14204c2b57c93a5195288a3ab"
+    },
+    {
+        "path":  "scratchpad/local_sparse_work/full_expanding_final.jls",
+        "sha256":  "eff5b869b0ec5713605266f154e726bb921a254765c550efb8edbcfac0a73fcf"
+    },
+    {
+        "path":  "scratchpad/local_sparse_work/late_two_affine.jls",
+        "sha256":  "ca8a53280d7c131e1af5c2e4299d64aecbe74387f92c31e25f66cbc3f92c696f"
+    },
+    {
+        "path":  "scratchpad/local_sparse_work/late_two_affine_final.jls",
+        "sha256":  "d58556e3f9812f400d7459f36200248d168363f552124f45e85b51c8af03d7da"
+    },
+    {
+        "path":  "scratchpad/local_sparse_work/late_two_mapped.jls",
+        "sha256":  "c6a32f59811d3b90f401715a098d23d821d2fa8494d56909134bba612a2d5fd4"
+    },
+    {
+        "path":  "scratchpad/local_sparse_work/late_two_mapped_final.jls",
+        "sha256":  "718116b09f49ddee20a39471510e578e91264e3824295095ca29cdeaf8137579"
+    },
+    {
+        "path":  "scratchpad/local_sparse_work/online_late_two_final.jls",
+        "sha256":  "d58556e3f9812f400d7459f36200248d168363f552124f45e85b51c8af03d7da"
+    },
+    {
+        "path":  "scratchpad/local_sparse_work/two_core_coupled_final.jls",
+        "sha256":  "d532bf5423ab5a0e396d8594fa5d640b39fba9b3f27e5a8d3692f14249e9f0ca"
+    },
+    {
+        "path":  "scratchpad/transport_work/late_two_affine.jls",
+        "sha256":  "5107fc95dcde0a2ae68613811874d3bd3713a76ee014d414e0a45c6d45a71bdb"
+    },
+    {
+        "path":  "scratchpad/transport_work/late_two_triangular.jls",
+        "sha256":  "cd4f31fe38efd71d0e8e993ab42dec52f59c95f7958f1b509c933f5b09d5bcbb"
+    },
+    {
+        "path":  "scratchpad/sparse_work/late_two_mapped_final.jls",
+        "sha256":  "bbba9a29e5a353984ac050ae91cd3ec23e3e78b291f879a319697f42d30de65b"
+    }
+]

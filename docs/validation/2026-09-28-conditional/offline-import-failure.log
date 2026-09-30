@@ -1,0 +1,17 @@
+FRESH PROCESS d31877a10f94 PHYSICS c2c7bbf8c0ec
+adaptive charts preserve an unobserved prior and model ownership: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_deterministic_online.jl:5
+  Got exception outside of a @test
+  UndefVarError: `consistency_model` not defined in `Main`
+  Stacktrace:
+   [1] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_deterministic_online.jl:6 [inlined]
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [3] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_deterministic_online.jl:6
+   [4] include(fname::String)
+     @ Main .\sysimg.jl:38
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\deterministic_sparse\offline_contract.jl:6
+Test Summary:                                                    | Error  Total  Time
+adaptive charts preserve an unobserved prior and model ownership |     1      1  1.4s

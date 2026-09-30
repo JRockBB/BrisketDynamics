@@ -1,0 +1,4 @@
+module AdaptiveAdapterTests
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_conditional.jl"))
+end

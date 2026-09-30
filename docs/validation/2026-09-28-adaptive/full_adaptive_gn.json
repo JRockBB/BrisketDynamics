@@ -1,0 +1,65 @@
+{
+  "axes": [
+    [
+      {
+        "entity": "params",
+        "k": 0.0,
+        "name": "cook",
+        "scope": [
+          "cook"
+        ]
+      },
+      15.0
+    ],
+    [
+      {
+        "entity": "params",
+        "k": 0.0,
+        "name": "cook",
+        "scope": [
+          "cook"
+        ]
+      },
+      11.0
+    ],
+    [
+      {
+        "entity": "params",
+        "k": 0.0,
+        "name": "cook",
+        "scope": [
+          "cook"
+        ]
+      },
+      14.0
+    ]
+  ],
+  "center": [
+    0.4728822438782836,
+    -0.4948454495901159,
+    -7.662525522613235
+  ],
+  "outcome": {
+    "error": "innovation mode polishing could not resolve an exact descent step",
+    "ok": false
+  },
+  "scale": [
+    [
+      0.7798895508287046,
+      -0.09510426036554863,
+      0.07351865949420033
+    ],
+    [
+      0.0,
+      0.8724872087759288,
+      -0.006549093848273302
+    ],
+    [
+      0.0,
+      0.0,
+      1.1284472998311872
+    ]
+  ],
+  "suite": "full",
+  "wall": 2.9089999198913574
+}

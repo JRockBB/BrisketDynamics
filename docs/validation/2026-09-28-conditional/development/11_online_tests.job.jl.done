@@ -1,0 +1,16 @@
+function isstructexpr(ex)
+    ex isa Expr || return false
+    ex.head==:struct && return true
+    ex.head==:macrocall && return any(isstructexpr,ex.args)
+    return false
+end
+for file in ("conditional.jl","conditional_online.jl")
+    src=read(joinpath(@__DIR__,"../../../estimator/src",file),String)
+    for ex in Meta.parseall(src).args
+        isstructexpr(ex) || Core.eval(E,ex)
+    end
+end
+Base.include(E,joinpath(@__DIR__,"../../../estimator/src/conditional_transport.jl"))
+using .BrisketEstimator
+println("REFRESHED ",backend_fingerprint());flush(stdout)
+include(joinpath(@__DIR__,"../../../estimator/test/test_conditional_online.jl"))

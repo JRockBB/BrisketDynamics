@@ -1,0 +1,9 @@
+module LocalSparseTests01
+using Test,JSON,SHA
+const result=@testset "local sparse initial controls" begin
+    include(joinpath(@__DIR__,"../../estimator/test/test_local_sparse_density.jl"))
+end
+const c=Test.get_test_counts(result)
+write(joinpath(@__DIR__,"initial_tests.json"),JSON.json((passes=c.passes+c.cumulative_passes,
+    fails=c.fails+c.cumulative_fails,errors=c.errors+c.cumulative_errors)))
+end

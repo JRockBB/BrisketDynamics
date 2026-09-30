@@ -1,0 +1,8 @@
+let
+    M=DirectCurrentRegression
+    model=consistency_model(nx=4,stop=120.,suite=:core)
+    anchor=E.online_init(model;lag=typemax(Int),record_limit=0)
+    p=M.direct_posterior_fit(anchor;max_evaluations=50000,max_seconds=120.)
+    println("PRIOR CURRENT ",(diagnostics=p.diagnostics,meanmax=maximum(abs,p.mean)))
+    global prior_current=p
+end

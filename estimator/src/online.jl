@@ -31,7 +31,9 @@ latents, the newest node's belief coordinates, then the newest live discrepancy 
 (at its stationary prior while it has none). Its groups: the state's noise groups (the filter's twelve names for
 a one-piece system, the layout's names otherwise), then with `ou` the stationary variance of every discrepancy
 sensor (`ou.<id>`, a process group on its own coordinate), then with `white` the white variance of every sensor
-(`white.<id>`, a measurement group). The variance rates it starts from are the model's own.
+(`white.<id>`, a measurement group). The variance rates it starts from are the model's own. Feed arrivals
+in strictly increasing time order, with all readings at one timestamp batched together. Delayed and mixed-time
+batches remain supported by the smoother without an ALS feed; they are not a single Markov-frame transition.
 """
 struct ALSFeed
     acc::ALSAccumulator
@@ -358,7 +360,7 @@ struct SmootherCheckpoint
     smoother::FixedLagSmoother
 end
 const BACKEND_FILES = ("factors.jl", "system_state.jl", "semantic.jl", "online.jl", "offline.jl",
-                       "plan_system.jl", "rom.jl")
+                       "plan_system.jl", "rom.jl", "als.jl", "bench_fit.jl", "posterior_sampling.jl", "posterior_smc.jl", "sampled_online.jl", "particle_online.jl", "sampled_planning.jl", "sampled_offline.jl", "conditional.jl", "conditional_transport.jl", "conditional_density.jl", "conditional_online.jl", "deterministic_online.jl")
 "The implementation fingerprint for checkpoint compatibility, including physics and every new backend layer."
 function backend_fingerprint(; repo::AbstractString=REPO_ROOT)
     ctx = SHA.SHA1_CTX()
@@ -385,6 +387,9 @@ restore_checkpoint!(sm::FixedLagSmoother, cp::SmootherCheckpoint) = _restore_smo
 function _add_dyn!(sm::FixedLagSmoother, ka::VarKey, ta::Float64, kb::VarKey, tb::Float64; first::Bool)
     f = DynamicsFactor(sm.model, sm.key_z, ka, kb, ta, tb; first, events=sensor_events(sm.model.log, ta, tb),
                        relin_tol=sm.relin_tol, relin_tol_state=sm.relin_tol_state, key_m=_key_m(sm, ka), split=sm.split)   # the copy in force from the slice's start
+    # Anchor the noise before any measurements can move this slice's prediction. This also makes an
+    # offline graph's covariance independent of which factor happens to be evaluated first in a solve.
+    _dyn_eval!(f, _factor_latents(f, sm.graph), variable_value(sm.graph, ka); jac=false)
     add_factor!(sm.graph, f); sm.dyn[(ka, kb)] = f
     return f
 end
@@ -610,15 +615,26 @@ variables the readings touch (the latents, the newest node, their discrepancies)
 factors set aside, the whitened prediction rows `H = ∂h/∂x / σ` and whitened innovations `ν = (y − h)/σ` at the
 predicted point, the predicted innovation covariance `S = H C Hᵀ + I` and the normalized innovation squared
 `νᵀ S⁻¹ ν` with its degrees of freedom (the uncensored readings). The linearization it takes of the newest
-dynamics factor is the one the solve's first iteration uses. `nothing` when every reading is censored.
+dynamics factor is the one the solve's first iteration uses. `nothing` when every reading is censored and
+there is no ALS feed; with a feed an empty observation block still carries the frame's transition.
 """
 function _predicted_consistency(sm::FixedLagSmoother, fs::AbstractVector{ObservationFactor})
     g = sm.graph
     live = [f for f in fs if !f.censored]
-    isempty(live) && return nothing
+    isempty(live) && sm.als === nothing && return nothing
     keys = VarKey[]
     for f in live, k in vars(f)
         k in keys || push!(keys, k)
+    end
+    # The calibration needs the gain on the ENTIRE current frame, including an idle sensor's latest
+    # discrepancy. Its cross-covariance with a reporting sensor is generally nonzero. A marginal over
+    # just the observed variables gives the right NIS but silently zeroes those gain rows in _als_pieces.
+    if sm.als !== nothing
+        ky = sm.nodes[end][2]
+        _, zkeys = _latents_at(sm, ky)
+        for k in vcat(zkeys, [ky], [last(sm.disc[id])[2] for id in sm.als.disc_sensors if !isempty(sm.disc[id])])
+            k in keys || push!(keys, k)
+        end
     end
     # the observation factors set aside and put back at their own positions: the graph's factor order is the stacked
     # rows' order, and a solve's path follows its rounding
@@ -641,7 +657,7 @@ function _predicted_consistency(sm::FixedLagSmoother, fs::AbstractVector{Observa
     end
     S = Matrix(Symmetric(H * C * H' + I))
     sdev = sqrt.(max.(diag(S), 1e-12))
-    return (nis=dot(ν, S \ ν), dof=p, S=S, nu=ν, sdev=sdev, H=H, C=C, off=off, live=live)
+    return (nis=p == 0 ? NaN : dot(ν, S \ ν), dof=p, S=S, nu=ν, sdev=sdev, H=H, C=C, off=off, live=live)
 end
 
 # the accumulator's reading of one arrival in the feed's frame [latents; newest node; each discrepancy sensor's
@@ -673,7 +689,7 @@ function _als_pieces(sm::FixedLagSmoother, feed::ALSFeed, pc, t_arr::Float64)
         f = sm.dyn[(kp, ky)]
         c = _dyn_eval!(f, _factor_latents(f, g), variable_value(g, kp); jac=true)
         F[ry, rz] = c.Jz; F[ry, ry] = c.Jy
-        for (i, D) in enumerate(_process_cov_sens(f, c.f, feed.state_names))
+        for (i, D) in enumerate(_process_cov_sens(f, c.wy, feed.state_names))
             dQ[i][ry, ry] = D
         end
     end
@@ -681,12 +697,14 @@ function _als_pieces(sm::FixedLagSmoother, feed::ALSFeed, pc, t_arr::Float64)
         i = n_z + n_y + j
         chain = sm.disc[id]
         (isempty(chain) || abs(chain[end][1] - t_arr) > 1e-6) && continue
+        gi = get(feed.ou_group, id, 0)
         if length(chain) == 1
             F[i, i] = 0.0
+            # The first discrepancy is drawn from N(0, theta_ou), not a known initial condition.
+            gi == 0 || (dQ[gi][i, i] = 1.0)
         else
             fac = sm.disc_fac[(chain[end - 1][2], chain[end][2])]
             F[i, i] = fac.ρ
-            gi = get(feed.ou_group, id, 0)
             gi == 0 || (dQ[gi][i, i] = 1 - fac.ρ^2)
         end
     end
@@ -710,7 +728,7 @@ function _als_pieces(sm::FixedLagSmoother, feed::ALSFeed, pc, t_arr::Float64)
     Hs = H ./ sdev; Ss = pc.S ./ (sdev * sdev'); es = pc.nu ./ sdev
     K = P * Hs' / Symmetric(Ss)
     ids = [s.id for s in sm.model.log.sensors]
-    rowch = [findfirst(==(f.spec.id), ids) for f in pc.live]
+    rowch = Int[findfirst(==(f.spec.id), ids) for f in pc.live]
     dR = [zeros(p, p) for _ in acc.groups]
     for (i, f) in enumerate(pc.live)
         gi = get(feed.white_group, f.spec.id, 0)
@@ -784,6 +802,12 @@ function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecor
         isfinite(rec.t) && isfinite(rec.value) || throw(ArgumentError("a measurement must have a finite time and value"))
         rec.t >= sm.nodes[1][1] - 1e-9 || throw(ArgumentError("a sample at $(rec.t) s precedes the window's oldest node"))
     end
+    if sm.als !== nothing
+        ta = first(recs).t
+        all(r -> r.t == ta, recs) || throw(ArgumentError("ALS requires one timestamp per arrival batch"))
+        ta >= sm.nodes[end][1] && (sm.als.acc.n_updates == 0 || ta > sm.nodes[end][1]) ||
+            throw(ArgumentError("ALS requires strictly increasing arrivals; batch simultaneous readings and disable ALS for delayed data"))
+    end
     saved = _transaction_snapshot(sm)
     try
         fs = [add_measurement!(sm, r) for r in recs]
@@ -811,11 +835,13 @@ function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecor
             past = (t=bp.t, z=bp.z, z_cov=bp.z_cov, y=bp.y, y_cov=bp.y_cov, x=bp.x, x_cov=bp.x_cov, T_pit=bp.T_pit, pieces=bp.pieces)
         end
         marginalize_old!(sm)
-        als === nothing || als_update!(sm.als.acc, als.F, als.dQ, als.H, als.S, als.K, als.e, als.rowch, t_arr; dR=als.dR)
         b = belief_at(sm)
         rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
                         iters=length(r.hist), attempts=r.attempts, converged=true, committed=true, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, wall=time() - t0,
                         n_nodes=length(sm.nodes), resid=resid, past=past))
+        # Finish graph/covariance work before mutating the accumulator: a failed belief extraction must
+        # not leave calibration statistics for an arrival whose graph is rolled back.
+        als === nothing || als_update!(sm.als.acc, als.F, als.dQ, als.H, als.S, als.K, als.e, als.rowch, t_arr; dR=als.dR)
         return _push_record!(sm, rec)
     catch
         _restore_transaction!(sm, saved)

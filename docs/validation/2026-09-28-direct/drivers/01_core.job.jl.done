@@ -1,0 +1,22 @@
+module DirectCookRun
+const E=Main.E
+using Main.BrisketEstimator, BrisketDynamics, LinearAlgebra, Random, JSON, Statistics, Serialization, Test
+include(joinpath(@__DIR__,"../../estimator/scripts/direct_posterior.jl"))
+end
+let model=consistency_model(nx=4,stop=1800.,suite=:core), saved=Ref{Any}()
+    control_cook(model,3005;times=[0.,120.,600.,1800.],lag=typemax(Int),inspect=(sm,r,truth)->(saved[]=(deepcopy(sm),r,truth)))
+    global direct_core_case=saved[]
+    Serialization.serialize(joinpath(@__DIR__,"core_case.jls"),direct_core_case)
+    progress=h->(h.evaluations%1000<100 || length(h)==0 ? (println("DIRECT ",h);flush(stdout)) : nothing)
+    global direct_core=DirectCookRun.direct_posterior_fit(direct_core_case[1];max_evaluations=50000,max_seconds=600.,progress)
+    p=direct_core;r=direct_core_case[2];truth=direct_core_case[3];nz=length(model.blk)
+    err=p.mean-vcat(truth.z,truth.y)
+    record=(diagnostics=p.diagnostics,mean=p.mean,covariance=p.covariance,physical_mean=p.physical_mean,
+        physical_variance=p.physical_variance,truth=vcat(truth.z,truth.y),
+        gaussian_mean=vcat(r.z,r.y),gaussian_covariance=r.zy_cov,
+        nees_z=p.diagnostics.moments_valid ? dot(err[1:nz],p.covariance[1:nz,1:nz]\err[1:nz])/nz : nothing,
+        nees_y=p.diagnostics.moments_valid ? dot(err[nz+1:end],p.covariance[nz+1:end,nz+1:end]\err[nz+1:end])/model.bl.n : nothing,
+        gaussian_nees_y=dot(r.y-truth.y,r.y_cov\(r.y-truth.y))/model.bl.n)
+    write(joinpath(@__DIR__,"core_direct.json"),E.json_document(record))
+    println("CORE RESULT ",p.diagnostics);flush(stdout)
+end

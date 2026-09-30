@@ -1,0 +1,21 @@
+const refined_cases=Dict{Symbol,Any}();const refined_rows=NamedTuple[]
+for case in ONLINE_COMPARISON_CASES
+    saved=conditional_default_cases[case.suite];model=saved.model;rows=NamedTuple[]
+    sm=conditional_init(model;axes=[:a0,:k_spread],orders=(9,13),lag=3,record_limit=0)
+    try
+        for (i,batch) in enumerate(saved.batches)
+            result=assimilate!(sm,batch)
+            candidate=result.committed ? sm.posterior : get(result,:candidate,nothing)
+            score=candidate===nothing ? NaN : conditional_state_score(candidate,last(filter(k->k.entity==:state,candidate.keys)),saved.truths[i][length(model.blk)+1:end])
+            push!(rows,(t=last(batch).t,committed=result.committed,wall=result.wall,diagnostics=result.diagnostics,state_score=score))
+            refined_cases[case.suite]=(sm=deepcopy(sm),candidate=candidate,batches=saved.batches,truths=saved.truths,model=model,arrival=i)
+            println("REFINED ARRIVAL ",case.suite," ",last(rows));flush(stdout)
+            result.committed || break
+        end
+        push!(refined_rows,(suite=case.suite,arrivals=rows))
+    catch err
+        showerror(stdout,err,catch_backtrace());println();flush(stdout)
+        push!(refined_rows,(suite=case.suite,arrivals=rows,error=sprint(showerror,err)))
+    end
+    write(joinpath(@__DIR__,"cook_refined.json"),E.json_document((backend=backend_fingerprint(),purpose="quadrature refinement development; not consistency validation",axes=["a0","k_spread"],orders=[9,13],lag=3,records=refined_rows)))
+end

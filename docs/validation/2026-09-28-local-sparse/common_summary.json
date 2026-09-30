@@ -1,0 +1,44 @@
+[
+    {
+        "method":  "final_local_affine",
+        "max_absolute_logmass_error":  0.43832163687613951,
+        "max_conditional_kl":  6.0019114535129718,
+        "outside_points":  0
+    },
+    {
+        "method":  "final_local_mapped",
+        "max_absolute_logmass_error":  0.37209395718957694,
+        "max_conditional_kl":  0.42331487970609794,
+        "outside_points":  0
+    },
+    {
+        "method":  "global_mapped_degree64",
+        "max_absolute_logmass_error":  0.042345930245403451,
+        "max_conditional_kl":  0.018852544891494384,
+        "outside_points":  0
+    },
+    {
+        "method":  "initial_local_affine",
+        "max_absolute_logmass_error":  0.461922785310378,
+        "max_conditional_kl":  30.822364573112335,
+        "outside_points":  0
+    },
+    {
+        "method":  "initial_local_mapped",
+        "max_absolute_logmass_error":  0.34354309600337274,
+        "max_conditional_kl":  17.03600993446555,
+        "outside_points":  0
+    },
+    {
+        "method":  "old_local_affine",
+        "max_absolute_logmass_error":  0.077354066680641154,
+        "max_conditional_kl":  0.06106214478647954,
+        "outside_points":  0
+    },
+    {
+        "method":  "old_local_mapped",
+        "max_absolute_logmass_error":  0.013229554220401951,
+        "max_conditional_kl":  0.0039238070620746966,
+        "outside_points":  0
+    }
+]

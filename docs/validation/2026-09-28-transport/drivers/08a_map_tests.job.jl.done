@@ -1,0 +1,6 @@
+module FinalMapVerification
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_conditional_charts.jl"))
+include(joinpath(@__DIR__,"../../estimator/test/test_mapped_conditional.jl"))
+end
+println("FINAL MAP TESTS PASS");flush(stdout)

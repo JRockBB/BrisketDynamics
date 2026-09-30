@@ -1,0 +1,4 @@
+let F=SparseBenchFinal,t=SparseBenchFinal.frozen("core")
+    F.run("core_tensor",t;method=:tensor,budget=129,orders=(7,11))
+    F.run("core_sparse",t;method=:sparse,budget=129,orders=(7,11))
+end

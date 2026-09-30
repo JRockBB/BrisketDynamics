@@ -1,0 +1,14 @@
+module VerifiedSparseFinalTests
+const E=Main.E
+using Test,SHA
+const files=["test_adaptive_density.jl","test_adaptive_conditional.jl","test_adaptive_curvature.jl","test_conditional_charts.jl","test_mapped_conditional.jl","test_transport_budget.jl","test_target_ownership.jl","test_sparse_density.jl","test_sparse_conditional.jl"]
+const result=@testset "sparse final regressions" begin
+    for file in files;include(joinpath(@__DIR__,"../../estimator/test",file));end
+end
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_adaptive.jl"))
+const c=Test.get_test_counts(result)
+write(joinpath(@__DIR__,"final_tests.json"),adaptive_strict_json((passes=c.passes+c.cumulative_passes,
+    fails=c.fails+c.cumulative_fails,errors=c.errors+c.cumulative_errors,files=files,
+    hashes=[(path="estimator/test/"*f,sha256=bytes2hex(sha256(read(joinpath(@__DIR__,"../../estimator/test",f))))) for f in files])))
+println("FINAL COUNTS ",c)
+end

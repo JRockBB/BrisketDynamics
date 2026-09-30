@@ -1,0 +1,42 @@
+[
+    {
+        "path":  "estimator/src/adaptive_density.jl",
+        "sha256":  "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1",
+        "preserved":  "sources/benchmark/adaptive_density.jl"
+    },
+    {
+        "path":  "estimator/src/conditional_charts.jl",
+        "sha256":  "168e91c72c96964c336ffcb706b0a109e89a52fa0a52a00acdf99422bdb9ad36",
+        "preserved":  "sources/benchmark/conditional_charts.jl"
+    },
+    {
+        "path":  "estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "80ddfd938a06df0b1bdeb155ea717b10d469878c7680c3c82376404ec4eaf4b9",
+        "preserved":  "sources/benchmark/adaptive_conditional.jl"
+    },
+    {
+        "path":  "estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961",
+        "preserved":  "sources/benchmark/adaptive_curvature.jl"
+    },
+    {
+        "path":  "estimator/scripts/fit_conditional_chart.jl",
+        "sha256":  "3527dbf045c5a7d4aee99005fb89a21e9c111ae3cec892aed65815ee234ccdf4",
+        "preserved":  "sources/benchmark/fit_conditional_chart.jl"
+    },
+    {
+        "path":  "estimator/scripts/mapped_diagnostics.jl",
+        "sha256":  "874dc57e6822680bbc258accf96f7b761e864549fc2598e4d6f747f144bcaa3f",
+        "preserved":  "sources/benchmark/mapped_diagnostics.jl"
+    },
+    {
+        "path":  "estimator/scripts/validate_transport.jl",
+        "sha256":  "885095ed0357443dbf4287e337373bc7c358533880cfc64de6f7afdba9126bb4",
+        "preserved":  "sources/reporting-fix/validate_transport.jl"
+    },
+    {
+        "path":  "estimator/scripts/target_ownership.jl",
+        "sha256":  "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e",
+        "preserved":  "sources/reporting-fix/target_ownership.jl"
+    }
+]

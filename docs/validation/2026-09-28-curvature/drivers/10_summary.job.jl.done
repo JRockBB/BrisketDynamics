@@ -1,0 +1,36 @@
+rows=NamedTuple[]
+for suite in (:two_core,:core,:full,:pit_core)
+    snap=deserialize(joinpath(@__DIR__,string(suite)*".jls"))
+    data=JSON.parsefile(joinpath(@__DIR__,string(suite)*"_tight_full_curvature.json");allownan=true)["report"]
+    mass=data["checked_mass"];nz=length(snap.model.blk)
+    original=zeros(nz);observed=zeros(nz);corrected=zeros(nz);odd=zeros(nz);even=zeros(nz)
+    cs=data["components"]
+    for c in cs
+        for d in c["directions"]
+            v=only(v for v in d["values"] if v["radius"]==1.)
+            i=d["index"];w=c["weight"]/mass
+            original[i]+=w*v["gn_defect"];observed[i]+=w*v["observed_defect"]
+            odd[i]+=w*abs(v["odd_remainder"]);even[i]+=w*abs(v["even_remainder"])
+        end
+        if c["corrected"]["positive"]
+            for d in c["corrected"]["directions"]
+                v=only(v for v in d["values"] if v["radius"]==1.)
+                corrected[d["index"]]+=c["weight"]/mass*v["observed_defect"]
+            end
+        else
+            corrected.=NaN
+        end
+    end
+    row=(suite=suite,seed=snap.case.seed,time=snap.arrivals[end].t,reason=snap.result.reason,
+        checked_mass=mass,dimension=cs[1]["dimension"],
+        original_defect=maximum(original),observed_same_scale=maximum(observed),corrected_scale_defect=maximum(corrected),
+        names=snap.model.blk.names,original=original,observed=observed,corrected=corrected,odd=odd,even=even,
+        volume_corrections=[c["log_volume_correction"] for c in cs],
+        gradient_norms=[c["gradient_norm"] for c in cs],
+        hessian_step_changes=[last(c["checks"])["change"] for c in cs],
+        hessian_asymmetry=[last(c["checks"])["asymmetry"] for c in cs])
+    push!(rows,row)
+    println("SUMMARY ",suite," original ",row.original_defect," observed ",row.observed_same_scale,
+        " corrected ",row.corrected_scale_defect," direction ",row.names[argmax(row.corrected)]);flush(stdout)
+end
+write(joinpath(@__DIR__,"summary.json"),E.json_document(rows))

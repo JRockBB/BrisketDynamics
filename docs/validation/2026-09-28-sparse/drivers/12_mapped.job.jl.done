@@ -1,0 +1,8 @@
+@eval SparseBenchFinal include(joinpath(root,"../../estimator/scripts/validate_sparse_mapped.jl"))
+let F=SparseBenchFinal,t=deserialize(joinpath(@__DIR__,"../transport_work/late_two_target.jls"))
+    a=t.anchor
+    r=F.validate_sparse_mapped(a.graph,joinpath(@__DIR__,"late_two_mapped_sparse.json");axes=t.axes,
+        center=t.center,scale=t.scale,shape_key=a.key_z,max_nodes=257,tolerance=.002,orders=(5,9),
+        step_bounds=Dict(a.key_z=>a.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+    r.candidate===nothing || serialize(joinpath(@__DIR__,"late_two_mapped_sparse.jls"),r.candidate)
+end

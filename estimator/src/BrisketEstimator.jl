@@ -2,6 +2,9 @@
 # monolith: the calibration's Gauss-Newton / Laplace posterior reproduced by
 # message passing, then the channel registry, the noise on the graph, and
 # the filter that carries the belief through the physics as the cook goes.
+# `sampled_init` provides incremental joint nonlinear inference; `sampled_fit` is the offline reference.
+# Its uncertainty comes from joint samples rather than the optimizer's local Gaussian covariance;
+# sensor declarations are shared, and numerical precision is checked before accepting updates.
 #
 # Structure, fixed by three measured RxInfer behaviours (test_rules.jl):
 #   * ONE multivariate latent block z, every site in an unconstrained
@@ -604,9 +607,20 @@ include(joinpath(@__DIR__, "system_state.jl"))
 include(joinpath(@__DIR__, "semantic.jl"))
 include(joinpath(@__DIR__, "factors.jl"))
 include(joinpath(@__DIR__, "online.jl"))
+include(joinpath(@__DIR__, "posterior_sampling.jl"))
+include(joinpath(@__DIR__, "posterior_smc.jl"))
+include(joinpath(@__DIR__, "sampled_online.jl"))
+include(joinpath(@__DIR__, "particle_online.jl"))
+include(joinpath(@__DIR__, "sampled_offline.jl"))
 include(joinpath(@__DIR__, "bench_fit.jl"))
 include(joinpath(@__DIR__, "offline.jl"))
+include(joinpath(@__DIR__, "conditional.jl"))
+include(joinpath(@__DIR__, "conditional_transport.jl"))
+include(joinpath(@__DIR__, "conditional_density.jl"))
+include(joinpath(@__DIR__, "conditional_online.jl"))
+include(joinpath(@__DIR__, "deterministic_online.jl"))
 include(joinpath(@__DIR__, "plan_system.jl"))
+include(joinpath(@__DIR__, "sampled_planning.jl"))
 include(joinpath(@__DIR__, "rom.jl"))
 
 end # module

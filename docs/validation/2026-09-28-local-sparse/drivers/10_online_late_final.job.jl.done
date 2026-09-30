@@ -1,0 +1,49 @@
+let F=LocalCookFinal
+    snap=deserialize(joinpath(@__DIR__,"../curvature_audit/two_core.jls"))
+    anchor=deepcopy(snap.failed.bank.anchor);setup=time()
+    for batch in snap.batches[snap.arrival+1:end-1]
+        step=E.assimilate!(anchor,batch);step.committed || error("continuation failed")
+    end
+    setup_seconds=time()-setup
+    offline=deserialize(joinpath(@__DIR__,"late_two_affine_final.jls"))
+    before=F.target_state_fingerprint(anchor);start=time();nodes=Ref(0);result=nothing
+    function progress(h)
+        h.event==:node && (nodes[]=h.nodes)
+        h.event==:refinement && (println("ONLINE LOCAL ",h);flush(stdout))
+    end
+    outcome=try
+        result=F.adaptive_arrival_candidate(anchor,last(snap.batches);fit=F.sparse_conditional_fit,
+            local_refinement=true,axes=offline.axes,chart=offline.chart,lower=fill(-4.,2),upper=fill(4.,2),
+            max_nodes=257,tolerance=.002,orders=(5,9),shape_key=anchor.key_z,
+            curvature=F.polished_gn_conditional_curvature,progress,
+            checkpoint=()->(time()-start<=600 || throw(F.SparseTimeLimit())))
+        p=result.candidate;logerrors=Float64[];kls=Float64[]
+        for q in ([0.,0.],[-1.,-.5],[.5,1.],[-1.5,.75],[1.25,-1.5])
+            n=F.adaptive_geometry(offline.density,q);u=zeros(length(offline.decoder.mean))
+            u[offline.axisrows]=F.chart_forward(offline.chart,q);u[offline.free]=n.mean
+            x=E._conditional_decode(offline.decoder,u)
+            push!(logerrors,abs(F.adaptive_conditional_logpdf(offline,x)-F.adaptive_conditional_logpdf(p,x)))
+            qo=F.chart_inverse(p.chart,u[p.axisrows]);m=F.adaptive_geometry(p.density,qo)
+            push!(kls,F.AdaptiveDensities._kl(n,m))
+        end
+        noise=length(offline.decoder.dynamics)==length(p.decoder.dynamics) &&
+            all(x.cache.W==y.cache.W && x.cache.wy==y.cache.wy for (x,y) in zip(offline.decoder.dynamics,p.decoder.dynamics))
+        (status=:candidate,diagnostics=p.diagnostics,offline_diagnostics=offline.diagnostics,
+            max_logpdf_difference=maximum(logerrors),max_conditional_kl=maximum(kls),noise_equal=noise,
+            arrival_time=last(result.anchor.nodes)[1],original_time=last(anchor.nodes)[1],
+            checks=(budget=nodes[]<=257,logpdf=maximum(logerrors)<1e-5,conditional=maximum(kls)<1e-9,
+                same_numerical_status=offline.diagnostics.resolved==p.diagnostics.resolved,
+                same_shape_status=offline.diagnostics.shape_pass==p.diagnostics.shape_pass,
+                noise=noise,uncommitted=!result.committed))
+    catch err
+        err isa InterruptException && rethrow()
+        (status=err isa F.SparseTimeLimit ? :time_budget : :failed,error=sprint(showerror,err,catch_backtrace()))
+    end
+    unchanged=before==F.target_state_fingerprint(anchor)
+    write(joinpath(@__DIR__,"online_late_two_final.json"),F.adaptive_strict_json((outcome=outcome,
+        wall=time()-start,setup_seconds=setup_seconds,completed_fits=nodes[],anchor_unchanged=unchanged,
+        full_history=true,fixed_chart=true,consistent=false,committed=false,sources=F.sparse_sources())))
+    result===nothing || serialize(joinpath(@__DIR__,"online_late_two_final.jls"),result.candidate)
+    @test unchanged
+    outcome.status==:candidate && @test all(values(outcome.checks))
+end

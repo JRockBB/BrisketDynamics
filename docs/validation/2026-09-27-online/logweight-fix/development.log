@@ -1,0 +1,482 @@
+LOGWEIGHT CANDIDATE base=411c33d5521d candidate=174180428c559c59610dbb5304c97b963f970f81
+START 01_oracles.job.jl
+Test Summary:                                          | Pass  Total  Time
+log weights preserve temporarily negligible hypotheses |   20     20  1.4s
+Test Summary:                                              | Pass  Total     Time
+continuation checkpoints and rollback preserve log weights |   14     14  1m19.4s
+PASS 01_oracles.job.jl
+START 02_regression.job.jl
+julia.exe : ┌ Warning: Assignment to `source` in soft scope is ambiguous because a global variable by the same name 
+exists: `source` will be treated as a new local. Disambiguate by using `local source` to suppress this warning or 
+`global source` to assign to the existing global variable.
+At line:7 char:1
++ & 'C:/Users/jmurp/.julia/juliaup/julia-1.11.9+0.x64.w64.mingw32/bin/j ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (┌ Warning: Assi...lobal variable.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+└ @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\02_regression.job.jl:7
+LOGWEIGHT TEST FILE test_posterior_sampling.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                | Pass  Total     Time
+nonlinear posterior sampling |   32     32  1m48.1s
+FILE PASS test_posterior_sampling.jl
+LOGWEIGHT TEST FILE test_posterior_smc.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                     | Pass  Total  Time
+posterior kernel analytic oracles |    7      7  3.1s
+Test Summary:                                | Pass  Total  Time
+posterior weak block preserves joint targets |    8      8  6.2s
+Test Summary:                | Pass  Total  Time
+tempered posterior particles |   23     23  5.6s
+FILE PASS test_posterior_smc.jl
+LOGWEIGHT TEST FILE test_sampled_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                  | Pass  Total  Time
+sampled estimator transactions |   26     26  5.2s
+FILE PASS test_sampled_online.jl
+LOGWEIGHT TEST FILE test_particle_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                            | Pass  Total  Time
+incremental likelihood equals full correlated likelihood |   10     10  0.6s
+Test Summary:                                            | Pass  Total  Time
+online joint particles, repeat readings and continuation |   28     28  3.0s
+Test Summary:                           | Pass  Total  Time
+online precision budgets and interfaces |    6      6  0.1s
+Test Summary:                                              | Pass  Total  Time
+arrival batching preserves the chronological process model |    4      4  2.0s
+FILE PASS test_particle_online.jl
+LOGWEIGHT TEST FILE test_sampled_offline.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                      | Pass  Total  Time
+offline sampled entry point and retained histories |   10     10  5.2s
+FILE PASS test_sampled_offline.jl
+LOGWEIGHT TEST FILE test_sampled_planning.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                  | Pass  Total     Time
+joint sampled histories reach prediction and weighted planning |   39     39  1m03.8s
+Test Summary:                                                  | Pass  Total  Time
+plan encoding preserves interior decisions and committed pulls |    5      5  0.1s
+Test Summary:                                                           | Pass  Total  Time
+posterior forecasts preserve draws and add declared process uncertainty |   19     19  2.9s
+FILE PASS test_sampled_planning.jl
+PASS 02_regression.job.jl
+START 03_recovery.job.jl
+actual sequential likelihood recovers underflowed hypotheses: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\03_recovery.job.jl:35
+  Expression: ≈(sm.log_weights[2:2:end] - sm.log_weights[1:2:end], fill(upper - lower, n ÷ 2), rtol = 1.0e-12)
+   Evaluated: [-2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125  …  -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125] ≈ [-2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553  …  -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553] (rtol=1.0e-12)
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\03_recovery.job.jl:35 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\03_recovery.job.jl:2
+Test Summary:                                                | Pass  Fail  Total  Time
+actual sequential likelihood recovers underflowed hypotheses |    5     1      6  5.5s
+LoadError: Some tests did not pass: 5 passed, 1 failed, 0 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\03_recovery.job.jl:1
+FAIL 03_recovery.job.jl
+START 04_retained_forecast.job.jl
+REPRODUCE RETAINED FORECAST DEFECT BEFORE FIX
+retained posterior forecasts survive later accepted readings: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:8
+  Expression: ref.g.values[last(ref.ks)] != original_y
+   Evaluated: [281.14999998999997, 281.14999998999997, 281.14999998999997, 281.14999998999997, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, -18.420680733952366, -18.420680733952366  …  -18.420680738952367, -18.420680738952367, -18.420680738952367, -18.420680733952366, 293.14999998999997, 6.999087692008034, -18.420680738952367, 293.14999998999997, 293.14999998999997, 3.096868145633917] != [281.14999998999997, 281.14999998999997, 281.14999998999997, 281.14999998999997, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, -18.420680733952366, -18.420680733952366  …  -18.420680738952367, -18.420680738952367, -18.420680738952367, -18.420680733952366, 293.14999998999997, 6.999087692008034, -18.420680738952367, 293.14999998999997, 293.14999998999997, 3.096868145633917]
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:8 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:2
+retained posterior forecasts survive later accepted readings: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:12
+  Test threw exception
+  Expression: ref.zanchor == original_z && ref.yanchor == original_y
+  type NamedTuple has no field zanchor
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{g::FactorGraph, kz::VarKey, ks::Vector{VarKey}, off::Dict{VarKey, UnitRange{Int64}}, n::Int64, center::Vector{Float64}, generators::Dict{VarKey, Factor}, roots::Dict{VarKey, Matrix{Float64}}, zm::Vector{Float64}, zs::Vector{Float64}, fs::Vector{ObservationFactor}, W::Matrix{Float64}, obsbias::Vector{Float64}, D::Matrix{Float64}, Dobs::Matrix{Float64}, dm::Vector{Float64}, dkeys::Vector{VarKey}, V::Matrix{Float64}, a::Vector{Float64}, model::SystemModel, t::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:12 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:12 [inlined]
+   [5] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [6] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:2
+retained posterior forecasts survive later accepted readings: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:13
+  Test threw exception
+  Expression: ref.zanchor !== ref.g.values[ref.kz] && ref.yanchor !== ref.g.values[last(ref.ks)]
+  type NamedTuple has no field zanchor
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{g::FactorGraph, kz::VarKey, ks::Vector{VarKey}, off::Dict{VarKey, UnitRange{Int64}}, n::Int64, center::Vector{Float64}, generators::Dict{VarKey, Factor}, roots::Dict{VarKey, Matrix{Float64}}, zm::Vector{Float64}, zs::Vector{Float64}, fs::Vector{ObservationFactor}, W::Matrix{Float64}, obsbias::Vector{Float64}, D::Matrix{Float64}, Dobs::Matrix{Float64}, dm::Vector{Float64}, dkeys::Vector{VarKey}, V::Matrix{Float64}, a::Vector{Float64}, model::SystemModel, t::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:13 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:13 [inlined]
+   [5] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [6] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:2
+retained posterior forecasts survive later accepted readings: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:14
+  Test threw exception
+  Expression: sm.posterior.history.reference.yanchor == sm.graph_backend.graph.values[last(ref.ks)]
+  type NamedTuple has no field yanchor
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{g::FactorGraph, kz::VarKey, ks::Vector{VarKey}, off::Dict{VarKey, UnitRange{Int64}}, n::Int64, center::Vector{Float64}, generators::Dict{VarKey, Factor}, roots::Dict{VarKey, Matrix{Float64}}, zm::Vector{Float64}, zs::Vector{Float64}, fs::Vector{ObservationFactor}, W::Matrix{Float64}, obsbias::Vector{Float64}, D::Matrix{Float64}, Dobs::Matrix{Float64}, dm::Vector{Float64}, dkeys::Vector{VarKey}, V::Matrix{Float64}, a::Vector{Float64}, model::SystemModel, t::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:14 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:2
+retained posterior forecasts survive later accepted readings: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:19
+  Test threw exception
+  Expression: restored.posterior.history.reference.yanchor !== sm.posterior.history.reference.yanchor
+  type NamedTuple has no field yanchor
+  Stacktrace:
+   [1] getproperty(x::@NamedTuple{g::FactorGraph, kz::VarKey, ks::Vector{VarKey}, off::Dict{VarKey, UnitRange{Int64}}, n::Int64, center::Vector{Float64}, generators::Dict{VarKey, Factor}, roots::Dict{VarKey, Matrix{Float64}}, zm::Vector{Float64}, zs::Vector{Float64}, fs::Vector{ObservationFactor}, W::Matrix{Float64}, obsbias::Vector{Float64}, D::Matrix{Float64}, Dobs::Matrix{Float64}, dm::Vector{Float64}, dkeys::Vector{VarKey}, V::Matrix{Float64}, a::Vector{Float64}, model::SystemModel, t::Float64}, f::Symbol)
+     @ Base .\Base.jl:49
+   [2] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:677 [inlined]
+   [3] macro expansion
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:19 [inlined]
+   [4] macro expansion
+     @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+   [5] top-level scope
+     @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:2
+Test Summary:                                                | Pass  Fail  Error  Total  Time
+retained posterior forecasts survive later accepted readings |    4     1      4      9  3.2s
+LoadError: Some tests did not pass: 4 passed, 1 failed, 4 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:1
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\04_retained_forecast.job.jl:2
+FAIL 04_retained_forecast.job.jl
+START 05_final_regression.job.jl
+LOGWEIGHT TEST FILE test_posterior_sampling.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                | Pass  Total  Time
+nonlinear posterior sampling |   32     32  5.9s
+FILE PASS test_posterior_sampling.jl
+LOGWEIGHT TEST FILE test_posterior_smc.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                     | Pass  Total  Time
+posterior kernel analytic oracles |    7      7  3.1s
+Test Summary:                                | Pass  Total  Time
+posterior weak block preserves joint targets |    8      8  3.5s
+Test Summary:                | Pass  Total  Time
+tempered posterior particles |   23     23  7.6s
+FILE PASS test_posterior_smc.jl
+LOGWEIGHT TEST FILE test_sampled_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                  | Pass  Total  Time
+sampled estimator transactions |   26     26  5.3s
+FILE PASS test_sampled_online.jl
+LOGWEIGHT TEST FILE test_particle_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                            | Pass  Total  Time
+incremental likelihood equals full correlated likelihood |   10     10  0.0s
+Test Summary:                                            | Pass  Total  Time
+online joint particles, repeat readings and continuation |   28     28  2.8s
+Test Summary:                           | Pass  Total  Time
+online precision budgets and interfaces |    6      6  0.0s
+Test Summary:                                              | Pass  Total  Time
+arrival batching preserves the chronological process model |    4      4  2.3s
+FILE PASS test_particle_online.jl
+LOGWEIGHT TEST FILE test_sampled_offline.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                      | Pass  Total  Time
+offline sampled entry point and retained histories |   10     10  5.7s
+FILE PASS test_sampled_offline.jl
+LOGWEIGHT TEST FILE test_sampled_planning.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                  | Pass  Total  Time
+joint sampled histories reach prediction and weighted planning |   39     39  3.2s
+Test Summary:                                                  | Pass  Total  Time
+plan encoding preserves interior decisions and committed pulls |    5      5  0.0s
+Test Summary:                                                           | Pass  Total  Time
+posterior forecasts preserve draws and add declared process uncertainty |   19     19  1.2s
+FILE PASS test_sampled_planning.jl
+Test Summary:                                          | Pass  Total  Time
+log weights preserve temporarily negligible hypotheses |   20     20  0.0s
+Test Summary:                                              | Pass  Total  Time
+continuation checkpoints and rollback preserve log weights |   14     14  1.6s
+actual sequential likelihood recovers underflowed hypotheses: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\03_recovery.job.jl.done:35
+  Expression: ≈(sm.log_weights[2:2:end] - sm.log_weights[1:2:end], fill(upper - lower, n ÷ 2), rtol = 1.0e-12)
+   Evaluated: [-2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125  …  -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125, -2505.543237917125] ≈ [-2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553  …  -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553, -2505.543237250553] (rtol=1.0e-12)
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\03_recovery.job.jl.done:35 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\03_recovery.job.jl.done:2
+Test Summary:                                                | Pass  Fail  Total  Time
+actual sequential likelihood recovers underflowed hypotheses |    5     1      6  0.7s
+LoadError: Some tests did not pass: 5 passed, 1 failed, 0 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\03_recovery.job.jl.done:1
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\05_final_regression.job.jl:19
+FAIL 05_final_regression.job.jl
+START 06_install_forecast.job.jl
+INSTALLED METHOD CANDIDATE posterior_sampling.jl sha1=4fe0dcfe4bba48a2115823bdb651baba358eb934
+INSTALLED METHOD CANDIDATE sampled_planning.jl sha1=3202abdff0776e08c8f2246b7298b32d1afb943d
+VERIFY RETAINED FORECAST AFTER FIX
+retained posterior forecasts survive later accepted readings: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:8
+  Expression: ref.g.values[last(ref.ks)] != original_y
+   Evaluated: [281.14999998999997, 281.14999998999997, 281.14999998999997, 281.14999998999997, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, -18.420680733952366, -18.420680733952366  …  -18.420680738952367, -18.420680738952367, -18.420680738952367, -18.420680733952366, 293.14999998999997, 6.999087692008034, -18.420680738952367, 293.14999998999997, 293.14999998999997, 3.096868145633917] != [281.14999998999997, 281.14999998999997, 281.14999998999997, 281.14999998999997, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, -18.420680733952366, -18.420680733952366  …  -18.420680738952367, -18.420680738952367, -18.420680738952367, -18.420680733952366, 293.14999998999997, 6.999087692008034, -18.420680738952367, 293.14999998999997, 293.14999998999997, 3.096868145633917]
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:8 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:2
+Test Summary:                                                | Pass  Fail  Total   Time
+retained posterior forecasts survive later accepted readings |    8     1      9  14.8s
+LoadError: Some tests did not pass: 8 passed, 1 failed, 0 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:1
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\06_install_forecast.job.jl:12
+FAIL 06_install_forecast.job.jl
+START 07_final_regression.job.jl
+LOGWEIGHT TEST FILE test_posterior_sampling.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                | Pass  Total  Time
+nonlinear posterior sampling |   32     32  7.1s
+FILE PASS test_posterior_sampling.jl
+LOGWEIGHT TEST FILE test_posterior_smc.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                     | Pass  Total  Time
+posterior kernel analytic oracles |    7      7  3.2s
+Test Summary:                                | Pass  Total  Time
+posterior weak block preserves joint targets |    8      8  3.6s
+Test Summary:                | Pass  Total   Time
+tempered posterior particles |   23     23  12.0s
+FILE PASS test_posterior_smc.jl
+LOGWEIGHT TEST FILE test_sampled_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                  | Pass  Total  Time
+sampled estimator transactions |   26     26  6.3s
+FILE PASS test_sampled_online.jl
+LOGWEIGHT TEST FILE test_particle_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                            | Pass  Total  Time
+incremental likelihood equals full correlated likelihood |   10     10  0.5s
+Test Summary:                                            | Pass  Total  Time
+online joint particles, repeat readings and continuation |   28     28  2.5s
+Test Summary:                           | Pass  Total  Time
+online precision budgets and interfaces |    6      6  0.1s
+Test Summary:                                              | Pass  Total  Time
+arrival batching preserves the chronological process model |    4      4  2.2s
+FILE PASS test_particle_online.jl
+LOGWEIGHT TEST FILE test_sampled_offline.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                      | Pass  Total  Time
+offline sampled entry point and retained histories |   10     10  6.2s
+FILE PASS test_sampled_offline.jl
+LOGWEIGHT TEST FILE test_sampled_planning.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                  | Pass  Total  Time
+joint sampled histories reach prediction and weighted planning |   39     39  3.5s
+Test Summary:                                                  | Pass  Total  Time
+plan encoding preserves interior decisions and committed pulls |    5      5  0.0s
+Test Summary:                                                           | Pass  Total  Time
+posterior forecasts preserve draws and add declared process uncertainty |   19     19  1.0s
+FILE PASS test_sampled_planning.jl
+Test Summary:                                          | Pass  Total  Time
+log weights preserve temporarily negligible hypotheses |   20     20  0.0s
+Test Summary:                                              | Pass  Total  Time
+continuation checkpoints and rollback preserve log weights |   14     14  1.4s
+Test Summary:                                                | Pass  Total  Time
+actual sequential likelihood recovers underflowed hypotheses |    6      6  2.9s
+retained posterior forecasts survive later accepted readings: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:8
+  Expression: ref.g.values[last(ref.ks)] != original_y
+   Evaluated: [281.14999998999997, 281.14999998999997, 281.14999998999997, 281.14999998999997, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, -18.420680733952366, -18.420680733952366  …  -18.420680738952367, -18.420680738952367, -18.420680738952367, -18.420680733952366, 293.14999998999997, 6.999087692008034, -18.420680738952367, 293.14999998999997, 293.14999998999997, 3.096868145633917] != [281.14999998999997, 281.14999998999997, 281.14999998999997, 281.14999998999997, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, 2.2276396935551572, -18.420680733952366, -18.420680733952366  …  -18.420680738952367, -18.420680738952367, -18.420680738952367, -18.420680733952366, 293.14999998999997, 6.999087692008034, -18.420680738952367, 293.14999998999997, 293.14999998999997, 3.096868145633917]
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:8 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:2
+Test Summary:                                                | Pass  Fail  Total  Time
+retained posterior forecasts survive later accepted readings |    8     1      9  0.9s
+LoadError: Some tests did not pass: 8 passed, 1 failed, 0 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\retained_forecast_test.jl:1
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\07_final_regression.job.jl:20
+FAIL 07_final_regression.job.jl
+START 08_restore_forecast.job.jl
+RESTORED PRODUCTION METHOD posterior_sampling.jl sha1=549cd100f969815d322cea84a6b274cc22d75030
+RESTORED PRODUCTION METHOD sampled_planning.jl sha1=2733581fed00b82340669e2bacfc881108b6c9a5
+Test Summary:                                                | Pass  Total  Time
+retained posterior forecasts survive later accepted readings |    9      9  7.0s
+PASS 08_restore_forecast.job.jl
+START 09_final_regression.job.jl
+LOGWEIGHT TEST FILE test_posterior_sampling.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                | Pass  Total  Time
+nonlinear posterior sampling |   32     32  5.6s
+FILE PASS test_posterior_sampling.jl
+LOGWEIGHT TEST FILE test_posterior_smc.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                     | Pass  Total  Time
+posterior kernel analytic oracles |    7      7  2.8s
+Test Summary:                                | Pass  Total  Time
+posterior weak block preserves joint targets |    8      8  3.0s
+Test Summary:                | Pass  Total  Time
+tempered posterior particles |   23     23  6.5s
+FILE PASS test_posterior_smc.jl
+LOGWEIGHT TEST FILE test_sampled_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                  | Pass  Total  Time
+sampled estimator transactions |   26     26  5.6s
+FILE PASS test_sampled_online.jl
+LOGWEIGHT TEST FILE test_particle_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                            | Pass  Total  Time
+incremental likelihood equals full correlated likelihood |   10     10  0.2s
+online joint particles, repeat readings and continuation: Error During Test at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\../../../estimator/test\test_particle_online.jl:28
+  Got exception outside of a @test
+  ArgumentError: sampled checkpoint version, physics or backend does not match
+  Stacktrace:
+    [1] restore_checkpoint(cp::Main.BrisketEstimator.SampledCheckpoint{ParticleSmoother})
+      @ Main.BrisketEstimator C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\particle_online.jl:212
+    [2] restore_checkpoint!(sm::ParticleSmoother, cp::Main.BrisketEstimator.SampledCheckpoint{ParticleSmoother})
+      @ Main.BrisketEstimator C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\particle_online.jl:217
+    [3] macro expansion
+      @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\../../../estimator/test\test_particle_online.jl:72 [inlined]
+    [4] macro expansion
+      @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+    [5] top-level scope
+      @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\../../../estimator/test\test_particle_online.jl:29
+    [6] eval
+      @ .\boot.jl:430 [inlined]
+    [7] include_string(mapexpr::typeof(identity), mod::Module, code::String, filename::String)
+      @ Base .\loading.jl:2777
+    [8] include_string(m::Module, txt::String, fname::String)
+      @ Base .\loading.jl:2787
+    [9] top-level scope
+      @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\09_final_regression.job.jl:10
+   [10] include(fname::String)
+      @ Main .\sysimg.jl:38
+   [11] top-level scope
+      @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\worker.jl:16
+Test Summary:                                            | Pass  Error  Total  Time
+online joint particles, repeat readings and continuation |   23      1     24  3.3s
+LoadError: Some tests did not pass: 23 passed, 0 failed, 1 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\../../../estimator/test\test_particle_online.jl:28
+FILE FAIL test_particle_online.jl
+LOGWEIGHT TEST FILE test_sampled_offline.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                      | Pass  Total  Time
+offline sampled entry point and retained histories |   10     10  5.2s
+FILE PASS test_sampled_offline.jl
+LOGWEIGHT TEST FILE test_sampled_planning.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                  | Pass  Total  Time
+joint sampled histories reach prediction and weighted planning |   39     39  2.8s
+Test Summary:                                                  | Pass  Total  Time
+plan encoding preserves interior decisions and committed pulls |    5      5  0.0s
+Test Summary:                                                           | Pass  Total  Time
+posterior forecasts preserve draws and add declared process uncertainty |   19     19  0.8s
+FILE PASS test_sampled_planning.jl
+LoadError: logweight regression failures: ["test_particle_online.jl"]
+Stacktrace:
+ [1] error(s::String)
+   @ Base .\error.jl:35
+ [2] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\09_final_regression.job.jl:16
+ [3] include(fname::String)
+   @ Main .\sysimg.jl:38
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\worker.jl:16
+ [5] include(mod::Module, _path::String)
+   @ Base .\Base.jl:562
+ [6] exec_options(opts::Base.JLOptions)
+   @ Base .\client.jl:316
+ [7] _start()
+   @ Base .\client.jl:524
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\online_work\logweights\09_final_regression.job.jl:16
+FAIL 09_final_regression.job.jl
+START 10_production_regression.job.jl
+FINAL PRODUCTION REGRESSION backend=84201766a16f physics=4e4a6800e4a2
+PRODUCTION TEST FILE test_posterior_sampling.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                | Pass  Total  Time
+nonlinear posterior sampling |   32     32  6.0s
+FILE PASS test_posterior_sampling.jl
+PRODUCTION TEST FILE test_posterior_smc.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                     | Pass  Total  Time
+posterior kernel analytic oracles |    7      7  3.1s
+Test Summary:                                | Pass  Total  Time
+posterior weak block preserves joint targets |    8      8  3.8s
+Test Summary:                | Pass  Total  Time
+tempered posterior particles |   23     23  7.9s
+FILE PASS test_posterior_smc.jl
+PRODUCTION TEST FILE test_sampled_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                  | Pass  Total  Time
+sampled estimator transactions |   26     26  5.4s
+FILE PASS test_sampled_online.jl
+PRODUCTION TEST FILE test_particle_online.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                            | Pass  Total  Time
+incremental likelihood equals full correlated likelihood |   10     10  0.1s
+Test Summary:                                            | Pass  Total  Time
+online joint particles, repeat readings and continuation |   28     28  2.5s
+Test Summary:                           | Pass  Total  Time
+online precision budgets and interfaces |    6      6  0.1s
+Test Summary:                                              | Pass  Total  Time
+arrival batching preserves the chronological process model |    4      4  2.2s
+FILE PASS test_particle_online.jl
+PRODUCTION TEST FILE test_sampled_offline.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                      | Pass  Total  Time
+offline sampled entry point and retained histories |   10     10  5.5s
+FILE PASS test_sampled_offline.jl
+PRODUCTION TEST FILE test_sampled_planning.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                  | Pass  Total  Time
+joint sampled histories reach prediction and weighted planning |   39     39  3.2s
+Test Summary:                                                  | Pass  Total  Time
+plan encoding preserves interior decisions and committed pulls |    5      5  0.0s
+Test Summary:                                                           | Pass  Total  Time
+posterior forecasts preserve draws and add declared process uncertainty |   19     19  1.0s
+FILE PASS test_sampled_planning.jl
+PRODUCTION TEST FILE test_particle_logweights.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                          | Pass  Total  Time
+log weights preserve temporarily negligible hypotheses |   20     20  0.0s
+Test Summary:                                              | Pass  Total  Time
+continuation checkpoints and rollback preserve log weights |   14     14  1.3s
+Test Summary:                                                | Pass  Total  Time
+actual sequential likelihood recovers underflowed hypotheses |    6      6  0.9s
+FILE PASS test_particle_logweights.jl
+PRODUCTION TEST FILE test_sampled_history_snapshot.jl
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                | Pass  Total  Time
+retained posterior forecasts survive later accepted readings |    9      9  0.9s
+FILE PASS test_sampled_history_snapshot.jl
+PASS 10_production_regression.job.jl

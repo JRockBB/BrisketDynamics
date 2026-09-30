@@ -1,0 +1,34 @@
+let F=MappedRun
+    setup=deserialize(joinpath(@__DIR__,"late_two_target.jls"));rows=NamedTuple[];start=time()
+    for method in (:affine,:triangular)
+        p=deserialize(joinpath(@__DIR__,"late_two_$(method).jls"));d=p.density
+        masses=[F.AdaptiveDensities._logmass([c],d.integration_order) for c in d.cells]
+        ids=sortperm(masses;rev=true)[1:min(3,length(masses))]
+        for id in ids
+            cell=d.cells[id];q=cell.lo+(cell.hi-cell.lo).*[.37,.61]
+            approx=F.adaptive_geometry(d,q);point=F.chart_forward(p.chart,q)
+            u=copy(p.decoder.mean);u[p.axisrows]=point;u[p.free]=approx.mean
+            x=E._conditional_decode(p.decoder,u);g=deepcopy(setup.anchor.graph)
+            for key in g.keys;g.values[key].=x[p.decoder.offsets[key]];end
+            t=time();outcome=try
+                node=E._conditional_node!(g,p.axes,point;iters=80,tol=1e-6,ftol=1e-8,
+                    step_bounds=Dict(setup.anchor.key_z=>setup.anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+                ref=E._conditional_transport(node);cor=F.polished_gn_conditional_curvature(node,ref)
+                E._same_conditional_decoder(p.decoder,cor.decoder) || error("decoder mismatch")
+                exact=F.AdaptiveDensities.Node((logmass=cor.log_integral+F.chart_logjac(p.chart,q),
+                    mean=cor.mean[p.free],root=E._canonical_conditional_root(cor.root[p.free,:])))
+                v=LowerTriangular(exact.root)\(approx.mean-exact.mean)
+                equalmean=F.AdaptiveDensities.Node((logmass=approx.logmass,mean=exact.mean,root=approx.root))
+                (status=:checked,logmass_error=approx.logmass-exact.logmass,
+                    mean_squared_mahalanobis=sum(abs2,v),covariance_kl=F.AdaptiveDensities._kl(equalmean,exact),
+                    joint_conditional_kl=F.AdaptiveDensities._kl(approx,exact),score=cor.diagnostics.score)
+            catch err
+                (status=:failed,error=sprint(showerror,err))
+            end
+            push!(rows,(method=method,q=q,cell_mass=exp(masses[id]-d.log_normalizer),wall=time()-t,outcome=outcome))
+            println("OFF GRID ",last(rows));flush(stdout)
+        end
+    end
+    write(joinpath(@__DIR__,"late_two_offgrid.json"),F.adaptive_strict_json((wall=time()-start,
+        additional_conditional_fits=length(rows),included_in_matched_budget=false,rows=rows,target_validated=false)))
+end

@@ -1,0 +1,330 @@
+[
+    {
+        "path":  "data/calibration/prior_next_cook.json",
+        "sha256":  "a6d481505e65d8ef11270dd7fd7b3f2e068fe026dea437ed0d5e0545901ef0a7"
+    },
+    {
+        "path":  "estimator/Manifest.toml",
+        "sha256":  "be5ca01d0b85b62dc5be6f821cf9ddc4e00176a07672de3cbf7f9cf011635336"
+    },
+    {
+        "path":  "estimator/Project.toml",
+        "sha256":  "ab88594b11ffb7f01cbea886022181f64f398c35ff02a7210163842cb7d2be4e"
+    },
+    {
+        "path":  "estimator/scripts/consistency_control.jl",
+        "sha256":  "efe327ddec12711a2b9d384643fac6eb4583dd7aa326eb4a4ebaf00d5bc4d650"
+    },
+    {
+        "path":  "estimator/scripts/posterior_comparison.jl",
+        "sha256":  "29fea9dbb0137e5b6d84e6073a79b55f64511689a0cba3ecc3bf174f2f6cf2b1"
+    },
+    {
+        "path":  "estimator/scripts/validate_deterministic.jl",
+        "sha256":  "189bf9117a3c687aea5c19223d567d5ea27a1e393058d1892313e67d59851b0b"
+    },
+    {
+        "path":  "estimator/scripts/validate_sampled_online.jl",
+        "sha256":  "74512c215f3dd94cdb2b48548ceb70c6f6903bd2893f151cd8a76b77d630efff"
+    },
+    {
+        "path":  "estimator/src/als.jl",
+        "sha256":  "59d0f3a0c4c5023320a8ebca0f346efba942cc4b2951ec9d333196ec96901033"
+    },
+    {
+        "path":  "estimator/src/bench_fit.jl",
+        "sha256":  "f831ad22377a3f154231418ed4b2b33416362e35239e242563f013b0ed062a10"
+    },
+    {
+        "path":  "estimator/src/BrisketEstimator.jl",
+        "sha256":  "641f25068a4ed141bf5dc04c28f20f1fa5e41b1a21e3f22989804f41c5b90e83"
+    },
+    {
+        "path":  "estimator/src/channels.jl",
+        "sha256":  "86174e867c9d8a24179aa95396122e688d786fc8e8fdc09b7ce81e4a1c149f73"
+    },
+    {
+        "path":  "estimator/src/conditional.jl",
+        "sha256":  "d49f857d6b8bd864d9f2ab795f9537c26adf699052c76ea55ec2981ce7f8bf1a"
+    },
+    {
+        "path":  "estimator/src/conditional_density.jl",
+        "sha256":  "ed81352d3bbb74e46eea70ac746ca65890091fc6af49e33dae132735c2a66a0e"
+    },
+    {
+        "path":  "estimator/src/conditional_online.jl",
+        "sha256":  "b5a37aea78918c9e8b020bebf61c1a0ce05f4bbd84185ce72245c199366a136e"
+    },
+    {
+        "path":  "estimator/src/conditional_transport.jl",
+        "sha256":  "50cbd7a846d256d2bf9932247dab9ecd01738fe144057b2f263e9a1e0f07641e"
+    },
+    {
+        "path":  "estimator/src/deterministic_online.jl",
+        "sha256":  "28f5ba3e8f28b0f89296182a5583f01c5c2c2fb408a2e464eaf53cfca0183383"
+    },
+    {
+        "path":  "estimator/src/drift.jl",
+        "sha256":  "7c13ade3f3c2c026f10ddf5986af88cf111b5f25b794cb875d565e5f9c61ca57"
+    },
+    {
+        "path":  "estimator/src/factors.jl",
+        "sha256":  "b07851fa7440ba3dfda32e75dc1bc6fedae9c9c014a8a21290667c9e10237bf3"
+    },
+    {
+        "path":  "estimator/src/horizon.jl",
+        "sha256":  "f9ac37745577cd03c46062cab29e27f059a5fa4d255061c41455b720d5ee17cd"
+    },
+    {
+        "path":  "estimator/src/iterated.jl",
+        "sha256":  "70f9c47aa615d7aef59ad10fc7db0530e2b5db7730c2ef6a11ae8b1cebef6485"
+    },
+    {
+        "path":  "estimator/src/misfit.jl",
+        "sha256":  "a1253b29ccab62b7bf773ed3ecb516fdf549e9dac6d80dec10d5418b2d25e818"
+    },
+    {
+        "path":  "estimator/src/noise.jl",
+        "sha256":  "640bf2837f4f605d6efdb30f2eb39c46002ddcba97189bd6b2a79ef7130ef3ba"
+    },
+    {
+        "path":  "estimator/src/noise_marginal.jl",
+        "sha256":  "7fb0b3c27f3d01577bf0de684edc7fe741d81f7f44d188b80cdb91b74d824728"
+    },
+    {
+        "path":  "estimator/src/offline.jl",
+        "sha256":  "5a91ad0d5d307bc77ff493d03200b874704a672387237ba37cd0d2efa5a3e15b"
+    },
+    {
+        "path":  "estimator/src/online.jl",
+        "sha256":  "67eca97805f6971cdc394618f31ee0dc0e44b94f84b2e67cbaa594a3cb9522de"
+    },
+    {
+        "path":  "estimator/src/particle_online.jl",
+        "sha256":  "4ee25dc26689432c6abf1a51a3e229233364a41b57de2e504f9606369a578dd4"
+    },
+    {
+        "path":  "estimator/src/physics2d.jl",
+        "sha256":  "5ae8f205e605070e157b0f2d91b5b33029f9c23f4d39d729632da2222f9ae811"
+    },
+    {
+        "path":  "estimator/src/plan_system.jl",
+        "sha256":  "3f14e0689b705008d4c0d1d9a563ec1facecd074cbd760c42ad915f59037c157"
+    },
+    {
+        "path":  "estimator/src/posterior_sampling.jl",
+        "sha256":  "bae9032e0aa21efe60e1637e742390716f229f7f6c07fe28d240780d9aaebe75"
+    },
+    {
+        "path":  "estimator/src/posterior_smc.jl",
+        "sha256":  "adfd99beb822f15f151795ad2c3f07f69af9b833981f9c022a45c72ae15ac9e1"
+    },
+    {
+        "path":  "estimator/src/realcook.jl",
+        "sha256":  "8a2cefa928167fb8af383a8c328ad7550b52115607e386e7e68b1e4f3ab34ca6"
+    },
+    {
+        "path":  "estimator/src/ridge.jl",
+        "sha256":  "4eb3bcaccce8855c8c1721995c05eef0b1af5eccc98047571549a3f26f90768d"
+    },
+    {
+        "path":  "estimator/src/rom.jl",
+        "sha256":  "6c461b073a03603d2c4631ed92899ae1cc000b379a5b4f27c13a5da793532565"
+    },
+    {
+        "path":  "estimator/src/sampled_offline.jl",
+        "sha256":  "0ba7af379ccb48d127f27ae28c8fd8e0372160b50d61512ade41e10cdab82a99"
+    },
+    {
+        "path":  "estimator/src/sampled_online.jl",
+        "sha256":  "e4013eb5ce0c0830a2258c13868078a3c4b3c7f73b811f1bdd6b23ac66908f37"
+    },
+    {
+        "path":  "estimator/src/sampled_planning.jl",
+        "sha256":  "889d14fe73b5a5228ee424ec5298468d636e7b12909b0a434e1aafb3f5cd9a4d"
+    },
+    {
+        "path":  "estimator/src/segments.jl",
+        "sha256":  "8e40ec1f0984ae59cd0c5e01b717a408c36afb171c01dba6ff6a96b465534c29"
+    },
+    {
+        "path":  "estimator/src/semantic.jl",
+        "sha256":  "e6eaedfdd206a604347da8d5a9039c93a4d1b3c3e1ff61651ff75b69e0d85e57"
+    },
+    {
+        "path":  "estimator/src/sequential.jl",
+        "sha256":  "31b9c1d58b7584c7e6728ca6ff7846ae5e790e1ff57ecdb4e48379c033374d32"
+    },
+    {
+        "path":  "estimator/src/smoother.jl",
+        "sha256":  "878f00eb4c141c86bf5d36c278cda12990e1b1d8947b97ed62cef9cd7b66c160"
+    },
+    {
+        "path":  "estimator/src/stream.jl",
+        "sha256":  "7c2d55b4cd9e256a8d73bdfef37787c7325dcf0902f9ae0c8f0e8ad2161b3351"
+    },
+    {
+        "path":  "estimator/src/system_state.jl",
+        "sha256":  "668a6626e6aaa4bd670c45581ada11b40eed58aaea37073664c34831600ded68"
+    },
+    {
+        "path":  "estimator/src/volatility.jl",
+        "sha256":  "112a77180b85cbb9bc8cc28c9e7830026b85c2eff1445d71c6edddaae04d1b90"
+    },
+    {
+        "path":  "estimator/test/test_conditional.jl",
+        "sha256":  "a2f804c414da294b4edc5bb2e5b62b9295fc4c5af9e644e785dadf0684a738c2"
+    },
+    {
+        "path":  "estimator/test/test_conditional_density.jl",
+        "sha256":  "bd4a54e3adc004b7e4b3c01503c78fd173fa0c703ec888630570407e71074928"
+    },
+    {
+        "path":  "estimator/test/test_conditional_online.jl",
+        "sha256":  "76254564da9b50c2fbb96e0db7f5ddd079bc8b51c5398fe561887f3b6be6d9bd"
+    },
+    {
+        "path":  "estimator/test/test_consistency.jl",
+        "sha256":  "f09716655d5f33c42d0500d3a1ee0f1a1046307793ef5b7a0f502f7293f28749"
+    },
+    {
+        "path":  "estimator/test/test_deterministic_online.jl",
+        "sha256":  "bb8c557821b1cdb7fb205f7c2835bc9811ad16c3a54b5e9d6c4bf92b1e38bf27"
+    },
+    {
+        "path":  "estimator/test/test_factors.jl",
+        "sha256":  "bbe358532f4781f0114e9a46887f07b825745f5f41eee5973daa56cefe8f6039"
+    },
+    {
+        "path":  "src/BrisketDynamics.jl",
+        "sha256":  "29db495ff60e3dba133a4e182ed5173ed1991c2129b89bc9bd2ec36970d0a193"
+    },
+    {
+        "path":  "src/cookers/common.jl",
+        "sha256":  "1b7f4dc1ef415965ee9cb6dc19517a906241d45beb5d608c2909b70517c75fc3"
+    },
+    {
+        "path":  "src/cookers/offset.jl",
+        "sha256":  "9648f756bd6399a8e758f36d88c4a9e1a196988f1c1cf9c62d6c0a0cb385efef"
+    },
+    {
+        "path":  "src/cookers/pellet.jl",
+        "sha256":  "ccf03039283519d4e117eb1f1643cc1e792440609debff18a71a63da20c35efb"
+    },
+    {
+        "path":  "src/cookers/pibil.jl",
+        "sha256":  "ed54a1b943b6c257442348c46951fc63b824f747563d1d2e6b24ff63f7c2a3ee"
+    },
+    {
+        "path":  "src/cookers/smoker.jl",
+        "sha256":  "8501986681aeac902f2a5e701ffe71ba1e2f54416df72594a2af5c71439b7bb8"
+    },
+    {
+        "path":  "src/cookers/sous_vide.jl",
+        "sha256":  "80cdc01109c47653d1066471ce5dba4039c3cf4e149341baf3c77448a9308ed9"
+    },
+    {
+        "path":  "src/interpolation.jl",
+        "sha256":  "a437fd5b458cdb644b7406c56ad262efc2bc62b6796edb80019407c6c5e43200"
+    },
+    {
+        "path":  "src/meats/brisket.jl",
+        "sha256":  "c0c35439b20f26502e561f038e09db579301c8fc2608dc1bf047bb1d4b45d0cb"
+    },
+    {
+        "path":  "src/meats/chicken.jl",
+        "sha256":  "730e7af9bb7ef94d24c542594468039db26c857b38bbfda28028551655001fe3"
+    },
+    {
+        "path":  "src/meats/common.jl",
+        "sha256":  "3a8922d8c9586ddc8416586c2653da09cf12a308997a122345ae8e4c0d8c5a56"
+    },
+    {
+        "path":  "src/meats/grid3d.jl",
+        "sha256":  "d15681a32bc3c32f4e71dc6eb727cf9bca2620209fd93d81531c2185a40714e8"
+    },
+    {
+        "path":  "src/meats/newman.jl",
+        "sha256":  "9d22642e0f348c8751dc6bfc5613d16366aa17a5476b9ca2a61dee2ddc14c808"
+    },
+    {
+        "path":  "src/meats/pork_butt.jl",
+        "sha256":  "0d1410a7ca2d01f8d702c54b539cf9018179a23be6010167d643b963de1ac03c"
+    },
+    {
+        "path":  "src/meats/ribs.jl",
+        "sha256":  "20c4aaa14b6fbe8918e9ec9e88b22dc532af148de9231dc91b6685c1c5d40f01"
+    },
+    {
+        "path":  "src/meats/salmon.jl",
+        "sha256":  "cdb257208e5cc4b572ebfd034156eb13d6dcfd3de1def3c2a16351436bbb52e7"
+    },
+    {
+        "path":  "src/meats/sausage.jl",
+        "sha256":  "6e0fa9d7d0f28cd05cf3db676b42c2d36e1cd783f3eef1df1c3fcf429a217424"
+    },
+    {
+        "path":  "src/meats/slab2d.jl",
+        "sha256":  "945f1c21ef39ba16a0b7f0aebba98272c2c697d4fda7c29c29b440a69aca4724"
+    },
+    {
+        "path":  "src/monolith.jl",
+        "sha256":  "806d9a8ed9c60c5ae5bb068bf5db5a4e955739e64befb9b786f313f811bec520"
+    },
+    {
+        "path":  "src/system.jl",
+        "sha256":  "61390a0ba643d13e57063e0093a358190d39e1778dd1f6f85d85e8fada5ed523"
+    },
+    {
+        "path":  "src/thermophysics.jl",
+        "sha256":  "cf5fa23825628315bdd1feebbdb6e3c847d1d411c38a254dc36899c3f6a98599"
+    },
+    {
+        "path":  "estimator/scripts/curvature_audit.jl",
+        "sha256":  "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+        "path":  "estimator/scripts/freeze_deterministic_failures.jl",
+        "sha256":  "24ae93f9cc2d637be670aa1aa8f906e1f8fb4aa84fe3c21e593afd946c5fcf2c"
+    },
+    {
+        "path":  "estimator/test/test_curvature_audit.jl",
+        "sha256":  "39e2512d6ce18861f85219d949bebbe23f9e9780bad0b10ee1ff1ec1e0ee86fd"
+    },
+    {
+        "path":  "docs/validation/2026-09-28-curvature/summarize.ps1",
+        "sha256":  "8299b2d07955d928941a736e9b2a4f85803b03b9ff548ee24cd1281a85592a55"
+    },
+    {
+        "path":  "estimator/src/adaptive_density.jl",
+        "sha256":  "36fd52718584d44877dd4a01c29eeb948d12171aa87a8fca420321cd8b3e330e"
+    },
+    {
+        "path":  "estimator/scripts/adaptive_conditional.jl",
+        "sha256":  "ece6c0b3515ff3877e7e5d59b6a65a0e476df45b3b60728ab93add9176d2fe8e"
+    },
+    {
+        "path":  "estimator/scripts/adaptive_curvature.jl",
+        "sha256":  "912e481409c0d36f35019be5ffe2dd8b68d9d2c0eef37ed7175f01093536fbe8"
+    },
+    {
+        "path":  "estimator/scripts/validate_adaptive.jl",
+        "sha256":  "12aa52895d9cb5168837e631106a985846715c6d16be00cf2299ed19bdc495a9"
+    },
+    {
+        "path":  "estimator/test/test_adaptive_density.jl",
+        "sha256":  "27d90033aab4972f8f801b91f53c3e33fa0591e74441a7af4f9513d7c73470c9"
+    },
+    {
+        "path":  "estimator/test/test_adaptive_conditional.jl",
+        "sha256":  "356b143f4b69728e3332ae9a8c914af3b7964d6de3143f7a08e780f09eee433a"
+    },
+    {
+        "path":  "estimator/test/test_adaptive_curvature.jl",
+        "sha256":  "96f5b865e3c2cb0eb14e104243f9234a3dd0f9a251fc4c0f69f39182b56cb40e"
+    },
+    {
+        "path":  "docs/validation/2026-09-28-adaptive/plot_refinement.ps1",
+        "sha256":  "4a37eaf38a8f2524f437df7bb50d9d49722e8885d4144d2aa946e1415b1e7fcd"
+    }
+]

@@ -1,0 +1,7 @@
+src=read(joinpath(@__DIR__,"../../../estimator/src/conditional_density.jl"),String)
+for ex in Meta.parseall(src).args;isstructexpr(ex) || Core.eval(E,ex);end
+src=read(joinpath(@__DIR__,"14_density_oracle.job.jl.done"),String)
+src=replace(src,"Base.include(E,joinpath(@__DIR__,\"../../../estimator/src/conditional_density.jl\"))"=>"")
+src=replace(src,"const density_development_rows=NamedTuple[]"=>"empty!(density_development_rows)")
+src=replace(src,"density_development.json"=>"density_cubic_development.json")
+Base.include_string(Main,src,joinpath(@__DIR__,"cubic_density.jl"))

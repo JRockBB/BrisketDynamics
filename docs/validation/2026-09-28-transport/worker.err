@@ -1,0 +1,74 @@
+┌ Warning: Replacing docs for `Main.KernelRegression.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.innovation_target :: Tuple{Any, Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.innovation_curvature :: Tuple{Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.curvature_direction_report :: Tuple{Any, Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.audit_candidate :: Tuple{Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.polish_conditional_innovations :: Tuple{Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.KernelRegression.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.KernelRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.MappedRun.mapped_density_distance :: Tuple{Any, Any}` in module `Main.MappedRun`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.MappedRun.mapped_axis_cdf :: Tuple{Any, Any, Any}` in module `Main.MappedRun`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.innovation_target :: Tuple{Any, Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.innovation_curvature :: Tuple{Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.curvature_direction_report :: Tuple{Any, Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.audit_candidate :: Tuple{Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.polish_conditional_innovations :: Tuple{Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportRegression.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.FinalTransportRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.MappedRun.compare_transport_graph :: Tuple{Any, Any}` in module `Main.MappedRun`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.MappedRun.compare_transport_snapshot :: Tuple{Any, Any}` in module `Main.MappedRun`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.innovation_target :: Tuple{Any, Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.innovation_curvature :: Tuple{Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.curvature_direction_report :: Tuple{Any, Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.audit_candidate :: Tuple{Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.polish_conditional_innovations :: Tuple{Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.FinalTransportVerification.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.FinalTransportVerification`
+└ @ Base.Docs docs\Docs.jl:243

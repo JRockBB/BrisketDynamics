@@ -1,0 +1,13 @@
+let
+    directory=joinpath(@__DIR__,"../../docs/validation/2026-09-28-transport")
+    files=filter(f->endswith(f,".json"),readdir(directory))
+    invalid(x)=x isa Expr && (x.head in (:error,:incomplete) || any(invalid,x.args))
+    @testset "transport report integrity and replay syntax" begin
+        for file in files
+            parsed=E.JSON.parse(read(joinpath(directory,file),String);allownan=false)
+            @test parsed!==nothing
+        end
+        @test !invalid(Meta.parseall(read(joinpath(directory,"reproduce.jl"),String)))
+    end
+    println("STRICT JSON REPORTS ",length(files));flush(stdout)
+end

@@ -1,0 +1,4 @@
+module AdaptiveCurvatureTests
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_curvature.jl"))
+end

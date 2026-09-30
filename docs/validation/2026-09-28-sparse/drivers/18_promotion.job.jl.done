@@ -1,0 +1,23 @@
+module SparseFinalAudit
+const E=Main.E
+using Serialization,Test
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_sparse.jl"))
+const snapshot=deserialize(joinpath(@__DIR__,"../curvature_audit/full.jls"))
+const anchor=snapshot.failed.bank.anchor
+const before=target_state_fingerprint(anchor.graph)
+const axes=copy(snapshot.result.candidate.transported.source.axes)
+const start=time()
+const result=expanding_sparse_fit(anchor.graph;axes,shape_key=anchor.key_z,max_nodes=3,max_axes=5,
+    tolerance=.01,orders=(3,5),curvature=polished_gn_conditional_curvature,
+    step_bounds=Dict(anchor.key_z=>anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+const tests=@testset "cook automatic promotion screening" begin
+    @test length(result.axes)==4
+    @test result.diagnostics.total_graph_solves==3
+    @test last(result.diagnostics.axis_stages).shape_pass
+    @test !result.diagnostics.resolved && !result.diagnostics.committed
+    @test target_state_fingerprint(anchor.graph)==before
+end
+write(joinpath(@__DIR__,"promotion_audit.json"),adaptive_strict_json((wall=time()-start,
+    diagnostics=result.diagnostics,tests=Test.get_test_counts(tests),graph_unchanged=before==target_state_fingerprint(anchor.graph),
+    extra_fits=3,within_comparison_budget=false,sources=sparse_sources(),consistent=false,committed=false)))
+end

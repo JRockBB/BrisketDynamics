@@ -1,0 +1,231 @@
+# Experimental sparse interpolation of a joint log density and log-Cholesky
+# conditional geometry. Loaded explicitly; no live estimator defaults change.
+module SparseDensities
+using LinearAlgebra
+using ..AdaptiveDensities
+import ..AdaptiveDensities: adaptive_geometry, adaptive_marginal_logpdf, adaptive_logpdf,
+    adaptive_expectation
+const AD=AdaptiveDensities
+export SparseDensity, sparse_density
+
+struct SparseDensity
+    lower::Vector{Float64}
+    upper::Vector{Float64}
+    sequence::Vector{Float64}
+    indices::Vector{Tuple}
+    coefficients::Matrix{Float64}
+    remainder::Int
+    cells::Vector{NamedTuple{(:lo,:hi),Tuple{Vector{Float64},Vector{Float64}}}}
+    log_normalizer::Float64
+    integration_order::Int
+    diagnostics::NamedTuple
+end
+
+# Deterministic discrete Leja rule, nested one point at a time. This is a
+# polynomial interpolation rule, never signed probability/quadrature weights.
+function leja(n)
+    pool=collect(range(-1.,1.;length=4097));xs=[0.];scores=zeros(length(pool))
+    for j in 2:n
+        scores .+= log.(abs.(pool.-last(xs)))
+        push!(xs,pool[argmax(scores)])
+    end
+    xs
+end
+function basis(sequence,index,z)
+    prod(prod((z[j]-sequence[r])/(sequence[index[j]+1]-sequence[r])
+        for r in 1:index[j];init=1.) for j in eachindex(z))
+end
+weights(sequence,indices,z)=[basis(sequence,i,z) for i in indices]
+function pack(n::AD.Node)
+    r=length(n.mean)
+    v=vcat(n.logmass,n.mean,[i==j ? log(n.root[i,j]) : n.root[i,j] for j in 1:r for i in j:r])
+    v
+end
+function unpack(v,r)
+    L=zeros(r,r);p=1+r
+    for j in 1:r,i in j:r
+        p+=1;L[i,j]=i==j ? exp(v[p]) : v[p]
+    end
+    AD.Node((logmass=v[1],mean=v[2:1+r],root=L))
+end
+standardize(lo,hi,q)=2 .* (q-lo)./(hi-lo).-1
+point(lo,hi,z)=(lo+hi)/2+(hi-lo).*z/2
+function adaptive_geometry(d::SparseDensity,q)
+    length(q)==length(d.lower) && all(d.lower.<=q) && all(q.<=d.upper) || throw(DomainError(q))
+    unpack(d.coefficients*weights(d.sequence,d.indices,standardize(d.lower,d.upper,q)),d.remainder)
+end
+logvalue(d,q)=dot(view(d.coefficients,1,:),weights(d.sequence,d.indices,standardize(d.lower,d.upper,q)))
+function adaptive_marginal_logpdf(d::SparseDensity,q)
+    length(q)==length(d.lower) && all(d.lower.<=q) && all(q.<=d.upper) || return -Inf
+    logvalue(d,q)-d.log_normalizer
+end
+function adaptive_logpdf(d::SparseDensity,q,y)
+    p=adaptive_marginal_logpdf(d,q);p==-Inf && return p
+    n=adaptive_geometry(d,q);v=LowerTriangular(n.root)\(y-n.mean)
+    p-.5sum(abs2,v)-sum(log,diag(n.root);init=0.)-.5length(v)*log(2pi)
+end
+function adaptive_expectation(f,d::SparseDensity;order=d.integration_order)
+    sum(w*exp(n.logmass-d.log_normalizer)*f(q,n) for c in d.cells
+        for (q,w) in AD._points(c,order) for n in (adaptive_geometry(d,q),))
+end
+
+function frontier(indices,dimension,max_degree)
+    present=Set(indices);out=Set{Tuple}()
+    for i in indices,j in 1:dimension
+        i[j]<max_degree || continue
+        a=ntuple(k->i[k]+(j==k),dimension)
+        a in present && continue
+        all(a[k]==0 || ntuple(l->a[l]-(l==k),dimension) in present for k in 1:dimension) && push!(out,a)
+    end
+    sort!(collect(out);by=a->(sum(a),a))
+end
+
+# A finite-point discrepancy, NOT an integrated TV error or a target bound.
+# Conditional KL catches mean/correlation errors invisible to marginal mass.
+function discrepancy(a,b)
+    tv=min(1.,sqrt(max(0.,min(AD._kl(a,b),AD._kl(b,a)))/2))
+    tanh(abs(a.logmass-b.logmass)/2)+tv
+end
+
+# Bounds on each univariate Newton polynomial via Bernstein coefficients on a
+# subinterval. Their tensor product bounds the full interpolant, including peaks
+# missed by both positive quadrature rules. No bound on the true oracle is claimed.
+function basis_bernstein(xs,degree,lo,hi,elevated_degree=degree)
+    p=[1.]
+    for k in 1:degree
+        a=(lo-xs[k])/(xs[degree+1]-xs[k]);b=(hi-lo)/(xs[degree+1]-xs[k])
+        v=zeros(length(p)+1)
+        for j in eachindex(p);v[j]+=a*p[j];v[j+1]+=b*p[j];end
+        p=v
+    end
+    [sum(p[k+1]*Float64(binomial(big(i),k)/binomial(big(elevated_degree),k))
+        for k in 0:min(i,degree)) for i in 0:elevated_degree]
+end
+function peak_bound(d,c)
+    lo=standardize(d.lower,d.upper,c.lo);hi=standardize(d.lower,d.upper,c.hi)
+    active=findall(!iszero,view(d.coefficients,1,:))
+    isempty(active) && return 0.
+    degrees=[maximum(d.indices[i][j] for i in active) for j in eachindex(lo)]
+    # Sum Bernstein coefficients BEFORE bounding whenever the small scalar
+    # tensor fits. This preserves cancellations between Newton terms. Bounding
+    # each term separately is valid but excessively pessimistic even for a
+    # separable Gaussian. This tensor uses no additional graph oracle calls.
+    if prod(big.(degrees.+1))<=65536
+        bases=[[basis_bernstein(d.sequence,k,lo[j],hi[j],degrees[j]) for k in 0:degrees[j]] for j in eachindex(lo)]
+        coeff=zeros(Tuple(degrees.+1))
+        for i in active
+            index=d.indices[i];v=d.coefficients[1,i]
+            for t in CartesianIndices(coeff)
+                coeff[t]+=v*prod(bases[j][index[j]+1][t[j]] for j in eachindex(lo))
+            end
+        end
+        return maximum(coeff)
+    end
+    ranges=[[extrema(basis_bernstein(d.sequence,k,lo[j],hi[j])) for k in 0:degrees[j]] for j in eachindex(lo)]
+    upper=0.
+    for i in active
+        index=d.indices[i];v=d.coefficients[1,i]
+        a=b=1.
+        for j in eachindex(lo)
+            l,h=ranges[j][index[j]+1];a,b=extrema((a*l,a*h,b*l,b*h))
+        end
+        upper+=max(v*a,v*b)
+    end
+    upper
+end
+function integrate(d;orders,tolerance,max_cells,checkpoint)
+    function assess(c)
+        checkpoint===nothing || checkpoint()
+        vals=[[log(w)+logvalue(d,q) for (q,w) in AD._points(c,o)] for o in orders]
+        mass=AD._logsum(last(vals));error=AD._logabsdiff(AD._logsum(first(vals)),mass)
+        peak=peak_bound(d,c);sample=maximum(logvalue(d,q) for (q,_) in AD._points(c,last(orders)))
+        peak-sample>1. && (error=max(error,peak+log(prod(c.hi-c.lo))))
+        (mass=mass,error=error)
+    end
+    cells=[(lo=copy(d.lower),hi=copy(d.upper))];checks=[assess(first(cells))]
+    while true
+        z=AD._logsum([c.mass for c in checks]);err=exp(AD._logsum([c.error for c in checks])-z)
+        (err<=tolerance || length(cells)>=max_cells) && return (cells=cells,logz=z,error=err,resolved=err<=tolerance)
+        i=argmax([c.error for c in checks]);c=cells[i]
+        # Relative width prevents arbitrary units from controlling subdivision.
+        j=argmax((c.hi-c.lo)./(d.upper-d.lower));m=(c.lo[j]+c.hi[j])/2
+        l=copy(c.lo);h=copy(c.hi);l[j]=m;h[j]=m
+        children=[(lo=c.lo,hi=h),(lo=l,hi=c.hi)]
+        splice!(cells,i:i,children);splice!(checks,i:i,assess.(children))
+    end
+end
+
+"""
+Sparse nested Leja interpolation with positive cubature of exp(log density).
+Two deterministic off-grid panels exercise interactions absent from axis lines.
+All oracle calls, including validation and unused frontier nodes, consume budget.
+`resolved` only means these finite interpolation checks and surrogate cubature
+passed. It is neither the old cell-integrated refinement indicator nor a bound
+against the posterior. Remote modes, conditional shape and tails remain separate.
+"""
+function sparse_density(oracle,lower,upper;tolerance=.01,max_nodes=257,max_cells=128,
+        orders=(5,9),max_degree=16,progress=nothing,checkpoint=nothing,screen_only=false)
+    lo=collect(Float64,lower);hi=collect(Float64,upper);d=length(lo)
+    d>0 && length(hi)==d && all(isfinite,lo) && all(isfinite,hi) && all(hi.>lo) || throw(ArgumentError("invalid box"))
+    max_nodes>=1 && max_cells>=1 && max_degree>=2 && isfinite(tolerance) && tolerance>0 &&
+        length(orders)==2 && all(o->o isa Integer,orders) && 2<=orders[1]<orders[2] || throw(ArgumentError("invalid sparse settings"))
+    seq=leja(max_degree+1);cache=Dict{Tuple,AD.Node}();indices=Tuple[ntuple(_->0,d)]
+    function evaluate(z)
+        q=point(lo,hi,z);key=Tuple(q)
+        get!(cache,key) do
+            length(cache)<max_nodes || throw(AD.NodeBudget())
+            checkpoint===nothing || checkpoint()
+            AD.Node(oracle(q))
+        end
+    end
+    zero_node=evaluate(zeros(d));r=length(zero_node.mean);coef=reshape(pack(zero_node),:,1)
+    history=NamedTuple[];reason=:node_budget;passed=false;verror=Inf;ferror=Inf
+    validation=Vector{Float64}[]
+    for panel_scale in (1/sqrt(3.),1/(2sqrt(3.)))
+        for t in Iterators.product(ntuple(_->(-1.,1.),d)...)
+            push!(validation,collect(t).*panel_scale)
+        end
+    end
+    iteration=0
+    while !screen_only
+        iteration+=1;active=frontier(indices,d,max_degree)
+        isempty(active) && (reason=:degree_budget;break)
+        # First establish all quadratic terms; subsequent additions are ranked
+        # by joint geometry, with breadth steps to avoid starving interactions.
+        errors=Float64[];newcoef=Vector{Float64}[];complete=true
+        try
+            for i in active
+                z=seq[collect(i).+1];n=evaluate(z);pred=coef*weights(seq,indices,z)
+                push!(errors,discrepancy(n,unpack(pred,r)));push!(newcoef,pack(n)-pred)
+            end
+            if all(sum(i)>=3 for i in active)
+                verror=maximum(discrepancy(evaluate(z),unpack(coef*weights(seq,indices,z),r)) for z in validation)
+            end
+        catch err
+            err isa AD.NodeBudget || rethrow();complete=false
+        end
+        ferror=isempty(errors) ? Inf : maximum(errors)
+        h=(nodes=length(cache),terms=length(indices),frontier_error=ferror,validation_error=verror,complete=complete)
+        push!(history,h);progress===nothing || progress(h)
+        complete || break
+        if ferror<=tolerance && verror<=tolerance
+            passed=true;reason=:finite_checks;break
+        end
+        minlevel=minimum(sum,active)
+        chosen=minlevel<3 || iteration%4==0 ? findall(i->sum(i)==minlevel,active) :
+            sortperm(errors;rev=true)[1:min(d,length(active))]
+        append!(indices,active[chosen]);coef=hcat(coef,newcoef[chosen]...)
+    end
+    screen_only && (reason=:shape_screen)
+    shell=SparseDensity(lo,hi,seq,indices,coef,r,[(lo=lo,hi=hi)],0.,last(orders),(;))
+    integral=screen_only ? (cells=shell.cells,logz=zero_node.logmass+log(prod(hi-lo)),error=Inf,resolved=false) :
+        integrate(shell;orders,tolerance=tolerance/10,max_cells,checkpoint)
+    diag=(resolved=passed && integral.resolved,reason=passed && !integral.resolved ? :quadrature_budget : reason,
+        nodes=length(cache),terms=length(indices),interpolation_checks_pass=passed,
+        frontier_error=ferror,validation_error=verror,integration_error=integral.error,
+        history=history,lower=lo,upper=hi,tail_validated=false,target_validated=false,conditional_validated=false,
+        diagnostic_kind=:finite_point_joint_discrepancy,
+        oracle_points=[collect(q) for q in sort(collect(keys(cache)))])
+    SparseDensity(lo,hi,seq,indices,coef,r,integral.cells,integral.logz,last(orders),diag)
+end
+end

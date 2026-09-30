@@ -1,0 +1,11 @@
+{
+  "committed": false,
+  "completed_oracle_nodes": 219.0,
+  "consistent": false,
+  "last_completed_node": "ADAPT (event = :node, nodes = 219, q = [0.0, -4.0, 2.0, 0.0], logmass = -499.7841279786429)",
+  "planned_node_budget": 729.0,
+  "reason": "Stopped the four-dimensional diagnostic because of computational cost after the three-dimensional run exhausted its node budget unresolved. No refinement, shape, tail, or consistency pass is inferred.",
+  "seconds_since_previous_case_report": 412.22195899999997,
+  "status": "incomplete_resource_stop",
+  "suite": "pit_core"
+}

@@ -1,0 +1,22 @@
+module DirectDensityRun
+const E=Main.E
+using Main.BrisketEstimator, BrisketDynamics, LinearAlgebra, Random, JSON, Statistics, Serialization, Test
+include(joinpath(@__DIR__,"../../estimator/scripts/direct_online.jl"))
+end
+let sm=direct_core_case[1],truth=direct_core_case[3]
+    progress=h->(h.evaluations%10000<100 ? (println("DENSITY ",h);flush(stdout)) : nothing)
+    global core_direct_density=DirectDensityRun.direct_posterior_fit(sm;max_evaluations=200000,max_seconds=600.,curvature_rotation=true,transport_axes=2,moments=false,progress)
+    p=core_direct_density
+    write(joinpath(@__DIR__,"core_direct_density.json"),E.json_document((diagnostics=p.diagnostics,log_normalizer=p.log_normalizer)))
+    println("DENSITY RESULT ",(resolved=p.diagnostics.resolved,reason=p.diagnostics.reason,Z=p.normalizer,eval=p.diagnostics.evaluations,wall=p.diagnostics.total_wall,normalizer_error=p.diagnostics.normalizer_error));flush(stdout)
+    if p.diagnostics.resolved
+        queries=NamedTuple[]
+        for i in (17,length(sm.model.blk)+first(E.belief_index(sm.model.bl,:brisket,:T)))
+            target=vcat(truth.z,truth.y)[i]
+            result=DirectDensityRun.direct_cdf(p,i,target;max_evaluations=200000,max_seconds=300.,progress)
+            push!(queries,(index=i,result=result))
+            println("DENSITY QUERY ",(index=i,value=result.value,error=result.error,resolved=result.resolved));flush(stdout)
+            write(joinpath(@__DIR__,"core_direct_density_queries.json"),E.json_document(queries))
+        end
+    end
+end

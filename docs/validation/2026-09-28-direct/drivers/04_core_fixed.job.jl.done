@@ -1,0 +1,13 @@
+let case=direct_core_case
+    sm,r,truth=case;model=sm.model
+    progress=h->(h.evaluations%1000<80 ? (println("FIXED ",h);flush(stdout)) : nothing)
+    global direct_core_fixed=DirectFixedRun.direct_posterior_fit(sm;max_evaluations=100000,max_seconds=600.,progress)
+    p=direct_core_fixed;nz=length(model.blk);err=p.mean-vcat(truth.z,truth.y)
+    record=(diagnostics=p.diagnostics,mean=p.mean,covariance=p.covariance,physical_mean=p.physical_mean,
+        physical_variance=p.physical_variance,truth=vcat(truth.z,truth.y),
+        nees_z=p.diagnostics.moments_valid ? dot(err[1:nz],p.covariance[1:nz,1:nz]\err[1:nz])/nz : nothing,
+        nees_y=p.diagnostics.moments_valid ? dot(err[nz+1:end],p.covariance[nz+1:end,nz+1:end]\err[nz+1:end])/model.bl.n : nothing,
+        gaussian_nees_y=dot(r.y-truth.y,r.y_cov\(r.y-truth.y))/model.bl.n)
+    write(joinpath(@__DIR__,"core_direct_fixed.json"),E.json_document(record))
+    println("FIXED CORE RESULT ",(resolved=p.diagnostics.resolved,reason=p.diagnostics.reason,Z=p.normalizer,eval=p.diagnostics.evaluations,valid=p.diagnostics.moments_valid,wall=p.diagnostics.wall,nees=record.nees_y));flush(stdout)
+end

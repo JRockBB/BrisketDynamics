@@ -1,0 +1,547 @@
+{
+  "anchor_unchanged": true,
+  "committed": false,
+  "comparison": {
+    "history": [
+      8.54988944518062e-15,
+      5.238401627536505e-15
+    ],
+    "integration_change": 3.311487817644115e-15,
+    "target_validated": false,
+    "tv_bound_estimate": 5.238401627536505e-15
+  },
+  "diagnostics": {
+    "cells": 8.0,
+    "committed": false,
+    "conditional_validated": false,
+    "consistent": false,
+    "curvature": "gauss_newton",
+    "graph_solves": 36.0,
+    "history": [
+      {
+        "cells": 1.0,
+        "complete": true,
+        "indicator": 1.2585988568455921,
+        "integration_error": 0.008122414174140708,
+        "log_normalizer": -351.02087851302866,
+        "nodes": 5.0
+      },
+      {
+        "cells": 2.0,
+        "complete": true,
+        "indicator": 0.4512539033482747,
+        "integration_error": 7.873242721623911e-5,
+        "log_normalizer": -350.9419566301902,
+        "nodes": 9.0
+      },
+      {
+        "cells": 3.0,
+        "complete": true,
+        "indicator": 0.10986058370936279,
+        "integration_error": 2.10740631169337e-7,
+        "log_normalizer": -351.1807860367677,
+        "nodes": 13.0
+      },
+      {
+        "cells": 4.0,
+        "complete": true,
+        "indicator": 0.04534235439656568,
+        "integration_error": 2.1335406474905306e-7,
+        "log_normalizer": -351.19213273269105,
+        "nodes": 17.0
+      },
+      {
+        "cells": 5.0,
+        "complete": true,
+        "indicator": 0.032183539535267716,
+        "integration_error": 2.1254234055486554e-7,
+        "log_normalizer": -351.1883209331341,
+        "nodes": 21.0
+      },
+      {
+        "cells": 6.0,
+        "complete": true,
+        "indicator": 0.02297534230316318,
+        "integration_error": 1.3185309358744687e-7,
+        "log_normalizer": -351.1922947364192,
+        "nodes": 25.0
+      },
+      {
+        "cells": 7.0,
+        "complete": true,
+        "indicator": 0.013137074049416131,
+        "integration_error": 2.3248958313800223e-11,
+        "log_normalizer": -351.2004742070737,
+        "nodes": 29.0
+      },
+      {
+        "cells": 8.0,
+        "complete": true,
+        "indicator": 0.00915120287870051,
+        "integration_error": 2.3248958313800223e-11,
+        "log_normalizer": -351.2005597948189,
+        "nodes": 33.0
+      }
+    ],
+    "integration_error": 2.3248958313800223e-11,
+    "lower": [
+      -4.0
+    ],
+    "nodes": [
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 8.116324677892306e-5,
+        "logmass": -352.116827172641,
+        "q": [
+          0.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00026023123888938314,
+        "logmass": -366.1688359840419,
+        "q": [
+          -4.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 8.328921513556932e-5,
+        "logmass": -358.96217712637593,
+        "q": [
+          4.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 6.73340943104942e-5,
+        "logmass": -354.1551113127702,
+        "q": [
+          -2.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 8.778379367089654e-5,
+        "logmass": -354.0248220172615,
+        "q": [
+          2.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00019057974486050253,
+        "logmass": -356.6891876432018,
+        "q": [
+          -3.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 6.976215089600344e-5,
+        "logmass": -352.54740017295455,
+        "q": [
+          -1.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 5.401036217397012e-5,
+        "logmass": -352.7062424614134,
+        "q": [
+          1.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 7.85673119791367e-5,
+        "logmass": -356.09989903822355,
+        "q": [
+          3.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 8.789314543732427e-5,
+        "logmass": -360.1835127138965,
+        "q": [
+          -3.5
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00015800060578483697,
+        "logmass": -354.98799746627725,
+        "q": [
+          -2.5
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 9.635203226129952e-5,
+        "logmass": -353.4088074684549,
+        "q": [
+          -1.5
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00017908447435956151,
+        "logmass": -352.1603085102792,
+        "q": [
+          -0.5
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00013665274267095947,
+        "logmass": -353.81741278125185,
+        "q": [
+          -1.75
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00015673823632219992,
+        "logmass": -352.9175969516896,
+        "q": [
+          -1.25
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00012084108150333936,
+        "logmass": -352.30226988935556,
+        "q": [
+          -0.75
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 6.147487480853293e-5,
+        "logmass": -352.10328464633636,
+        "q": [
+          -0.25
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 3.563847863924387e-5,
+        "logmass": -353.98991602030446,
+        "q": [
+          -1.875
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.0001741240381399026,
+        "logmass": -353.6267750879354,
+        "q": [
+          -1.625
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00021092645307105095,
+        "logmass": -353.1573489046732,
+        "q": [
+          -1.375
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00019415772852633844,
+        "logmass": -352.71534022978216,
+        "q": [
+          -1.125
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 9.836191626760781e-5,
+        "logmass": -352.31553130176366,
+        "q": [
+          0.5
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 3.5115220755509554e-5,
+        "logmass": -353.2746813153171,
+        "q": [
+          1.5
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.0002267310659237834,
+        "logmass": -354.96472187469277,
+        "q": [
+          2.5
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 2.8087713316391266e-5,
+        "logmass": -357.4324374153832,
+        "q": [
+          3.5
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.0002099978231526399,
+        "logmass": -362.8842820618707,
+        "q": [
+          -3.75
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 2.8545329515844388e-5,
+        "logmass": -358.1438289513801,
+        "q": [
+          -3.25
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 1.1985364616552843e-5,
+        "logmass": -355.67970960468887,
+        "q": [
+          -2.75
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00013410737840897883,
+        "logmass": -354.5120328704222,
+        "q": [
+          -2.25
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00019920776548556208,
+        "logmass": -352.4106453726472,
+        "q": [
+          -0.875
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 6.022307325623466e-5,
+        "logmass": -352.2196256245899,
+        "q": [
+          -0.625
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00016480485753931967,
+        "logmass": -352.1221646227602,
+        "q": [
+          -0.375
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00012151506158351737,
+        "logmass": -352.1020003561364,
+        "q": [
+          -0.125
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 5.401036217397012e-5,
+        "logmass": -352.7062424614134,
+        "q": [
+          1.0
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 6.147487480853293e-5,
+        "logmass": -352.10328464633636,
+        "q": [
+          -0.25
+        ]
+      },
+      {
+        "curvature": {
+          "method": "gauss_newton"
+        },
+        "gradient": 0.00012084108150333936,
+        "logmass": -352.30226988935556,
+        "q": [
+          -0.75
+        ]
+      }
+    ],
+    "reason": "resolution",
+    "refinement_indicator": 0.00915120287870051,
+    "resolved": true,
+    "shape_budget_exhausted": false,
+    "shape_checks": [
+      {
+        "cell_mass": 0.45197765108024607,
+        "maximum_defect": 0.05550133685484404,
+        "q": [
+          1.0
+        ],
+        "scores": [
+          0.01345130954843654,
+          0.002191604160072025,
+          0.003011922187221572,
+          0.026850161171526388,
+          0.05550133685484404,
+          0.011875169886737424,
+          0.009547875032639652,
+          0.006115626298098142,
+          0.001369432341337351,
+          0.003535026391394247,
+          0.0014835895546339017,
+          0.0035590459797170126,
+          0.0003460190014799025,
+          0.0010015385502137875,
+          0.004394493356124407,
+          0.0055192771763934445,
+          0.0
+        ]
+      },
+      {
+        "cell_mass": 0.2003879870906955,
+        "maximum_defect": 0.057378150111681236,
+        "q": [
+          -0.25
+        ],
+        "scores": [
+          0.008896738762131484,
+          0.0006348239852549398,
+          0.0023509779387467233,
+          0.03250955681250822,
+          0.057378150111681236,
+          0.002184243650650508,
+          0.00019908767001020067,
+          0.0042861243489698,
+          0.006550291384630036,
+          0.002190931978764077,
+          0.00323816144130884,
+          0.0009410154693298978,
+          0.00019401497905402465,
+          5.591462782472689e-5,
+          0.006705851212029046,
+          0.0019010820960687624,
+          0.0
+        ]
+      },
+      {
+        "cell_mass": 0.164345588716215,
+        "maximum_defect": 0.06471955886210345,
+        "q": [
+          -0.75
+        ],
+        "scores": [
+          0.00030521454323206854,
+          0.0026988789598574314,
+          0.006322920500203111,
+          0.05436462250988505,
+          0.06471955886210345,
+          0.0017482840411586764,
+          0.0039246731492852405,
+          0.013530712754814544,
+          0.0022914818955639404,
+          0.00048800437682583464,
+          0.0007815733808227421,
+          0.001924733641547327,
+          0.00850667027651042,
+          0.00037179859133207316,
+          0.0007178128751084145,
+          0.0017123980361182234,
+          0.0
+        ]
+      }
+    ],
+    "shape_complete": true,
+    "shape_defect": 0.06471955886210345,
+    "shape_pass": true,
+    "tail_validated": false,
+    "target_validated": false,
+    "upper": [
+      4.0
+    ]
+  },
+  "noise_equal": true,
+  "wall": 51.920000076293945
+}

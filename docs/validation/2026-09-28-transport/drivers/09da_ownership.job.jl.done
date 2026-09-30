@@ -1,0 +1,20 @@
+include(joinpath(@__DIR__,"../../estimator/test/test_target_ownership.jl"))
+let
+    function differences(a,b,path="graph",level=0)
+        E._same_decoder_value(a,b) && return
+        if level>12 || typeof(a)!==typeof(b) || a isa Number || a isa AbstractString || a isa Function || a isa Type || a isa Module
+            println("COPY DIFF ",(path=path,type=typeof(a),other=typeof(b),a=a,b=b));return
+        elseif a isa AbstractArray
+            for i in eachindex(a,b);differences(a[i],b[i],path*"[$i]",level+1);end
+        elseif a isa AbstractDict
+            for k in keys(a);differences(a[k],b[k],path*"[$k]",level+1);end
+        else
+            for name in fieldnames(typeof(a));differences(getfield(a,name),getfield(b,name),path*".$name",level+1);end
+        end
+    end
+    for suite in (:full,:pit_core)
+        snap=deserialize(joinpath(@__DIR__,"../curvature_audit/$(suite).jls"))
+        g=snap.failed.bank.anchor.graph;saved=deepcopy(g);stamp=target_state_fingerprint(g)
+        println("BEFORE ANY WORK ",(suite=suite,equal=E._same_decoder_value(g,saved),stable_stamp=stamp==target_state_fingerprint(g)));differences(g,saved);flush(stdout)
+    end
+end

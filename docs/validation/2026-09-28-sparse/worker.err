@@ -1,0 +1,460 @@
+Internal error: during type inference of
+kwcall(NamedTuple{(:tolerance, :max_nodes, :orders), Tuple{Float64, Int64, Tuple{Int64, Int64}}}, typeof(SparseTests.SparseDensities.sparse_density), Function, Array{Float64, 1}, Array{Float64, 1})
+Encountered unexpected error in runtime:
+BoundsError(a=Array{Int64, 1}(dims=(117,), mem=Memory{Int64}(185, 000001ceb7454ce0)[0, 0, 2, 1, 0, 1, 1, 0, 0, 1, 3, 0, 0, 0, 3, 1, 0, 0, 4, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 4, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), i=(182,))
+throw_boundserror at .\essentials.jl:14
+getindex at .\essentials.jl:916 [inlined]
+fixup_node at .\compiler/ssair\ir.jl:1894
+fixup_phinode_values! at .\compiler/ssair\ir.jl:1862
+fixup_node at .\compiler/ssair\ir.jl:1871
+just_fixup! at .\compiler/ssair\ir.jl:1927
+just_fixup! at .\compiler/ssair\ir.jl:1917 [inlined]
+non_dce_finish! at .\compiler/ssair\ir.jl:1967 [inlined]
+adce_pass! at .\compiler/ssair\passes.jl:2058
+run_passes_ipo_safe at .\compiler\optimize.jl:994
+run_passes_ipo_safe at .\compiler\optimize.jl:1009 [inlined]
+optimize at .\compiler\optimize.jl:983
+jfptr_optimize_44061.1 at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\lib\julia\sys.dll (unknown line)
+finish_nocycle at .\compiler\typeinfer.jl:265
+_typeinf at .\compiler\typeinfer.jl:249
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3068
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3044
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+return_type_tfunc at .\compiler\tfuncs.jl:2975
+abstract_call_known at .\compiler\abstractinterpretation.jl:2166
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3044
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3068
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3044
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3068
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_ext at .\compiler\typeinfer.jl:1101
+typeinf_ext_toplevel at .\compiler\typeinfer.jl:1139
+typeinf_ext_toplevel at .\compiler\typeinfer.jl:1135
+jfptr_typeinf_ext_toplevel_41248.1 at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\lib\julia\sys.dll (unknown line)
+_jl_invoke at C:/workdir/src\gf.c:2951 [inlined]
+ijl_apply_generic at C:/workdir/src\gf.c:3128 [inlined]
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+jl_type_infer at C:/workdir/src\gf.c:392
+jl_generate_fptr_impl at C:/workdir/src\jitlayers.cpp:519
+jl_compile_method_internal at C:/workdir/src\gf.c:2538
+jl_compile_method_internal at C:/workdir/src\gf.c:2949 [inlined]
+_jl_invoke at C:/workdir/src\gf.c:2943 [inlined]
+ijl_apply_generic at C:/workdir/src\gf.c:3128
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+do_call at C:/workdir/src\interpreter.c:126
+eval_value at C:/workdir/src\interpreter.c:223
+eval_body at C:/workdir/src\interpreter.c:562
+eval_body at C:/workdir/src\interpreter.c:539
+eval_body at C:/workdir/src\interpreter.c:539
+jl_interpret_toplevel_thunk at C:/workdir/src\interpreter.c:824
+macro expansion at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_sparse_density.jl:14 [inlined]
+macro expansion at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+top-level scope at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_sparse_density.jl:8
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:943
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:886
+ijl_toplevel_eval at C:/workdir/src\toplevel.c:952 [inlined]
+ijl_toplevel_eval_in at C:/workdir/src\toplevel.c:994
+eval at .\boot.jl:430 [inlined]
+include_string at .\loading.jl:2777
+_include at .\loading.jl:2837
+include at .\Base.jl:562
+unknown function (ip: 000001cef83cb990)
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+jl_f__call_latest at C:/workdir/src\builtins.c:875
+include at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\sparse_work\01_tests.job.jl:1
+unknown function (ip: 000001ce9e35538b)
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+do_call at C:/workdir/src\interpreter.c:126
+eval_value at C:/workdir/src\interpreter.c:223
+eval_stmt_value at C:/workdir/src\interpreter.c:174 [inlined]
+eval_body at C:/workdir/src\interpreter.c:684
+jl_interpret_toplevel_thunk at C:/workdir/src\interpreter.c:824
+top-level scope at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\sparse_work\01_tests.job.jl:3
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:943
+jl_eval_module_expr at C:/workdir/src\toplevel.c:215 [inlined]
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:743
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:886
+ijl_toplevel_eval at C:/workdir/src\toplevel.c:952 [inlined]
+ijl_toplevel_eval_in at C:/workdir/src\toplevel.c:994
+eval at .\boot.jl:430 [inlined]
+include_string at .\loading.jl:2777
+_include at .\loading.jl:2837
+include at .\sysimg.jl:38
+unknown function (ip: 000001ce989eba9b)
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+do_call at C:/workdir/src\interpreter.c:126
+eval_value at C:/workdir/src\interpreter.c:223
+eval_stmt_value at C:/workdir/src\interpreter.c:174 [inlined]
+eval_body at C:/workdir/src\interpreter.c:684
+eval_body at C:/workdir/src\interpreter.c:539
+jl_interpret_toplevel_thunk at C:/workdir/src\interpreter.c:824
+top-level scope at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\sparse_work\worker.jl:15
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:943
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:886
+ijl_toplevel_eval at C:/workdir/src\toplevel.c:952 [inlined]
+ijl_toplevel_eval_in at C:/workdir/src\toplevel.c:994
+eval at .\boot.jl:430 [inlined]
+include_string at .\loading.jl:2777
+_include at .\loading.jl:2837
+include at .\Base.jl:562
+jfptr_include_48269.1 at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\lib\julia\sys.dll (unknown line)
+exec_options at .\client.jl:316
+_start at .\client.jl:524
+jfptr__start_75427.1 at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\lib\julia\sys.dll (unknown line)
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+true_main at C:/workdir/src\jlapi.c:900
+jl_repl_entrypoint at C:/workdir/src\jlapi.c:1059
+mainCRTStartup at C:/workdir/cli\loader_exe.c:58
+BaseThreadInitThunk at C:\WINDOWS\System32\KERNEL32.DLL (unknown line)
+RtlUserThreadStart at C:\WINDOWS\SYSTEM32\ntdll.dll (unknown line)
+Internal error: during type inference of
+var"#sparse_density#52"(Float64, Int64, Int64, Tuple{Int64, Int64}, Int64, Nothing, Nothing, Bool, typeof(SparseTests.SparseDensities.sparse_density), SparseTests.var"#oracle#4"{Base.RefValue{Int64}}, Array{Float64, 1}, Array{Float64, 1})
+Encountered unexpected error in runtime:
+BoundsError(a=Array{Int64, 1}(dims=(117,), mem=Memory{Int64}(185, 000001ceb7a4acc0)[0, 0, 2, 1, 0, 1, 1, 0, 0, 1, 3, 0, 0, 0, 3, 1, 0, 0, 4, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 4, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), i=(182,))
+throw_boundserror at .\essentials.jl:14
+getindex at .\essentials.jl:916 [inlined]
+fixup_node at .\compiler/ssair\ir.jl:1894
+fixup_phinode_values! at .\compiler/ssair\ir.jl:1862
+fixup_node at .\compiler/ssair\ir.jl:1871
+just_fixup! at .\compiler/ssair\ir.jl:1927
+just_fixup! at .\compiler/ssair\ir.jl:1917 [inlined]
+non_dce_finish! at .\compiler/ssair\ir.jl:1967 [inlined]
+adce_pass! at .\compiler/ssair\passes.jl:2058
+run_passes_ipo_safe at .\compiler\optimize.jl:994
+run_passes_ipo_safe at .\compiler\optimize.jl:1009 [inlined]
+optimize at .\compiler\optimize.jl:983
+jfptr_optimize_44061.1 at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\lib\julia\sys.dll (unknown line)
+finish_nocycle at .\compiler\typeinfer.jl:265
+_typeinf at .\compiler\typeinfer.jl:249
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3068
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3044
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+return_type_tfunc at .\compiler\tfuncs.jl:2975
+abstract_call_known at .\compiler\abstractinterpretation.jl:2166
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3044
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3068
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_edge at .\compiler\typeinfer.jl:923
+abstract_call_method at .\compiler\abstractinterpretation.jl:660
+abstract_call_gf_by_type at .\compiler\abstractinterpretation.jl:102
+abstract_call_known at .\compiler\abstractinterpretation.jl:2200
+abstract_call at .\compiler\abstractinterpretation.jl:2282
+abstract_call at .\compiler\abstractinterpretation.jl:2275
+abstract_call at .\compiler\abstractinterpretation.jl:2423
+abstract_eval_call at .\compiler\abstractinterpretation.jl:2438
+abstract_eval_statement_expr at .\compiler\abstractinterpretation.jl:2454
+abstract_eval_statement at .\compiler\abstractinterpretation.jl:2752
+abstract_eval_basic_statement at .\compiler\abstractinterpretation.jl:3044
+typeinf_local at .\compiler\abstractinterpretation.jl:3331
+typeinf_nocycle at .\compiler\abstractinterpretation.jl:3413
+_typeinf at .\compiler\typeinfer.jl:244
+typeinf at .\compiler\typeinfer.jl:215
+typeinf_ext at .\compiler\typeinfer.jl:1101
+typeinf_ext_toplevel at .\compiler\typeinfer.jl:1139
+typeinf_ext_toplevel at .\compiler\typeinfer.jl:1135
+jfptr_typeinf_ext_toplevel_41248.1 at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\lib\julia\sys.dll (unknown line)
+_jl_invoke at C:/workdir/src\gf.c:2951 [inlined]
+ijl_apply_generic at C:/workdir/src\gf.c:3128 [inlined]
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+jl_type_infer at C:/workdir/src\gf.c:392
+jl_generate_fptr_impl at C:/workdir/src\jitlayers.cpp:519
+jl_compile_method_internal at C:/workdir/src\gf.c:2538
+jl_compile_method_internal at C:/workdir/src\gf.c:2949 [inlined]
+_jl_invoke at C:/workdir/src\gf.c:2943 [inlined]
+ijl_apply_generic at C:/workdir/src\gf.c:3128
+sparse_density at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\src\sparse_density.jl:148
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+do_call at C:/workdir/src\interpreter.c:126
+eval_value at C:/workdir/src\interpreter.c:223
+eval_body at C:/workdir/src\interpreter.c:562
+eval_body at C:/workdir/src\interpreter.c:539
+eval_body at C:/workdir/src\interpreter.c:539
+jl_interpret_toplevel_thunk at C:/workdir/src\interpreter.c:824
+macro expansion at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_sparse_density.jl:14 [inlined]
+macro expansion at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+top-level scope at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_sparse_density.jl:8
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:943
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:886
+ijl_toplevel_eval at C:/workdir/src\toplevel.c:952 [inlined]
+ijl_toplevel_eval_in at C:/workdir/src\toplevel.c:994
+eval at .\boot.jl:430 [inlined]
+include_string at .\loading.jl:2777
+_include at .\loading.jl:2837
+include at .\Base.jl:562
+unknown function (ip: 000001cef83cb990)
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+jl_f__call_latest at C:/workdir/src\builtins.c:875
+include at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\sparse_work\01_tests.job.jl:1
+unknown function (ip: 000001ce9e35538b)
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+do_call at C:/workdir/src\interpreter.c:126
+eval_value at C:/workdir/src\interpreter.c:223
+eval_stmt_value at C:/workdir/src\interpreter.c:174 [inlined]
+eval_body at C:/workdir/src\interpreter.c:684
+jl_interpret_toplevel_thunk at C:/workdir/src\interpreter.c:824
+top-level scope at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\sparse_work\01_tests.job.jl:3
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:943
+jl_eval_module_expr at C:/workdir/src\toplevel.c:215 [inlined]
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:743
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:886
+ijl_toplevel_eval at C:/workdir/src\toplevel.c:952 [inlined]
+ijl_toplevel_eval_in at C:/workdir/src\toplevel.c:994
+eval at .\boot.jl:430 [inlined]
+include_string at .\loading.jl:2777
+_include at .\loading.jl:2837
+include at .\sysimg.jl:38
+unknown function (ip: 000001ce989eba9b)
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+do_call at C:/workdir/src\interpreter.c:126
+eval_value at C:/workdir/src\interpreter.c:223
+eval_stmt_value at C:/workdir/src\interpreter.c:174 [inlined]
+eval_body at C:/workdir/src\interpreter.c:684
+eval_body at C:/workdir/src\interpreter.c:539
+jl_interpret_toplevel_thunk at C:/workdir/src\interpreter.c:824
+top-level scope at C:\Users\jmurp\.julia\dev\BrisketDynamics\scratchpad\sparse_work\worker.jl:15
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:943
+jl_toplevel_eval_flex at C:/workdir/src\toplevel.c:886
+ijl_toplevel_eval at C:/workdir/src\toplevel.c:952 [inlined]
+ijl_toplevel_eval_in at C:/workdir/src\toplevel.c:994
+eval at .\boot.jl:430 [inlined]
+include_string at .\loading.jl:2777
+_include at .\loading.jl:2837
+include at .\Base.jl:562
+jfptr_include_48269.1 at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\lib\julia\sys.dll (unknown line)
+exec_options at .\client.jl:316
+_start at .\client.jl:524
+jfptr__start_75427.1 at C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\lib\julia\sys.dll (unknown line)
+jl_apply at C:/workdir/src\julia.h:2157 [inlined]
+true_main at C:/workdir/src\jlapi.c:900
+jl_repl_entrypoint at C:/workdir/src\jlapi.c:1059
+mainCRTStartup at C:/workdir/cli\loader_exe.c:58
+BaseThreadInitThunk at C:\WINDOWS\System32\KERNEL32.DLL (unknown line)
+RtlUserThreadStart at C:\WINDOWS\SYSTEM32\ntdll.dll (unknown line)
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.innovation_target :: Tuple{Any, Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.innovation_curvature :: Tuple{Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.curvature_direction_report :: Tuple{Any, Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.audit_candidate :: Tuple{Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.polish_conditional_innovations :: Tuple{Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseLegacyRegression.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.SparseLegacyRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.innovation_target :: Tuple{Any, Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.innovation_curvature :: Tuple{Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.curvature_direction_report :: Tuple{Any, Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.audit_candidate :: Tuple{Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.polish_conditional_innovations :: Tuple{Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.SparseFinalTests.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.SparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.innovation_target :: Tuple{Any, Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.innovation_curvature :: Tuple{Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.curvature_direction_report :: Tuple{Any, Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.audit_candidate :: Tuple{Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.polish_conditional_innovations :: Tuple{Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseFinalTests.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.LocalSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.innovation_target :: Tuple{Any, Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.innovation_curvature :: Tuple{Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.curvature_direction_report :: Tuple{Any, Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.audit_candidate :: Tuple{Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.polish_conditional_innovations :: Tuple{Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.VerifiedSparseFinalTests.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.VerifiedSparseFinalTests`
+└ @ Base.Docs docs\Docs.jl:243

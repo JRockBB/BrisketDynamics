@@ -1,0 +1,29 @@
+src=read(joinpath(@__DIR__,"../../estimator/scripts/adaptive_conditional.jl"),String)
+Base.include_string(Main,src[first(findfirst("function adaptive_conditional_fit",src)):end])
+include(joinpath(@__DIR__,"../../estimator/scripts/adaptive_curvature.jl"))
+module PolishedCurvatureTestsMerit
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_curvature.jl"))
+end
+function polished_replay(snapshot;radius=4.,tolerance=.002,curvature=polished_gn_conditional_curvature)
+    old=snapshot.result.candidate;anchor=snapshot.failed.bank.anchor
+    cc=old.center+old.scale*old.base_mean;ss=old.scale*old.base_root
+    return adaptive_conditional_fit(anchor.graph;axes=old.transported.source.axes,center=cc,scale=ss,
+        lower=fill(-radius,length(cc)),upper=fill(radius,length(cc)),tolerance,max_nodes=129,orders=(7,11),curvature,
+        step_bounds=Dict(anchor.key_z=>anchor.latent_step),newton_tol=E.ONLINE_NEWTON_TOL,
+        shape_key=anchor.key_z,progress=adaptive_progress)
+end
+for (label,snapshot,radius,tolerance) in ((:core_polished_gn,core_snapshot,4.,.002),
+        (:core_polished_wide,core_snapshot,6.,.002),
+        (:two_core_polished_gn,deserialize(joinpath(@__DIR__,"../curvature_audit/two_core.jls")),4.,.002))
+    println("POLISHED REPLAY ",label);flush(stdout);t=time()
+    try
+        p=polished_replay(snapshot;radius,tolerance)
+        serialize(joinpath(@__DIR__,"$(label).jls"),p)
+        write(joinpath(@__DIR__,"$(label).json"),E.json_document((ok=true,wall=time()-t,diagnostics=p.diagnostics)))
+        println("POLISHED DONE ",label," ",p.density.diagnostics," shape ",p.diagnostics.shape_defect);flush(stdout)
+    catch err
+        write(joinpath(@__DIR__,"$(label).json"),E.json_document((ok=false,wall=time()-t,error=sprint(showerror,err))))
+        println("POLISHED FAILED ",label," ",sprint(showerror,err));flush(stdout)
+    end
+end

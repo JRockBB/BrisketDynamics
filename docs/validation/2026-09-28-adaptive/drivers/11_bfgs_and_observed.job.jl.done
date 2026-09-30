@@ -1,0 +1,20 @@
+src=read(joinpath(@__DIR__,"../../estimator/scripts/adaptive_conditional.jl"),String)
+Base.include_string(Main,src[first(findfirst("function adaptive_conditional_fit",src)):end])
+include(joinpath(@__DIR__,"../../estimator/scripts/adaptive_curvature.jl"))
+module FinalCurvatureTests
+const E=Main.E
+include(joinpath(@__DIR__,"../../estimator/test/test_adaptive_curvature.jl"))
+end
+println("WIDE CORE WITH QUASI NEWTON SCORE SOLVE");flush(stdout)
+t=time();wide_polished=polished_replay(core_snapshot;radius=6.)
+write(joinpath(@__DIR__,"core_polished_wide_bfgs.json"),E.json_document((wall=time()-t,diagnostics=wide_polished.diagnostics)))
+serialize(joinpath(@__DIR__,"core_polished_wide_bfgs.jls"),wide_polished)
+p4=deserialize(joinpath(@__DIR__,"core_polished_gn.jls"))
+comparison=AdaptiveDensities.adaptive_density_distance(p4.density,wide_polished.density)
+write(joinpath(@__DIR__,"polished_domain_comparison.json"),E.json_document(comparison))
+println("POLISHED DOMAIN ",comparison);flush(stdout)
+println("POLISHED OBSERVED CORE");flush(stdout)
+t=time();core_observed_polished=polished_replay(core_snapshot;curvature=(node,ref)->observed_conditional_curvature(node,ref;polish=true))
+write(joinpath(@__DIR__,"core_polished_observed.json"),E.json_document((wall=time()-t,diagnostics=core_observed_polished.diagnostics)))
+serialize(joinpath(@__DIR__,"core_polished_observed.jls"),core_observed_polished)
+println("POLISHED OBSERVED DONE ",core_observed_polished.density.diagnostics," shape ",core_observed_polished.diagnostics.shape_defect);flush(stdout)

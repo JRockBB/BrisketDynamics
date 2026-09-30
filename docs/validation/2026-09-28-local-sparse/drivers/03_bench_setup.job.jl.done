@@ -1,0 +1,44 @@
+module LocalCookBench
+const E=Main.E
+using LinearAlgebra,Serialization,Test,SHA,JSON
+const ROOT=normpath(joinpath(@__DIR__,"../.."))
+const REPORT=joinpath(ROOT,"docs/validation/2026-09-28-local-sparse")
+for entry in JSON.parsefile(joinpath(ROOT,"docs/validation/2026-09-28-curvature/source-manifest.json"))
+    @assert bytes2hex(sha256(read(joinpath(ROOT,entry["path"]))))==entry["sha256"]
+end
+for entry in JSON.parsefile(joinpath(REPORT,"source-manifest.json"))
+    @assert bytes2hex(sha256(read(joinpath(REPORT,entry["archive"]))))==entry["sha256"]
+end
+include(joinpath(REPORT,"sources/estimator/scripts/validate_sparse.jl"))
+include(joinpath(REPORT,"sources/estimator/scripts/validate_sparse_mapped.jl"))
+function frozen(name;extra=false)
+    if name=="late_two"
+        return deserialize(joinpath(ROOT,"scratchpad/transport_work/late_two_target.jls"))
+    end
+    snap=deserialize(joinpath(ROOT,"scratchpad/curvature_audit",name*".jls"))
+    old=snap.result.candidate;source=old.transported.source;a=snap.failed.bank.anchor
+    axes=copy(source.axes)
+    if extra
+        shape=E.conditional_shape_diagnostic(old.transported;key=a.key_z)
+        remaining=setdiff(eachindex(shape.scores),last.(axes))
+        push!(axes,(a.key_z,remaining[argmax(shape.scores[remaining])]))
+    end
+    rows=[source.offsets[k][j] for (k,j) in axes]
+    (anchor=a,axes=axes,center=source.mean[rows],scale=Matrix(cholesky(Symmetric(source.covariance[rows,rows])).L))
+end
+function run(name,case;method=:local,extra=false)
+    t=frozen(case;extra);a=t.anchor
+    sparse_conditional_fit(a.graph;axes=t.axes,center=t.center,scale=t.scale,
+        lower=fill(-4.,length(t.axes)),upper=fill(4.,length(t.axes)),max_nodes=1,screen_only=true,
+        curvature=polished_gn_conditional_curvature,step_bounds=Dict(a.key_z=>a.latent_step),newton_tol=E.ONLINE_NEWTON_TOL)
+    settings=(axes=t.axes,center=t.center,scale=t.scale,shape_key=a.key_z,
+        max_nodes=case=="full" ? 729 : case=="late_two" ? 257 : 129,
+        tolerance=case=="full" ? .01 : .002,orders=case=="full" ? (3,5) : case=="late_two" ? (5,9) : (7,11),
+        step_bounds=Dict(a.key_z=>a.latent_step),newton_tol=E.ONLINE_NEWTON_TOL,max_seconds=600.)
+    path=joinpath(ROOT,"scratchpad/local_sparse_work",name*".json")
+    out=method==:mapped ? validate_sparse_mapped(a.graph,path;local_refinement=true,settings...) :
+        validate_sparse_graph(a.graph,path;method,settings...)
+    out.candidate===nothing || serialize(joinpath(ROOT,"scratchpad/local_sparse_work",name*".jls"),out.candidate)
+    out
+end
+end

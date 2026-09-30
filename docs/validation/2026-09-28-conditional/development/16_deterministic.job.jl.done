@@ -1,0 +1,29 @@
+for name in ("conditional.jl","conditional_online.jl","conditional_density.jl")
+    src=read(joinpath(@__DIR__,"../../../estimator/src",name),String)
+    for ex in Meta.parseall(src).args;isstructexpr(ex) || Core.eval(E,ex);end
+end
+Base.include(E,joinpath(@__DIR__,"../../../estimator/src/deterministic_online.jl"))
+using .BrisketEstimator
+include(joinpath(@__DIR__,"../../../estimator/test/test_conditional_online.jl"))
+const deterministic_cases=Dict{Symbol,Any}()
+const deterministic_rows=NamedTuple[]
+for case in ONLINE_COMPARISON_CASES
+    rows=NamedTuple[];started=time()
+    println("DETERMINISTIC CASE ",case.suite);flush(stdout)
+    try
+        saved=conditional_default_cases[case.suite];model=saved.model
+        sm=deterministic_init(model;axes=[:a0,:k_spread],lag=1,record_limit=0)
+        for batch in saved.batches
+            r=assimilate!(sm,batch)
+            push!(rows,(t=last(batch).t,committed=r.committed,reason=get(r,:reason,:ok),wall=r.wall,diagnostics=r.diagnostics))
+            println("DETERMINISTIC ARRIVAL ",case.suite," ",last(rows));flush(stdout)
+            deterministic_cases[case.suite]=(sm=deepcopy(sm),result=r)
+            r.committed || break
+        end
+        push!(deterministic_rows,(suite=case.suite,arrivals=rows,wall=time()-started))
+    catch err
+        showerror(stdout,err,catch_backtrace());println();flush(stdout)
+        push!(deterministic_rows,(suite=case.suite,arrivals=rows,error=sprint(showerror,err),wall=time()-started))
+    end
+    write(joinpath(@__DIR__,"deterministic_development.json"),E.json_document(deterministic_rows))
+end

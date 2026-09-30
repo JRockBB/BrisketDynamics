@@ -1,0 +1,5 @@
+src=read(joinpath(@__DIR__,"../../estimator/src/adaptive_density.jl"),String)
+start=first(findfirst("function adaptive_density(",src))
+stop=first(findnext("\"Integrate a function",src,start))-1
+Base.include_string(AdaptiveDensities,src[start:stop])
+println("ADAPTIVE LEAF CHECK CACHE LOADED");flush(stdout)

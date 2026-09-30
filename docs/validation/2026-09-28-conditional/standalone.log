@@ -1,0 +1,13 @@
+Test Summary:                                                    | Pass  Total     Time
+adaptive charts preserve an unobserved prior and model ownership |   14     14  2m46.2s
+Test Summary:                                                       | Pass  Total  Time
+continuous online posterior: invariance, snapshots and transactions |   28     28  4.5s
+Test Summary:                                        | Pass  Total  Time
+density comparison requires the same physics decoder |    5      5  0.7s
+Test Summary:                                                        | Pass  Total  Time
+density discrepancy separates integration error from posterior error |    4      4  1.0s
+Test Summary:                                                    | Pass  Total  Time
+continuous density: correlated Gaussian between and beyond nodes |   62     62  1.6s
+Test Summary:                                               | Pass  Total  Time
+continuous density retains curvature and heteroscedasticity |   50     50  0.1s
+FRESH PROCESS PASS d31877a10f94 PHYSICS c2c7bbf8c0ec

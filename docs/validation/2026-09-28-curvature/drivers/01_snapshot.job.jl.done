@@ -1,0 +1,29 @@
+using Serialization
+for ix in (4,3,1,2)
+    case=ONLINE_COMPARISON_CASES[ix]
+    println("FREEZE ",case.suite);flush(stdout)
+    model=consistency_model(nx=4,suite=case.suite,stop=maximum(case.times))
+    batches,truths=comparison_readings(model,case)
+    sm=deterministic_init(model;record_limit=0)
+    arrivals=NamedTuple[]
+    for (i,batch) in enumerate(batches)
+        # Retain the internal pre-rollback state as well as the rejected density.
+        # Each batch has one timestamp, so this is the same advance used by the
+        # public transactional wrapper. The accepted state remains separate.
+        work=deepcopy(sm);start=time()
+        raw=E._deterministic_advance!(work,batch)
+        result=merge(raw,(committed=raw.ok,wall=time()-start))
+        push!(arrivals,(t=last(batch).t,committed=result.committed,reason=get(result,:reason,:ok),wall=result.wall,diagnostics=result.diagnostics))
+        println("FREEZE ",case.suite," ",last(arrivals));flush(stdout)
+        if !result.committed
+            snapshot=(schema=1,backend=backend_fingerprint(),physics=physics_fingerprint(),simulation=online_comparison_fingerprint(),
+                case=case,nx=4,model=model,batches=batches,arrival=i,result=result,accepted=sm,failed=work,arrivals=arrivals)
+            serialize(joinpath(@__DIR__,string(case.suite)*".jls"),snapshot)
+            write(joinpath(@__DIR__,string(case.suite)*".json"),E.json_document((backend=snapshot.backend,physics=snapshot.physics,case=case,arrivals=arrivals)))
+            report=audit_candidate(result.candidate;key=sm.bank.anchor.key_z)
+            write(joinpath(@__DIR__,string(case.suite)*"_curvature.json"),E.json_document((backend=snapshot.backend,case=case,report=report)))
+            break
+        end
+        sm=work
+    end
+end

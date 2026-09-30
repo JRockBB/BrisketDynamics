@@ -1,0 +1,44 @@
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.innovation_target :: Tuple{Any, Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.innovation_curvature :: Tuple{Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.curvature_direction_report :: Tuple{Any, Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.audit_candidate :: Tuple{Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.polish_conditional_innovations :: Tuple{Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegression.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.LocalSparseRegression`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.curvature_accuracy_ref :: Tuple{Any, Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.innovation_target :: Tuple{Any, Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.innovation_gn_metric :: Tuple{Any, Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.curvature_parameter_basis :: Tuple{Any, Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.innovation_curvature :: Tuple{Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.curvature_direction_report :: Tuple{Any, Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.curvature_corrected_report :: Tuple{Any, Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.audit_candidate :: Tuple{Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.polish_conditional_innovations :: Tuple{Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.polished_gn_conditional_curvature :: Tuple{Any, Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243
+┌ Warning: Replacing docs for `Main.LocalSparseRegressionFinal.observed_conditional_curvature :: Tuple{Any, Any}` in module `Main.LocalSparseRegressionFinal`
+└ @ Base.Docs docs\Docs.jl:243

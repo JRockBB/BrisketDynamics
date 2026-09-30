@@ -1,0 +1,23 @@
+let G=SparseFinalAudit,F=SparseBenchFinal
+    rows=NamedTuple[]
+    checks=@testset "final cubature and geometry preservation" begin
+        for name in ("core_sparse","late_two_sparse","late_two_mapped_sparse")
+            path=joinpath(@__DIR__,name*".jls");isfile(path) || continue
+            old=deserialize(path).density;D=G.SparseDensities
+            new=D.SparseDensity(old.lower,old.upper,old.sequence,old.indices,old.coefficients,
+                old.remainder,old.cells,old.log_normalizer,old.integration_order,old.diagnostics)
+            for q in (zeros(length(old.lower)),fill(.371,length(old.lower)),fill(-.829,length(old.lower)))
+                a=F.adaptive_geometry(old,q);b=G.adaptive_geometry(new,q)
+                @test a.logmass==b.logmass && a.mean==b.mean && a.root==b.root
+            end
+            orders=length(old.lower)==1 ? (7,11) : (5,9)
+            result=D.integrate(new;orders,tolerance=.0002,max_cells=128,max_evaluations=2_000_000,checkpoint=nothing)
+            change=abs(expm1(result.logz-old.log_normalizer))
+            @test change<.0004
+            push!(rows,(name=name,normalizer_change=change,old_error=old.diagnostics.integration_error,
+                new_error=result.error,new_resolved=result.resolved,evaluations=result.evaluations))
+        end
+    end
+    write(joinpath(@__DIR__,"final_numerical_audit.json"),G.adaptive_strict_json((rows=rows,tests=Test.get_test_counts(checks),
+        sources=G.sparse_sources(),additional_graph_fits=0)))
+end

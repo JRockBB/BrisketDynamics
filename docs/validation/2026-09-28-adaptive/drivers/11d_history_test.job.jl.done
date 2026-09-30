@@ -1,0 +1,8 @@
+src=read(joinpath(@__DIR__,"../../estimator/scripts/adaptive_conditional.jl"),String)
+Base.include_string(Main,src[first(findfirst("function adaptive_arrival_candidate",src)):first(findfirst("function adaptive_conditional_logpdf",src))-1])
+compressed=deepcopy(core_snapshot.accepted.bank.anchor)
+compressed.lag=0;E.marginalize_old!(compressed);compressed.lag=typemax(Int)
+@testset "adaptive replay rejects already compressed history" begin
+    @test any(f isa E.LinearFactor for f in compressed.graph.factors)
+    @test_throws ArgumentError adaptive_arrival_candidate(compressed,core_snapshot.batches[core_snapshot.arrival])
+end

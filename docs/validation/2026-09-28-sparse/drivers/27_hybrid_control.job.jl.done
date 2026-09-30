@@ -1,0 +1,8 @@
+let F=VerifiedSparseFinalTests
+    kink(q)=(logmass=-q[1]^2/2,mean=[max(q[1]-.137,0.)^2],root=reshape([.02],1,1))
+    p=F.sparse_density(kink,[-4.],[4.];tolerance=.002,max_nodes=129,orders=(7,11))
+    write(joinpath(@__DIR__,"hybrid_control.json"),F.adaptive_strict_json((nodes=p.diagnostics.nodes,
+        sparse_nodes=p.diagnostics.sparse_nodes,diagnostics=p.diagnostics,settings=(tolerance=.002,max_nodes=129),
+        maximum_standardized_mean_error=maximum(abs(F.adaptive_geometry(p,[q]).mean[1]-max(q-.137,0.)^2)/.02 for q in range(-3.,3.;length=601)),
+        source_version=:final,consistent=false)))
+end

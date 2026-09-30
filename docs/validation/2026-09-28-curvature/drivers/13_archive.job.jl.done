@@ -1,0 +1,14 @@
+function sanitize_audit_json(x)
+    x isa AbstractDict && return Dict(k=>sanitize_audit_json(v) for (k,v) in pairs(x))
+    x isa AbstractArray && return map(sanitize_audit_json,x)
+    x isa AbstractFloat && !isfinite(x) && return nothing
+    return x
+end
+destination=joinpath(@__DIR__,"../../docs/validation/2026-09-28-curvature")
+for name in filter(f->endswith(f,".json"),readdir(@__DIR__))
+    raw=JSON.parsefile(joinpath(@__DIR__,name);allownan=true)
+    path=joinpath(destination,name)
+    write(path,JSON.json(sanitize_audit_json(raw);allownan=false))
+    JSON.parsefile(path) # the archive must be strict JSON
+end
+println("ARCHIVE JSON VERIFIED");flush(stdout)

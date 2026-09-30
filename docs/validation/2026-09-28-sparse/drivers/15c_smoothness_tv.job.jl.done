@@ -1,0 +1,35 @@
+let F=SparseBenchFinal
+    reports=NamedTuple[]
+    for kind in (:smooth,:piecewise_c1)
+        oracle(q)=(logmass=-q[1]^2/2,mean=[kind==:smooth ? q[1]^2 : max(q[1]-.137,0.)^2],root=reshape([.02],1,1))
+        for method in (:tensor,:sparse)
+            start=time()
+            p=method==:tensor ? F.adaptive_density(oracle,[-4.],[4.];tolerance=.002,max_nodes=129,orders=(7,11)) :
+                F.sparse_density(oracle,[-4.],[4.];tolerance=.002,max_nodes=129,max_degree=64,orders=(7,11))
+            tvs=Float64[];truth_logz=log(sqrt(2pi)*erf(4/sqrt(2)))
+            for order in (401,801)
+                x,w=F.AdaptiveDensities._legendre(order);total=0.
+                for (u,weight) in zip(x,w)
+                    q=-4+8u;n=F.adaptive_geometry(p,[q]);m=oracle([q]).mean[1]
+                    pa=exp(n.logmass-p.log_normalizer);pb=exp(-q*q/2-truth_logz);delta=m-n.mean[1]
+                    difference=if delta==0
+                        abs(pa-pb)/2
+                    else
+                        cross=(m+n.mean[1])/2+.02^2*log(pa/pb)/delta
+                        fa=.5erfc(-(cross-n.mean[1])/(sqrt(2)*.02));fb=.5erfc(-(cross-m)/(sqrt(2)*.02))
+                        abs(pa*(2fa-1)-pb*(2fb-1))/2
+                    end
+                    total+=8weight*difference
+                end
+                push!(tvs,total)
+            end
+            push!(reports,(kind=kind,method=method,wall=time()-start,nodes=p.diagnostics.nodes,
+                resolved=p.diagnostics.resolved,reason=p.diagnostics.reason,
+                joint_tv_estimate=last(tvs),joint_tv_order_change=abs(last(tvs)-first(tvs))))
+            println("SMOOTHNESS TV ",last(reports));flush(stdout)
+        end
+    end
+    write(joinpath(@__DIR__,"smoothness_tv.json"),F.adaptive_strict_json((reports=reports,
+        settings=(budget=129,tolerance=.002,radius=4.,orders=(7,11),degree_cap=64),
+        diagnostic_orders=(401,801),diagnostic_outside_fit_budget=true,cook_specific=false,consistent=false)))
+end

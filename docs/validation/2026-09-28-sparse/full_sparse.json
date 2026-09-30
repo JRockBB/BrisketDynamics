@@ -1,0 +1,145 @@
+{
+  "backend": "d31877a10f94",
+  "committed": false,
+  "completed_fits": 638.0,
+  "consistent": false,
+  "diagnostics_comparable_to_tensor": false,
+  "domain_validated": false,
+  "graph_unchanged": true,
+  "last_check": {
+    "complete": true,
+    "event": "refinement",
+    "frontier_error": 1.2683761010396353,
+    "nodes": 585.0,
+    "terms": 470.0,
+    "validation_error": 0.3627726006103974
+  },
+  "metadata": {
+    "development_only": true,
+    "name": "full_sparse",
+    "t": 600.0
+  },
+  "method": "sparse",
+  "outcome": {
+    "error": "sparse comparison time budget exhausted\nStacktrace:\n  [1] checkpoint\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\validate_sparse.jl:21 [inlined]\n  [2] (::Main.SparseBenchFinal.SparseDensities.var\"#61#70\"{Vector{Float64}, Int64, Main.SparseBenchFinal.var\"#checkpoint#107\"{Float64, Float64}, Main.SparseBenchFinal.var\"#39#55\", Dict{Tuple, Main.SparseBenchFinal.AdaptiveDensities.Node}})()\n    @ Main.SparseBenchFinal.SparseDensities C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\src\\sparse_density.jl:177\n  [3] get!(default::Main.SparseBenchFinal.SparseDensities.var\"#61#70\"{Vector{Float64}, Int64, Main.SparseBenchFinal.var\"#checkpoint#107\"{Float64, Float64}, Main.SparseBenchFinal.var\"#39#55\", Dict{Tuple, Main.SparseBenchFinal.AdaptiveDensities.Node}}, h::Dict{Tuple, Main.SparseBenchFinal.AdaptiveDensities.Node}, key::Tuple{Float64, Float64, Float64})\n    @ Base .\\dict.jl:458\n  [4] (::Main.SparseBenchFinal.SparseDensities.var\"#evaluate#69\"{Int64, Main.SparseBenchFinal.var\"#checkpoint#107\"{Float64, Float64}, Main.SparseBenchFinal.var\"#39#55\", Dict{Tuple, Main.SparseBenchFinal.AdaptiveDensities.Node}, Vector{Float64}, Vector{Float64}})(z::Vector{Float64})\n    @ Main.SparseBenchFinal.SparseDensities C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\src\\sparse_density.jl:175\n  [5] sparse_density(oracle::Main.SparseBenchFinal.var\"#39#55\", lower::Vector{Float64}, upper::Vector{Float64}; tolerance::Float64, max_nodes::Int64, max_cells::Int64, orders::Tuple{Int64, Int64}, max_degree::Int64, progress::Main.SparseBenchFinal.var\"#40#56\"{Main.SparseBenchFinal.var\"#progress#108\"{Symbol, Vector{NamedTuple}, Base.RefValue{Any}, Base.RefValue{Int64}}}, checkpoint::Main.SparseBenchFinal.var\"#checkpoint#107\"{Float64, Float64}, screen_only::Bool)\n    @ Main.SparseBenchFinal.SparseDensities C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\src\\sparse_density.jl:198\n  [6] sparse_density\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\src\\sparse_density.jl:166 [inlined]\n  [7] build\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\sparse_conditional.jl:23 [inlined]\n  [8] build\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\sparse_conditional.jl:23 [inlined]\n  [9] adaptive_conditional_fit(graph::FactorGraph; axes::Vector{Tuple{VarKey, Int64}}, center::Nothing, scale::Nothing, chart::Main.SparseBenchFinal.ConditionalCharts.AffineChart, lower::Vector{Float64}, upper::Vector{Float64}, tolerance::Float64, max_nodes::Int64, max_cells::Int64, orders::Tuple{Int64, Int64}, iters::Int64, tol::Float64, ftol::Float64, step_bounds::Dict{VarKey, Float64}, newton_tol::Float64, curvature::typeof(Main.SparseBenchFinal.polished_gn_conditional_curvature), shape_key::VarKey, max_shape_cells::Int64, shape_tol::Float64, progress::Main.SparseBenchFinal.var\"#progress#108\"{Symbol, Vector{NamedTuple}, Base.RefValue{Any}, Base.RefValue{Int64}}, checkpoint::Main.SparseBenchFinal.var\"#checkpoint#107\"{Float64, Float64}, _integration::@NamedTuple{build::Main.SparseBenchFinal.var\"#build#86\"{Main.SparseBenchFinal.var\"#build#83#87\"{Bool, Int64}}, shape_points::Main.SparseBenchFinal.var\"#shape_points#88\", candidate::UnionAll})\n    @ Main.SparseBenchFinal C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\adaptive_conditional.jl:172\n [10] adaptive_conditional_fit\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\adaptive_conditional.jl:91 [inlined]\n [11] #sparse_conditional_fit#82\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\sparse_conditional.jl:30 [inlined]\n [12] sparse_conditional_fit\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\sparse_conditional.jl:22 [inlined]\n [13] validate_sparse_graph(graph::FactorGraph, report_path::String; axes::Vector{Tuple{VarKey, Int64}}, center::Vector{Float64}, scale::Matrix{Float64}, shape_key::VarKey, method::Symbol, max_nodes::Int64, tolerance::Float64, orders::Tuple{Int64, Int64}, radius::Float64, max_seconds::Float64, max_axes::Int64, step_bounds::Dict{VarKey, Float64}, newton_tol::Float64, metadata::@NamedTuple{name::String, t::Float64, development_only::Bool})\n    @ Main.SparseBenchFinal C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\validate_sparse.jl:36\n [14] validate_sparse_graph\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\estimator\\scripts\\validate_sparse.jl:14 [inlined]\n [15] run(name::String, target::@NamedTuple{anchor::FixedLagSmoother, axes::Vector{Tuple{VarKey, Int64}}, center::Vector{Float64}, scale::Matrix{Float64}}; method::Symbol, budget::Int64, tolerance::Float64, orders::Tuple{Int64, Int64}, seconds::Float64)\n    @ Main.SparseBenchFinal C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\scratchpad\\sparse_work\\07_bench_setup.job.jl:20\n [16] top-level scope\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\scratchpad\\sparse_work\\11_full.job.jl:2\n [17] include(fname::String)\n    @ Main .\\sysimg.jl:38\n [18] top-level scope\n    @ C:\\Users\\jmurp\\.julia\\dev\\BrisketDynamics\\scratchpad\\sparse_work\\worker.jl:15\n [19] include(mod::Module, _path::String)\n    @ Base .\\Base.jl:562\n [20] exec_options(opts::Base.JLOptions)\n    @ Base .\\client.jl:316\n [21] _start()\n    @ Base .\\client.jl:524",
+    "status": "time_budget"
+  },
+  "physics": "c2c7bbf8c0ec",
+  "promotions": [],
+  "settings": {
+    "axes": [
+      [
+        {
+          "entity": "params",
+          "k": 0.0,
+          "name": "cook",
+          "scope": [
+            "cook"
+          ]
+        },
+        15.0
+      ],
+      [
+        {
+          "entity": "params",
+          "k": 0.0,
+          "name": "cook",
+          "scope": [
+            "cook"
+          ]
+        },
+        11.0
+      ],
+      [
+        {
+          "entity": "params",
+          "k": 0.0,
+          "name": "cook",
+          "scope": [
+            "cook"
+          ]
+        },
+        14.0
+      ]
+    ],
+    "center": [
+      0.4728822438782836,
+      -0.4948454495901159,
+      -7.662525522613235
+    ],
+    "max_axes": 5.0,
+    "max_nodes": 729.0,
+    "max_seconds": 600.0,
+    "orders": [
+      3.0,
+      5.0
+    ],
+    "radius": 4.0,
+    "scale": [
+      [
+        0.7798895508287046,
+        -0.09510426036554863,
+        0.07351865949420033
+      ],
+      [
+        0.0,
+        0.8724872087759288,
+        -0.006549093848273302
+      ],
+      [
+        0.0,
+        0.0,
+        1.1284472998311872
+      ]
+    ],
+    "shape_key": {
+      "entity": "params",
+      "k": 0.0,
+      "name": "cook",
+      "scope": [
+        "cook"
+      ]
+    },
+    "tolerance": 0.01
+  },
+  "source_unchanged": true,
+  "sources": [
+    {
+      "path": "estimator/src/adaptive_density.jl",
+      "sha256": "66bc382f6fdfe8d8adb1272ad313bff97cc03139ef7373f007319777fefd62c1"
+    },
+    {
+      "path": "estimator/src/sparse_density.jl",
+      "sha256": "7e307fbe6fdd4ab71972839c840a5bb5ffd040a6cbb33d6248757a0d63fd361f"
+    },
+    {
+      "path": "estimator/src/conditional_charts.jl",
+      "sha256": "8d1bdab127261ca59a40b69ff58c88126c0b65de3cba29b37c2ae2af635f02d8"
+    },
+    {
+      "path": "estimator/scripts/adaptive_conditional.jl",
+      "sha256": "358e5c376b33069b71134aeeff77b97a34186419e51c99f77a02e2ca1507c2a7"
+    },
+    {
+      "path": "estimator/scripts/sparse_conditional.jl",
+      "sha256": "a56eed9692c1b1de71e1d2e3536714c75f7790bc346154fe5332d01853b71a2f"
+    },
+    {
+      "path": "estimator/scripts/adaptive_curvature.jl",
+      "sha256": "3f30fff95e6366732b9bd56c72d53e57fb9c9a95ef13006c3f7de50e7197d961"
+    },
+    {
+      "path": "estimator/scripts/curvature_audit.jl",
+      "sha256": "5ddb229dcfbacde2b8c8dbc984ff89d8eaf551dbe86980587544f06753c40309"
+    },
+    {
+      "path": "estimator/scripts/target_ownership.jl",
+      "sha256": "2cb83d4d95440e56076a38d528087182fabc888689057181965167969bc06e6e"
+    },
+    {
+      "path": "estimator/scripts/validate_sparse.jl",
+      "sha256": "f12b8d510379ff839d9f3601191cd7ab9cf284a19213fc6bbe3aff2a83b0397b"
+    }
+  ],
+  "wall": 600.9939999580383
+}

@@ -1,0 +1,28 @@
+module FinalTransportVerification
+const E=Main.E
+using Test,Serialization,SHA
+const testfiles=["test_adaptive_density.jl","test_adaptive_conditional.jl","test_adaptive_curvature.jl",
+    "test_conditional_charts.jl","test_mapped_conditional.jl","test_transport_budget.jl","test_target_ownership.jl"]
+const results=@testset "final transport regression" begin
+    for filename in testfiles
+        include(joinpath(@__DIR__,"../../estimator/test",filename))
+    end
+    @testset "recorded cook map values survive numerical guards" begin
+        for filename in ("core_triangular","two_core_triangular","late_two_triangular")
+            p=deserialize(joinpath(@__DIR__,filename*".jls"));old=p.chart
+            chart=TriangularChart(AffineChart(old.base.center,old.base.scale),old.means,old.logscales,old.radius)
+            records=p.diagnostics.nodes
+            @test all(chart_forward(chart,n.q)==n.point for n in records)
+            @test all(chart_logjac(chart,n.q)==n.chart_logjac for n in records)
+            @test maximum(norm(chart_inverse(chart,n.point)-n.q,Inf) for n in records)<1e-10
+        end
+    end
+end
+include(joinpath(@__DIR__,"../../estimator/scripts/validate_adaptive.jl"))
+const counts=Test.get_test_counts(results)
+write(joinpath(@__DIR__,"final_tests.json"),adaptive_strict_json((passes=counts.passes+counts.cumulative_passes,
+    fails=counts.fails+counts.cumulative_fails,errors=counts.errors+counts.cumulative_errors,
+    broken=counts.broken+counts.cumulative_broken,files=testfiles,
+    file_hashes=[(file=f,sha256=bytes2hex(sha256(read(joinpath(@__DIR__,"../../estimator/test",f))))) for f in testfiles])))
+println("FINAL TEST COUNTS ",counts);flush(stdout)
+end

@@ -1,0 +1,47 @@
+[
+    {
+        "path":  "scratchpad/transport_work/core_affine.jls",
+        "bytes":  2616177,
+        "sha256":  "8cbdcbbf5e0e0e0b37a38643652ece2f46b6c4e2977b1b978d97c3dc50941d06"
+    },
+    {
+        "path":  "scratchpad/transport_work/core_triangular.jls",
+        "bytes":  2616230,
+        "sha256":  "3d33742b6d934ac6602b8946e3f3fcdc4c1f5ba27c07fa658caef4f598f86b58"
+    },
+    {
+        "path":  "scratchpad/transport_work/full_affine.jls",
+        "bytes":  23263833,
+        "sha256":  "13ed62513c7af544a8fdaa93ceb8d3654f7496e325c214ffa69e63744035222a"
+    },
+    {
+        "path":  "scratchpad/transport_work/full_triangular.jls",
+        "bytes":  23262160,
+        "sha256":  "3cd2bfdbc7f770faa635e94498b753e44eafc2daaf8cc71ed93595dd3c56895e"
+    },
+    {
+        "path":  "scratchpad/transport_work/late_two_affine.jls",
+        "bytes":  14862925,
+        "sha256":  "5107fc95dcde0a2ae68613811874d3bd3713a76ee014d414e0a45c6d45a71bdb"
+    },
+    {
+        "path":  "scratchpad/transport_work/late_two_target.jls",
+        "bytes":  112146,
+        "sha256":  "5c15035f0d6a919d12fc4a46f69bccddc9a7205ed49df1d7e32da504556d3f8d"
+    },
+    {
+        "path":  "scratchpad/transport_work/late_two_triangular.jls",
+        "bytes":  14862394,
+        "sha256":  "cd4f31fe38efd71d0e8e993ab42dec52f59c95f7958f1b509c933f5b09d5bcbb"
+    },
+    {
+        "path":  "scratchpad/transport_work/two_core_affine.jls",
+        "bytes":  3093772,
+        "sha256":  "84f471406a89e46daf05be8d6e285cca7ad0452eff7733a5810001fc75bdea47"
+    },
+    {
+        "path":  "scratchpad/transport_work/two_core_triangular.jls",
+        "bytes":  3093825,
+        "sha256":  "15731911361c77ad5636ab868690d9b79c4efaf9d8d35643283fe064bc22cb60"
+    }
+]
