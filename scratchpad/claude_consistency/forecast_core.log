@@ -1,0 +1,33 @@
+seed 3001 (138s) 1h forecast z-scores: T_pit=-0.5 T_centre=0.23 T_surface=-0.19 T_mean=-0.06 W_mean=-1.56
+seed 3002 (21s) 1h forecast z-scores: T_pit=-1.61 T_centre=-0.56 T_surface=-1.67 T_mean=-1.35 W_mean=1.07
+seed 3003 (37s) 1h forecast z-scores: T_pit=0.35 T_centre=-0.89 T_surface=0.06 T_mean=-0.33 W_mean=0.54
+seed 3004 (68s) 1h forecast z-scores: T_pit=-0.77 T_centre=-2.2 T_surface=-0.69 T_mean=-1.43 W_mean=1.15
+seed 3005 (24s) 1h forecast z-scores: T_pit=-1.03 T_centre=-2.72 T_surface=-1.03 T_mean=-1.87 W_mean=0.43
+seed 3006 (17s) 1h forecast z-scores: T_pit=-1.12 T_centre=-1.5 T_surface=-1.17 T_mean=-1.45 W_mean=0.14
+seed 3007 (49s) 1h forecast z-scores: T_pit=-0.86 T_centre=-0.68 T_surface=-0.83 T_mean=-0.83 W_mean=0.84
+seed 3008 (36s) 1h forecast z-scores: T_pit=-0.63 T_centre=0.07 T_surface=-0.05 T_mean=0.01 W_mean=0.74
+seed 3009 (31s) 1h forecast z-scores: T_pit=-2.3 T_centre=-0.78 T_surface=-2.17 T_mean=-1.92 W_mean=0.88
+seed 3010 (44s) 1h forecast z-scores: T_pit=2.77 T_centre=1.4 T_surface=2.18 T_mean=2.07 W_mean=-1.45
+seed 3011 (23s) 1h forecast z-scores: T_pit=1.07 T_centre=-1.43 T_surface=0.78 T_mean=-0.26 W_mean=-0.73
+seed 3012 (25s) 1h forecast z-scores: T_pit=-0.24 T_centre=0.53 T_surface=-0.27 T_mean=0.03 W_mean=0.54
+seed 3013 (19s) 1h forecast z-scores: T_pit=0.03 T_centre=-0.89 T_surface=0.89 T_mean=0.3 W_mean=-1.2
+seed 3014 (41s) 1h forecast z-scores: T_pit=1.19 T_centre=0.75 T_surface=0.84 T_mean=0.89 W_mean=-1.08
+seed 3015 (13s) 1h forecast z-scores: T_pit=-1.03 T_centre=-1.39 T_surface=-1.0 T_mean=-1.23 W_mean=0.27
+seed 3016 (29s) 1h forecast z-scores: T_pit=0.1 T_centre=0.7 T_surface=0.4 T_mean=0.55 W_mean=0.27
+
+Forecast calibration over 16 cooks from t=1800.0 s (core, nx=4): rms z (1 is calibrated), mean z, share outside the 90% band (0.10 is calibrated)
+  +  30 min T_pit     rms z 1.20  mean z -0.30  outside 90% 0.12
+  +  30 min T_centre  rms z 1.17  mean z -0.51  outside 90% 0.19
+  +  30 min T_surface rms z 1.09  mean z -0.22  outside 90% 0.19
+  +  30 min T_mean    rms z 1.14  mean z -0.38  outside 90% 0.12
+  +  30 min W_mean    rms z 1.10  mean z -0.18  outside 90% 0.06
+  +  60 min T_pit     rms z 1.21  mean z -0.29  outside 90% 0.12
+  +  60 min T_centre  rms z 1.24  mean z -0.58  outside 90% 0.12
+  +  60 min T_surface rms z 1.10  mean z -0.25  outside 90% 0.19
+  +  60 min T_mean    rms z 1.15  mean z -0.43  outside 90% 0.12
+  +  60 min W_mean    rms z 0.91  mean z +0.05  outside 90% 0.00
+  + 120 min T_pit     rms z 1.17  mean z -0.28  outside 90% 0.12
+  + 120 min T_centre  rms z 1.23  mean z -0.59  outside 90% 0.12
+  + 120 min T_surface rms z 1.01  mean z -0.30  outside 90% 0.19
+  + 120 min T_mean    rms z 1.11  mean z -0.46  outside 90% 0.19
+  + 120 min W_mean    rms z 0.84  mean z +0.21  outside 90% 0.06

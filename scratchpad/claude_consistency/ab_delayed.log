@@ -1,0 +1,3 @@
+expand=0: converged true  |ΔT_pit| 4.355042057113678e-5  max |Δz|/sd 0.0014409849210292075  (2962.0 s)
+expand=4: converged true  |ΔT_pit| 4.355042057113678e-5  max |Δz|/sd 0.0014409849210292075  (2096.0 s)
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`

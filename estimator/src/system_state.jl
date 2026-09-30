@@ -138,12 +138,39 @@ rather than a hard one: a smoother's process whitening depends on the state it i
 put a kink in the objective wherever a collagen node's width crossed the cap as it converted (the two-piece
 bench of 2026-09-25). Under an eighth of the cap the two agree to 1e-13.
 """
-function belief_cov_to_coord(Q::AbstractMatrix, y::AbstractVector, bl::BeliefLayout; max_sd::Float64=3.0)
+function belief_cov_to_coord(Q::AbstractMatrix, y::AbstractVector, bl::BeliefLayout; max_sd::Float64=3.0, damp::Bool=false)
     d = inv.(max.(belief_decode_jacobian(y, bl), eps(Float64)))
     sd = sqrt.(max.(diag(Q) .* d .^ 2, 0.0))
     scale = (1 .+ (sd ./ max_sd) .^ 8) .^ (-1 / 8)
+    damp && (scale = scale .* _boundary_damping(diag(Q), y, bl))
     e = scale .* d
     return Matrix(Symmetric((e .* Q) .* e'))
+end
+
+# A disturbance cannot carry a state through its physical boundary. Where an entry's physical sd `s` exceeds its
+# distance `δ` to the nearest boundary (a positive state's floor, either end of a unit interval), its sd is damped by
+# 1/(1 + (s/δ)²): unchanged far from a boundary (a temperature's s/δ is 1e-3), vanishing as δ²/s at one; the largest
+# coordinate sd near a boundary is then one half. Without it the coordinate cap alone sets the noise there: three
+# coordinate units per slice in a log-type coordinate multiply a state at its floor by up to twenty per slice.
+#
+# `belief_cov_to_coord(...; damp=true)` is the map for DRAWING the physical process (a simulated truth, a forecast's
+# future disturbances): undamped, the matched control grew an absent water pan to 2.4 kg and bark from nothing, and
+# its solves turned stiff two hours out. The estimator's own whitener stays undamped: its looser noise next to a
+# boundary can only widen the belief there, and the damped whitener stalled the window solve short of its certificate
+# (seed 3010 of the control at 18 min, 2026-09-30) in those strongly curved coordinates.
+function _boundary_damping(v::AbstractVector, y::AbstractVector, bl::BeliefLayout)
+    x = belief_decode(y, bl)
+    return map(eachindex(v)) do i
+        k = bl.kinds[i]
+        k === :free && return one(float(eltype(v)))
+        δ = if k === :positive
+            max(x[i] - STATE_POSITIVE_FLOOR, eps(Float64))
+        else
+            q = (x[i] - STATE_UNIT_EPS) / (1 - 2STATE_UNIT_EPS)
+            max(q * (1 - q), eps(Float64))
+        end
+        1 / (1 + max(v[i], zero(v[i])) / δ^2)
+    end
 end
 # the same map with the cap written in the variance, (sd/max)⁸ = (v/max²)⁴: the same numbers to rounding, and smooth in a
 # variance rate at zero where the square root is not (the derivative of the process covariance with respect to a

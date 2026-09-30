@@ -45,9 +45,18 @@ function consistency_model(; nx=6, stop=3600.0, suite=:full, noise_scale=1.0)
     return SystemModel(sys, CookLog(ts, fill(0.5, length(ts)); sensors), blk)
 end
 
-function control_cook(model, seed; times=[0.0, 120.0, 600.0, 1800.0, 3600.0], lag=0, transition=nothing, inspect=nothing)
+"The lower root of a slice's physical process covariance in the belief's coordinates at `y1`: damped at the boundaries (`belief_cov_to_coord` `damp`), no integrator floor."
+function truth_process_root(model, y1, t0, t1, events=Symbol[])
+    Q = belief_process_cov(model.bl, model.sn, (t1 - t0) / 3600; events)
+    return cholesky(Symmetric(E._stable_cov(belief_cov_to_coord(Q, y1, model.bl; damp=true)))).L
+end
+
+function control_cook(model, seed; times=[0.0, 120.0, 600.0, 1800.0, 3600.0], lag=0, transition=nothing, inspect=nothing, init=nothing)
     rng = MersenneTwister(seed)
-    sm = online_init(model; lag, record_limit=0)
+    # `init(model)` supplies another estimator over the same model (a conditional bank); its anchor smoother then
+    # carries the graph the truth reads its first prior and slice structure from
+    sm = init === nothing ? online_init(model; lag, record_limit=0) : init(model)
+    A = hasproperty(sm, :anchor) ? sm.anchor : sm
     # Score-coordinate priors are exactly normal. Do not approximate them by drawing a beta
     # on the legacy bench's finite inverse-CDF grid and transforming that draw back to a score.
     zt = map(model.blk.sites) do site
@@ -60,8 +69,8 @@ function control_cook(model, seed; times=[0.0, 120.0, 600.0, 1800.0, 3600.0], la
             site.p1+site.p2*randn(rng)
         end
     end
-    ky = sm.nodes[1][2]
-    prior = only(f for f in factors_of(sm.graph, ky) if f isa GaussianPrior)
+    ky = A.nodes[1][2]
+    prior = only(f for f in factors_of(A.graph, ky) if f isa GaussianPrior)
     yt = prior.m + prior.R \ randn(rng, length(prior.m))
     disc = zeros(length(model.log.sensors))
     hs = [compile_observable(s.observable, model.sys, model.bl, model.blk, model.log) for s in model.log.sensors]
@@ -70,13 +79,15 @@ function control_cook(model, seed; times=[0.0, 120.0, 600.0, 1800.0, 3600.0], la
     for (j, t) in enumerate(times)
         if j > 1
             kp = ky
-            Cprev = transition === nothing ? nothing : joint_cov(sm.graph; keys=[sm.key_z,kp])[1]
-            ky = E._node_at!(sm, t)
-            f = sm.dyn[(kp, ky)]
+            Cprev = transition === nothing ? nothing : joint_cov(A.graph; keys=[A.key_z,kp])[1]
+            ky = E._node_at!(A, t)
+            f = A.dyn[(kp, ky)]
             yt, _ = E.propagate(model, yt, zt, times[j-1], t; first_slice=f.first)
-            # The factor's covariance is predictable from past observations. No current reading or
-            # truth is used to choose it; this draws exactly that conditional process model.
-            yt += f.cache.W \ randn(rng, length(yt))
+            # The truth draws the declared PHYSICAL process noise of the slice at its own state. The factor's
+            # whitener also carries the integrator's floor, a numerical allowance that is one coordinate unit per
+            # slice for a state at its floor; drawn as a disturbance it inflates near-zero states over a long cook.
+            # The estimator keeps the floor, which makes it slightly conservative there, never overconfident.
+            yt += truth_process_root(model, yt, times[j-1], t, f.events) * randn(rng, length(yt))
             transition === nothing || transition(sm, kp, ky, Cprev)
         end
         p, _, tk = E._point_params(model, zt, t)
@@ -90,15 +101,16 @@ function control_cook(model, seed; times=[0.0, 120.0, 600.0, 1800.0, 3600.0], la
             push!(readings, MeasurementRecord(s.id, t, min(v, s.noise.cap)))
         end
         r = assimilate!(sm, readings)
-        r.committed || error("uncommitted arrival at $t for seed $seed")
+        r.committed || error("uncommitted arrival at $t for seed $seed: " *
+            join(["$k=$(getfield(r, k))" for k in propertynames(r) if !(getfield(r, k) isa AbstractArray) || length(getfield(r, k)) <= 8], ", "))
         inspect === nothing || inspect(sm, r, (z=copy(zt), y=copy(yt), x=copy(xt)))
         ez = r.z - zt; ey = r.y - yt; et = r.x[ti] - xt[ti]
         gn = Dict(g => dot(ey[rg], r.y_cov[rg,rg] \ ey[rg])/length(rg) for (g,rg) in model.bl.groups)
-        push!(rows, (t=t, nis=r.nis, dof=r.dof, nees_z=dot(ez, r.z_cov \ ez),
+        push!(rows, (t=t, nis=hasproperty(r, :nis) ? r.nis : NaN, dof=hasproperty(r, :dof) ? r.dof : 0, nees_z=dot(ez, r.z_cov \ ez),
                      nees_T=dot(et, r.x_cov[ti,ti] \ et), nees_y=dot(ey, r.y_cov \ ey),
                      group_nees=gn,
                      zerr=ez ./ sqrt.(diag(r.z_cov)), Terr=et ./ sqrt.(diag(r.x_cov)[ti]),
-                     innov=[r.innov_std[s.id] for s in model.log.sensors]))
+                     innov=hasproperty(r, :innov_std) ? [r.innov_std[s.id] for s in model.log.sensors] : fill(NaN, length(model.log.sensors))))
     end
     return rows
 end

@@ -1,0 +1,17 @@
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+Test Summary:                                                                                                | Pass  Total   Time
+the linear oracle: the graph's full-history solve is the RTS smoother, its newest marginal the Kalman filter |   29     29  16.6s
+Test Summary:                                                                                          | Pass  Total  Time
+fixed lag: marginalization keeps every window marginal at the smoother's, and the past is the filter's |  163    163  3.2s
+Test Summary:                                                         | Pass  Total  Time
+delayed insertion, dropout and sensor subsets against the same oracle |    6      6  1.3s
+Test Summary:                                                     | Pass  Total  Time
+hierarchy: cooks around a population, the planted value recovered |   11     11  1.0s
+Test Summary:                      | Pass  Total  Time
+the censored site and the OU chain |    8      8  0.8s
+Test Summary:           | Pass  Total  Time
+the graph's bookkeeping |    8      8  0.2s
+Test Summary:                                   | Pass  Total  Time
+solver safeguards, stationarity and rank checks |   23     23  1.8s
+test_factors.jl: done
+factors exit 0

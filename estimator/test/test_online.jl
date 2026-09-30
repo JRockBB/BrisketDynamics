@@ -139,6 +139,23 @@ run_set("layout") && @testset "the belief layout of one slab is the filter's; th
     @test maximum(abs.(Qc_b[big, big] .- Matrix(Symmetric((e_f .* Qf) .* e_f'))[big, big])) < 1e-12
     far = [i for i in big if sd_f[i] < 0.05 * 3.0]
     @test length(far) > 10 && maximum(abs.(Qc_b[far, far] .- E._state_cov_to_coord(Qf, y_fil, lay)[far, far])) < 1e-9
+    # the damped map for drawing the physical process (system_state.jl `_boundary_damping`): the same map wherever no entry
+    # is near its boundary; a temperature untouched; at a positive state's floor the coordinate sd at most one half however
+    # wide the physical disturbance, and smaller the deeper the state sits
+    damp = E._boundary_damping(diag(Qb), y_sys, bl)
+    @test all(0 .< damp .<= 1)
+    open_ = [i for i in big if damp[i] > 1 - 1e-5]
+    @test length(open_) > 10 && isapprox(belief_cov_to_coord(Qb, y_sys, bl; damp=true)[open_, open_], Qc_b[open_, open_]; rtol=1e-4)
+    iT = first(E.belief_index(bl, :brisket, :T)); @test damp[iT] > 1 - 1e-5            # 1/(1 + (s/δ)²): a temperature's s/δ is ~1e-3
+    ip = first(E.belief_index(bl, :pit, :m_pan))
+    for x in (1e-4, 1e-6, 1e-8), s in (1e-3, 0.05, 1.0)
+        yb = copy(y_sys); yb[ip] = E._belief_enc(x, :positive)
+        Q1 = zeros(bl.n, bl.n); Q1[ip, ip] = s^2
+        @test sqrt(belief_cov_to_coord(Q1, yb, bl; damp=true)[ip, ip]) <= 0.5 + 1e-9
+    end
+    ydeep = copy(y_sys); ydeep[ip] = E._belief_enc(1e-8, :positive); yshallow = copy(y_sys); yshallow[ip] = E._belief_enc(1e-5, :positive)
+    Q1 = zeros(bl.n, bl.n); Q1[ip, ip] = 0.01^2
+    @test belief_cov_to_coord(Q1, ydeep, bl; damp=true)[ip, ip] < belief_cov_to_coord(Q1, yshallow, bl; damp=true)[ip, ip]
 end
 
 run_set("observables") && @testset "the dynamics factor propagates as the monolith hands off; the observables read as the channels" begin

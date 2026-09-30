@@ -867,6 +867,9 @@ function _armijo_search(F0::Float64, d0::Float64, try_step; c1::Float64=1e-4, ma
     return (0.0, Inf, max_trials)
 end
 
+"A full step's actual over predicted decrease above which `gauss_newton!`'s `expand` tries a longer step."
+const EXPAND_GAIN = 1.25
+
 """
     gauss_newton!(g; iters=30, tol=1e-6, ftol=1e-8, gtol=tol,
                   resolution_gtol=2gtol, λ0=0.0, sparse=false,
@@ -914,13 +917,15 @@ NaN for a sparse solve): the joint stationarity read the diagonal certificate ca
 default) a solve stalled three complete line searches at one point is also accepted when that point's `newton_sd`, at an
 exact relinearization, is under `newton_tol`: the diagonal read divides each coordinate's score by its own column only
 and sits at several times its tolerance on a correlated valley where no belief would move, and the joint step is what
-the belief would do. The normal certificate is unchanged; the rescue never fires on a sparse solve.
+the belief would do. The normal certificate is unchanged; the rescue never fires on a sparse solve. `expand` > 0 lets an accepted full step
+whose decrease beat the model's by more than `EXPAND_GAIN` double (up to `expand` times, within the bounds) while the
+objective keeps falling: a path change for under-stepping on curved valleys, never a certificate.
 """
 function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::Float64=1e-8, gtol::Float64=tol,
                        resolution_gtol::Float64=2gtol, newton_tol::Float64=0.0, λ0::Float64=0.0, sparse::Bool=false,
                        verbose::Bool=false, max_step::Float64=Inf, step_bounds::AbstractDict=Dict{VarKey,Float64}(), soc::Int=10,
                        stationarity_scales::AbstractDict=Dict(),
-                       adaptive_damping::Bool=false)
+                       adaptive_damping::Bool=false, expand::Int=0)
     isfinite(resolution_gtol) && resolution_gtol >= gtol ||
         throw(ArgumentError("resolution_gtol must be finite and no smaller than gtol"))
     newton_tol >= 0 || throw(ArgumentError("newton_tol must be non-negative"))
@@ -1028,8 +1033,34 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             continue
         end
         rejected_at_point = 0
-        dropped = F - Fn
         xn = cand[].x; nsoc = cand[].soc; bounded = cand[].bounded
+        # Expansion (`expand` > 0 doublings, off by default): a full step whose decrease beat the Gauss-Newton model's
+        # prediction by more than EXPAND_GAIN is under-stepping along a curved valley (the two-probe control of
+        # 2026-09-30 crawled 80 accepted full steps at gain ≈ 2, each a fiftieth of a posterior sd, and was refused at
+        # the iteration cap). The same accepted displacement is doubled while the objective keeps falling, never past
+        # the caller's bounds. Only the path changes: convergence is still the stationarity certificate.
+        if expand > 0 && α == 1.0
+            d1 = xn .- x
+            Jd = J * d1
+            pred1 = -(dot(r, Jd) + 0.5 * sum(abs2, Jd))
+            if pred1 > 0 && (F - Fn) / pred1 > EXPAND_GAIN
+                room = isfinite(max_step) ? max_step / max(norm(d1, Inf), eps()) : Inf
+                for (k, b) in step_bounds
+                    haskey(offsets, k) || continue
+                    room = min(room, b / max(norm(d1[offsets[k]], Inf), eps()))
+                end
+                scale = 1.0
+                for _ in 1:expand
+                    2scale <= room || break
+                    xt = x .+ (2scale) .* d1
+                    Ft = try_point(xt)
+                    (isfinite(Ft) && Ft < Fn) || break
+                    scale *= 2; xn = xt; Fn = Ft
+                end
+                scale > 1 && (bounded = bounded || 2scale > room)
+            end
+        end
+        dropped = F - Fn
         stepn = norm(xn .- x); moved = norm(xn .- x, Inf)
         Jstep = J * (xn .- x)
         predicted_drop = -(dot(r, Jstep) + 0.5 * sum(abs2, Jstep))

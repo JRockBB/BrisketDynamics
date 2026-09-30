@@ -78,6 +78,9 @@ const ONLINE_ODE_RESOLUTION_GTOL = 5e-4
 # complete line searches could not leave, whose undamped step at an exact relinearization is under this many posterior sds,
 # is accepted (2026-09-26: the smoother lost one arrival in thirty at a diagonal read of 5e-4 with the joint step at 1e-4 sd)
 const ONLINE_NEWTON_TOL = 1e-2
+# the doublings an accepted full step may take when it beat the model (gauss_newton!'s `expand`): the two-probe control's
+# seed 3012 (2026-09-30) crawled its 80 iterations at gain 2 along the probe depths' valley and was refused
+const ONLINE_EXPAND = Ref(4)
 
 # A dynamics factor spanning several execution-grid intervals accumulates more adaptive-step quantization
 # than the one-grid-step factors on which ONLINE_ODE_RESOLUTION_GTOL was measured. Scale that measured
@@ -548,7 +551,7 @@ function solve_window!(sm::FixedLagSmoother; verbose::Bool=false)
         end
         rc = gauss_newton!(sm.graph; iters=sm.iters, tol=sm.tol, ftol=sm.ftol, verbose,
                            resolution_gtol, newton_tol=attempt == sm.restarts + 1 ? ONLINE_NEWTON_TOL : 0.0,
-                           step_bounds=bounds, stationarity_scales)
+                           step_bounds=bounds, stationarity_scales, expand=ONLINE_EXPAND[])
         append!(all_hist, (merge(h, (attempt=attempt,)) for h in rc.hist))
         r = rc
         rc.converged && break

@@ -1,0 +1,23 @@
+  Activating project at `C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator`
+ERROR: LoadError: Some tests did not pass: 8 passed, 1 failed, 0 errored, 0 broken.
+in expression starting at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_online.jl:395
+Test Summary:                                                           | Pass  Total     Time
+failed assimilation rolls back; checkpoints and diagnostics are bounded |   47     47  1m42.3s
+  the fixed-lag run: 8 arrivals in 95 s; iterations [3, 2, 5, 5, 7, 6, 6, 4]; nodes [1, 2, 3, 3, 3, 3, 3, 3]
+Test Summary:                                                                                       | Pass  Total     Time
+updates on arrival: the belief moves toward the readings, the lag is kept, the beliefs are physical |   18     18  1m49.3s
+the fixed lag against the full history; a delayed reading against the in-order run: Test Failed at C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_online.jl:412
+  Expression: abs(rd_.T_pit[1] - rf.T_pit[1]) < 0.001 && maximum(abs.(rd_.z .- rf.z) ./ sqrt.(diag(rf.z_cov))) < 0.001
+
+Stacktrace:
+ [1] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:680 [inlined]
+ [2] macro expansion
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_online.jl:412 [inlined]
+ [3] macro expansion
+   @ C:\Users\jmurp\.julia\juliaup\julia-1.11.9+0.x64.w64.mingw32\share\julia\stdlib\v1.11\Test\src\Test.jl:1709 [inlined]
+ [4] top-level scope
+   @ C:\Users\jmurp\.julia\dev\BrisketDynamics\estimator\test\test_online.jl:398
+Test Summary:                                                                      | Pass  Fail  Total      Time
+the fixed lag against the full history; a delayed reading against the in-order run |    8     1      9  52m58.7s
+online exit 1

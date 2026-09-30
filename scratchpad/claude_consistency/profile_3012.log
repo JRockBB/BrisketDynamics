@@ -1,0 +1,8 @@
+latent second_depth_fraction: MAP -0.677, GN sd 0.283, truth -0.288 (1.37 sd); F at MAP 2.90452
+  k=-4.0: ΔF 5.091  (Gaussian ½k² = 8.0)  converged false  centre T 281.75
+  k=-3.0: ΔF 3.237  (Gaussian ½k² = 4.5)  converged true  centre T 281.73
+  k=-2.0: ΔF 1.595  (Gaussian ½k² = 2.0)  converged true  centre T 281.72
+  k=-1.0: ΔF 0.423  (Gaussian ½k² = 0.5)  converged false  centre T 281.72
+  k=1.0: ΔF 0.412  (Gaussian ½k² = 0.5)  converged true  centre T 281.78
+  k=2.0: ΔF 1.324  (Gaussian ½k² = 2.0)  converged true  centre T 281.86
+  k=3.0: ΔF 2.381  (Gaussian ½k² = 4.5)  converged false  centre T 281.93

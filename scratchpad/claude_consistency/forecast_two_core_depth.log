@@ -1,0 +1,27 @@
+seed 3001 (661s) 1h forecast z-scores: T_pit=-0.36 T_centre=-0.45 T_surface=-0.01 T_mean=-0.19 W_mean=0.36
+seed 3002 skipped: uncommitted arrival at 1440.0 for seed 3002: ok=false, reason=conditional_solve, diagnostics=(order = 5, node = 24, coordinates = [-2.8569700138728, 2.856970013
+seed 3003 (776s) 1h forecast z-scores: T_pit=0.36 T_centre=-1.63 T_surface=0.1 T_mean=-0.43 W_mean=0.6
+seed 3004 (667s) 1h forecast z-scores: T_pit=-0.27 T_centre=-0.8 T_surface=0.59 T_mean=-0.23 W_mean=0.98
+seed 3005 (369s) 1h forecast z-scores: T_pit=-0.81 T_centre=-3.38 T_surface=-0.63 T_mean=-1.93 W_mean=-0.57
+seed 3006 (538s) 1h forecast z-scores: T_pit=-0.28 T_centre=0.05 T_surface=-0.41 T_mean=-0.31 W_mean=0.08
+seed 3007 (631s) 1h forecast z-scores: T_pit=-0.14 T_centre=-0.05 T_surface=0.08 T_mean=0.04 W_mean=-0.41
+seed 3008 (531s) 1h forecast z-scores: T_pit=-0.79 T_centre=-0.07 T_surface=-0.24 T_mean=-0.18 W_mean=-0.3
+
+Updates that did not commit (cooks left out): seeds 3002
+
+Forecast calibration over 7 of 8 cooks from t=1800.0 s (two_core, nx=4, depth): rms z (1 is calibrated), mean z, share outside the 90% band (0.10 is calibrated)
+  +  30 min T_pit     rms z 0.50  mean z -0.29  outside 90% 0.00
+  +  30 min T_centre  rms z 1.43  mean z -0.78  outside 90% 0.14
+  +  30 min T_surface rms z 0.35  mean z +0.02  outside 90% 0.00
+  +  30 min T_mean    rms z 0.74  mean z -0.32  outside 90% 0.14
+  +  30 min W_mean    rms z 0.91  mean z -0.13  outside 90% 0.00
+  +  60 min T_pit     rms z 0.49  mean z -0.33  outside 90% 0.00
+  +  60 min T_centre  rms z 1.46  mean z -0.90  outside 90% 0.29
+  +  60 min T_surface rms z 0.38  mean z -0.07  outside 90% 0.00
+  +  60 min T_mean    rms z 0.77  mean z -0.46  outside 90% 0.14
+  +  60 min W_mean    rms z 0.54  mean z +0.11  outside 90% 0.00
+  + 120 min T_pit     rms z 0.47  mean z -0.32  outside 90% 0.00
+  + 120 min T_centre  rms z 1.18  mean z -0.76  outside 90% 0.14
+  + 120 min T_surface rms z 0.40  mean z -0.14  outside 90% 0.00
+  + 120 min T_mean    rms z 0.72  mean z -0.46  outside 90% 0.14
+  + 120 min W_mean    rms z 0.32  mean z +0.28  outside 90% 0.00
