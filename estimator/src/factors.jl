@@ -238,6 +238,30 @@ function propagate(m::SystemModel, y0::AbstractVector, z::AbstractVector, t0::Re
 end
 
 """
+    propagate_states(m::SystemModel, y0, z, t0, times; first_slice=false) -> Matrix
+
+The belief state (coordinates) at every time in `times` (increasing, after `t0`) from `y0` at `t0` under the latents
+`z`: ONE solve saving at all of them, each column the propagation `propagate` would give to that time. Duals flow
+through, so one forward-mode pass differentiates every column at once (a slice's readings cost one Jacobian however many
+there are).
+"""
+function propagate_states(m::SystemModel, y0::AbstractVector, z::AbstractVector, t0::Real, times::AbstractVector; first_slice::Bool=false)
+    isempty(times) && return zeros(promote_type(eltype(y0), eltype(z)), m.bl.n, 0)
+    all(>(t0), times) && issorted(times) && allunique(times) || throw(ArgumentError("propagation times must increase after t0"))
+    t1 = last(times)
+    _validate_rom_use(m.rom, m.blk, z, t0, t1)
+    p, play, tk = _slice_params(m, z, t0, t1)
+    x0 = system_from_belief(belief_decode(y0, m.bl), m.bl)
+    if first_slice
+        x0 = convert(Vector{promote_type(eltype(x0), eltype(p))}, x0)
+        x0[first(state_index(m.sys.layout, :pit, :ignited))] = p[play[(:pit, :phi)][7]]
+    end
+    correction = m.rom === nothing ? nothing : (t -> _rom_dynamics_correction(m.rom, t))
+    A = system_solve_raw(m.sys, p, x0, tk, vcat(Float64(t0), collect(Float64, times)); correction, abstol=m.abstol, reltol=m.reltol)
+    return reduce(hcat, [belief_encode(belief_from_system(A[:, j + 1], m.bl), m.bl) for j in eachindex(times)])
+end
+
+"""
     LatentSplit(static, moving)
 
 The latent vector held in two graph variables: the entries `static` in one (the same for the whole cook) and
@@ -384,7 +408,7 @@ function _dyn_eval!(f::DynamicsFactor, z, y0; jac::Bool)
     c = f.cache
     fresh = c !== nothing && c.z == z && c.y0 == y0
     if !fresh
-        fy, o = propagate(f.model, y0, z, f.t0, f.t1; first_slice=f.first)
+        tq = time(); fy, o = propagate(f.model, y0, z, f.t0, f.t1; first_slice=f.first); _tick!(:dyn_solve, time() - tq)
         f.n_solves += 1
         W = c === nothing ? _whitener(f, fy) : c.W
         c = c === nothing ? (z=copy(z), y0=copy(y0), f=fy, W=W, wy=copy(fy), o=o, jz=nothing, jy0=nothing, Jy=nothing, Jz=nothing) :
@@ -393,7 +417,9 @@ function _dyn_eval!(f::DynamicsFactor, z, y0; jac::Bool)
     if jac && (c.Jy === nothing || norm(z .- c.jz, Inf) > f.relin_tol || norm(y0 .- c.jy0, Inf) > f.relin_tol_state)
         ny = length(y0)
         g(v) = propagate(f.model, v[1:ny], v[(ny + 1):end], f.t0, f.t1; first_slice=f.first)[1]
+        tq = time()
         J = _chunked_jacobian(g, vcat(y0, z), ndim(f), f.chunk)
+        _tick!(:dyn_jac, time() - tq)
         f.n_jacobians += 1
         c = (z=c.z, y0=c.y0, f=c.f, W=c.W, wy=c.wy, o=c.o, jz=copy(z), jy0=copy(y0), Jy=J[:, 1:ny], Jz=J[:, (ny + 1):end])
     end
@@ -637,15 +663,20 @@ has_variable(g::FactorGraph, k::VarKey) = haskey(g.dims, k)
 "Ensure cached dynamics Jacobians were made at the graph's exact current point, preserving their noise model."
 function _ensure_current_dynamics!(g::FactorGraph)
     for f in g.factors
-        f isa DynamicsFactor || continue
-        c = f.cache
-        c === nothing && continue
-        z = _factor_latents(f, g); y0 = g.values[f.key_y0]
-        if c.Jy === nothing || c.z != z || c.y0 != y0 || c.jz != z || c.jy0 != y0
-            _invalidate_linearization!(f)
-        end
+        _ensure_current!(f, g)
     end
     return g
+end
+# a factor with a cached secant linearization of a physics solve drops it unless it was made at the exact current point
+_ensure_current!(::Factor, ::FactorGraph) = nothing
+function _ensure_current!(f::DynamicsFactor, g::FactorGraph)
+    c = f.cache
+    c === nothing && return nothing
+    z = _factor_latents(f, g); y0 = g.values[f.key_y0]
+    if c.Jy === nothing || c.z != z || c.y0 != y0 || c.jz != z || c.jy0 != y0
+        _invalidate_linearization!(f)
+    end
+    return nothing
 end
 function add_variable!(g::FactorGraph, k::VarKey, x0::AbstractVector)
     has_variable(g, k) && throw(ArgumentError("the variable $k is already in the graph"))

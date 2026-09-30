@@ -81,6 +81,9 @@ const ONLINE_NEWTON_TOL = 1e-2
 # the doublings an accepted full step may take when it beat the model (gauss_newton!'s `expand`): the two-probe control's
 # seed 3012 (2026-09-30) crawled its 80 iterations at gain 2 along the probe depths' valley and was refused
 const ONLINE_EXPAND = Ref(4)
+# profiling: seconds accumulated per phase of an update (diagnostic only; reset by the caller)
+const SLICE_TIMERS = Dict{Symbol,Float64}()
+_tick!(k::Symbol, dt) = (SLICE_TIMERS[k] = get(SLICE_TIMERS, k, 0.0) + dt)
 
 # A dynamics factor spanning several execution-grid intervals accumulates more adaptive-step quantization
 # than the one-grid-step factors on which ONLINE_ODE_RESOLUTION_GTOL was measured. Scale that measured
@@ -135,6 +138,12 @@ mutable struct FixedLagSmoother
     drift_q::Vector{Float64}                   # per moving entry its random-walk variance per hour (at least DRIFT_Q_FLOOR)
     drift_jumps::Vector{Tuple{Int,Float64,Float64}}   # (moving entry, time [s], variance) added to the copy-to-copy factor of the slice crossing the time
     drift_fac::Dict{Tuple{VarKey,VarKey},HierarchyFactor}   # the random-walk factors between consecutive copies, by (earlier, later)
+    attach::Symbol                                          # :node (a state node per reading time) or :slice (readings through the physics from their slice's node)
+    slices::Dict{VarKey,SliceObservationFactor}             # :slice: per anchor node its readings' factor
+    slice_recs::Dict{VarKey,Vector{MeasurementRecord}}      # :slice: per anchor node its uncensored readings
+    slice_G::Dict{Tuple{Symbol,Float64},Vector{Float64}}    # :slice: per reading (sensor, time) its sensitivity, fixed at first sight
+    node_ratio::Float64                                     # :slice: a new node when the process variance a reading sees exceeds this times its measurement variance
+    slice_rd::Dict{Tuple{Symbol,Float64},SliceReading}      # :slice: per reading its compiled form
 end
 key_params(sm::FixedLagSmoother) = sm.key_z
 key_node(sm::FixedLagSmoother, k::Int) = VarKey(:state, sm.cook, k)
@@ -195,7 +204,9 @@ on the slice crossing `t`; the rest stay one static block (`LatentSplit`). A coo
 function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=3, iters::Int=40, restarts::Int=1, tol::Float64=1e-4,
                      ftol::Float64=1e-2, latent_step::Float64=0.25, goals::PlanGoals=PlanGoals(), graph::FactorGraph=FactorGraph(),
                      cook::Symbol=:cook, hierarchy=nothing, record_limit::Int=256, als::Union{Nothing,ALSFeed}=nothing,
-                     relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol, drift=nothing)
+                     relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol, drift=nothing, attach::Symbol=:node, node_ratio::Float64=1.0)
+    attach in (:node, :slice) || throw(ArgumentError("attach must be :node or :slice, not $attach"))
+    attach === :slice && als !== nothing && throw(ArgumentError("the ALS accumulator reads one node per arrival; it is not built for :slice"))
     lag >= 0 || throw(ArgumentError("the lag counts nodes kept behind the newest; it cannot be negative"))
     iters >= 0 || throw(ArgumentError("iters cannot be negative"))
     restarts >= 0 || throw(ArgumentError("restarts cannot be negative"))
@@ -267,7 +278,9 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                             Dict(s.id => Tuple{Float64,VarKey}[] for s in model.log.sensors), Dict(s.id => 0 for s in model.log.sensors),
                             Dict(s.id => -Inf for s in model.log.sensors), Dict{Tuple{VarKey,VarKey},DiscrepancyFactor}(),
                             ObservationFactor[], lag, iters, restarts, tol, ftol, latent_step, relin_tol, relin_tol_state, goals, past, Float64(t0), NamedTuple[],
-                            record_limit, 0, 0, als, split, drift_q, drift_jumps, Dict{Tuple{VarKey,VarKey},HierarchyFactor}())
+                            record_limit, 0, 0, als, split, drift_q, drift_jumps, Dict{Tuple{VarKey,VarKey},HierarchyFactor}(),
+                            attach, Dict{VarKey,SliceObservationFactor}(), Dict{VarKey,Vector{MeasurementRecord}}(),
+                            Dict{Tuple{Symbol,Float64},Vector{Float64}}(), node_ratio, Dict{Tuple{Symbol,Float64},SliceReading}())
 end
 
 "Append one diagnostic to the bounded in-memory ring."
@@ -299,12 +312,21 @@ function _transaction_snapshot(sm::FixedLagSmoother)
         f isa DynamicsFactor || continue
         dyn_state[f] = (cache=deepcopy(f.cache), n_solves=f.n_solves, n_jacobians=f.n_jacobians)
     end
+    slice_state = IdDict{SliceObservationFactor,NamedTuple}()
+    for f in values(sm.slices)
+        slice_state[f] = (cache=deepcopy(f.cache), n_solves=f.n_solves, n_jacobians=f.n_jacobians)
+    end
     return (
         graph_keys=copy(sm.graph.keys),
         graph_dims=copy(sm.graph.dims),
         graph_values=Dict(k => copy(v) for (k, v) in sm.graph.values),
         graph_factors=copy(sm.graph.factors),
         dyn_state,
+        slice_state,
+        slices=copy(sm.slices),
+        slice_recs=Dict(k => copy(v) for (k, v) in sm.slice_recs),
+        slice_G=copy(sm.slice_G),
+        slice_rd=copy(sm.slice_rd),
         nodes=copy(sm.nodes),
         node_count=sm.node_count,
         dyn=copy(sm.dyn),
@@ -332,6 +354,15 @@ function _restore_transaction!(sm::FixedLagSmoother, saved)
         f.n_solves = state.n_solves
         f.n_jacobians = state.n_jacobians
     end
+    for (f, state) in saved.slice_state
+        f.cache = state.cache
+        f.n_solves = state.n_solves
+        f.n_jacobians = state.n_jacobians
+    end
+    sm.slices = saved.slices
+    sm.slice_recs = saved.slice_recs
+    sm.slice_G = saved.slice_G
+    sm.slice_rd = saved.slice_rd
     sm.nodes = saved.nodes
     sm.node_count = saved.node_count
     sm.dyn = saved.dyn
@@ -362,7 +393,7 @@ struct SmootherCheckpoint
     backend::String
     smoother::FixedLagSmoother
 end
-const BACKEND_FILES = ("factors.jl", "system_state.jl", "semantic.jl", "online.jl", "offline.jl",
+const BACKEND_FILES = ("factors.jl", "slice_obs.jl", "system_state.jl", "semantic.jl", "online.jl", "offline.jl",
                        "plan_system.jl", "rom.jl", "als.jl", "bench_fit.jl", "posterior_sampling.jl", "posterior_smc.jl", "sampled_online.jl", "particle_online.jl", "sampled_planning.jl", "sampled_offline.jl", "conditional.jl", "conditional_transport.jl", "conditional_density.jl", "conditional_online.jl", "deterministic_online.jl")
 "The implementation fingerprint for checkpoint compatibility, including physics and every new backend layer."
 function backend_fingerprint(; repo::AbstractString=REPO_ROOT)
@@ -521,6 +552,253 @@ function add_measurement!(sm::FixedLagSmoother, rec::MeasurementRecord)
     return f
 end
 
+# ---- readings through the physics from their slice's node (attach = :slice; slice_obs.jl) --------------------------------
+
+"The times of the log's lid-open events in (ta, tb]: each one a state node, since an event is information in itself."
+function _event_times(log::CookLog, ta::Float64, tb::Float64)
+    ts = Float64[]
+    for e in log.events
+        if e.kind === :spritz
+            for tp in _spritz_pulse_times(log, e)
+                ta < tp <= tb && push!(ts, tp)
+            end
+        else
+            ta < e.t <= tb && push!(ts, Float64(e.t))
+        end
+    end
+    return sort(unique(ts))
+end
+# a spritz train's pulses, as `sensor_events` counts them: every `dt` from its start until its piece's wrap or pull
+function _spritz_pulse_times(log::CookLog, e)
+    stop = minimum((x.t for x in log.events if x.target === e.target && x.kind in (:wrap, :pull)); init=Inf)
+    dt = Float64(get(e.params, :dt, 3600.0))
+    ts = Float64[]; τ = Float64(e.t)
+    while τ <= stop && isfinite(τ)
+        push!(ts, τ); τ += dt
+    end
+    return ts
+end
+
+"The belief state carried from node `ka` (at its current value) to each of `times`, one solve."
+function _carried(sm::FixedLagSmoother, ka::VarKey, ta::Float64, times::AbstractVector{Float64})
+    z, _ = _latents_at(sm, ka)
+    y0 = variable_value(sm.graph, ka)
+    ts = sort(unique([t for t in times if t > ta + 1e-9]))
+    S = propagate_states(sm.model, y0, z, ta, ts; first_slice=ka.k == 1)
+    return Dict(t => (t > ta + 1e-9 ? S[:, findfirst(==(t), ts)] : copy(y0)) for t in times), z
+end
+
+"A reading's compiled form, made once per reading (the observable compiled once, not on every rebuild of its slice)."
+function _slice_reading(sm::FixedLagSmoother, r::MeasurementRecord)
+    get!(sm.slice_rd, (r.sensor, r.t)) do
+        SliceReading(sm.model, sensor(sm.model.log, r.sensor), r)
+    end
+end
+
+"Rebuild the slice factor at anchor node `ka` from its readings (closed when a later node exists), replacing the old one."
+function _rebuild_slice!(sm::FixedLagSmoother, ka::VarKey)
+    old = pop!(sm.slices, ka, nothing)
+    old === nothing || remove_factor!(sm.graph, old)
+    recs = get(sm.slice_recs, ka, MeasurementRecord[])
+    isempty(recs) && return nothing
+    i = findfirst(x -> x[2] == ka, sm.nodes)
+    ta = sm.nodes[i][1]
+    closed = i < length(sm.nodes)
+    kb, tb = closed ? (sm.nodes[i + 1][2], sm.nodes[i + 1][1]) : (nothing, NaN)
+    readings = [_slice_reading(sm, r) for r in recs]
+    need = [r for r in readings if !haskey(sm.slice_G, (r.spec.id, r.t))]
+    if !isempty(need)
+        Y, z = _carried(sm, ka, ta, unique([r.t for r in need]))
+        for r in need
+            sm.slice_G[(r.spec.id, r.t)] = slice_sensitivity(sm.model, r, Y[r.t], z)
+        end
+    end
+    G = reduce(vcat, [permutedims(sm.slice_G[(r.spec.id, r.t)]) for r in readings])
+    kd0 = Union{Nothing,VarKey}[_disc_at!(sm, r.spec, ta) for r in readings]
+    kd1 = Union{Nothing,VarKey}[closed ? _disc_at!(sm, r.spec, tb) : nothing for r in readings]
+    f = SliceObservationFactor(sm.model, readings, sm.key_z, ka, ta, ka.k == 1; key_y1=kb, t1=tb, kd0, kd1,
+                               key_m=_key_m(sm, ka), split=sm.split, G, relin_tol=sm.relin_tol, relin_tol_state=sm.relin_tol_state)
+    add_factor!(sm.graph, f); sm.slices[ka] = f
+    return f
+end
+
+"""
+    _add_slice_readings!(sm, recs) -> Set of anchor keys touched
+
+Uncensored readings into the window through the physics, in time order: a node at every lid-open event since the newest
+node; a new node at a reading when the process noise it would see from the newest node (its channel's sensitivity through
+the state's process covariance over the gap) exceeds `node_ratio` times its own measurement variance (the white floor and
+the OU discrepancy's); otherwise it joins the newest node's open slice. A delayed reading joins the closed slice it falls
+in. Every slice the batch touched is rebuilt once at the end. The node rule's sensitivities come from ONE solve from the
+newest node over the batch's times.
+"""
+function _add_slice_readings!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord})
+    touched = Set{VarKey}()
+    recs = sort(collect(recs); by=r -> r.t)
+    tn0, kn0 = sm.nodes[end]
+    ahead = unique([r.t for r in recs if r.t > tn0 + 1e-9])
+    Y, z = isempty(ahead) ? (Dict{Float64,Vector{Float64}}(), nothing) : _carried(sm, kn0, tn0, ahead)
+    for rec in recs
+        spec = sensor(sm.model.log, rec.sensor)
+        tn, _ = sm.nodes[end]
+        if rec.t > tn + 1e-9
+            for te in _event_times(sm.model.log, tn, rec.t)
+                _slice_new_node!(sm, te, touched)
+            end
+            tn, _ = sm.nodes[end]
+            if rec.t > tn + 1e-9
+                g = slice_sensitivity(sm.model, _slice_reading(sm, rec), Y[rec.t], z)
+                Q = belief_process_cov(sm.model.bl, sm.model.sn, (rec.t - tn) / 3600)
+                v_meas = spec.noise.white_sd^2 + (has_discrepancy(spec.noise) ? spec.noise.ar_sd^2 : 0.0)
+                dot(g, Q * g) > sm.node_ratio * v_meas && _slice_new_node!(sm, rec.t, touched)
+            end
+        end
+        ka = sm.nodes[findlast(x -> x[1] <= rec.t + 1e-9, sm.nodes)][2]
+        push!(get!(sm.slice_recs, ka, MeasurementRecord[]), rec)
+        push!(touched, ka)
+    end
+    for ka in touched
+        any(x -> x[2] == ka, sm.nodes) && _rebuild_slice!(sm, ka)
+    end
+    return touched
+end
+# a new node after the newest (or inside the window): the slice it cuts marked for rebuilding, its readings after the node moved
+function _slice_new_node!(sm::FixedLagSmoother, t::Float64, touched::Set{VarKey})
+    i = findlast(x -> x[1] < t - 1e-9, sm.nodes)
+    ka = sm.nodes[i][2]
+    kn = _node_at!(sm, t)
+    moved = [r for r in get(sm.slice_recs, ka, MeasurementRecord[]) if r.t >= t - 1e-9]
+    if !isempty(moved)
+        filter!(r -> r.t < t - 1e-9, sm.slice_recs[ka])
+        append!(get!(sm.slice_recs, kn, MeasurementRecord[]), moved)
+        push!(touched, kn)
+    end
+    push!(touched, ka)
+    return kn
+end
+
+"""
+    _predicted_consistency_slice(sm, added) -> NamedTuple
+
+The arrival's readings against the belief before them, in the slice factors they joined: per slice, the new readings'
+innovation conditioned on the slice's earlier readings' (their noise is joint), `ν = v_new − μ_new − K (v_old − μ_old)`
+with `K = Σ_no Σ_oo⁻¹`, its rows `H = ∂μ_new − K ∂μ_old` over the factor's variables, and `S = H C Hᵀ + Σ_nn − K Σ_on`
+with `C` the joint covariance of those variables in the graph holding the slices WITHOUT the new readings. Summed over the
+slices the arrival touched.
+"""
+function _predicted_consistency_slice(sm::FixedLagSmoother, added::Vector{Tuple{VarKey,Vector{MeasurementRecord}}})
+    g = sm.graph
+    parts = NamedTuple[]
+    for (ka, newrecs) in added
+        f = sm.slices[ka]
+        isnew = [any(r -> r.sensor === rd.spec.id && abs(r.t - rd.t) < 1e-9 && r.value == rd.value, newrecs) for rd in f.readings]
+        N = findall(isnew); O = findall(.!isnew)
+        push!(parts, (f=f, N=N, O=O, fo=_slice_subset(f, O)))
+    end
+    swapped = [(findfirst(x -> x === pt.f, g.factors), pt.f, pt.fo) for pt in parts]
+    keys = VarKey[]
+    for pt in parts, k in vars(pt.f)
+        k in keys || push!(keys, k)
+    end
+    for (pos, f, fo) in sort(swapped; by=first, rev=true)
+        fo === nothing ? deleteat!(g.factors, pos) : (g.factors[pos] = fo)
+    end
+    C, off = try
+        joint_cov(g; keys)
+    finally
+        for (pos, f, fo) in sort(swapped; by=first)
+            fo === nothing ? insert!(g.factors, pos, f) : (g.factors[pos] = f)
+        end
+    end
+    ν = Float64[]; Hs = Matrix{Float64}[]; Ns = Matrix{Float64}[]; ids = Symbol[]
+    for pt in parts
+        f = pt.f; N, O = pt.N, pt.O
+        vals = [variable_value(g, k) for k in vars(f)]
+        μ, Jμ = _slice_predict(f, vals; jac=true)
+        v = _slice_values(f)
+        Jfull = zeros(length(f.readings), size(C, 1))
+        for (k, J) in zip(vars(f), Jμ)
+            Jfull[:, off[k]] .+= J
+        end
+        if isempty(O)
+            append!(ν, v[N] .- μ[N]); push!(Hs, Jfull[N, :]); push!(Ns, f.Σ[N, N])
+        else
+            Kg = f.Σ[N, O] / Symmetric(f.Σ[O, O])
+            append!(ν, (v[N] .- μ[N]) .- Kg * (v[O] .- μ[O]))
+            push!(Hs, Jfull[N, :] .- Kg * Jfull[O, :])
+            push!(Ns, f.Σ[N, N] .- Kg * f.Σ[O, N])
+        end
+        append!(ids, [f.readings[i].spec.id for i in N])
+    end
+    H = reduce(vcat, Hs)
+    Rn = zeros(length(ν), length(ν)); o = 0
+    for Nb in Ns
+        n = size(Nb, 1); Rn[(o + 1):(o + n), (o + 1):(o + n)] = Nb; o += n
+    end
+    S = Matrix(Symmetric(H * C * H' + Rn))
+    sdev = sqrt.(max.(diag(S), 1e-300))
+    return (nis=isempty(ν) ? NaN : dot(ν, S \ ν), dof=length(ν), nu=ν, sdev=sdev, ids=ids)
+end
+
+"""
+    belief_now(sm, t) -> NamedTuple
+
+The belief at time `t` at or after the newest node: the newest node's belief carried through the physics to `t` with the
+process noise over the gap, conditioned on the open slice's readings (their noise shares that path):
+`y(t) = Φ_t + K ε`, `K = Cov(w_t, ε) Σ⁻¹`, `ε = v − μ`; its linear map over the slice factor's variables and the conditional
+noise `Q_t − K Cov(ε, w_t)` give the covariance. `belief_at`'s fields.
+"""
+function belief_now(sm::FixedLagSmoother, t::Float64)
+    tn, kn = sm.nodes[end]
+    f = get(sm.slices, kn, nothing)
+    (t <= tn + 1e-9 || f === nothing) && return belief_at(sm)
+    g = sm.graph; bl = sm.model.bl
+    z, zkeys = _latents_at(sm, kn)
+    keys = copy(zkeys)
+    for k in vars(f); k in keys || push!(keys, k); end
+    C, off = joint_cov(g; keys)
+    vals = [variable_value(g, k) for k in vars(f)]
+    μ, Jμ = _slice_predict(f, vals; jac=true)
+    ε = _slice_values(f) .- μ
+    y0 = variable_value(g, kn); ny = length(y0)
+    j = _slice_col(f, t)
+    if j !== nothing && j > 0
+        c = f.cache
+        Φ = c.S[:, j]; Jy = c.Jy[((j - 1) * ny + 1):(j * ny), :]; Jz = c.Jz[((j - 1) * ny + 1):(j * ny), :]
+    else
+        gfun(v) = propagate_states(sm.model, v[1:ny], v[(ny + 1):end], tn, [t]; first_slice=kn.k == 1)[:, 1]
+        Φ = gfun(vcat(y0, z))
+        J = _chunked_jacobian(gfun, vcat(y0, z), ny, 12)
+        Jy = J[:, 1:ny]; Jz = J[:, (ny + 1):end]
+    end
+    Q1 = belief_process_cov(bl, sm.model.sn, 1.0)
+    D = inv.(max.(belief_decode_jacobian(Φ, bl), eps(Float64)))              # physical to coordinates at Φ
+    τt = (t - tn) / 3600
+    kτ = [min(τt, (r.t - tn) / 3600) for r in f.readings]
+    Cwε = (D .* (Q1 * f.G')) .* kτ'                                          # Cov(w_t in coordinates, ε)
+    K = Cwε / Symmetric(f.Σ)
+    y = Φ .+ K * ε
+    A = zeros(ny, size(C, 1))                                                 # ∂y/∂(the variables) = ∂Φ − K ∂μ
+    A[:, off[kn]] .+= Jy
+    if sm.split === nothing
+        A[:, off[sm.key_z]] .+= Jz
+    else
+        A[:, off[sm.key_z]] .+= Jz[:, sm.split.static]; A[:, off[key_drift(sm, kn.k)]] .+= Jz[:, sm.split.moving]
+    end
+    for (k, J) in zip(vars(f), Jμ)
+        A[:, off[k]] .-= K * J
+    end
+    Qt = (D .* Q1 .* D') .* τt
+    Cyy = Matrix(Symmetric(A * C * A' + Qt - K * Cwε'))
+    zix = reduce(vcat, [collect(off[k]) for k in zkeys])
+    Czz = C[zix, zix]; Czy = C[zix, :] * A'
+    if sm.split !== nothing
+        perm = split_permutation(sm.split)
+        Czz = Czz[perm, perm]; Czy = Czy[perm, :]
+    end
+    return _belief_fields(sm, t, z, y, Czz, Czy, Cyy)
+end
+
 "The window solved by damped Gauss-Newton on the exact objective."
 function solve_window!(sm::FixedLagSmoother; verbose::Bool=false)
     all_hist = NamedTuple[]
@@ -602,6 +880,7 @@ function marginalize_old!(sm::FixedLagSmoother)
         end
         marginalize!(sm.graph, out)
         delete!(sm.dyn, (ko, kn))
+        delete!(sm.slices, ko); delete!(sm.slice_recs, ko)
         filter!(o -> !(o.key_y in out), sm.obs)
         popfirst!(sm.nodes)
         sm.committed_t = to
@@ -813,15 +1092,39 @@ function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecor
     end
     saved = _transaction_snapshot(sm)
     try
-        fs = [add_measurement!(sm, r) for r in recs]
-        innov = Dict(r.sensor => innovation(f, [variable_value(sm.graph, k) for k in vars(f)]) for (r, f) in zip(recs, fs))
         t_arr = maximum(x.t for x in recs)
-        pc = _predicted_consistency(sm, fs)
-        nis = pc === nothing ? NaN : pc.nis
-        dof = pc === nothing ? 0 : pc.dof
-        innov_std = pc === nothing ? Dict{Symbol,Float64}() : Dict(f.spec.id => pc.nu[i] / pc.sdev[i] for (i, f) in enumerate(pc.live))
+        if sm.attach === :slice
+            # a censored reading keeps its own node and observation factor (its likelihood is not Gaussian); the rest go
+            # through the physics from their slice's node
+            cens = [r for r in recs if censored_at(sensor(sm.model.log, r.sensor), r)]
+            fs = [add_measurement!(sm, r) for r in cens]
+            _tick!(:place, @elapsed _add_slice_readings!(sm, [r for r in recs if !censored_at(sensor(sm.model.log, r.sensor), r)]))
+            added = Dict{VarKey,Vector{MeasurementRecord}}()
+            for r in recs
+                censored_at(sensor(sm.model.log, r.sensor), r) && continue
+                ka = sm.nodes[findlast(x -> x[1] <= r.t + 1e-9, sm.nodes)][2]
+                push!(get!(added, ka, MeasurementRecord[]), r)
+            end
+            tq = time(); pcs = isempty(added) ? nothing : _predicted_consistency_slice(sm, [(k, v) for (k, v) in added]); _tick!(:nis, time() - tq)
+            pco = isempty(fs) ? nothing : _predicted_consistency(sm, fs)
+            nis = (pcs === nothing ? 0.0 : pcs.nis) + (pco === nothing ? 0.0 : pco.nis)
+            dof = (pcs === nothing ? 0 : pcs.dof) + (pco === nothing ? 0 : pco.dof)
+            dof == 0 && (nis = NaN)
+            innov_std = Dict{Symbol,Float64}()
+            pcs === nothing || for (i, id) in enumerate(pcs.ids); innov_std[id] = pcs.nu[i] / pcs.sdev[i]; end
+            pco === nothing || for (i, f) in enumerate(pco.live); innov_std[f.spec.id] = pco.nu[i] / pco.sdev[i]; end
+            innov = Dict{Symbol,Float64}(id => v for (id, v) in innov_std)
+            pc = nothing
+        else
+            fs = [add_measurement!(sm, r) for r in recs]
+            innov = Dict(r.sensor => innovation(f, [variable_value(sm.graph, k) for k in vars(f)]) for (r, f) in zip(recs, fs))
+            pc = _predicted_consistency(sm, fs)
+            nis = pc === nothing ? NaN : pc.nis
+            dof = pc === nothing ? 0 : pc.dof
+            innov_std = pc === nothing ? Dict{Symbol,Float64}() : Dict(f.spec.id => pc.nu[i] / pc.sdev[i] for (i, f) in enumerate(pc.live))
+        end
         als = (sm.als !== nothing && pc !== nothing) ? _als_pieces(sm, sm.als, pc, t_arr) : nothing
-        r = solve_window!(sm; verbose)
+        tq = time(); r = solve_window!(sm; verbose); _tick!(:solve, time() - tq)
         if !r.converged
             _restore_transaction!(sm, saved)
             sm.n_solves += 1
@@ -837,8 +1140,8 @@ function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecor
             bp = belief_at(sm; node=1)
             past = (t=bp.t, z=bp.z, z_cov=bp.z_cov, y=bp.y, y_cov=bp.y_cov, x=bp.x, x_cov=bp.x_cov, T_pit=bp.T_pit, pieces=bp.pieces)
         end
-        marginalize_old!(sm)
-        b = belief_at(sm)
+        tq = time(); marginalize_old!(sm); _tick!(:marginalize, time() - tq)
+        tq = time(); b = sm.attach === :slice ? belief_now(sm, t_arr) : belief_at(sm); _tick!(:belief, time() - tq)
         rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
                         iters=length(r.hist), attempts=r.attempts, converged=true, committed=true, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, wall=time() - t0,
                         n_nodes=length(sm.nodes), resid=resid, past=past))
@@ -870,7 +1173,12 @@ function belief_at(sm::FixedLagSmoother; node::Int=length(sm.nodes))
         C = C[perm, perm]
     end
     rz, ry = 1:n_z, (n_z + 1):(n_z + sm.model.bl.n)
-    y = variable_value(sm.graph, ky)
+    return _belief_fields(sm, t, z, variable_value(sm.graph, ky), C[rz, rz], C[rz, ry], C[ry, ry])
+end
+"The belief's record fields from the latents and the state with their covariance blocks."
+function _belief_fields(sm::FixedLagSmoother, t, z, y, Czz, Czy, Cyy)
+    n_z = length(z); rz, ry = 1:n_z, (n_z + 1):(n_z + length(y))
+    C = [Czz Czy; Czy' Cyy]
     bl = sm.model.bl
     x, Px = belief_physical_moments(y, C[ry, ry], bl)
     pieces = Dict{Symbol,NamedTuple}()
