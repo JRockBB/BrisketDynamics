@@ -328,12 +328,13 @@ mutable struct DynamicsFactor <: Factor
     cache::Any          # (z, y0, f, o) at the last solve; fixed (W, wy); (jz, jy0, Jy, Jz) at the last linearization
     n_solves::Int
     n_jacobians::Int
+    peer::Base.RefValue{Any}   # a closed slice factor over the same interval (slice_obs.jl) whose one solve and Jacobian this factor reads, or nothing
 end
 function DynamicsFactor(model::SystemModel, key_z::VarKey, key_y0::VarKey, key_y1::VarKey, t0::Real, t1::Real; first::Bool=false,
                         events::AbstractVector{Symbol}=Symbol[], chunk::Int=12, relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol,
                         key_m::Union{Nothing,VarKey}=nothing, split::Union{Nothing,LatentSplit}=nothing)
     (key_m === nothing) == (split === nothing) || throw(ArgumentError("a moving latent copy needs its split, and a split its copy"))
-    return DynamicsFactor(model, key_z, key_m, split, key_y0, key_y1, Float64(t0), Float64(t1), first, collect(Symbol, events), chunk, relin_tol, relin_tol_state, nothing, 0, 0)
+    return DynamicsFactor(model, key_z, key_m, split, key_y0, key_y1, Float64(t0), Float64(t1), first, collect(Symbol, events), chunk, relin_tol, relin_tol_state, nothing, 0, 0, Ref{Any}(nothing))
 end
 vars(f::DynamicsFactor) = f.key_m === nothing ? [f.key_z, f.key_y0, f.key_y1] : [f.key_z, f.key_m, f.key_y0, f.key_y1]
 ndim(f::DynamicsFactor) = f.model.bl.n
@@ -405,6 +406,8 @@ end
 # Refreshing it with the Jacobian changed the loss at an unchanged graph value, while omitting the covariance
 # derivatives and normalization of a state-dependent Gaussian. Keep the reference `wy` for the calibration's dQ.
 function _dyn_eval!(f::DynamicsFactor, z, y0; jac::Bool)
+    p = f.peer[]
+    p === nothing || return _dyn_eval_peer!(f, p, z, y0; jac)
     c = f.cache
     fresh = c !== nothing && c.z == z && c.y0 == y0
     if !fresh
@@ -487,8 +490,15 @@ function factor_linearization(f::DynamicsFactor, vals)
     c = _dyn_eval!(f, z, y0; jac=true)
     return (r=c.W * (y1 .- c.f), Js=_dyn_jac_blocks(f, c))
 end
-"The slice's outputs at the last evaluation (for the past's integrals), or nothing."
-last_solve(f::DynamicsFactor) = f.cache === nothing ? nothing : f.cache.o
+"The slice's outputs at the last evaluation (for the past's integrals), or nothing; taken from a solve of their own when the factor reads a peer's."
+function last_solve(f::DynamicsFactor)
+    c = f.cache
+    c === nothing && return nothing
+    c.o === nothing || return c.o
+    _, o = propagate(f.model, c.y0, c.z, f.t0, f.t1; first_slice=f.first)
+    f.cache = merge(c, (o=o,))
+    return o
+end
 
 """
     ObservationFactor(model, spec, record, key_z, key_y, key_d; key_m=nothing, split=nothing)

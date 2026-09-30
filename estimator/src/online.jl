@@ -377,6 +377,9 @@ function _restore_transaction!(sm::FixedLagSmoother, saved)
     sm.records = saved.records
     sm.record_count = saved.record_count
     sm.n_solves = saved.n_solves
+    for (_, ka) in sm.nodes
+        _link_peer!(sm, ka)
+    end
     return sm
 end
 
@@ -600,7 +603,7 @@ function _rebuild_slice!(sm::FixedLagSmoother, ka::VarKey)
     old = pop!(sm.slices, ka, nothing)
     old === nothing || remove_factor!(sm.graph, old)
     recs = get(sm.slice_recs, ka, MeasurementRecord[])
-    isempty(recs) && return nothing
+    isempty(recs) && (_link_peer!(sm, ka); return nothing)
     i = findfirst(x -> x[2] == ka, sm.nodes)
     ta = sm.nodes[i][1]
     closed = i < length(sm.nodes)
@@ -619,7 +622,19 @@ function _rebuild_slice!(sm::FixedLagSmoother, ka::VarKey)
     f = SliceObservationFactor(sm.model, readings, sm.key_z, ka, ta, ka.k == 1; key_y1=kb, t1=tb, kd0, kd1,
                                key_m=_key_m(sm, ka), split=sm.split, G, relin_tol=sm.relin_tol, relin_tol_state=sm.relin_tol_state)
     add_factor!(sm.graph, f); sm.slices[ka] = f
+    _link_peer!(sm, ka)
     return f
+end
+# the dynamics factor leaving node `ka` reads the closed slice at `ka` (one solve, one Jacobian for both), or its own
+function _link_peer!(sm::FixedLagSmoother, ka::VarKey)
+    i = findfirst(x -> x[2] == ka, sm.nodes)
+    (i === nothing || i == length(sm.nodes)) && return nothing
+    kb = sm.nodes[i + 1][2]
+    d = get(sm.dyn, (ka, kb), nothing)
+    d === nothing && return nothing
+    p = get(sm.slices, ka, nothing)
+    d.peer[] = (p !== nothing && p.key_y1 == kb) ? p : nothing
+    return nothing
 end
 
 """
@@ -1061,7 +1076,66 @@ function _residual_power(sm::FixedLagSmoother, fs::AbstractVector{ObservationFac
 end
 
 """
+    _slice_chunks(sm, recs) -> Vector of reading vectors
+
+A batch split at the nodes it will make (the lid-open events it crosses and the node rule's firings, predicted from the
+newest node through one solve), so each solve carries at most one new node and the window never holds more than the lag
+plus the newest: readings that waited while the last update ran are still taken in order, a node's worth at a time.
+"""
+function _slice_chunks(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord})
+    rs = sort(collect(recs); by=r -> r.t)
+    tn, kn = sm.nodes[end]
+    ahead = unique([r.t for r in rs if r.t > tn + 1e-9])
+    isempty(ahead) && return [rs]
+    Y, z = _carried(sm, kn, tn, ahead)
+    bounds = Float64[]; tcur = tn
+    for r in rs
+        r.t > tcur + 1e-9 || continue
+        for te in _event_times(sm.model.log, tcur, r.t)
+            push!(bounds, te); tcur = te
+        end
+        r.t > tcur + 1e-9 || continue
+        spec = sensor(sm.model.log, r.sensor)
+        censored_at(spec, r) && (push!(bounds, r.t); tcur = r.t; continue)
+        g = slice_sensitivity(sm.model, _slice_reading(sm, r), Y[r.t], z)
+        Q = belief_process_cov(sm.model.bl, sm.model.sn, (r.t - tcur) / 3600)
+        v_meas = spec.noise.white_sd^2 + (has_discrepancy(spec.noise) ? spec.noise.ar_sd^2 : 0.0)
+        dot(g, Q * g) > sm.node_ratio * v_meas && (push!(bounds, r.t); tcur = r.t)
+    end
+    chunks = [MeasurementRecord[] for _ in 0:length(bounds)]
+    for r in rs
+        push!(chunks[1 + count(b -> b <= r.t + 1e-9, bounds)], r)
+    end
+    return filter(!isempty, chunks)
+end
+
+"""
     assimilate!(sm, recs; verbose=false) -> record
+
+Readings into the window, the window solved, the old nodes marginalized: one arrival step (`_assimilate_one!`). Under
+`attach = :slice` a batch that crosses several nodes is taken a node's worth at a time (`_slice_chunks`): each chunk its
+own committed step; the record returned is the last one's, with the batch's readings, its summed NIS and degrees of
+freedom, its standardized innovations and its whole wall time. A chunk that does not commit ends the batch there (the
+earlier chunks stay committed) and its record is returned.
+"""
+function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; verbose::Bool=false)
+    sm.attach === :slice || return _assimilate_one!(sm, recs; verbose)
+    isempty(recs) && throw(ArgumentError("nothing to assimilate"))
+    chunks = _slice_chunks(sm, recs)
+    length(chunks) == 1 && return _assimilate_one!(sm, recs; verbose)
+    t0 = time(); nis = 0.0; dof = 0; innov_std = Dict{Symbol,Float64}(); last = nothing
+    for ch in chunks
+        r = _assimilate_one!(sm, ch; verbose)
+        r.committed || return merge(r, (wall=time() - t0, chunks=length(chunks)))
+        isfinite(r.nis) && (nis += r.nis; dof += r.dof)
+        merge!(innov_std, r.innov_std); last = r
+    end
+    return merge(last, (sensors=[x.sensor for x in recs], nis=dof > 0 ? nis : NaN, dof=dof, innov_std=innov_std,
+                        wall=time() - t0, chunks=length(chunks)))
+end
+
+"""
+    _assimilate_one!(sm, recs; verbose=false) -> record
 
 Readings into the window, the window solved, the old nodes marginalized: one arrival step. The record
 carries the time, the sensors, each reading's innovation at the belief before the solve, the normalized
@@ -1074,7 +1148,7 @@ leaves (`past`: the smoothed past at the lag, `belief_at`'s fields without the j
 the previous node, re-solved once with the new readings before it goes). A committed arrival feeds the bench's
 accumulator when the smoother carries one.
 """
-function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; verbose::Bool=false)
+function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; verbose::Bool=false)
     t0 = time()
     isempty(recs) && throw(ArgumentError("nothing to assimilate"))
     # Validate the whole batch before the first graph mutation. The deep snapshot then makes solver failure

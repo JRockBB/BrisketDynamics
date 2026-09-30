@@ -257,3 +257,22 @@ loss(f::SliceObservationFactor, vals) = 0.5 * sum(abs2, residual(f, vals))
 "The raw innovations (reading less prediction) at the current values."
 slice_innovations(f::SliceObservationFactor, vals) = _slice_values(f) .- first(_slice_predict(f, vals))
 export SliceObservationFactor, slice_innovations
+
+# A dynamics factor over the same interval as a closed slice reads the slice's one solve and Jacobian: its end state is the
+# slice solve's last column (saved at the next node), its Jacobian that column's rows. Its whitener stays its own (fixed at
+# its first prediction); the slice's outputs for the past's integrals are solved lazily (`last_solve`).
+function _dyn_eval_peer!(f::DynamicsFactor, p::SliceObservationFactor, z, y0; jac::Bool)
+    (p.key_y1 == f.key_y1 && abs(p.t1 - f.t1) < 1e-9 && abs(last(p.times) - f.t1) < 1e-9) ||
+        throw(ArgumentError("a dynamics factor's peer must be the closed slice over its own interval"))
+    cs = _slice_eval!(p, z, y0; jac)
+    ny = length(y0); j = length(p.times)
+    fy = cs.S[:, j]
+    c = f.cache
+    W = c === nothing ? _whitener(f, fy) : c.W
+    wy = c === nothing ? copy(fy) : c.wy
+    o = (c !== nothing && c.z == z && c.y0 == y0) ? c.o : nothing
+    Jy = cs.Jy === nothing ? nothing : cs.Jy[((j - 1) * ny + 1):(j * ny), :]
+    Jz = cs.Jz === nothing ? nothing : cs.Jz[((j - 1) * ny + 1):(j * ny), :]
+    f.cache = (z=copy(z), y0=copy(y0), f=fy, W=W, wy=wy, o=o, jz=cs.jz, jy0=cs.jy0, Jy=Jy, Jz=Jz)
+    return f.cache
+end

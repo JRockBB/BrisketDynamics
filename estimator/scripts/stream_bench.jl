@@ -183,6 +183,7 @@ for c in 1:n_cooks
         horizon = PACE > 0 ? max(recs[i].t, clock) : recs[i].t
         while j < length(recs) && recs[j + 1].t <= horizon + 1e-9; j += 1; end
         batch = recs[i:j]
+        empty!(E.SLICE_TIMERS); nodes_before = sm.node_count
         r = try
             assimilate!(sm, batch)
         catch err
@@ -202,8 +203,9 @@ for c in 1:n_cooks
             "wall_s" => r.wall, "iters" => r.iters, "converged" => r.converged, "n_nodes" => r.n_nodes))
         push!(out, (t=r.t, z=copy(r.z), z_cov=copy(r.z_cov), committed=r.committed))
         if true
-            @printf("  seed %d t %.2f h: %d updates, %d nodes in window, last update %.1f s (%d readings), NIS/dof %.2f\n",
-                    seed, r.t / 3600, length(out), r.n_nodes, r.wall, length(batch), r.nis / max(r.dof, 1)); flush(stdout)
+            @printf("  seed %d t %.2f h: %d updates, %d nodes in window (+%d), last update %.1f s (%d readings, %d iters, %d attempts), NIS/dof %.2f | %s\n",
+                    seed, r.t / 3600, length(out), r.n_nodes, sm.node_count - nodes_before, r.wall, length(batch), r.iters, get(r, :attempts, 0), r.nis / max(r.dof, 1),
+                    join(["$k $(round(v; digits=1))" for (k, v) in sort(collect(E.SLICE_TIMERS); by=last, rev=true)], ", ")); flush(stdout)
         end
         i = j + 1
     end
