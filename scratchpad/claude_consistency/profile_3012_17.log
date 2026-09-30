@@ -1,8 +1,0 @@
-latent core_depth_fraction: MAP -1.015, GN sd 0.746, truth 1.636 (3.55 sd); F at MAP 2.90452
-  k=-4.0: ΔF 17.074  (Gaussian ½k² = 8.0)  converged true  centre T 281.39
-  k=-3.0: ΔF 6.307  (Gaussian ½k² = 4.5)  converged true  centre T 281.4
-  k=-2.0: ΔF 1.622  (Gaussian ½k² = 2.0)  converged true  centre T 281.56
-  k=-1.0: ΔF 0.312  (Gaussian ½k² = 0.5)  converged true  centre T 281.63
-  k=1.0: ΔF 0.01  (Gaussian ½k² = 0.5)  converged true  centre T 281.75
-  k=2.0: ΔF 0.188  (Gaussian ½k² = 2.0)  converged true  centre T 281.75
-  k=3.0: ΔF 0.849  (Gaussian ½k² = 4.5)  converged true  centre T 281.75
