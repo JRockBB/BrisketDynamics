@@ -3993,3 +3993,10 @@ Checks: `test_factors.jl` passes; `test_online.jl` passes its layout (with the d
 transactions, arrivals and subsets sets. The lag set's delayed-reading assertion fails on this branch with and
 without `expand` alike (the delayed and in-order full-history solves agree to 1.44e-3 posterior sd against a
 1e-3 gate, identical to the digit either way), so it predates the expansion; it has not been loosened.
+
+Figures (`estimator/scripts/plot_consistency.jl`): `figures/estimator/consistency_score_directions.png` (the
+full-state against the reduced-state score over the cook, before and after the truth fix),
+`consistency_forecast_calibration.png` (rms and out-of-band share by horizon and suite),
+`consistency_forecast_per_cook.png` (every cook's 1-h forecast error), `consistency_depth_profile.png` (the
+two depth profiles against the Gaussian's parabola), `consistency_pan_and_bank.png` (the absent pan's old
+truth; the depth bank against the Gaussian on the same cooks).
