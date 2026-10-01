@@ -145,9 +145,14 @@ mutable struct FixedLagSmoother
     node_ratio::Float64                                     # :slice: a new node when the process variance a reading sees exceeds this times its measurement variance
     slice_rd::Dict{Tuple{Symbol,Float64},SliceReading}      # :slice: per reading its compiled form
     lag_max::Int                                            # the window may hold up to this many nodes behind the newest while the latents still move
-    settle_tol::Float64                                     # the latents have settled when the last solve moved each by less than this many of its posterior sds
+    settle_tol::Float64                                     # a node may leave once the latents moved less than this many posterior sds since its first solve
     z_sd::Vector{Float64}                                   # the latents' posterior sds at the last committed update (for the settle test)
-    settled::Bool                                           # whether the last solve left the latents settled
+    z_snap::Dict{VarKey,Vector{Float64}}                    # per window node the latents' estimate at its first committed solve
+    prior_relin::Float64                                    # rebuild the marginal prior when the latents moved this many sds since it was built (Inf: never)
+    hist_factors::Vector{Factor}                            # every nonlinear factor marginalized out of the window, kept for rebuilding the prior
+    hist_vals::Dict{VarKey,Vector{Float64}}                 # the marginalized variables' values when they left
+    z_prior_lin::Vector{Float64}                            # the latents (the graph's static block) the marginal prior was last built at
+    n_prior_relin::Int                                      # how many times the prior was rebuilt
 end
 key_params(sm::FixedLagSmoother) = sm.key_z
 key_node(sm::FixedLagSmoother, k::Int) = VarKey(:state, sm.cook, k)
@@ -209,7 +214,7 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                      ftol::Float64=1e-2, latent_step::Float64=0.25, goals::PlanGoals=PlanGoals(), graph::FactorGraph=FactorGraph(),
                      cook::Symbol=:cook, hierarchy=nothing, record_limit::Int=256, als::Union{Nothing,ALSFeed}=nothing,
                      relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol, drift=nothing, attach::Symbol=:node, node_ratio::Float64=1.0,
-                     lag_max::Int=lag, settle_tol::Float64=0.1)
+                     lag_max::Int=lag, settle_tol::Float64=0.1, prior_relin::Float64=Inf)
     attach in (:node, :slice) || throw(ArgumentError("attach must be :node or :slice, not $attach"))
     attach === :slice && als !== nothing && throw(ArgumentError("the ALS accumulator reads one node per arrival; it is not built for :slice"))
     lag >= 0 || throw(ArgumentError("the lag counts nodes kept behind the newest; it cannot be negative"))
@@ -286,7 +291,8 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                             record_limit, 0, 0, als, split, drift_q, drift_jumps, Dict{Tuple{VarKey,VarKey},HierarchyFactor}(),
                             attach, Dict{VarKey,SliceObservationFactor}(), Dict{VarKey,Vector{MeasurementRecord}}(),
                             Dict{Tuple{Symbol,Float64},Vector{Float64}}(), node_ratio, Dict{Tuple{Symbol,Float64},SliceReading}(),
-                            max(lag_max, lag), settle_tol, Float64[], true)
+                            max(lag_max, lag), settle_tol, Float64[], Dict{VarKey,Vector{Float64}}(),
+                            prior_relin, Factor[], Dict{VarKey,Vector{Float64}}(), Float64[], 0)
 end
 
 "Append one diagnostic to the bounded in-memory ring."
@@ -333,7 +339,8 @@ function _transaction_snapshot(sm::FixedLagSmoother)
         slice_recs=Dict(k => copy(v) for (k, v) in sm.slice_recs),
         slice_G=copy(sm.slice_G),
         slice_rd=copy(sm.slice_rd),
-        z_sd=copy(sm.z_sd), settled=sm.settled,
+        z_sd=copy(sm.z_sd), z_snap=copy(sm.z_snap),
+        hist_factors=copy(sm.hist_factors), hist_vals=copy(sm.hist_vals), z_prior_lin=copy(sm.z_prior_lin), n_prior_relin=sm.n_prior_relin,
         nodes=copy(sm.nodes),
         node_count=sm.node_count,
         dyn=copy(sm.dyn),
@@ -370,7 +377,8 @@ function _restore_transaction!(sm::FixedLagSmoother, saved)
     sm.slice_recs = saved.slice_recs
     sm.slice_G = saved.slice_G
     sm.slice_rd = saved.slice_rd
-    sm.z_sd = saved.z_sd; sm.settled = saved.settled
+    sm.z_sd = saved.z_sd; sm.z_snap = saved.z_snap
+    sm.hist_factors = saved.hist_factors; sm.hist_vals = saved.hist_vals; sm.z_prior_lin = saved.z_prior_lin; sm.n_prior_relin = saved.n_prior_relin
     sm.nodes = saved.nodes
     sm.node_count = saved.node_count
     sm.dyn = saved.dyn
@@ -822,6 +830,35 @@ function belief_now(sm::FixedLagSmoother, t::Float64)
     return _belief_fields(sm, t, z, y, Czz, Czy, Cyy)
 end
 
+"""
+    rebuild_prior!(sm) -> LinearFactor or nothing
+
+The marginal prior rebuilt from every factor that left the window: those factors at the variables' values when they left
+and the window's boundary (the latents, the oldest node and its companions) at their CURRENT values, all the left
+variables eliminated in one linearization there. A fixed-lag window freezes a leaving node's information about the latents
+at the latents' estimate of that moment; while the latents still travel (the fire lighting) the stacked frozen pieces claim
+information along directions the data cannot see, and the window locks. Rebuilding re-linearizes them where the latents are
+now. Replaces the window's marginal factor(s).
+"""
+function rebuild_prior!(sm::FixedLagSmoother)
+    isempty(sm.hist_factors) && return nothing
+    H = FactorGraph()
+    for f in sm.hist_factors, k in vars(f)
+        has_variable(H, k) && continue
+        add_variable!(H, k, haskey(sm.hist_vals, k) ? sm.hist_vals[k] : copy(variable_value(sm.graph, k)))
+    end
+    for f in sm.hist_factors; add_factor!(H, f); end
+    out = [k for k in H.keys if haskey(sm.hist_vals, k)]
+    lf = marginalize!(H, out)
+    for f in [f for f in sm.graph.factors if f isa LinearFactor && startswith(f.source, "marginal")]
+        remove_factor!(sm.graph, f)
+    end
+    lf === nothing || add_factor!(sm.graph, LinearFactor(lf.keys, lf.A, lf.b; source="marginal (rebuilt)"))
+    sm.z_prior_lin = copy(variable_value(sm.graph, sm.key_z))
+    sm.n_prior_relin += 1
+    return lf
+end
+
 "The window solved by damped Gauss-Newton on the exact objective."
 function solve_window!(sm::FixedLagSmoother; verbose::Bool=false)
     all_hist = NamedTuple[]
@@ -882,8 +919,16 @@ the keys removed.
 """
 function marginalize_old!(sm::FixedLagSmoother)
     removed = VarKey[]
-    keep = sm.settled ? sm.lag : sm.lag_max                            # a node's information is frozen when it leaves: while the latents still move, keep more
-    while length(sm.nodes) - 1 > keep                                  # (not `lag + 1`: an infinite lag is typemax)
+    # A node's information about the latents is frozen at their current estimate when it leaves. Beyond the lag it leaves
+    # only once the latents moved less than `settle_tol` posterior sds since its first solve (they are not still travelling
+    # along what it linearized); never more than `lag_max` stay.
+    function settled(ko)
+        sm.lag_max == sm.lag && return true
+        zn = variable_value(sm.graph, sm.key_z)
+        (haskey(sm.z_snap, ko) && length(sm.z_sd) == length(zn)) || return false
+        return maximum(abs.(zn .- sm.z_snap[ko]) ./ max.(sm.z_sd, eps())) < sm.settle_tol
+    end
+    while length(sm.nodes) - 1 > sm.lag && (length(sm.nodes) - 1 > sm.lag_max || settled(sm.nodes[1][2]))   # (not `lag + 1`: an infinite lag is typemax)
         to, ko = sm.nodes[1]
         tn, kn = sm.nodes[2]
         f = sm.dyn[(ko, kn)]
@@ -902,11 +947,21 @@ function marginalize_old!(sm::FixedLagSmoother)
                 delete!(sm.disc_fac, (kd, chain[1][2]))
             end
         end
+        if isfinite(sm.prior_relin)
+            outset = Set(out)
+            for f in sm.graph.factors
+                f isa LinearFactor && continue                                   # a previous marginal: rebuilt from the factors themselves
+                any(k in outset for k in vars(f)) && !any(x -> x === f, sm.hist_factors) && push!(sm.hist_factors, f)
+            end
+            for k in out; sm.hist_vals[k] = copy(variable_value(sm.graph, k)); end
+            isempty(sm.z_prior_lin) && (sm.z_prior_lin = copy(variable_value(sm.graph, sm.key_z)))
+        end
         marginalize!(sm.graph, out)
         delete!(sm.dyn, (ko, kn))
         delete!(sm.slices, ko); delete!(sm.slice_recs, ko)
         filter!(o -> !(o.key_y in out), sm.obs)
         popfirst!(sm.nodes)
+        delete!(sm.z_snap, ko)
         sm.committed_t = to
         append!(removed, out)
     end
@@ -1207,7 +1262,6 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             innov_std = pc === nothing ? Dict{Symbol,Float64}() : Dict(f.spec.id => pc.nu[i] / pc.sdev[i] for (i, f) in enumerate(pc.live))
         end
         als = (sm.als !== nothing && pc !== nothing) ? _als_pieces(sm, sm.als, pc, t_arr) : nothing
-        z_before = copy(variable_value(sm.graph, sm.key_z))
         tq = time(); r = solve_window!(sm; verbose); _tick!(:solve, time() - tq)
         if !r.converged
             _restore_transaction!(sm, saved)
@@ -1225,13 +1279,20 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             past = (t=bp.t, z=bp.z, z_cov=bp.z_cov, y=bp.y, y_cov=bp.y_cov, x=bp.x, x_cov=bp.x_cov, T_pit=bp.T_pit, pieces=bp.pieces)
         end
         if sm.lag_max > sm.lag
-            Δ = abs.(variable_value(sm.graph, sm.key_z) .- z_before)
-            sdz = length(sm.z_sd) == length(Δ) ? sm.z_sd : fill(Inf, length(Δ))
-            sm.settled = maximum(Δ ./ max.(sdz, eps())) < sm.settle_tol
+            zn = copy(variable_value(sm.graph, sm.key_z))
+            for (_, k) in sm.nodes
+                haskey(sm.z_snap, k) || (sm.z_snap[k] = zn)
+            end
         end
         tq = time(); marginalize_old!(sm); _tick!(:marginalize, time() - tq)
+        if isfinite(sm.prior_relin) && !isempty(sm.z_prior_lin) && length(sm.z_sd) == length(sm.z_prior_lin)
+            zn = variable_value(sm.graph, sm.key_z)
+            if maximum(abs.(zn .- sm.z_prior_lin) ./ max.(sm.z_sd, eps())) > sm.prior_relin
+                tq = time(); rebuild_prior!(sm); _tick!(:prior_rebuild, time() - tq)
+            end
+        end
         tq = time(); b = sm.attach === :slice ? belief_now(sm, t_arr) : belief_at(sm); _tick!(:belief, time() - tq)
-        if sm.lag_max > sm.lag
+        if sm.lag_max > sm.lag || isfinite(sm.prior_relin)
             sdz = sqrt.(max.(diag(b.z_cov), 0.0))
             sm.z_sd = sm.split === nothing ? sdz : sdz[sm.split.static]
         end

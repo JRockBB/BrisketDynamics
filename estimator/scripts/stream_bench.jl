@@ -7,7 +7,7 @@
 # standardized errors; the latents at the two-hour edges. The record's schema is coverage_system.jl's.
 #
 # Run: julia --threads=4 --project=estimator estimator/scripts/stream_bench.jl [n_cooks] [seed0] [out.json] [hours] [lag]
-#        [attach slice|node] [pace] [pit_s] [core_s] [hum_s] [mass_s] [node_ratio] [lag_max]
+#        [attach slice|node] [pace] [pit_s] [core_s] [hum_s] [mass_s] [node_ratio] [lag_max] [prior_relin]
 #   pace: -1 takes a node's worth per update (the estimator's own chunking); 0 takes every arrival alone; k > 0 is compute-paced: an update takes every reading that arrived during the
 #         previous update's measured compute time times k (k = 1 the live machine; k > 1 a slower one, fewer updates,
 #         the same posterior at each: the window solve is exact however readings are grouped)
@@ -32,6 +32,7 @@ STEP = Dict(:pit => length(A_) >= 8 ? parse(Float64, A_[8]) : 30.0, :core => len
             :humidity => length(A_) >= 10 ? parse(Float64, A_[10]) : 120.0, :mass => length(A_) >= 11 ? parse(Float64, A_[11]) : 120.0)
 NODE_RATIO = length(A_) >= 12 ? parse(Float64, A_[12]) : 1.0
 LAG_MAX = length(A_) >= 13 ? parse(Int, A_[13]) : LAG          # the window may grow to this while the latents still move (settle test)
+PRIOR_RELIN = length(A_) >= 14 ? parse(Float64, A_[14]) : Inf  # rebuild the marginal prior when the latents moved this many sds (Inf never)
 JITTER = 0.25                                                    # each interval drawn in step × (1 ± 0.25)
 
 REPO = normpath(joinpath(@__DIR__, "..", ".."))
@@ -58,7 +59,13 @@ OU = Dict(:pit => (nc.pit_sd, nc.pit_tau), :core => (nc.core_sd, nc.core_tau), :
 SENSOR_IDS = (:pit, :core, :humidity, :mass)
 observable_of = Dict(:pit => PitTemperature(), :core => TemperatureAt(PIECE; depth_latent=:core_depth_fraction), :humidity => ChamberVapor(), :mass => TotalMass())
 sensors = [SensorSpec(id, observable_of[id], NoiseModel(; white_sd=WHITE[id], ar_sd=OU[id][1], tau=OU[id][2], cap=(id === :humidity ? nc.hum_cap : Inf))) for id in SENSOR_IDS]
-sn = StateNoise()
+# STREAM_SN_SCALE scales every process-noise RATE (not the initial widths, not the events' disturbances): the bench's plant
+# has no process noise of its own, so 0.001 is the matched model
+const SN_SCALE = parse(Float64, get(ENV, "STREAM_SN_SCALE", "1.0"))
+sn = let d = StateNoise()
+    rates = (:T, :W, :C, :F, :S, :bark, :T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
+    StateNoise(; (f => (f in rates ? SN_SCALE * getfield(d, f) : getfield(d, f)) for f in fieldnames(StateNoise))...)
+end
 bl = belief_layout(sys)
 group_names = [E._als_group_name(bl, g) for (g, _) in bl.groups]
 group_ranges = [rg for (_, rg) in bl.groups]
@@ -175,7 +182,7 @@ for c in 1:n_cooks
     sort!(recs; by=r -> r.t)
     clog = CookLog(t, u; events=cook_events, sensors, measurements=recs)
     model = SystemModel(sys, clog, blk; sn)
-    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX)
+    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN)
     temps = Any[]; out = NamedTuple[]; failed = nothing
     i = 1; clock = 0.0
     while i <= length(recs)
@@ -211,8 +218,10 @@ for c in 1:n_cooks
             "wall_s" => r.wall, "iters" => r.iters, "converged" => r.converged, "n_nodes" => r.n_nodes))
         push!(out, (t=r.t, z=copy(r.z), z_cov=copy(r.z_cov), committed=r.committed))
         if true
-            @printf("  seed %d t %.2f h: %d updates, %d nodes in window (+%d), last update %.1f s (%d readings, %d iters, %d attempts), NIS/dof %.2f | %s\n",
+            zs_ = ez ./ sqrt.(max.(diag(r.z_cov), 1e-300)); iw = argmax(abs.(zs_))
+            @printf("  seed %d t %.2f h: %d updates, %d nodes in window (+%d), last update %.1f s (%d readings, %d iters, %d attempts), NIS/dof %.2f, worst latent %s %+.2f sd, k_spread %+.2f, a0 %+.2f, prior rebuilt %d | %s\n",
                     seed, r.t / 3600, length(out), r.n_nodes, sm.node_count - nodes_before, r.wall, length(batch), r.iters, get(r, :attempts, 0), r.nis / max(r.dof, 1),
+                    allnames[iw], zs_[iw], zs_[idx["k_spread"]], zs_[ia0], sm.n_prior_relin,
                     join(["$k $(round(v; digits=1))" for (k, v) in sort(collect(E.SLICE_TIMERS); by=last, rev=true)], ", ")); flush(stdout)
         end
         i = j + 1
