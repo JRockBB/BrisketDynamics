@@ -7,7 +7,7 @@
 # standardized errors; the latents at the two-hour edges. The record's schema is coverage_system.jl's.
 #
 # Run: julia --threads=4 --project=estimator estimator/scripts/stream_bench.jl [n_cooks] [seed0] [out.json] [hours] [lag]
-#        [attach slice|node] [pace] [pit_s] [core_s] [hum_s] [mass_s] [node_ratio]
+#        [attach slice|node] [pace] [pit_s] [core_s] [hum_s] [mass_s] [node_ratio] [lag_max]
 #   pace: -1 takes a node's worth per update (the estimator's own chunking); 0 takes every arrival alone; k > 0 is compute-paced: an update takes every reading that arrived during the
 #         previous update's measured compute time times k (k = 1 the live machine; k > 1 a slower one, fewer updates,
 #         the same posterior at each: the window solve is exact however readings are grouped)
@@ -31,6 +31,7 @@ PACE = length(A_) >= 7 ? parse(Float64, A_[7]) : 0.0
 STEP = Dict(:pit => length(A_) >= 8 ? parse(Float64, A_[8]) : 30.0, :core => length(A_) >= 9 ? parse(Float64, A_[9]) : 30.0,
             :humidity => length(A_) >= 10 ? parse(Float64, A_[10]) : 120.0, :mass => length(A_) >= 11 ? parse(Float64, A_[11]) : 120.0)
 NODE_RATIO = length(A_) >= 12 ? parse(Float64, A_[12]) : 1.0
+LAG_MAX = length(A_) >= 13 ? parse(Int, A_[13]) : LAG          # the window may grow to this while the latents still move (settle test)
 JITTER = 0.25                                                    # each interval drawn in step × (1 ± 0.25)
 
 REPO = normpath(joinpath(@__DIR__, "..", ".."))
@@ -129,7 +130,7 @@ cooks = Any[]; skipped = Int[]
 dst = joinpath(REPO, "data", "mock", out_name)
 save() = open(dst, "w") do io
     write(io, json_document(Dict("plant" => "monolith (1-D, 40 nodes) in segments, constant parameters; streaming real-cook instruments",
-        "backend" => "system", "estimator" => "the fixed-lag smoother, lag $LAG, attach $ATTACH, node_ratio $NODE_RATIO",
+        "backend" => "system", "estimator" => "the fixed-lag smoother, lag $LAG (to $LAG_MAX while the latents move), attach $ATTACH, node_ratio $NODE_RATIO",
         "names" => allnames, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped, "steps_s" => Dict(string(k) => v for (k, v) in STEP),
         "jitter" => JITTER, "pace" => PACE, "groups" => group_names, "lag" => LAG, "backend_fingerprint" => backend_fingerprint())))
 end
@@ -174,7 +175,7 @@ for c in 1:n_cooks
     sort!(recs; by=r -> r.t)
     clog = CookLog(t, u; events=cook_events, sensors, measurements=recs)
     model = SystemModel(sys, clog, blk; sn)
-    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO)
+    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX)
     temps = Any[]; out = NamedTuple[]; failed = nothing
     i = 1; clock = 0.0
     while i <= length(recs)

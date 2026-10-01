@@ -144,6 +144,10 @@ mutable struct FixedLagSmoother
     slice_G::Dict{Tuple{Symbol,Float64},Vector{Float64}}    # :slice: per reading (sensor, time) its sensitivity, fixed at first sight
     node_ratio::Float64                                     # :slice: a new node when the process variance a reading sees exceeds this times its measurement variance
     slice_rd::Dict{Tuple{Symbol,Float64},SliceReading}      # :slice: per reading its compiled form
+    lag_max::Int                                            # the window may hold up to this many nodes behind the newest while the latents still move
+    settle_tol::Float64                                     # the latents have settled when the last solve moved each by less than this many of its posterior sds
+    z_sd::Vector{Float64}                                   # the latents' posterior sds at the last committed update (for the settle test)
+    settled::Bool                                           # whether the last solve left the latents settled
 end
 key_params(sm::FixedLagSmoother) = sm.key_z
 key_node(sm::FixedLagSmoother, k::Int) = VarKey(:state, sm.cook, k)
@@ -204,7 +208,8 @@ on the slice crossing `t`; the rest stay one static block (`LatentSplit`). A coo
 function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=3, iters::Int=40, restarts::Int=1, tol::Float64=1e-4,
                      ftol::Float64=1e-2, latent_step::Float64=0.25, goals::PlanGoals=PlanGoals(), graph::FactorGraph=FactorGraph(),
                      cook::Symbol=:cook, hierarchy=nothing, record_limit::Int=256, als::Union{Nothing,ALSFeed}=nothing,
-                     relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol, drift=nothing, attach::Symbol=:node, node_ratio::Float64=1.0)
+                     relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol, drift=nothing, attach::Symbol=:node, node_ratio::Float64=1.0,
+                     lag_max::Int=lag, settle_tol::Float64=0.1)
     attach in (:node, :slice) || throw(ArgumentError("attach must be :node or :slice, not $attach"))
     attach === :slice && als !== nothing && throw(ArgumentError("the ALS accumulator reads one node per arrival; it is not built for :slice"))
     lag >= 0 || throw(ArgumentError("the lag counts nodes kept behind the newest; it cannot be negative"))
@@ -280,7 +285,8 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                             ObservationFactor[], lag, iters, restarts, tol, ftol, latent_step, relin_tol, relin_tol_state, goals, past, Float64(t0), NamedTuple[],
                             record_limit, 0, 0, als, split, drift_q, drift_jumps, Dict{Tuple{VarKey,VarKey},HierarchyFactor}(),
                             attach, Dict{VarKey,SliceObservationFactor}(), Dict{VarKey,Vector{MeasurementRecord}}(),
-                            Dict{Tuple{Symbol,Float64},Vector{Float64}}(), node_ratio, Dict{Tuple{Symbol,Float64},SliceReading}())
+                            Dict{Tuple{Symbol,Float64},Vector{Float64}}(), node_ratio, Dict{Tuple{Symbol,Float64},SliceReading}(),
+                            max(lag_max, lag), settle_tol, Float64[], true)
 end
 
 "Append one diagnostic to the bounded in-memory ring."
@@ -327,6 +333,7 @@ function _transaction_snapshot(sm::FixedLagSmoother)
         slice_recs=Dict(k => copy(v) for (k, v) in sm.slice_recs),
         slice_G=copy(sm.slice_G),
         slice_rd=copy(sm.slice_rd),
+        z_sd=copy(sm.z_sd), settled=sm.settled,
         nodes=copy(sm.nodes),
         node_count=sm.node_count,
         dyn=copy(sm.dyn),
@@ -363,6 +370,7 @@ function _restore_transaction!(sm::FixedLagSmoother, saved)
     sm.slice_recs = saved.slice_recs
     sm.slice_G = saved.slice_G
     sm.slice_rd = saved.slice_rd
+    sm.z_sd = saved.z_sd; sm.settled = saved.settled
     sm.nodes = saved.nodes
     sm.node_count = saved.node_count
     sm.dyn = saved.dyn
@@ -874,7 +882,8 @@ the keys removed.
 """
 function marginalize_old!(sm::FixedLagSmoother)
     removed = VarKey[]
-    while length(sm.nodes) - 1 > sm.lag                                # (not `lag + 1`: an infinite lag is typemax)
+    keep = sm.settled ? sm.lag : sm.lag_max                            # a node's information is frozen when it leaves: while the latents still move, keep more
+    while length(sm.nodes) - 1 > keep                                  # (not `lag + 1`: an infinite lag is typemax)
         to, ko = sm.nodes[1]
         tn, kn = sm.nodes[2]
         f = sm.dyn[(ko, kn)]
@@ -1198,6 +1207,7 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             innov_std = pc === nothing ? Dict{Symbol,Float64}() : Dict(f.spec.id => pc.nu[i] / pc.sdev[i] for (i, f) in enumerate(pc.live))
         end
         als = (sm.als !== nothing && pc !== nothing) ? _als_pieces(sm, sm.als, pc, t_arr) : nothing
+        z_before = copy(variable_value(sm.graph, sm.key_z))
         tq = time(); r = solve_window!(sm; verbose); _tick!(:solve, time() - tq)
         if !r.converged
             _restore_transaction!(sm, saved)
@@ -1214,8 +1224,17 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             bp = belief_at(sm; node=1)
             past = (t=bp.t, z=bp.z, z_cov=bp.z_cov, y=bp.y, y_cov=bp.y_cov, x=bp.x, x_cov=bp.x_cov, T_pit=bp.T_pit, pieces=bp.pieces)
         end
+        if sm.lag_max > sm.lag
+            Δ = abs.(variable_value(sm.graph, sm.key_z) .- z_before)
+            sdz = length(sm.z_sd) == length(Δ) ? sm.z_sd : fill(Inf, length(Δ))
+            sm.settled = maximum(Δ ./ max.(sdz, eps())) < sm.settle_tol
+        end
         tq = time(); marginalize_old!(sm); _tick!(:marginalize, time() - tq)
         tq = time(); b = sm.attach === :slice ? belief_now(sm, t_arr) : belief_at(sm); _tick!(:belief, time() - tq)
+        if sm.lag_max > sm.lag
+            sdz = sqrt.(max.(diag(b.z_cov), 0.0))
+            sm.z_sd = sm.split === nothing ? sdz : sdz[sm.split.static]
+        end
         rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
                         iters=length(r.hist), attempts=r.attempts, converged=true, committed=true, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, wall=time() - t0,
                         n_nodes=length(sm.nodes), resid=resid, past=past))
