@@ -98,3 +98,13 @@ The 2-D axisymmetric line: the planned cook re-simulated in 2-D, its fields, sal
 | `slab2d_plan.png` | `scripts/plot_slab2d.py` | `README.md`, `docs/review.md` |
 | `slab2d_fields.png`, `slab2d_salt_bark.png` | `scripts/plot_slab2d.py` | the 2-D figure set's own output |
 | `cook2d.gif`, `salt2d.gif` | `scripts/plot_slab2d.py` | the 2-D figure set's own output |
+
+## brick3d/
+
+The 3-D line: the planned cook re-simulated on a brick of the cut (a 2:1 flat of the plan's thickness, one eighth
+solved by symmetry) to serve, its mid-thickness fields and the bark, smoke and ring over the top face.
+
+| figure | written by | discussed in |
+|---|---|---|
+| `brick3d_plan.png` | `scripts/plot_brick3d.py` | `README.md`, `docs/results.md` |
+| `brick3d_fields.png`, `brick3d_surface.png` | `scripts/plot_brick3d.py` | `docs/results.md` |

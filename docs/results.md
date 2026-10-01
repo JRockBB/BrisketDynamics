@@ -4036,3 +4036,28 @@ together; they were not separated term by term.
 
 Still not in either: nothing of the 1-D physics. The 2-D and 3-D bark and
 smoke distributions remain uncalibrated (roadmap C2).
+
+## The 3-D shadow: the robust plan on a brick of the cut (2026-10-01)
+
+`scripts/run_shadow3d.py` replays a plan to serve on a 3-D brick of the cut in the cook system
+(`scripts/shadow3d.jl`): a flat of full thickness 2L, its top face carrying half the 1-D exposed area at a 2:1
+footprint (3.9 × 17.3 × 34.6 cm, 2.5 kg raw), one eighth solved by symmetry with the piece's area multiplier
+making the pit see the whole cut. The schedule is the 2-D shadow's: the damper, the wrap, the pull, the fuel
+addition and their lid lifts; the rest in the plan's environment. The report is
+`data/control/shadow3d.json`; the figures `figures/brick3d/` (`scripts/plot_brick3d.py`).
+
+| At serve, the robust plan | 2-D shadow | 3-D shadow |
+|---|---|---|
+| Centre | 82.6 °C | 82.3 °C |
+| Cold spot (where) | 69.0 °C (the rim) | 61.1 °C (a corner) |
+| Cold-spot peak | 95.2 °C | 95.4 °C |
+| Water retained | 0.245 | 0.231 |
+| C_min | 0.988 | 0.990 |
+| Bark mean (spread) | 0.72 (0.24) | 0.75 (0.23) |
+
+The third dimension moves the cold spot, not the centre: the centres agree within 0.3 K, and the cold spot at
+serve is a corner of the cut, which leads the heating and so cools first in the cambro, 21 K below the centre
+(14 K on the cylinder's rim). The lethality and the come-up time pass on the cold spot as on the centre (F 4.3e9
+against 720 required; come-up 1.00 h). The top face's edges carry bark near 1.0 against 0.42 in its middle, less
+smoke and a ring 2 mm deep against 3. The default 6 × 8 × 12 grid against 4 × 5 × 8: the cold spot at serve
+−0.36 K, its peak −0.11 K, the centre −0.13 K, C_min −0.0003. A solve takes about a minute.
