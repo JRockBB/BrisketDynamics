@@ -8,7 +8,7 @@
 #
 # Run: julia --threads=4 --project=estimator estimator/scripts/stream_bench.jl [n_cooks] [seed0] [out.json] [hours] [lag]
 #        [attach slice|node] [pace] [pit_s] [core_s] [hum_s] [mass_s] [node_ratio]
-#   pace: 0 takes every arrival alone; k > 0 is compute-paced: an update takes every reading that arrived during the
+#   pace: -1 takes a node's worth per update (the estimator's own chunking); 0 takes every arrival alone; k > 0 is compute-paced: an update takes every reading that arrived during the
 #         previous update's measured compute time times k (k = 1 the live machine; k > 1 a slower one, fewer updates,
 #         the same posterior at each: the window solve is exact however readings are grouped)
 using Pkg
@@ -180,12 +180,19 @@ for c in 1:n_cooks
     while i <= length(recs)
         # the batch: this reading, and under compute pacing every reading that arrived while the last update ran
         j = i
-        horizon = PACE > 0 ? max(recs[i].t, clock) : recs[i].t
-        while j < length(recs) && recs[j + 1].t <= horizon + 1e-9; j += 1; end
+        if PACE < 0
+            # a node's worth: the readings up to the next node the estimator will make (its own chunking of what waits)
+            k = i
+            while k < length(recs) && recs[k + 1].t <= recs[i].t + 3600.0; k += 1; end
+            j = i + length(first(E._slice_chunks(sm, recs[i:k]))) - 1
+        else
+            horizon = PACE > 0 ? max(recs[i].t, clock) : recs[i].t
+            while j < length(recs) && recs[j + 1].t <= horizon + 1e-9; j += 1; end
+        end
         batch = recs[i:j]
         empty!(E.SLICE_TIMERS); nodes_before = sm.node_count
         r = try
-            assimilate!(sm, batch)
+            assimilate!(sm, batch; verbose=(length(out) + 1 == parse(Int, get(ENV, "STREAM_VERBOSE_UPDATE", "0"))))
         catch err
             err isa InterruptException && rethrow(); failed = err; break
         end

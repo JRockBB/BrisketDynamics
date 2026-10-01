@@ -1,6 +1,6 @@
 # Where a streaming update's time goes: per update, the slice and dynamics factors' Jacobians and solves, the iterations,
 # the wall. Uses stream_bench.jl's setup for one cook's first readings.
-push!(ARGS, "1", "1", "profile_tmp.json", "0.75", "2", "slice", "0")
+push!(ARGS, "1", "1", "profile_tmp.json", "1.1", "2", "slice", "0")
 const STOP_AFTER = 14
 # run the bench's setup without its cook loop
 src = read(joinpath(@__DIR__, "stream_bench.jl"), String)
@@ -27,13 +27,13 @@ sm = online_init(model; lag=2, attach=:slice, node_ratio=0.15)
 counts(sm) = (sj=sum((f.n_jacobians for f in values(sm.slices)); init=0), ss=sum((f.n_solves for f in values(sm.slices)); init=0),
               dj=sum((f.n_jacobians for f in values(sm.dyn)); init=0), ds=sum((f.n_solves for f in values(sm.dyn)); init=0))
 # batches of the readings in successive 5-minute spans (a profiling stand-in for compute pacing)
-spans = [(k - 1) * 300.0 for k in 1:9]
+spans = [0.0, 16.0, 625.0]
 for (n, t0s) in enumerate(spans[1:end-1])
     batch = [r for r in recs if t0s < r.t <= spans[n + 1]]
     isempty(batch) && continue
     empty!(E.SLICE_TIMERS)
     tw = time()
-    res = assimilate!(sm, batch)
+    res = assimilate!(sm, batch; verbose=true)
     tm = E.SLICE_TIMERS
     @printf("update %d (%d readings, to %.0f s): wall %.1f s, iters %d, nodes %d | %s
 ", n, length(batch), batch[end].t, time() - tw, res.iters, res.n_nodes,
