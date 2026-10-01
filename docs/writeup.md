@@ -28,8 +28,8 @@ the pit's vapor pressure, draft-scaled convection, Maillard and
 smoke-deposition bark states, a smoke-ring front), and the quasi-steady pit
 humidity balance, integrated together as one stiff system — five meat
 fields (T, W, C, F, salt) on n_x nodes plus the two bark states, the ring
-depth and the wrap latch, and six pit states (temperature, fuel, ignition,
-pan water and temperature, firebox): 5·n_x + 4 + 6 = 210 ODEs at n_x = 40
+depth, and six pit states (temperature, fuel, ignition,
+pan water and temperature, firebox): 5·n_x + 3 + 6 = 209 ODEs at n_x = 40
 (method of lines, FBDF). Its inputs are the meat and pit parameters, the damper schedule,
 the wrap, pull and fuel-addition times, the spritz policy, the number of
 briskets, initial conditions (including the full meat field

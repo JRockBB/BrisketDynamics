@@ -51,7 +51,6 @@ class CookState:
     mpan0: float = 0.0
     tpan0: float = 293.15
     tfb0: float = 293.15
-    wrap_latch0: float = 0.0
     c_fb: float = 2.0e4
     ua_fb: float = 12.0
     c_duct: float = 0.0
@@ -74,7 +73,6 @@ class CookState:
         mpan0=0.0,
         tpan0=293.15,
         tfb0=None,
-        wrap_latch0=0.0,
         c_fb=2.0e4,
         ua_fb=12.0,
         c_duct=0.0,
@@ -94,7 +92,6 @@ class CookState:
             mpan0=mpan0,
             tpan0=tpan0,
             tfb0=tpit0 if tfb0 is None else tfb0,
-            wrap_latch0=wrap_latch0,
             c_fb=c_fb,
             ua_fb=ua_fb,
             c_duct=c_duct,
@@ -109,7 +106,6 @@ def _ics(state: CookState, t_amb: float) -> dict:
         "m_pan0": state.mpan0,
         "t_pan0": state.tpan0,
         "t_firebox0": state.tfb0,
-        "wrap_latch0": state.wrap_latch0,
         "c_fb": state.c_fb,
         "ua_fb": state.ua_fb,
         "c_duct": state.c_duct,
@@ -189,7 +185,6 @@ def advance_plant(
         mpan0=float(sim["m_pan"][-1]),
         tpan0=float(sim["t_pan"][-1]),
         tfb0=float(sim["t_firebox"][-1]),
-        wrap_latch0=float(sim["wrap_latch"][-1]),
         c_fb=state.c_fb,
         ua_fb=state.ua_fb,
         c_duct=state.c_duct,
@@ -219,7 +214,6 @@ def advance_plant(
             "m_pan",
             "t_pan",
             "t_firebox",
-            "wrap_latch",
         )
     }
 

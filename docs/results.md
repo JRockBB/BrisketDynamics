@@ -3651,6 +3651,8 @@ settled.
 
 ## Event sensitivities: the state-triggered wrap latch (2026-09-04)
 
+*Superseded 2026-10-01: the wrap trigger and its latch were removed from every model and the planner; the wrap is the planner's decision at `t_wrap`. The record below is kept as history.*
+
 "Wrap at 165 °F internal" is now differentiable without jump conditions:
 a smooth IRREVERSIBLE latch state l with dl/dt = k_latch·σ((T_core −
 T_trig)/δ_trig)·(1 − l) drives the wrap blend as the smooth OR
@@ -3683,6 +3685,8 @@ pattern as t_f — shared with the wrap trigger T_trig and the wood-split
 interval dt_add.
 
 ## Planner exposure of t_salt / T_trig / dt_add (2026-09-04, M1 complete)
+
+*Superseded 2026-10-01: the wrap trigger and its latch were removed from every model and the planner; the wrap is the planner's decision at `t_wrap`. The record below is kept as history.*
 
 The three decision variables the physics already carried are now
 first-class through the whole chain, the t_f pattern end to end:
@@ -3935,3 +3939,100 @@ differentiates through the decode.
 This coordinate change invalidates the stored state-noise fingerprint.
 Existing consistency and coverage numbers must be treated as stale until the
 held-out state-noise bench is rerun.
+
+## 2-D slab: smoke on the faces, fuel additions and lid lifts (2026-10-01)
+
+The 2-D cook now carries the three 1-D cook terms it lacked, so a planned
+cook replays on the grid with its smoke and its pit events.
+
+- **Smoke on every exposed face cell.** Deposition and the smoke-ring
+  front are the 1-D surface states, one per rim strip and end annulus,
+  driven by the burn rate. The ring front reads the temperature along
+  the face's inward normal. Neither feeds back into the transport: with
+  smoke on, the temperature and moisture fields are bitwise those
+  without it. In the thick-slab limit the end-face centre reproduces the
+  1-D surface to 6e-4 in deposition and 1e-5 m in ring depth over a 6 h
+  cook. The corners dry first and take less smoke and a shallower ring.
+  Outputs: per-face fields and series, area-weighted means, the thinnest
+  ring, L* at the face means, and the dirty-smoke bitterness integral.
+- **Fuel additions and lid lifts in the pit loop.** `coupled_solve_2d`
+  takes `t_add` and `dt_add` with the monolith's expressions: the
+  chimney feeds the fuel and lights the unlit share of the bed, and one
+  lid opening costs `UA_open` for the addition and for each spritz pulse
+  while unwrapped and in the pit. `ADD_NEVER` is bitwise the default run.
+  At the default `UA_open` the addition's lid lift drops the pit about
+  30 K, which `UA_open = 0` removes.
+- **Endpoints.** The stack gains `smoke_mean, ring_mean, l_star_mean,
+  bitterness` after the earlier scalars; `t_add, dt_add` follow the
+  earlier differentiable inputs, so every existing offset is unchanged.
+  d(final fuel)/d(t_add) matches central differences to 2e-5 relative.
+  The slab2d Tesseract and the shadow report take the plan's fuel
+  addition, which `run_shadow2d.py` had been dropping.
+
+## The 2-D and 3-D cuts carry the full 1-D physics; the wrap is a time (2026-10-01)
+
+**The wrap is the planner's decision at `t_wrap`, never a model state.** The
+state-triggered wrap latch is removed everywhere: the 1-D meat state is
+5·n_x + 3 (209 states with the pit at n_x = 40), the monolith's parameter
+vector loses its trigger slot (`dt_add` and `A_meat` move up one), and the
+system's per-piece event scalars are six. The planner's trigger decision,
+the Tesseract's `t_trig` input and every latch hand-off are gone; the
+Python app and Tesseract tests that remained pass.
+
+**The 2-D slab** (`slab2d.jl`) now renders fat per node (its own field,
+feeding conductivity, capacity and the shrink), places a bone at the core
+on the depth below the nearest exposed face, and scales h_c and k_m with
+the draft: θ2 gains m_conv as its seventh entry, the prescribed solve
+takes `airflow_knots`, and the pit loop feeds its own airflow. The pit's
+share of the heat and vapor now carries the exposed-area factor, as the
+1-D pit sees it. In the thick-slab limit the axis fat field matches the
+1-D slab to 2e-3, the bone-in and draft-scaled cores to under 1.5 K, and
+the fat term of the juiciness to 2e-3. The stack appends `fat_rendered`
+and `juiciness`.
+
+**The 3-D grid pieces** (`grid3d.jl`) gain the slab's depth physics on any
+mesh: the per-node shrink stretch on every edge with the exposed-area
+factor on the surface water flux and the pit's share, the dry-brine salt
+field (the union of the erfc profiles from every exposed face, diffusing,
+holding water and throttling the surface vapor pressure), the bone on the
+same depth coordinate, and the smoke-ring front per exposed node along
+its inward line. The state is 5N + 3·n_boundary, and the restart carries
+the salt field and the ring per node. A brick of one transverse node with
+one exposed face is the slab term for term at the default configuration,
+and again with a bone and a twelve-hour brine:
+
+| Quantity | Largest brick vs slab gap over a 4 h cook |
+|---|---|
+| Temperature field | 2.5e-6 K |
+| Water field | 3e-8 |
+| Salt field | 2e-10 |
+| Ring depth | 1e-10 m |
+| Exposed-area factor | 2e-9 |
+
+**What it moves.** Removing the latch moved the calibrated 18 h cook
+through the monolith (MAP latents, the real-cook schedule) by at most
+0.016 K in the pit and 0.004 K at the core at the default tolerance, and
+by 1e-4 K and 2e-5 K at 1e-9: the step control, not the physics, so the
+1-D calibrations, posteriors, planner and pilot records stand. The 2-D
+shadow of the committed robust plan (`data/control/shadow2d.json`, now
+also replaying the plan's fuel addition and reporting the smoke, ring,
+fat and juiciness) moves with the new physics:
+
+| Shadow of the robust plan at serve | 2026-09-07 physics | 2026-10-01 physics |
+|---|---|---|
+| Cold spot (peak) | 68.1 °C (94.1 °C) | 69.0 °C (95.2 °C) |
+| Core | 81.9 °C | 82.6 °C |
+| Cold-spot come-up 10–54 °C | 1.05 h | 1.00 h |
+| C_min | 0.979 | 0.988 |
+| Water retained | 0.277 | 0.245 |
+| Bark mean (spread) | 0.65 (0.27) | 0.72 (0.24) |
+| Shrunk radius / thickness | 11.0 / 3.2 cm | 10.5 / 3.1 cm |
+| Doubled grid: ΔT_cold(serve), ΔC_min | −0.08 K, +0.0005 | −0.07 K, +0.0006 |
+
+New in the report: smoke deposition 0.67, ring 2.8 mm, L* 30.8,
+bitterness 0.016, fat rendered 0.81, juiciness 0.31. The shifts come
+from the draft scaling, the per-node fat rendering and the area factor
+together; they were not separated term by term.
+
+Still not in either: nothing of the 1-D physics. The 2-D and 3-D bark and
+smoke distributions remain uncalibrated (roadmap C2).

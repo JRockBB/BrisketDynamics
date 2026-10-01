@@ -45,7 +45,6 @@ def test_apply_shapes(case):
         "m_pan",
         "t_pan",
         "t_firebox",
-        "wrap_latch",
     ):
         assert np.asarray(out[k]).shape == (nt,) and np.all(np.isfinite(out[k]))
     assert np.asarray(out["c_field_final"]).shape == (40,)

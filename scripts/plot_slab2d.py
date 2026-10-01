@@ -1,7 +1,7 @@
 """2-D figures and cook animations (figures/slab2d/).
 
 Re-simulates the planned cook on the 2-D axisymmetric solver (full
-fields, via juliacall like render_animation.py) and renders the
+fields, on the slab2d Tesseract's Julia session) and renders the
 grid-only story: the plan traces with the TRUE cold spot, temperature /
 moisture / doneness field snapshots on the shrinking cut, the brine
 layer and the bark distribution, plus two animations — the cook itself
@@ -14,6 +14,7 @@ Usage (from app/, so juliacall resolves):
 """
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -35,9 +36,20 @@ from brisket_app.shadow2d import THETA2_IDX, equivalent_radius
 OUT = REPO / "figures" / "slab2d"
 
 
+def _slab2d_julia():
+    """The slab2d Tesseract's Julia session (`jl`, `_on_julia_thread`): one process-wide Julia thread, the
+    repository's Julia and project, initialized under the cross-process lock. A juliacall session of the
+    script's own, driven from the main thread, deadlocks in the in-process extension precompile."""
+    path = REPO / "tesseracts" / "slab2d" / "tesseract_api.py"
+    spec = importlib.util.spec_from_file_location("slab2d_tesseract_api", path)
+    api = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(api)
+    return api
+
+
 def simulate(args):
-    """One 2-D coupled cook of the plan, full fields, via juliacall."""
-    import juliacall
+    """One 2-D coupled cook of the plan, full fields, on the slab2d Tesseract's Julia thread."""
+    api = _slab2d_julia()
 
     mp = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
     theta = np.array([mp[n] for n, _ in THETA_SITES], dtype=float)
@@ -53,13 +65,7 @@ def simulate(args):
     tsp = plan.get("t_spritz_robust_h", plan.get("t_spritz_plan_h"))
     dts = plan.get("dt_spritz_robust_min", plan.get("dt_spritz_plan_min"))
     tp = plan.get("t_pull_robust_h", plan.get("t_pull_plan_h"))
-
-    jl = juliacall.newmodule("Slab2dPlot")
-    jl.seval(f'import Pkg; Pkg.activate(raw"{REPO}"; io=devnull)')
-    jl.seval("using BrisketDynamics")
-    jv = lambda x: juliacall.convert(
-        jl.Vector, np.ascontiguousarray(np.asarray(x, dtype=np.float64))
-    )
+    ta = plan.get("t_add_robust_h", plan.get("t_add_plan_h"))
     tsave = np.arange(0.0, t_end + 1, 600.0)
     utk = np.linspace(0.0, t_end, len(u))
     kw = dict(
@@ -73,29 +79,32 @@ def simulate(args):
         t_salt=args.t_salt_h * HR,
         t_spritz=(tsp * HR if tsp is not None else 1.0e9),
         dt_spritz=(dts * 60.0 if dts is not None else 3600.0),
+        t_add=(ta * HR if ta is not None else 1.0e9),
     )
     rest = plan.get("rest") or {}
-    if rest:  # the plan's rest environment (cambro / board), as the monolith took it
-        kw["cfg"] = jl.MeatConfig(
-            T_rest=float(rest.get("rest_t", 293.15)),
-            h_rest=float(rest.get("rest_h", 1.5)),
-            ε_rest=float(rest.get("rest_eps", 0.10)),
-            η_rest=float(rest.get("rest_eta", 0.9)),
-        )
-    o = jl.coupled_solve_2d(jv(theta[list(THETA2_IDX)]), jv(phi), jv(u),
-                            jv(utk), jv(tsave), **kw)
-    get = lambda name: np.asarray(jl.getproperty(o, jl.Symbol(name)))
-    sim = {
-        n: get(n)
-        for n in (
-            "Tpit", "Tcore", "Tcold", "T_field", "W_field", "C_field",
-            "bark_rim_t", "bark_ends_t", "R_eff_t", "Hz_eff_t", "salt_field",
-            "m_fuel",
-        )
-    }
-    sim["w_retained"] = float(get("w_retained"))
-    sim["bark_mean"] = float(get("bark_mean"))
-    sim["bark_std"] = float(get("bark_std"))
+    series = ("Tpit", "Tcore", "Tcold", "T_field", "W_field", "C_field",
+              "bark_rim_t", "bark_ends_t", "R_eff_t", "Hz_eff_t", "salt_field", "m_fuel")
+    scalars = ("w_retained", "bark_mean", "bark_std")
+
+    def _run():
+        # every Julia call and every copy to numpy happens on the Julia thread
+        jl = api.jl
+        kwj = dict(kw)
+        if rest:  # the plan's rest environment (cambro / board), as the monolith took it
+            kwj["cfg"] = jl.MeatConfig(
+                T_rest=float(rest.get("rest_t", 293.15)),
+                h_rest=float(rest.get("rest_h", 1.5)),
+                ε_rest=float(rest.get("rest_eps", 0.10)),
+                η_rest=float(rest.get("rest_eta", 0.9)),
+            )
+        o = jl.coupled_solve_2d(api._jvec(theta[list(THETA2_IDX)]), api._jvec(phi), api._jvec(u),
+                                api._jvec(utk), api._jvec(tsave), **kwj)
+        get = lambda name: np.array(jl.getproperty(o, jl.Symbol(name)), copy=True)
+        out = {n: get(n) for n in series}
+        out.update({n: float(get(n)) for n in scalars})
+        return out
+
+    sim = api._on_julia_thread(_run)
     sim["t"] = tsave
     sim["t_wrap_h"] = tw
     sim["t_pull_h"] = tp
@@ -130,10 +139,12 @@ def fig_plan(sim):
     if sim["t_wrap_h"]:
         ax.axvline(sim["t_wrap_h"], color="gray", lw=1, ls=":")
         ax.annotate("wrap", (sim["t_wrap_h"], ax.get_ylim()[0] + 5),
+                    xytext=(-4, 0), textcoords="offset points",
                     color="gray", fontsize=9, ha="right", rotation=90)
     if sim["t_pull_h"]:
         ax.axvline(sim["t_pull_h"], color="gray", lw=1, ls="--")
         ax.annotate("pull", (sim["t_pull_h"], ax.get_ylim()[0] + 5),
+                    xytext=(-4, 0), textcoords="offset points",
                     color="gray", fontsize=9, ha="right", rotation=90)
     ax.set_ylabel("temperature [\N{DEGREE SIGN}C]")
     ax.legend(loc="upper left", fontsize=9)  # the pull marker lives lower right
@@ -266,8 +277,9 @@ def anim_cook(sim, fps):
         im = ax.imshow(mirror(f[:, :, 0]).T, origin="lower", extent=ext0,
                        aspect="equal", cmap=cm, vmin=vlo, vmax=vhi)
         ims.append(im)
-        ax.set_xlim(-100 * sim["R_eff_t"][0], 100 * sim["R_eff_t"][0])
-        ax.set_ylim(0, 100 * sim["Hz_eff_t"][0])
+        # a margin around the cut, so the cold-spot marker on an edge node is drawn whole
+        ax.set_xlim(-100 * sim["R_eff_t"][0] - 0.8, 100 * sim["R_eff_t"][0] + 0.8)
+        ax.set_ylim(-0.8, 100 * sim["Hz_eff_t"][0] + 0.8)
         ax.set_xlabel("r [cm]")
         fig.colorbar(im, ax=ax, shrink=0.75, label=lab)
     axes[0].set_ylabel("z [cm]")
@@ -312,8 +324,8 @@ def anim_salt(sim, fps):
     im = ax.imshow(mirror(sim["W_field"][:, :, 0]).T, origin="lower",
                    extent=ext0, aspect="equal", cmap="viridis", vmin=0.0,
                    vmax=Wmax)
-    ax.set_xlim(-100 * sim["R_eff_t"][0], 100 * sim["R_eff_t"][0])
-    ax.set_ylim(0, 100 * sim["Hz_eff_t"][0])
+    ax.set_xlim(-100 * sim["R_eff_t"][0] - 0.8, 100 * sim["R_eff_t"][0] + 0.8)
+    ax.set_ylim(-0.8, 100 * sim["Hz_eff_t"][0] + 0.8)
     ax.set_xlabel("r [cm]")
     ax.set_ylabel("z [cm]")
     fig.colorbar(im, ax=ax, shrink=0.85, label="moisture [kg/kg db]")

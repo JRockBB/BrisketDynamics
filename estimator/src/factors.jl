@@ -214,7 +214,7 @@ end
     propagate(m::SystemModel, y0, z, t0, t1; first_slice=false) -> (y1, o)
 
 The belief state at `t1` from the belief state `y0` (coordinates) at `t0` under the latents `z`: decoded,
-lifted to the system's state (the latches at zero), integrated over the slice, encoded again; `first_slice` reads
+lifted to the system's state, integrated over the slice, encoded again; `first_slice` reads
 the ignited fraction from the latent a0 rather than from the state (the cook's first slice, as the filter).
 Duals in `y0` and `z` flow through the solve (the factor's Jacobian). Also returns the slice's outputs.
 """

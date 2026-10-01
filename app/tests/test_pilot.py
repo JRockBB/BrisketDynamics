@@ -132,7 +132,6 @@ def test_advance_plant_carries_complete_handoff(monkeypatch):
         mpan0=1.2,
         tpan0=295.0,
         tfb0=430.0,
-        wrap_latch0=0.4,
         c_duct=60.0,
     )
     captured = {}
@@ -149,7 +148,6 @@ def test_advance_plant_carries_complete_handoff(monkeypatch):
             "m_pan": np.array([1.2, 1.1]),
             "t_pan": np.array([295.0, 296.0]),
             "t_firebox": np.array([430.0, 425.0]),
-            "wrap_latch": np.array([0.4, 0.7]),
             "t_field_final": field,
             "w_field_final": field,
             "c_field_final": field,
@@ -168,9 +166,7 @@ def test_advance_plant_carries_complete_handoff(monkeypatch):
 
     assert captured["m_pan0"] == 1.2
     assert captured["t_firebox0"] == 430.0
-    assert captured["wrap_latch0"] == 0.4
     assert captured["c_duct"] == 60.0
     assert new.mpan0 == 1.1
     assert new.tpan0 == 296.0
     assert new.tfb0 == 425.0
-    assert new.wrap_latch0 == 0.7

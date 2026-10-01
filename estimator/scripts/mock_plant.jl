@@ -96,7 +96,7 @@ mock1 = merge(base, Dict("plant" => "monolith (1-D)", "clean" => clean1, "readin
 #         area equals A_true (2πR² + 2πR·Hz = A_true), probe on the axis
 Hz = 2 * L_true
 R = (-Hz + sqrt(Hz^2 + 2 * A_true / π)) / 2
-θ2 = θ_true[[1, 2, 3, 5, 6, 7]]
+θ2 = θ_true[[1, 2, 3, 5, 6, 7, 8]]
 nr, nzc = 16, 14
 t0 = time()
 o2 = coupled_solve_2d(θ2, φ_true, u, t, t; R=R, Hz=Hz, nr=nr, nz=nzc, cfg=d.cfg, pit=d.pit,
@@ -112,7 +112,7 @@ clean2 = Dict(
     "core" => [interp1(o2.T_field[1, :, k], posz) for k in 1:nt],
     "humidity" => collect(o2.pv_pit),
     "ir" => [o2.T_field[1, nzc, k] for k in 1:nt],
-    "mass" => [RHO_D * sum(vol .* meat_mass_factor.(o2.W_field[:, :, k], F0, Ref(d.cfg))) for k in 1:nt],
+    "mass" => [RHO_D * sum(vol .* meat_mass_factor.(o2.W_field[:, :, k], o2.F_field[:, :, k], Ref(d.cfg))) for k in 1:nt],
 )
 rng = MersenneTwister(12)
 mock2 = merge(base, Dict("plant" => "2-D axisymmetric (structural mismatch)", "clean" => clean2,

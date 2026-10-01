@@ -84,7 +84,7 @@ run_set("layout") && @testset "the belief layout of one slab is the filter's; th
     @test maximum(abs.(system_from_belief(xb, bl)[bl.sys_index] .- xs[bl.sys_index])[big]) < 1e-9
     @test maximum(abs.(belief_encode(xb, bl) .- y_sys)) < 1e-9                             # a fixed point: the floors hold
     h = belief_handoff(xb, bl)
-    @test h.pieces[1].T0f ≈ ics.T0f && h.pit.Tpit0 ≈ ics.Tpit0 && h.pieces[1].LATCH0 == 0.0
+    @test h.pieces[1].T0f ≈ ics.T0f && h.pit.Tpit0 ≈ ics.Tpit0
     @test isapprox(h.ignited, a; atol=2e-6)
     # the latent block: the physics sites, the area, the depth, in latent_block's order
     @test length(blk) == 17 && blk.names == blk_old.names && AREA == 16 && DEPTH == 17

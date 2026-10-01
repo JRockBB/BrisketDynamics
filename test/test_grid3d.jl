@@ -1,5 +1,6 @@
 # The grid pieces (src/meats/grid3d.jl), gated:
-#   the 1-D limit    a brick of one transverse node with one exposed face reproduces the slab (n_shrink = 0) in a system
+#   the 1-D limit    a brick of one transverse node with one exposed face reproduces the slab in a system (shrink, salt,
+#                    bone, smoke and ring included)
 #   symmetry         a cube with every face exposed gives the same field under any axis permutation
 #   conservation     the water the exposed faces lose and the sinks take is what the nodes lose, from the RHS itself
 #   the cylinder     the axisymmetric piece under a prescribed pit against the ADI engine (meat_solve_2d)
@@ -20,7 +21,13 @@ const G_PIT = PitConfig(; T_amb=300.0, Tpit0=320.0)
     @test abs(m.area - (0.1 * 0.2 + 2 * 0.03 * 0.2 + 2 * 0.03 * 0.1)) < 1e-15    # five faces exposed
     @test length(m.edges) == 3 * 3 * 5 + 4 * 2 * 5 + 4 * 3 * 4
     @test m.coords[m.core, 1] == 0.0 && b.cfg.A_meat == 1.0
-    @test ode_layout(b).n == 4 * 60 + 2 * n_boundary(b) && ode_layout(b)[:bark_b] == (241):(240 + n_boundary(b))
+    @test ode_layout(b).n == 5 * 60 + 3 * n_boundary(b) && ode_layout(b)[:bark_b] == (301):(300 + n_boundary(b))
+    @test ode_layout(b)[:ring] == (300 + 2 * n_boundary(b) + 1):(300 + 3 * n_boundary(b))
+    # the depth physics' geometry: every node's depth below the nearest exposed face, and an inward line per
+    # exposed node that starts at it and runs along the face normal
+    @test m.depth[m.core] == maximum(m.depth) && all(m.depth .>= 0) && size(m.face_dist) == (60, 5)
+    @test all(m.inward[i][1] == m.boundary[i][1] for i in eachindex(m.boundary))
+    @test length(m.inward) == n_boundary(b) && all(Δ -> Δ > 0, m.inward_Δ)
     @test_throws ArgumentError initial_state(b, G_θ; ics=(T0f=fill(NaN, b.mesh.N),))
     @test_throws ArgumentError Brick3D(:b; Lx=0.03, Ly=0.1, Lz=0.2, nx=4, ny=3, nz=5, exposed=(false, false, false, false, false, false))
     @test_throws ArgumentError Brick3D(:b; Lx=-0.03, Ly=0.1, Lz=0.2, nx=4, ny=3, nz=5)
@@ -45,11 +52,11 @@ end
         mesh = pc.mesh; N = mesh.N; nb = n_boundary(pc)
         T = [cfg.T0 + a * sum(abs2, view(mesh.coords, i, :)) for i in 1:N]
         W = fill(cfg.W0, N); C = zeros(N); F = fill(cfg.F0, N)
-        u = vcat(T, W, C, F, zeros(nb), zeros(nb)); du = zeros(length(u))
+        u = vcat(T, W, C, F, zeros(N), zeros(nb), zeros(nb), zeros(nb)); du = zeros(length(u))
         θ = ntuple(i -> G_θ[i], 8)
         BrisketDynamics._piece_rhs!(pc, du, u, 0.0, θ, cfg.T0, 0.0, cfg.p_v_pit, cfg.g_ref,
                                     BrisketDynamics.WRAP_NEVER, BrisketDynamics.PULL_NEVER,
-                                    BrisketDynamics.SPRITZ_NEVER, 3600.0, 0.0, Inf,
+                                    BrisketDynamics.SPRITZ_NEVER, 3600.0, 0.0,
                                     BrisketDynamics._piece_hoisted(pc), 1.0)
         centre = argmin([sum(abs2, view(mesh.coords, i, :) .- 0.02) for i in 1:N])
         x = view(mesh.coords, centre, :); Tc = T[centre]
@@ -67,23 +74,33 @@ end
 
 @testset "grid: the one-dimensional limit is the slab" begin
     L = G_θ[4]; nx = 12
-    cfg = MeatConfig(; nx=nx, n_shrink=0.0, A_meat=1.0, T0=282.0)
     ts = collect(0.0:600.0:(4G_HR)); u = [0.2, 0.5, 0.4, 0.3, 0.3]; utk = collect(range(0.0, 4G_HR; length=5))
     tol = 1e-9
     ev = [CookEvent(:wrap, :s, 2.5G_HR), CookEvent(:spritz, :s, 1G_HR; dt=1800.0, m=0.04)]
-    slab = system_solve(CookSystem(Slab1D(:s; cfg); pit=G_PIT), [G_θ], [1.0], G_φ, u, utk, ts; events=ev, abstol=tol, reltol=tol)
-    brick = Brick3D(:s; Lx=L, Ly=1.0, Lz=1.0, nx=nx, ny=1, nz=1, exposed=(false, true, false, false, false, false), cfg=cfg)
-    @test brick.mesh.area == 1.0 && brick.mesh.line == collect(1:nx) && brick.mesh.core == 1
-    grid = system_solve(CookSystem(brick; pit=G_PIT), [G_θ], [1.0], G_φ, u, utk, ts; events=ev, abstol=tol, reltol=tol)
-    ps, pg = slab.piece[:s], grid.piece[:s]
-    @test maximum(abs.(pg.T_field .- ps.T_field)) < 1e-4
-    @test maximum(abs.(pg.W_field .- ps.W_field)) < 1e-6
-    @test maximum(abs.(pg.C_field .- ps.C_field)) < 1e-6 && maximum(abs.(pg.F_field .- ps.F_field)) < 1e-7
-    @test maximum(abs.(pg.bark_b .- ps.bark_b)) < 1e-5 && maximum(abs.(pg.bark_s .- ps.bark_s)) < 1e-5
-    @test maximum(abs.(grid.Tpit .- slab.Tpit)) < 1e-3 && maximum(abs.(grid.pv_pit .- slab.pv_pit)) < 1e-2
-    @test maximum(abs.(pg.q_meat .- ps.q_meat)) < 1e-2 && maximum(abs.(pg.j_evap .- ps.j_evap)) < 1e-8
-    @test maximum(abs.(pg.mass .- ps.mass)) < 1e-6 && abs(pg.w_retained - ps.w_retained) < 1e-6
-    @test maximum(abs.(pg.T_line .- ps.T_field)) < 1e-4 && maximum(abs.(pg.Tcore .- ps.Tcore)) < 1e-4
+    # the default configuration (shrink on), and again with a bone and a twelve-hour dry brine: the brick's
+    # metrics, salt, bone weights and ring front are the slab's term for term
+    for (cfg, t_salt) in ((MeatConfig(; nx=nx, A_meat=1.0, T0=282.0), NaN),
+                          (MeatConfig(; nx=nx, A_meat=1.0, T0=282.0, bone_frac=0.3), 12G_HR))
+        slab = system_solve(CookSystem(Slab1D(:s; cfg); pit=G_PIT), [G_θ], [1.0], G_φ, u, utk, ts; events=ev, t_salt,
+                            abstol=tol, reltol=tol)
+        brick = Brick3D(:s; Lx=L, Ly=1.0, Lz=1.0, nx=nx, ny=1, nz=1, exposed=(false, true, false, false, false, false), cfg=cfg)
+        @test brick.mesh.area == 1.0 && brick.mesh.line == collect(1:nx) && brick.mesh.core == 1
+        grid = system_solve(CookSystem(brick; pit=G_PIT), [G_θ], [1.0], G_φ, u, utk, ts; events=ev, t_salt,
+                            abstol=tol, reltol=tol)
+        ps, pg = slab.piece[:s], grid.piece[:s]
+        @test maximum(abs.(pg.T_field .- ps.T_field)) < 1e-4
+        @test maximum(abs.(pg.W_field .- ps.W_field)) < 1e-6
+        @test maximum(abs.(pg.C_field .- ps.C_field)) < 1e-6 && maximum(abs.(pg.F_field .- ps.F_field)) < 1e-7
+        @test maximum(abs.(pg.salt_field .- ps.salt_field)) < 1e-7
+        @test maximum(abs.(pg.bark_b .- ps.bark_b)) < 1e-5 && maximum(abs.(pg.bark_s .- ps.bark_s)) < 1e-5
+        @test maximum(ps.ring) > 1e-4 && maximum(abs.(pg.ring .- ps.ring)) < 1e-7
+        @test maximum(abs.(pg.area_factor .- ps.area_factor)) < 1e-8 && maximum(abs.(pg.l_thick .- ps.l_thick)) < 1e-9
+        @test maximum(abs.(grid.Tpit .- slab.Tpit)) < 1e-3 && maximum(abs.(grid.pv_pit .- slab.pv_pit)) < 1e-2
+        @test maximum(abs.(pg.q_meat .- ps.q_meat)) < 1e-2 && maximum(abs.(pg.j_evap .- ps.j_evap)) < 1e-8
+        @test maximum(abs.(pg.mass .- ps.mass)) < 1e-6 && abs(pg.w_retained - ps.w_retained) < 1e-6
+        @test maximum(abs.(pg.T_line .- ps.T_field)) < 1e-4 && maximum(abs.(pg.Tcore .- ps.Tcore)) < 1e-4
+        @test abs(pg.evap_w - ps.evap_w) < 1e-6 && abs(pg.bitterness - ps.bitterness) < 1e-6
+    end
 end
 
 @testset "grid: a cube's field is invariant under axis permutation; water is conserved" begin
@@ -99,14 +116,13 @@ end
     # conservation from the RHS: the dry-mass water change summed over the nodes equals the faces' loss plus the sinks
     hoisted = BrisketDynamics._piece_hoisted(cube)
     x = o.piece[:c].T_field[:, 4]; w = o.piece[:c].W_field[:, 4]; cc = o.piece[:c].C_field[:, 4]; ff = o.piece[:c].F_field[:, 4]
-    nb = n_boundary(cube)
-    ucur = vcat(x, w, cc, ff, zeros(nb), zeros(nb))
+    nb = n_boundary(cube); N = cube.mesh.N
+    ucur = vcat(x, w, cc, ff, zeros(N), zeros(nb), zeros(nb), zeros(nb))
     du = zeros(length(ucur))
     θt = ntuple(j -> G_θ[j], 8)
     pv = 2000.0
     BrisketDynamics._piece_rhs!(cube, du, ucur, ts[4], θt, 380.0, 0.0, pv, cfg.g_ref, BrisketDynamics.WRAP_NEVER, BrisketDynamics.PULL_NEVER,
-                                BrisketDynamics.SPRITZ_NEVER, 3600.0, 0.05, Inf, hoisted, 1.0)
-    N = cube.mesh.N
+                                BrisketDynamics.SPRITZ_NEVER, 3600.0, 0.05, hoisted, 1.0)
     dW_total = sum(cube.mesh.vol .* du[(N + 1):2N])                                  # m³ × d(kg/kg)/dt
     loss = 0.0
     for (n, area) in cube.mesh.boundary
@@ -120,11 +136,11 @@ end
 @testset "grid: the axisymmetric piece against the ADI engine and the slab's cylindrical mode" begin
     cfg = MeatConfig(; n_shrink=0.0, T0=282.0, p_v_pit=2000.0)
     R, Hz, nr, nz = 0.04, 0.10, 10, 12
-    θ2 = G_θ[[1, 2, 3, 5, 6, 7]]
+    θ2 = G_θ[[1, 2, 3, 5, 6, 7, 8]]
     tknots = collect(0.0:600.0:(2G_HR)); Tpit = fill(383.15, length(tknots)); tsave = tknots
     adi = meat_solve_2d(θ2, Tpit, tknots, tsave; R, Hz, nr, nz, cfg, h=10.0)
     cyl = Cylinder2D(:c; R, Hz, nr, nz, cfg)
-    θc = copy(G_θ); θc[8] = 0.0                                                     # the ADI takes a fixed h_c: no draft exponent
+    θc = copy(G_θ)                                                                  # both at the reference draft (no scaling)
     mol = piece_solve(cyl, θc, Tpit, tknots, tsave; pv=cfg.p_v_pit)
     dcore = maximum(abs.(mol.Tcore .- adi.Tcore))
     Tm = reshape(mol.T_field[:, end], nr, nz); Ta = adi.T_field[:, :, end]
@@ -160,15 +176,17 @@ end
     brick = Brick3D(:b; Lx=0.03, Ly=0.08, Lz=0.12, nx=6, ny=4, nz=5, cfg=cfg)
     slab = Slab1D(:s; cfg=MeatConfig(; nx=8))
     sys = CookSystem([slab, brick]; pit=G_PIT)
-    @test sys.layout.pieces == [:s, :b] && n_state(sys) == (5 * 8 + 4) + (4 * brick.mesh.N + 2 * n_boundary(brick)) + 6
+    @test sys.layout.pieces == [:s, :b] && n_state(sys) == (5 * 8 + 3) + (5 * brick.mesh.N + 3 * n_boundary(brick)) + 6
     whole = system_solve(sys, [G_θ, G_θ], [0.12, 1.0], G_φ, u, utk, ts)
     k = 7
     h = system_handoff(whole, k)
-    @test haskey(h.pieces[2], :B0f) && length(h.pieces[2].B0f) == n_boundary(brick) && !haskey(h.pieces[2], :ring)
+    @test haskey(h.pieces[2], :B0f) && length(h.pieces[2].B0f) == n_boundary(brick)
+    @test length(h.pieces[2].R0f) == n_boundary(brick) && length(h.pieces[2].Ssalt0f) == brick.mesh.N
     second = system_solve(sys, [G_θ, G_θ], [0.12, 1.0], G_φ, u, utk, ts[k:end];
                           ics=h.pieces, pit_ics=(; h.pit..., ignited=h.ignited), history=h.history)
     @test maximum(abs.(second.piece[:b].Tcore .- whole.piece[:b].Tcore[k:end])) < 0.05
     @test maximum(abs.(second.piece[:b].bark_b .- whole.piece[:b].bark_b[k:end])) < 1e-6
+    @test maximum(abs.(second.piece[:b].ring .- whole.piece[:b].ring[k:end])) < 1e-6 && whole.piece[:b].ring[end] > 0
     @test maximum(abs.(second.Tpit .- whole.Tpit[k:end])) < 0.05
     @test abs(second.piece[:b].evap_w - whole.piece[:b].evap_w) < 1e-4
     @test abs(second.piece[:b].bitterness - whole.piece[:b].bitterness) < 1e-4

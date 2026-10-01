@@ -155,14 +155,13 @@ def test_wrap_continuity_across_segments(clients, theta_phi):
 
 
 def test_complete_nondefault_state_handoff(clients, theta_phi):
-    """Pan, firebox, and trigger-latch states survive every segment restart."""
+    """Pan and firebox states survive every segment restart."""
     theta, phi = theta_phi
     initial = mpc.CookState.fresh(
         tpit0=300.0,
         mpan0=1.5,
         tpan0=290.0,
         tfb0=450.0,
-        wrap_latch0=0.6,
         c_duct=60.0,
     )
     u = np.full(2, 0.5)
@@ -172,11 +171,9 @@ def test_complete_nondefault_state_handoff(clients, theta_phi):
 
     assert middle.mpan0 < initial.mpan0
     assert middle.tfb0 != initial.tfb0
-    assert middle.wrap_latch0 == pytest.approx(initial.wrap_latch0, abs=1e-9)
     assert split.mpan0 == pytest.approx(whole.mpan0, rel=2e-3, abs=2e-4)
     assert split.tpan0 == pytest.approx(whole.tpan0, abs=0.2)
     assert split.tfb0 == pytest.approx(whole.tfb0, abs=0.2)
-    assert split.wrap_latch0 == pytest.approx(whole.wrap_latch0, abs=1e-8)
 
 
 def test_horizon_not_divisible_by_replan(clients, theta_phi):

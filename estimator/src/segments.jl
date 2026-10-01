@@ -7,8 +7,7 @@
 # monolith takes the meat fields, the bark and ring states and the salt field as initial conditions
 # (`T0f`, `W0f`, `C0f`, `F0f`, `B0`, `S0`, `R0`, `Ssalt0f`) and the pit's state through its config
 # and the pit's state as solver keywords (`Tpit0`, `mfuel0`, `mpan0`, `Tpan0`, `Tfb0`), the ignited fraction
-# through `a0` (φ[7], the only place a0 acts); the state-triggered wrap latch is not carried (the wrap here is
-# a time). Every handed-off quantity may be a ForwardDiff Dual, so a segmented cook differentiates. Event times stay absolute, so a
+# through `a0` (φ[7], the only place a0 acts). Every handed-off quantity may be a ForwardDiff Dual, so a segmented cook differentiates. Event times stay absolute, so a
 # segment after the wrap is wrapped from its first step and an add before it is already in `m0`; a
 # boundary must not fall inside the add's pulse.
 

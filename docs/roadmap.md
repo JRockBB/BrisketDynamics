@@ -320,8 +320,9 @@ frontend beyond the CLI; the bark write-up rides on C6.
 
 A 2-D axisymmetric surrogate at highest fidelity (a point-over-flat
 stack is available, inert by default), not a true packer geometry: the
-slab2d Tesseract shadow-scores plans to serve (true cold spot, come-up
-time, bark distribution, a doubled-grid check — `docs/results.md`) while
+slab2d Tesseract shadow-scores plans to serve with the full 1-D physics
+(true cold spot, come-up time, bark and smoke distributions, ring depth,
+fat and juiciness, a doubled-grid check — `docs/results.md`) while
 the planners optimize on the 1-D monolith; no animal-to-animal pH, aging or
 water-holding capacity (C3); wind and weather on `UA(t)` beyond the
 pilot's forecast feedforward + ambient filter (C1); rub chemistry beyond

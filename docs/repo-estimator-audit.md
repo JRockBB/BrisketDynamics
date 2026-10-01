@@ -196,9 +196,10 @@ relevant humidity condition; and provide fail-safe fallback schedules.
   `data/mock/objective_crosscheck.json:67-110`. The formula is identical on
   both sides (a term-by-term parity fixture now gates it; see the remediation
   report); the residual disagreement is the two engines' bark, a roadmap item.
-- The supported 2-D model omits several 1-D dynamics, including dynamic fat
-  rendering, smoke/ring, fuel additions, and lid lifts, by design:
-  `src/meats/slab2d.jl:1-25`. It is a useful shadow model, not independent
+- The supported 2-D model carries the 1-D dynamics since 2026-10-01 (smoke,
+  ring, fuel additions, lid lifts, fat rendering, bone and the draft
+  scaling; the trigger-wrap latch was removed from every model, the wrap
+  being the planner's time). It is a useful shadow model, not independent
   verification of the full planner.
 
 The spritz mask past the wrap, the water pan's overshoot below zero, the

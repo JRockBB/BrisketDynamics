@@ -28,7 +28,7 @@ function loss(v::AbstractVector)
                          h=30.0).w_retained
 end
 
-θ2 = [3.8e-9, 0.0018, 10.0, 1.0, 5.6e-4, 0.20]
+θ2 = [3.8e-9, 0.0018, 10.0, 1.0, 5.6e-4, 0.20, 0.6]
 
 L0 = loss(θ2)  # compile + value
 @printf("w_retained = %.6f\n", L0)

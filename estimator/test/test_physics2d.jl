@@ -86,7 +86,7 @@ end
     @test S2 == S
     dR = ForwardDiff.derivative(lr -> physics_stack(vcat(z[1:15], lr, z[17:end]), d, ph)[1], log(R_true))
     @test isapprox(J[:, 16], dR; rtol=1e-6, atol=1e-8 * maximum(abs, dR))
-    @test all(iszero, J[:, 8])          # m_conv is not in the 2-D engine
+    @test !all(iszero, J[:, 8])         # m_conv scales the 2-D engine's h_c and k_m with the draft, as in 1-D
     @test !all(iszero, J[:, 4])         # L is (the half-height)
 end
 println("test_physics2d.jl: done")

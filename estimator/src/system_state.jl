@@ -5,8 +5,8 @@
 # entry for entry (test_online.jl gates it), so the state-noise groups and their rates carry over by name.
 #
 # The belief carries every piece's fields, bark, smoke and ring, and the pit's chamber temperature, fuel,
-# pan water and temperature, firebox and ignited fraction; not the wrap latch (the wrap is a time to the
-# estimator, as in `handoff`), which is zero on every restart. Included by BrisketEstimator after sequential.jl.
+# pan water and temperature, firebox and ignited fraction (the wrap is the planner's time, not a state).
+# Included by BrisketEstimator after sequential.jl.
 
 using BrisketDynamics: MEAT_NP, PIT_NP, PIECE_PARAM_SCALARS, _primal, fv_mean, l_star_bark, piece
 
@@ -29,6 +29,7 @@ struct BeliefLayout
     pit_range::UnitRange{Int}
     groups::Vector{Pair{String,UnitRange{Int}}}
     modes::Dict{Symbol,Int}                # per piece, the smooth spatial modes its fields' noise carries beyond the bulk (`field_mode_count`)
+    grid::Dict{Symbol,Bool}                # per piece, whether it is a grid piece (its surface states per exposed node, the vector restart contract)
 end
 const PIECE_BELIEF_FIELDS = (:T, :W, :C, :F, :S, :bark_b, :bark_s, :ring)
 const PIT_BELIEF_FIELDS = (:T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
@@ -37,8 +38,7 @@ const PIT_GROUP_NAMES = ("T_pit", "m_fuel", "m_pan", "T_pan", "T_fb", "ignited")
 """
     belief_layout(sys::CookSystem) -> BeliefLayout
 
-The belief's layout over the system: per piece its fields in `PIECE_BELIEF_FIELDS` order (the latch left
-out), then the pit's in `PIT_BELIEF_FIELDS` order; one noise group per field of every piece (the bark, smoke
+The belief's layout over the system: per piece its fields in `PIECE_BELIEF_FIELDS` order, then the pit's in `PIT_BELIEF_FIELDS` order; one noise group per field of every piece (the bark, smoke
 and ring scalars one group, `"id.bark"`) and one per pit entry.
 """
 function belief_layout(sys::CookSystem)
@@ -47,8 +47,7 @@ function belief_layout(sys::CookSystem)
     for id in lay.pieces
         b = lay.piece[id]; start = length(idx) + 1
         bark0 = 0
-        for (f, r0, kind) in zip(b.names, b.ranges, b.kinds)                # every field of the piece's own layout but the latch
-            f === :latch && continue
+        for (f, r0, kind) in zip(b.names, b.ranges, b.kinds)                # every field of the piece's own layout
             r = lay.piece_range[id][r0]
             g0 = length(idx) + 1
             append!(idx, collect(r)); append!(kinds, fill(kind, length(r)))
@@ -68,7 +67,8 @@ function belief_layout(sys::CookSystem)
         append!(idx, collect(r)); append!(kinds, fill(kind, length(r)))
         push!(groups, g => length(idx):length(idx))
     end
-    return BeliefLayout(lay, length(idx), kinds, idx, pr, p0:length(idx), groups, Dict(pc.id => field_mode_count(pc) for pc in sys.pieces))
+    return BeliefLayout(lay, length(idx), kinds, idx, pr, p0:length(idx), groups, Dict(pc.id => field_mode_count(pc) for pc in sys.pieces),
+                        Dict(pc.id => pc isa GridPiece for pc in sys.pieces))
 end
 belief_groups(bl::BeliefLayout) = bl.groups
 "The belief's range of `field` of piece `id` (or of the pit)."
@@ -81,14 +81,11 @@ end
 
 "The belief's physical state from the system's."
 belief_from_system(x_sys::AbstractVector, bl::BeliefLayout) = x_sys[bl.sys_index]
-"The system's state from the belief's physical state: the latch of every piece at `latch` (zero: the wrap is a time)."
-function system_from_belief(x_b::AbstractVector, bl::BeliefLayout; latch::Real=0.0)
+"The system's state from the belief's physical state (the belief carries every state entry)."
+function system_from_belief(x_b::AbstractVector, bl::BeliefLayout)
     length(x_b) == bl.n || throw(ArgumentError("the belief state has $(length(x_b)) entries; the layout $(bl.n)"))
-    x = zeros(promote_type(eltype(x_b), typeof(float(latch))), bl.sys.n)
+    x = zeros(promote_type(eltype(x_b), Float64), bl.sys.n)
     x[bl.sys_index] = x_b
-    for id in bl.sys.pieces
-        haskey(bl.sys.piece[id], :latch) && (x[state_index(bl.sys, id, :latch)] .= latch)
-    end
     return x
 end
 
@@ -309,14 +306,15 @@ belief_init_cov(bl::BeliefLayout, sn) = belief_process_cov(bl, sn, g -> _group_r
 """
     belief_handoff(x_b, bl) -> (pieces, pit, ignited)
 
-The restart keywords of a physical belief state: per piece `handoff`'s contract (the latch at zero), the
+The restart keywords of a physical belief state: per piece `handoff`'s contract, the
 pit's keywords and the ignited fraction (`system_solve`'s `ics`, `pit_ics`).
 """
 function belief_handoff(x_b::AbstractVector, bl::BeliefLayout)
     pieces = map(bl.sys.pieces) do id
         g(f) = x_b[belief_index(bl, id, f)]
-        haskey(bl.sys.piece[id], :ring) || return (T0f=g(:T), W0f=g(:W), C0f=g(:C), F0f=g(:F), B0f=g(:bark_b), S0f=g(:bark_s))   # a grid piece
-        (T0f=g(:T), W0f=g(:W), C0f=g(:C), F0f=g(:F), Ssalt0f=g(:S), B0=g(:bark_b)[1], S0=g(:bark_s)[1], R0=g(:ring)[1], LATCH0=0.0)
+        bl.grid[id] && return (T0f=g(:T), W0f=g(:W), C0f=g(:C), F0f=g(:F), Ssalt0f=g(:S), B0f=g(:bark_b), S0f=g(:bark_s),
+                               R0f=g(:ring))   # a grid piece: its surface states per exposed node
+        (T0f=g(:T), W0f=g(:W), C0f=g(:C), F0f=g(:F), Ssalt0f=g(:S), B0=g(:bark_b)[1], S0=g(:bark_s)[1], R0=g(:ring)[1])
     end
     p(f) = x_b[belief_index(bl, :pit, f)][1]
     return (pieces=collect(pieces), pit=(Tpit0=p(:T_pit), mfuel0=p(:m_fuel), mpan0=p(:m_pan), Tpan0=p(:T_pan), Tfb0=p(:T_fb)),

@@ -30,7 +30,6 @@ ever enters the derivatives.
 | $s$ | dry-basis salt field [kg/kg] (dry brine; section 1, salt) |
 | $B, S$ | surface bark states: Maillard browning, smoke deposition (each in [0,1)) |
 | $R$ | smoke-ring penetration depth [m] (an output, never in the objective) |
-| $\ell$ | wrap latch in [0,1]: the state-triggered wrap (section 1, latch) |
 | $T_s, W_s$ | field values at the surface node $x = L$ |
 | $C_0$ | collagen conversion at the center node (the probe location) — "doneness" |
 | $T_p, m, a$ | pit states: gas temperature [K], fuel mass [kg], ignited bed fraction |
@@ -98,20 +97,19 @@ fixed slab) and component densities $\rho_{\mathrm{sol}}, \rho_f,
 \rho_w$; enzymatic collagen route $k_{\mathrm{enz}}, T_{\mathrm{on}},
 T_{\mathrm{off}}, \delta_{\mathrm{enz}}$ (`k_enz0`, `T_enz_on`,
 `T_enz_off`, `δ_enz`); salt $D_{\mathrm{salt}}, S_{\mathrm{surf}},
-\beta_{\mathrm{whc}}, k_{aw}$; latch $k_\ell, \delta_{\mathrm{trig}}$
-(`k_latch`, `δ_trig`); pan $UA_{\mathrm{pan}}, g_{\mathrm{pan}},
+\beta_{\mathrm{whc}}, k_{aw}$; pan $UA_{\mathrm{pan}}, g_{\mathrm{pan}},
 C_{\mathrm{pan}}, m_\tau$; the come-up window and cap (`cut_t_lo`,
 `cut_t_hi`, `cut_cap_h`, `cut_critical`, section 4).
 
-## 1. Meat: 1-D heat–moisture–salt–kinetics PDE ($5n_x + 4$ ODEs after MOL)
+## 1. Meat: 1-D heat–moisture–salt–kinetics PDE ($5n_x + 3$ ODEs after MOL)
 
 Half-slab $x \in [0, L]$, symmetry at the center $x=0$ (probe location),
 convective/radiative/evaporative boundary at the surface $x=L$. Method of
-lines on $n_x = 40$ uniform nodes → $5n_x + 4 = 204$ meat ODEs (five
-fields $T, W, C, F, s$; the two bark states, the smoke-ring depth and the
-wrap latch), 210 with the six pit states of section 2, one stiff system
+lines on $n_x = 40$ uniform nodes → $5n_x + 3 = 203$ meat ODEs (five
+fields $T, W, C, F, s$; the two bark states and the smoke-ring depth),
+209 with the six pit states of section 2, one stiff system
 (FBDF). The count is the layout, not a constant: five fields times $n_x$,
-plus four meat scalars, plus six pit states.
+plus three meat scalars, plus six pit states.
 
 **Interior fields** (θ: $D_{\mathrm{eff}}$, $k_{\mathrm{mult}}$, $k_e$;
 with $\alpha = k / (\rho c_p)$ of the local mixture, below), written
@@ -264,15 +262,8 @@ variable; $t_{\mathrm{wrap}} = 10^9$ puts the logistic blend at numerical
 zero over any cook horizon (Python no-wrap is `WRAP_NEVER = 1e9 + 0\cdot z_w`
 so the unused wrap logit stays in the tape).
 
-**State-triggered wrap (latch).** The wrap can also fire on the core
-temperature: an irreversible latch state $\ell \in [0,1]$,
-$\dot\ell = k_\ell\,\sigma\!\big((T_0 - T_{\mathrm{trig}})/\delta_{\mathrm{trig}}\big)\,(1-\ell)$
-($k_\ell = 1/60$ s⁻¹, about a minute to commit), drives the wrap blend as
-the smooth OR $s = 1 - (1 - s_{\mathrm{time}})(1 - \ell)$. Because $\ell$
-is an ordinary smooth state, $\partial(\cdot)/\partial T_{\mathrm{trig}}$
-exists through plain forward mode — no event jump conditions;
-$T_{\mathrm{trig}} = \infty$ (the planner's 0 sentinel) leaves the latch
-identically zero.
+The wrap is a planner decision at the time $t_{\mathrm{wrap}}$, never a
+model state: no model wraps itself on a core temperature.
 
 **Spritz.** A spritz policy — first spritz $t_{\mathrm{sp}}$, interval
 $\Delta_{\mathrm{sp}}$, dose $m_{\mathrm{sp}}$ (0.02–0.10 kg/m²: a light
@@ -693,12 +684,30 @@ $t_{\mathrm{pull}}$ a face sees $h_r, T_r, \varepsilon_r$ and the
 blocked rest evaporation while the pit stops seeing the meat, so the
 shadow ends at serve, not at the horizon — dry brine from every rubbed
 face, spritz, grain anisotropy, a point-over-flat stack, Maillard bark on
-the faces. Geometry: height $2L$; radius, by default, the one whose two
+the faces, and smoke deposition and the smoke-ring front on every exposed
+face cell (the 1-D surface states per cell, driven by the burn rate, the
+ring front reading the temperature along the face's inward normal). The
+pit loop carries the monolith's fuel addition (one chimney or a split
+train, lighting the unlit bed) and its lid lifts (the addition and each
+spritz pulse, one opening). Geometry: height $2L$; radius, by default, the one whose two
 end faces carry the 1-D exposed area $A_{\mathrm{meat}}$,
 $R = \sqrt{A_{\mathrm{meat}}/2\pi}$ (13.8 cm for 0.12 m²); the report
 records which radius was used and, on request, the change of the serve
-cold spot, its peak and $C_{\min}$ under grid doubling. Not in 2-D: bone,
-smoke deposition and the ring, fuel additions and lid lifts. Forward-mode
-derivatives w.r.t. $\theta_2, \phi$, the damper knots and the five
-decision scalars (wrap, salt, spritz start and interval, pull) are the
-`slab2d` Tesseract's endpoints.
+cold spot, its peak and $C_{\min}$ under grid doubling. The rest of the
+1-D physics is carried too: fat renders per node from the point-over-flat
+profile, a bone sits at the core (the 1-D blend on the normalized depth
+$\hat\xi = 1 - d/d_{\max}$ below the nearest exposed face), and $h_c, k_m$
+scale with the draft, $\theta_2 = [D_{\mathrm{eff}}, k_m, h_c,
+k_{\mathrm{mult}}, k_e, a_{\mathrm{myosin}}, m_{\mathrm{conv}}]$.
+
+The 3-D grid pieces (`Brick3D`, and `Cylinder2D`, the same cylinder as a
+method-of-lines piece of the cook system) carry the same set on any
+mesh: the per-node shrink stretch on every edge with the exposed-area
+factor on the surface water flux and the pit's share, the dry-brine
+salt field from every exposed face, the bone on the same depth
+coordinate, and the smoke ring per exposed node along its inward line.
+A brick of one transverse node with one exposed face is the slab term
+for term. Forward-mode
+derivatives w.r.t. $\theta_2, \phi$, the damper knots and the seven
+decision scalars (wrap, salt, spritz start and interval, pull, fuel
+addition and split interval) are the `slab2d` Tesseract's endpoints.

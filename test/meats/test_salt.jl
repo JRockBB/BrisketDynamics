@@ -82,39 +82,6 @@ end
     @test w[1] > 0.9 && w[end] < 1e-3 && issorted(w, rev=true)
 end
 
-@testset "state-triggered wrap latch (event sensitivities)" begin
-    hr = 3600.0
-    tknots = collect(0.0:300.0:10hr)
-    Tpit = fill(383.15, length(tknots))
-    θ = MEAT_θ_DEFAULT
-
-    # disabled trigger: latch exactly zero, trajectories = time-wrap path
-    base = meat_solve(θ, Tpit, tknots, tknots)
-    @test all(iszero, base.wrap_latch)
-
-    # trigger at 340 K core: the latch commits as the core crosses it,
-    # and the cook behaves wrapped from that moment (evap suppressed)
-    trig = meat_solve(θ, Tpit, tknots, tknots; T_wrap_trigger=340.0)
-    i_cross = findfirst(>=(340.0), trig.Tcore)
-    @test i_cross !== nothing
-    # the latch commits over the last ~10 min of the approach (the σ tail
-    # integrates), so bracket it a little wider than the crossing sample
-    @test trig.wrap_latch[max(i_cross - 6, 1)] < 0.15
-    @test trig.wrap_latch[min(i_cross + 3, length(tknots))] > 0.95
-    @test trig.w_retained > base.w_retained
-    @test trig.evap_w < base.evap_w
-
-    # THE M-goal: d/d(T_trig) exists, is smooth, and matches finite
-    # differences. (Its SIGN is model-dependent: wrapping earlier saves
-    # evaporation but runs the meat hotter and purges more — at this
-    # fixture the purge effect wins, so the derivative is positive.)
-    wret(Tt) = meat_solve(θ, Tpit, tknots, tknots; T_wrap_trigger=Tt).w_retained
-    g = ForwardDiff.derivative(wret, 340.0)
-    fd = (wret(340.5) - wret(339.5)) / 1.0
-    @test isfinite(g) && abs(g) > 1e-5
-    @test abs(g - fd) / abs(fd) < 0.05
-end
-
 @testset "t_salt as a differentiable input (M-goal)" begin
     hr = 3600.0
     tknots = collect(0.0:300.0:8hr)

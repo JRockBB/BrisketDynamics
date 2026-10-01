@@ -7,14 +7,13 @@ handoff. That is all this file tests, on a short cook at production
 tolerances.
 """
 
-import jax.numpy as jnp
 import numpy as np
 import pytest
 from brisket_app.clients import monolith_client
-from brisket_app.control import ControlConfig, _decisions_m1, objective
+from brisket_app.control import ControlConfig, _decisions_m1
 from brisket_app.coupled import HR, PHI_DEFAULT, THETA_DEFAULT, CookGrids
 
-DECISIONS = ("t_salt", "t_trig", "dt_add")
+DECISIONS = ("t_salt", "dt_add")
 
 
 @pytest.fixture(scope="module")
@@ -26,11 +25,9 @@ def case():
         "u_knots": np.full(3, 0.5),
         "u_tknots": grids.u_tknots,
         "tsave": grids.tknots,
-        # the trigger is the ONLY wrap here (t_wrap never), so its column
-        # is live; the splits ride on t_add
+        # the splits ride on t_add
         "t_add": 0.5 * HR,
         "t_salt": 10.0 * HR,
-        "t_trig": 305.0,
         "dt_add": 1800.0,
         "t_amb": 300.0,
     }
@@ -41,12 +38,11 @@ def test_sentinels_inert_and_live(case):
     tx, inputs, _ = case
     off = {k: v for k, v in inputs.items() if k not in DECISIONS}
     base = tx.apply(off)
-    zeros = tx.apply({**off, "t_salt": 0.0, "t_trig": 0.0, "dt_add": 0.0})
+    zeros = tx.apply({**off, "t_salt": 0.0, "dt_add": 0.0})
     for k in ("tcore", "w_retained", "m_fuel"):
         assert np.array_equal(np.asarray(base[k]), np.asarray(zeros[k]))
     on = tx.apply(inputs)
-    # trigger wraps (retention up), splits feed the fire (more fuel mass)
-    assert float(on["w_retained"]) > float(base["w_retained"])
+    # splits feed the fire (more fuel mass), the brine salts the meat
     assert float(np.asarray(on["m_fuel"])[-1]) > float(np.asarray(base["m_fuel"])[-1])
     assert float(np.max(np.asarray(on["salt_field_final"]))) > 1e-3
 
@@ -57,8 +53,7 @@ def test_column_remap(case):
     tx, inputs, _ = case
     outs = ["w_retained", "m_fuel"]
     J = tx.jacobian(inputs, list(DECISIONS), outs)
-    tangent = {"t_salt": np.asarray(1800.0), "t_trig": np.asarray(1.0),
-               "dt_add": np.asarray(300.0)}
+    tangent = {"t_salt": np.asarray(1800.0), "dt_add": np.asarray(300.0)}
     d = tx.jacobian_vector_product(inputs, list(DECISIONS), outs, tangent)
     for k in outs:
         ref = sum(np.asarray(J[k][n]) * float(tangent[n]) for n in DECISIONS)
@@ -76,9 +71,12 @@ def test_column_remap(case):
         "t_add": 0.4,  # fractions in duration mode
         "dt_add": 0.333,
     }
-    ins = ["t_f", "t_trig"]
+    # t_f sits LAST in the python layout but first in the julia tf vector;
+    # t_salt / dt_add follow the event tail in both
+    ins = ["t_f", "t_salt", "dt_add"]
     Jf = tx.jacobian(tf_inputs, ins, outs)
-    tangent = {"t_f": np.asarray(600.0), "t_trig": np.asarray(1.0)}
+    tangent = {"t_f": np.asarray(600.0), "t_salt": np.asarray(1800.0),
+               "dt_add": np.asarray(0.02)}
     df = tx.jacobian_vector_product(tf_inputs, ins, outs, tangent)
     for k in outs:
         ref = sum(np.asarray(Jf[k][n]) * float(tangent[n]) for n in ins)
@@ -90,10 +88,9 @@ def test_column_remap(case):
 def test_salt_restart_contract(case):
     # a salted cook split in half and restarted from the handed-off
     # fields (salt included) matches the unsplit cook. Kept out of the
-    # comparison: the wrap-trigger latch (not in the restart contract, a
-    # known residue) and the fuel add (its pulse would straddle the seam)
+    # comparison: the fuel add (its pulse would straddle the seam)
     tx, inputs0, _ = case
-    inputs = {k: v for k, v in inputs0.items() if k != "t_trig"}
+    inputs = dict(inputs0)
     inputs["t_add"] = 1.0e9
     inputs["dt_add"] = 0.0
     whole = tx.apply(inputs)
@@ -130,28 +127,10 @@ def test_salt_restart_contract(case):
 
 
 def test_planner_maps():
-    cc = ControlConfig(opt_salt=True, opt_trig=True, opt_splits=True)
-    tsalt, ttrig, tda = _decisions_m1(cc, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    cc = ControlConfig(opt_salt=True, opt_splits=True)
+    tsalt, tda = _decisions_m1(cc, 0.0, 0.0, 0.0, 0.0)
     assert tsalt == pytest.approx(cc.t_salt_max / 2)
-    assert ttrig == pytest.approx((cc.t_trig_min + cc.t_trig_max) / 2)
     assert tda == pytest.approx((cc.dt_add_min + cc.dt_add_max) / 2)
     off = ControlConfig()
-    assert _decisions_m1(off, 5.0, 5.0, 5.0, 0.0, 0.0, 0.0) == (0.0, 0.0, 0.0)
+    assert _decisions_m1(off, 5.0, 5.0, 0.0, 0.0) == (0.0, 0.0)
 
-
-def test_objective_sees_the_trigger(case):
-    tx, _, grids = case
-    cc = ControlConfig(
-        opt_trig=True, opt_wrap=False, opt_pull=False, opt_add=False,
-        opt_spritz=False, t_trig_min=295.0, t_trig_max=315.0,
-    )
-    tols = {"abstol": 1e-6, "reltol": 1e-6}
-    z = jnp.zeros(3)
-    j_lo = float(objective(z, jnp.asarray(0.0), jnp.asarray(THETA_DEFAULT),
-                           jnp.asarray(PHI_DEFAULT), tx, grids, cc, tols,
-                           z_tg=jnp.asarray(-2.0)))
-    j_hi = float(objective(z, jnp.asarray(0.0), jnp.asarray(THETA_DEFAULT),
-                           jnp.asarray(PHI_DEFAULT), tx, grids, cc, tols,
-                           z_tg=jnp.asarray(2.0)))
-    assert np.isfinite(j_lo) and np.isfinite(j_hi)
-    assert j_lo != j_hi  # the trigger decision reaches the objective
