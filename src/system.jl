@@ -477,9 +477,10 @@ end
 
 The in-place coupled RHS over the system state (`sys.layout`) with the parameter vector laid out by
 `ParamLayout(sys, nu)`; the damper schedule is interpolated from `nu` knots on the uniform grid
-`u_t0 + (i − 1) u_dt`.
+`u_t0 + (i − 1) u_dt`. `freeze` holds the chamber's resolved vapor pressure and each grid piece's exposed-area
+factor at their values (no derivatives through them): the right-hand side the sparse Jacobian is taken of.
 """
-function make_system_rhs(sys::CookSystem, u_t0::Real, u_dt::Real, nu::Int; correction=nothing)
+function make_system_rhs(sys::CookSystem, u_t0::Real, u_dt::Real, nu::Int; correction=nothing, freeze::Bool=false)
     pit = sys.pit
     play = ParamLayout(sys, nu)
     ix = _SysIndex(sys, play)
@@ -499,13 +500,14 @@ function make_system_rhs(sys::CookSystem, u_t0::Real, u_dt::Real, nu::Int; corre
             inst = _system_instant(sys, x, p, t, ud, ix, hoisted; pv_bias=corr.pv)
         end
         Tp, m, a, mp, Tpan, Tfb = inst.Tp, inst.m, inst.a, inst.mp, inst.Tpan, inst.Tfb
-        pv_piece = inst.pv_star
+        pv_piece = freeze ? _primal(inst.pv_star) : inst.pv_star
         q_meat = zero(inst.pv_star)
         for i in 1:np
             θ = Tuple(p[ix.θ[i]])
-            q_meat += _piece_rhs!(sys.pieces[i], view(dx, ix.x[i]), view(x, ix.x[i]), t, θ, Tp, inst.mdot, pv_piece, inst.airflow,
-                                  p[ix.t_wrap[i]], p[ix.t_pull[i]], p[ix.t_spritz[i]], p[ix.dt_spritz[i]], p[ix.m_spritz[i]],
-                                  hoisted[i], p[ix.A[i]])
+            args = (sys.pieces[i], view(dx, ix.x[i]), view(x, ix.x[i]), t, θ, Tp, inst.mdot, pv_piece, inst.airflow,
+                    p[ix.t_wrap[i]], p[ix.t_pull[i]], p[ix.t_spritz[i]], p[ix.dt_spritz[i]], p[ix.m_spritz[i]],
+                    hoisted[i], p[ix.A[i]])
+            q_meat += freeze ? _piece_rhs!(args...; freeze=true) : _piece_rhs!(args...)
         end
         q_meat -= corr.q
         # The lid is one physical opening. Shared trains and coincident/overlapping pulses therefore take the
@@ -603,20 +605,28 @@ function _uniform_control_grid(u_tknots::AbstractVector)
 end
 
 """
-    system_solve_raw(sys, p, x0, u_tknots, tsave; abstol=1e-6, reltol=1e-6) -> A
+    system_solve_raw(sys, p, x0, u_tknots, tsave; abstol=1e-6, reltol=1e-6, jacobian=:auto) -> A
 
 The system integrated from `x0` under the parameter vector `p` (`ParamLayout(sys, length(u_tknots))`):
-the state at every save time, `n × nt`. Fails loudly on an unsuccessful solve.
+the state at every save time, `n × nt`. Fails loudly on an unsuccessful solve. `jacobian`: `:dense` (automatic
+differentiation of the whole right-hand side), `:sparse` (grid pieces only: `make_sparse_jacobian`), `:auto` the
+sparse one for a Float64 solve of grid pieces past 800 nodes.
 """
 function system_solve_raw(sys::CookSystem, p::AbstractVector, x0::AbstractVector, u_tknots::AbstractVector, tsave::AbstractVector;
-                          correction=nothing, abstol=1e-6, reltol=1e-6)
+                          correction=nothing, abstol=1e-6, reltol=1e-6, jacobian::Symbol=:auto)
     nu = length(u_tknots)
     u_t0, u_dt = _uniform_control_grid(u_tknots)
     rhs!, play = make_system_rhs(sys, u_t0, u_dt, nu; correction)
     length(p) == play.n || throw(ArgumentError("the parameter vector has $(length(p)) entries; the system with $nu knots takes $(play.n)"))
     length(x0) == sys.layout.n || throw(ArgumentError("the state has $(length(x0)) entries; the system $(sys.layout.n)"))
     Tel = promote_type(eltype(p), eltype(x0), Float64)
-    prob = ODEProblem{true,SciMLBase.FullSpecialize}(rhs!, Tel.(x0), (float(tsave[1]), float(tsave[end])), p)
+    prob = if _use_sparse(sys, Tel, jacobian)
+        proto, jac!, _ = make_sparse_jacobian(sys, u_t0, u_dt, nu; correction)
+        f = SciMLBase.ODEFunction{true,SciMLBase.FullSpecialize}(rhs!; jac=jac!, jac_prototype=proto)
+        ODEProblem{true,SciMLBase.FullSpecialize}(f, Tel.(x0), (float(tsave[1]), float(tsave[end])), p)
+    else
+        ODEProblem{true,SciMLBase.FullSpecialize}(rhs!, Tel.(x0), (float(tsave[1]), float(tsave[end])), p)
+    end
     # FBDF preserves the monolith's numerical parity and is normally faster, but can hit a
     # tolerance-dependent dt-epsilon failure when several moisture nodes cross a constitutive kink
     # together. QNDF is the same implicit BDF family and crosses that case robustly. Retry only an
@@ -779,19 +789,19 @@ The same from the flat parameter vector (`pack_params`) and, optionally, a full 
 function system_solve(sys::CookSystem, θs::AbstractVector, As::AbstractVector, φ::AbstractVector, u_knots::AbstractVector,
                       u_tknots::AbstractVector, tsave::AbstractVector; events::AbstractVector{CookEvent}=CookEvent[],
                       t_add::Real=NaN, dt_add::Real=NaN, ics::AbstractVector=[(;) for _ in sys.pieces], pit_ics::NamedTuple=(;),
-                      history=nothing, correction=nothing, t_salt=NaN, abstol=1e-6, reltol=1e-6)
+                      history=nothing, correction=nothing, t_salt=NaN, abstol=1e-6, reltol=1e-6, jacobian::Symbol=:auto)
     length(u_knots) == length(u_tknots) || throw(ArgumentError("u_knots length $(length(u_knots)) != u_tknots length $(length(u_tknots))"))
     p, play = pack_params(sys, θs, As, φ, u_knots; events, t_add, dt_add)
     x0 = initial_state(sys, p, play; ics, pit_ics, t_salt)
-    A = system_solve_raw(sys, p, x0, u_tknots, tsave; correction, abstol, reltol)
+    A = system_solve_raw(sys, p, x0, u_tknots, tsave; correction, abstol, reltol, jacobian)
     return system_outputs(sys, A, p, u_tknots, tsave; history, correction)
 end
 function system_solve(sys::CookSystem, p::AbstractVector, u_tknots::AbstractVector, tsave::AbstractVector; x0=nothing,
                       ics::AbstractVector=[(;) for _ in sys.pieces], pit_ics::NamedTuple=(;), history=nothing,
-                      correction=nothing, t_salt=NaN, abstol=1e-6, reltol=1e-6)
+                      correction=nothing, t_salt=NaN, abstol=1e-6, reltol=1e-6, jacobian::Symbol=:auto)
     play = ParamLayout(sys, length(u_tknots))
     x0v = x0 === nothing ? initial_state(sys, p, play; ics, pit_ics, t_salt) : x0
-    A = system_solve_raw(sys, p, x0v, u_tknots, tsave; correction, abstol, reltol)
+    A = system_solve_raw(sys, p, x0v, u_tknots, tsave; correction, abstol, reltol, jacobian)
     return system_outputs(sys, A, p, u_tknots, tsave; history, correction)
 end
 

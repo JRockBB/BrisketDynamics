@@ -260,8 +260,10 @@ end
 
 A piece on a `GridMesh` with the slab's constitutive constants (`cfg`; its `nx` is unused) and a material per node:
 `mats` the configurations (the first the cut's own, `cfg`), `mat` each node's index into them (a fat cap is a
-second material: its own initial water and fat, every property and rate read from it). `Brick3D`, `Cylinder2D` and
-`BrisketFlat3D` build it; one material is the slab's arithmetic exactly.
+second material: its own initial water and fat, every property and rate read from it), and `bone` each node's bone
+weight (1 a node of bone: its conductivity and heat capacity the bone's, the slab's thermal-only bone, added to the
+config's depth blend). `Brick3D`, `Cylinder2D`, `BrisketFlat3D` and `VoxelPiece` build it; one material and no bone
+is the slab's arithmetic exactly.
 """
 struct GridPiece <: PieceModel
     id::Symbol
@@ -270,8 +272,11 @@ struct GridPiece <: PieceModel
     kind::Symbol
     mat::Vector{Int}
     mats::Vector{MeatConfig}
+    bone::Vector{Float64}
 end
 GridPiece(id::Symbol, cfg::MeatConfig, mesh::GridMesh, kind::Symbol) = GridPiece(id, cfg, mesh, kind, ones(Int, mesh.N), [cfg])
+GridPiece(id::Symbol, cfg::MeatConfig, mesh::GridMesh, kind::Symbol, mat::Vector{Int}, mats::Vector{MeatConfig}) =
+    GridPiece(id, cfg, mesh, kind, mat, mats, zeros(mesh.N))
 piece_parameter_indices(::GridPiece) = (1, 2, 3, 5, 6, 7, 8) # geometry fixes L; carrying it as a latent is structurally singular
 piece_restart_fields(::GridPiece) = (:T0f, :W0f, :C0f, :F0f, :Ssalt0f, :B0f, :S0f, :R0f)
 piece_observable_schema(::GridPiece) = (:temperature, :temperature_location, :surface_temperature, :mass, :bark)
@@ -368,12 +373,14 @@ ode_layout(pc::GridPiece) = (N = pc.mesh.N; nb = length(pc.mesh.boundary);
 
 # hoisted once per closure: the mesh, the shrink exponents and the static bone weights per node (the slab's blend
 # `logistic((bone_frac − ξ̂)/δ_bone_frac)` on the normalized depth ξ̂ = 1 − d/d_max below the nearest exposed face;
-# exactly zero for the boneless default, and the slab's ξ̂ in its one-dimensional limit)
+# exactly zero for the boneless default, and the slab's ξ̂ in its one-dimensional limit; a piece's own bone nodes
+# on top, capped at one)
 function _piece_hoisted(pc::GridPiece)
     cfg = pc.cfg; mesh = pc.mesh
     wb = cfg.bone_frac > 0 ?
          logistic.((cfg.bone_frac .- (1 .- mesh.depth ./ maximum(mesh.depth))) ./ cfg.δ_bone_frac) :
          zeros(mesh.N)
+    wb = min.(wb .+ pc.bone, 1.0)
     v0n = [specific_volume(pc.mats[m].W0, pc.mats[m].F0, pc.mats[m]) for m in pc.mat]   # each node's own reference volume
     return (mesh, shrink_exponents(cfg)..., wb, pc.mats, pc.mat, v0n)
 end
@@ -470,7 +477,8 @@ scaled by the exposed-area factor; and the surface states per exposed node: Mail
 the smoke-ring front advancing along the node's inward line while the meat at the front is below myoglobin
 denaturation. Returns the heat drawn from the pit [W] (the exposed-area factor included, as the slab's).
 """
-function _piece_rhs!(pc::GridPiece, du, u, t, θ, Tp, ṁ, pv_star, airflow, t_wrap, t_pull, t_spritz, dt_spritz, m_spritz, hoisted, A_meat)
+function _piece_rhs!(pc::GridPiece, du, u, t, θ, Tp, ṁ, pv_star, airflow, t_wrap, t_pull, t_spritz, dt_spritz, m_spritz, hoisted, A_meat;
+                     freeze::Bool=false)
     mesh, n_s, n_a, v0, wbone, mats, mat, v0n = hoisted
     cfg = pc.cfg; N = mesh.N; nb = length(mesh.boundary)
     D_eff, k_m, h_c, L, k_mult, k_e, a_myosin, m_conv = θ
@@ -494,7 +502,7 @@ function _piece_rhs!(pc::GridPiece, du, u, t, θ, Tp, ṁ, pv_star, airflow, t_w
         vsum += mesh.vol[n] * v
         v0sum += mesh.vol[n] * v0n[n]
     end
-    a_area = (vsum / v0sum)^n_a
+    a_area = freeze ? (_primal(vsum) / v0sum)^n_a : (vsum / v0sum)^n_a      # frozen: the sparse Jacobian's right-hand side
     @inbounds for (i, j, g) in mesh.edges
         f = (st[i] + st[j]) / 2
         q = g * (kn[i] + kn[j]) / 2 * (T[j] - T[i]) / f                                 # W, i ← j
@@ -591,7 +599,7 @@ function piece_outputs(pc::GridPiece, Ap::AbstractMatrix, θ, A_m, ps::NamedTupl
             f_aw = 1 / (1 + cfg.k_aw * max(Sl[n, k], 0.0))
             fl = surface_fluxes_blended(T[n, k], W[n, k], h_ts[k], km_ts[k], s_ts[k], pl_ts[k], ps.pv_star[k], 0.0, mats[mat[n]], f_aw)
             jv += wa[b] * fl.j; jp += wa[b] * fl.j_pit
-            qm += bareas[b] * surface_q_pit_blended(ps.Tpit[k], T[n, k], h_ts[k], s_ts[k], pl_ts[k], cfg)
+            qm += bareas[b] * surface_q_pit_blended(ps.Tpit[k], T[n, k], h_ts[k], s_ts[k], pl_ts[k], mats[mat[n]])
         end
         j_evap[k] = jv; j_pit[k] = jp; q_meat[k] = A_m * cfg.n_meat * a_ts[k] * qm
     end
@@ -611,7 +619,7 @@ function piece_outputs(pc::GridPiece, Ap::AbstractMatrix, θ, A_m, ps::NamedTupl
     dep_dirty = zeros(promote_type(eltype(Ap), eltype(ps.mdot)), nt)
     for k in 1:nt
         for (b, n) in enumerate(bnodes)
-            dep_dirty[k] += wa[b] * cfg.k_dep * wet_blend(a_w_oswin(W[n, k], cfg), cfg) * max(ps.mdot[k], 0.0) *
+            dep_dirty[k] += wa[b] * cfg.k_dep * wet_blend(a_w_oswin(W[n, k], mats[mat[n]]), mats[mat[n]]) * max(ps.mdot[k], 0.0) *
                             (1 - ps.smoke_clean[k]) * (1 - s_ts[k]) * (1 - pl_ts[k]) * (1 - S[b, k])
         end
     end

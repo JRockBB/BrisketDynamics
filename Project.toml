@@ -6,28 +6,30 @@ version = "1.0.0-DEV"
 [deps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+OpenSSL_jll = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
 OrdinaryDiffEqBDF = "6ad6398a-0878-4a85-9266-38940aa047c8"
 OrdinaryDiffEqTsit5 = "b1df2697-797e-41e3-8120-5422d3b24e4a"
 PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
 SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-OpenSSL_jll = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
 
 [compat]
 ForwardDiff = "1.4.5"
 LinearAlgebra = "1.11.0"
+OpenSSL_jll = "~3.0"
 OrdinaryDiffEqBDF = "2.4.1"
 OrdinaryDiffEqTsit5 = "2.1.2"
 PythonCall = "=0.9.35"
 SciMLBase = "3.43.0"
+SparseArrays = "1.11.0"
 Statistics = "1.11.1"
 julia = "1.10"
-OpenSSL_jll = "~3.0"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
+[preferences]
+
 [targets]
 test = ["Test"]
-
-[preferences]
