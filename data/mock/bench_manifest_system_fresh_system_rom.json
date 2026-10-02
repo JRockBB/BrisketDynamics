@@ -1,0 +1,79 @@
+{
+  "backend": "system",
+  "blocks": [
+    [
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    [
+      16,
+      17,
+      18,
+      19,
+      20
+    ]
+  ],
+  "date": "2026-10-02",
+  "drift": 0,
+  "hours": 14.0,
+  "lag": 0,
+  "n_cooks": 10,
+  "noise": "matched",
+  "physics": "317e8ff60e30",
+  "prior": "prior_next_cook.json",
+  "records": [
+    "coverage_system_rom_11.json",
+    "coverage_system_rom_16.json"
+  ],
+  "round": "fresh",
+  "seeds": [
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "skipped": [],
+  "state_noise": {
+    "C": 0.005,
+    "C0": 0.001,
+    "F": 0.02,
+    "F0": 0.001,
+    "S": 0.001,
+    "S0": 0.001,
+    "T": 0.5,
+    "T0": 1.0,
+    "T_event": 5.0,
+    "T_fb": 2.0,
+    "T_fb0": 2.0,
+    "T_pan": 2.0,
+    "T_pan0": 2.0,
+    "T_pit": 0.5,
+    "T_pit0": 2.0,
+    "T_spritz": 1.5,
+    "W": 0.03793629824140737,
+    "W0": 0.05,
+    "bark": 0.01,
+    "bark0": 0.001,
+    "field_modes": 0.0,
+    "fields": "offset",
+    "ignited": 0.020303387423175803,
+    "ignited0": 0.05,
+    "m_add": 0.15,
+    "m_fuel": 0.012500000000000006,
+    "m_fuel0": 0.1,
+    "m_pan": 0.02,
+    "m_pan0": 0.05,
+    "node_jitter": 0.003
+  },
+  "state_noise_file": "state_noise_system_rom.json",
+  "workers": 2
+}

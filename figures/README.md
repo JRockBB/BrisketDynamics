@@ -108,3 +108,6 @@ solved by symmetry) to serve, its mid-thickness fields and the bark, smoke and r
 |---|---|---|
 | `brick3d_plan.png` | `scripts/plot_brick3d.py` | `README.md`, `docs/results.md` |
 | `brick3d_fields.png`, `brick3d_surface.png` | `scripts/plot_brick3d.py` | `docs/results.md` |
+| `brick3d_cutaway.png` | `scripts/render_brick3d.py` (the whole cut in 3-D, a quarter cut away to the centre planes: temperature and moisture at 2 h, the wrap and serve, the cold spot marked) | `README.md`, `docs/results.md` |
+| `brick3d_sliced.png` | `scripts/render_brick3d.py` (the cut at serve as it looks sliced: the surface by the model's L*, the smoke ring at its modelled depth) | `README.md`, `docs/results.md` |
+| `brick3d_cook.gif` | `scripts/render_brick3d.py` (the temperature cutaway through the cook, the camera turning) | `README.md` |

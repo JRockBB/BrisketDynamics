@@ -96,6 +96,8 @@ def simulate(plan_name: str, nx: int, ny: int, nz: int, t_salt_s: float = 0.0, d
         out["core"] = int(jl.getproperty(mesh, jl.Symbol("core"))) - 1
         geo = jl.getproperty(s, jl.Symbol("geometry"))
         out["geometry"] = {k: float(jl.getproperty(geo, jl.Symbol(k))) for k in ("thickness", "width", "length")}
+        cfg = jl.MeatConfig()
+        out["lstar_map"] = {k: float(jl.getproperty(cfg, jl.Symbol(k))) for k in ("L0_bark", "dL_B", "dL_S")}
         return out
 
     sim = api._on_julia_thread(_run)

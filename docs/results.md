@@ -4071,6 +4071,38 @@ on the chamber vapor (narrow). The artifact is `data/calibration/rom_halfbrick_f
 held-out check went from corrected/raw core RMS 4.1/3.3 K to 0.69/3.3 K. Not done: the bench with the artifact
 attached, which earns the reduced model's own state noise.
 
+## The estimator with the reduced-order model attached: the first bench, out of band (2026-10-02)
+
+`estimator/scripts/bench_system.jl --worker rom` (10 tuning cooks, the identification, 10 fresh cooks on seeds
+11–20; the plant the artifact's 120-node brick, the estimator its 20-node slab with
+`rom_halfbrick_flat.json` attached; lag 0; 14 h on the real-cook mock's schedule). The worker ran for the first
+time after two fixes (the brick and the slab on the shipped physics, as the artifact was trained; one piece's state
+groups classified by name). The calibration it wrote is `data/calibration/state_noise_system_rom.json`; the figures
+`figures/estimator/filter_consistency_drift_system_rom.png` and `coverage_realcook_system_rom.png`.
+
+The fresh round fails its consistency gates:
+
+| Fresh round, 10 cooks, 4090 updates | value | a consistent filter |
+|---|---|---|
+| NIS per dof | 0.37 | 1, inside the band on 95 % of updates (here 19 %) |
+| Latents' NEES per dof | 2.83 | 0.79–1.23 |
+| Temperatures' NEES per dof | 5.23 | 0.56–1.57 |
+| Latents within 2 sd at 14 h | 88 % | 95 % |
+
+Reading it:
+
+- **The ignition latents carry most of the latent failure**, as on the estimator without an artifact
+  (`a0` −6.6 on the mean, `k_spread` spread 5.5, the ignited group's NEES 396); the other thirteen latents are within
+  2 sd in 70–100 % of cooks.
+- **The reduction error is a slow discrepancy, carried as white noise.** The core probe's standardized innovations
+  have a lag-one autocorrelation of 0.85, the scale's 0.73, the humidity's 0.51, while the NIS is a third of its
+  expectation: the artifact's spread, added in quadrature to every reading, is too wide for a single reading and blind
+  to the drift across readings. The fix this points to is carrying the artifact's error as a correlated (OU)
+  discrepancy, not a white widening.
+- **The temperatures' NEES spikes past 25 around 12–13 h**, the fuel addition's disturbance.
+- **The bark group's NEES of 46** scores the slab's one surface against the brick's face-area mean, an unobserved
+  state carrying the raw reduction error.
+
 ## The 3-D shadow: the robust plan on a brick of the cut (2026-10-01)
 
 `scripts/run_shadow3d.py` replays a plan to serve on a 3-D brick of the cut in the cook system
@@ -4095,3 +4127,10 @@ serve is a corner of the cut, which leads the heating and so cools first in the 
 against 720 required; come-up 1.00 h). The top face's edges carry bark near 1.0 against 0.42 in its middle, less
 smoke and a ring 2 mm deep against 3. The default 6 × 8 × 12 grid against 4 × 5 × 8: the cold spot at serve
 −0.36 K, its peak −0.11 K, the centre −0.13 K, C_min −0.0003. A solve takes about a minute.
+
+The cut in 3-D (`scripts/render_brick3d.py`, the eighth rebuilt whole by its symmetry planes, the thickness drawn
+three times its scale): `figures/brick3d/brick3d_cutaway.png` cuts a quarter of the footprint away to the centre
+planes and colours every visible face by temperature and by moisture at 2 h, at the wrap and at serve (the corners
+lead at the wrap, the interior holds its water, the cold corner marked at serve); `brick3d_sliced.png` is the cut at
+serve as it looks sliced, the surface by the model's L* and the smoke ring at its modelled depth under each face;
+`brick3d_cook.gif` runs the temperature cutaway through the cook.
