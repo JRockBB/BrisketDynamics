@@ -1,8 +1,14 @@
-"""The 3-D shadow's shared half: the plan and the calibrated MAP loaded as the 2-D shadow loads them, and one
-3-D cook of the plan (scripts/shadow3d.jl) run on the slab2d Tesseract's Julia session (the repository's Julia
-and project, one process-wide Julia thread), every array copied to numpy on that thread.
+"""The 3-D shadow's shared half: the plan and the calibrated MAP loaded as the 2-D shadow loads them, one 3-D cook of
+the plan on the trimmed brisket flat (scripts/shadow3d.jl) run on the slab2d Tesseract's Julia session (the
+repository's Julia and project, one process-wide Julia thread, every array copied to numpy on that thread), and the
+flat's fields on its node grid.
 
-Used by scripts/run_shadow3d.py (the report) and scripts/plot_brick3d.py (the figures).
+The flat's mesh (src/meats/grid3d.jl `_flat_mesh`): nodes on a mapped grid, `nl` along the length (from the thick
+end), `nw` across the half width (from the centre plane), `nt` up the thickness (from the grate); the node order is
+length fastest. The exposed entries come in this order: the top and the grate side alternating per node of the
+footprint, the outer side, the thick and the thin end alternating per node of the end face.
+
+Used by scripts/run_shadow3d.py (the report), plot_shadow3d.py (the figures) and render_shadow3d.py (the 3-D views).
 """
 
 import importlib.util
@@ -61,12 +67,12 @@ def load_case(plan_name: str):
 SERIES = ("Tcore", "Tcold", "Tsurf", "bark_b", "bark_s", "bark_std", "ring", "l_star", "l_thick", "mass", "area_factor")
 FIELDS = ("T_field", "W_field", "C_field", "F_field", "salt_field", "bark_dist", "smoke_dist", "ring_dist")
 SCALARS = ("w_retained", "juiciness", "fat_rendered", "bitterness")
+DIMS = ("length", "width_thick", "width_thin", "thickness_thick", "thickness_thin", "cap")
 
 
-def simulate(plan_name: str, nx: int, ny: int, nz: int, t_salt_s: float = 0.0, dt_save: float = 600.0,
-             aspect: float = 2.0):
-    """One 3-D cook of the plan to serve: the piece's series, fields and scalars, the pit series, the mesh
-    (coordinates, dims, extents, the exposed nodes with their areas) and the geometry, as numpy."""
+def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: float = 0.0, dt_save: float = 600.0):
+    """One 3-D cook of the plan on the flat to serve: the piece's series, fields and scalars, the pit series, the mesh
+    (coordinates, dims, the exposed nodes with their areas, each node's material) and the cut's dimensions, as numpy."""
     theta, phi, u, t_end, dec, rest = load_case(plan_name)
     tsave = np.arange(0.0, t_end + 1.0, dt_save)
     utk = np.linspace(0.0, t_end, len(u))
@@ -76,7 +82,7 @@ def simulate(plan_name: str, nx: int, ny: int, nz: int, t_salt_s: float = 0.0, d
         jl = api.jl
         s = jl.shadow3d(
             api._jvec(theta), api._jvec(phi), api._jvec(u), api._jvec(utk), api._jvec(tsave),
-            nx=nx, ny=ny, nz=nz, aspect=aspect, t_salt=t_salt_s, **dec,
+            nl=nl, nw=nw, nt=nt, t_salt=t_salt_s, **dec,
             rest_t=float(rest.get("rest_t", 293.15)), rest_h=float(rest.get("rest_h", 1.5)),
             rest_eps=float(rest.get("rest_eps", 0.10)), rest_eta=float(rest.get("rest_eta", 0.9)),
         )
@@ -86,20 +92,63 @@ def simulate(plan_name: str, nx: int, ny: int, nz: int, t_salt_s: float = 0.0, d
         out.update({n: float(get(p, n)) for n in SCALARS})
         for n in ("Tpit", "m_fuel"):
             out[n] = get(s, n)
+        out["mat"] = get(s, "mat").astype(int)
         mesh = jl.getproperty(s, jl.Symbol("mesh"))
         out["coords"] = get(mesh, "coords")
         out["dims"] = tuple(int(d) for d in jl.getproperty(mesh, jl.Symbol("dims")))
-        out["extents"] = tuple(float(e) for e in jl.getproperty(mesh, jl.Symbol("extents")))
         bnd = jl.getproperty(mesh, jl.Symbol("boundary"))
         out["boundary_nodes"] = np.array([int(b[0]) for b in bnd]) - 1        # 0-based
         out["boundary_areas"] = np.array([float(b[1]) for b in bnd])
         out["core"] = int(jl.getproperty(mesh, jl.Symbol("core"))) - 1
         geo = jl.getproperty(s, jl.Symbol("geometry"))
-        out["geometry"] = {k: float(jl.getproperty(geo, jl.Symbol(k))) for k in ("thickness", "width", "length")}
+        out["geometry"] = {k: float(jl.getproperty(geo, jl.Symbol(k))) for k in DIMS}
         cfg = jl.MeatConfig()
         out["lstar_map"] = {k: float(jl.getproperty(cfg, jl.Symbol(k))) for k in ("L0_bark", "dL_B", "dL_S")}
         return out
 
     sim = api._on_julia_thread(_run)
-    sim.update(t=tsave, plan=plan_name, decisions=dec, grid=f"{nx}x{ny}x{nz}")
+    sim.update(t=tsave, plan=plan_name, decisions=dec, grid=f"{nl}x{nw}x{nt}")
     return sim
+
+
+# --- the flat's fields on its node grid ------------------------------------------------------------------------------
+
+def node_grid(sim, values):
+    """A per-node vector as (nl, nw, nt): length from the thick end, width from the centre plane, height from the grate."""
+    nl, nw, nt = sim["dims"]
+    return np.asarray(values).reshape((nl, nw, nt), order="F")
+
+
+def coords_grid(sim):
+    """The node coordinates [cm] as three (nl, nw, nt) arrays: length, width (from the centre plane), height."""
+    c = 100.0 * np.asarray(sim["coords"])
+    return node_grid(sim, c[:, 0]), node_grid(sim, c[:, 1]), node_grid(sim, c[:, 2])
+
+
+def field_at(sim, name, k):
+    """A node field at save index k as (nl, nw, nt)."""
+    return node_grid(sim, np.asarray(sim[name])[:, k])
+
+
+def face_state(sim, name, k, face):
+    """A surface state at save index k on one exposed face, on that face's node grid: 'top' and 'grate' (nl, nw),
+    'side' (nl, nt), 'thick' and 'thin' (nw, nt)."""
+    nl, nw, nt = sim["dims"]
+    d = np.asarray(sim[name])[:, k]
+    n_tb = 2 * nl * nw
+    if face in ("top", "grate"):
+        return d[(0 if face == "top" else 1):n_tb:2].reshape((nl, nw), order="F")
+    if face == "side":
+        return d[n_tb:n_tb + nl * nt].reshape((nl, nt), order="F")
+    o = n_tb + nl * nt
+    return d[o + (0 if face == "thick" else 1):o + 2 * nw * nt:2].reshape((nw, nt), order="F")
+
+
+def mirror_width(a, axis=1, negate=False):
+    """Reflect an array across the centre plane along `axis` (the half-width index 0 on the plane): the whole width.
+    `negate` flips the sign of the mirrored half (the width coordinate itself)."""
+    a = np.asarray(a)
+    rev = np.flip(a, axis=axis)
+    rev = -rev if negate else rev
+    rest = np.take(a, range(1, a.shape[axis]), axis=axis)
+    return np.concatenate([rev, rest], axis=axis)

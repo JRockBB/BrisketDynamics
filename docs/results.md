@@ -4103,34 +4103,81 @@ Reading it:
 - **The bark group's NEES of 46** scores the slab's one surface against the brick's face-area mean, an unobserved
   state carrying the raw reduction error.
 
-## The 3-D shadow: the robust plan on a brick of the cut (2026-10-01)
+## The 3-D shadow: the robust plan on a trimmed brisket flat (2026-10-02)
 
-`scripts/run_shadow3d.py` replays a plan to serve on a 3-D brick of the cut in the cook system
-(`scripts/shadow3d.jl`): a flat of full thickness 2L, its top face carrying half the 1-D exposed area at a 2:1
-footprint (3.9 × 17.3 × 34.6 cm, 2.5 kg raw), one eighth solved by symmetry with the piece's area multiplier
-making the pit see the whole cut. The schedule is the 2-D shadow's: the damper, the wrap, the pull, the fuel
-addition and their lid lifts; the rest in the plan's environment. The report is
-`data/control/shadow3d.json`; the figures `figures/brick3d/` (`scripts/plot_brick3d.py`).
+`scripts/run_shadow3d.py` replays a plan to serve on a trimmed brisket flat in the cook system
+(`scripts/shadow3d.jl`, `BrisketFlat3D` in `src/meats/grid3d.jl`). It supersedes the brick of 2026-10-01.
 
-| At serve, the robust plan | 2-D shadow | 3-D shadow |
+**The cut.** The flat tapers linearly from its thick (point) end to its thin end:
+
+- 33 cm long
+- 23 → 18 cm wide
+- 5.5 → 2.5 cm thick
+- a 6 mm fat cap on top, 2.65 kg raw
+
+These are typical trimmed numbers (`BRISKET_FLAT_TYPICAL`), placeholders until the cut is measured.
+
+**The grid.** A mapped grid: the bottom is flat on the grate and the top slopes. Half the cut is solved, across its
+width; the piece's area multiplier makes the pit see the whole cut.
+
+**The fat cap** is a second material (`FAT_CAP_F0` 0.94, `FAT_CAP_W0` 0.18 kg/kg dry basis). It is resolved by its
+own two node layers along the whole length, with the dual face between the lean and cap layers on the cap's
+underside. An earlier build assigned the cap by node depth; there the cap jumped from one node layer to two where
+the cut thinned past 4.2 cm, a step at 14 cm in every surface state.
+
+**The schedule** is the 2-D shadow's: the damper, the wrap, the pull, the fuel addition and their lid lifts, then
+the rest in the plan's environment.
+
+The report is `data/control/shadow3d.json`; the figures are in `figures/shadow3d/` (`scripts/plot_shadow3d.py`).
+
+The 2-D column below is the cylinder of the 1-D exposed area, not the flat's geometry: it shows what the shape
+changes.
+
+| At serve, the robust plan | 2-D shadow | 3-D flat |
 |---|---|---|
-| Centre | 82.6 °C | 82.3 °C |
-| Cold spot (where) | 69.0 °C (the rim) | 61.1 °C (a corner) |
-| Cold-spot peak | 95.2 °C | 95.4 °C |
-| Water retained | 0.245 | 0.231 |
-| C_min | 0.988 | 0.990 |
-| Bark mean (spread) | 0.72 (0.24) | 0.75 (0.23) |
+| Centre (deepest point) | 82.6 °C | 84.6 °C |
+| Cold spot (where) | 69.0 °C (the rim) | 57.2 °C (the thin end's top outer corner) |
+| Cold-spot peak | 95.2 °C | 99.4 °C |
+| Water retained | 0.245 | 0.171 |
+| C_min | 0.988 | 0.999 |
+| Bark mean (spread) | 0.72 (0.24) | 0.92 (0.15) |
 
-The third dimension moves the cold spot, not the centre: the centres agree within 0.3 K, and the cold spot at
-serve is a corner of the cut, which leads the heating and so cools first in the cambro, 21 K below the centre
-(14 K on the cylinder's rim). The lethality and the come-up time pass on the cold spot as on the centre (F 4.3e9
-against 720 required; come-up 1.00 h). The top face's edges carry bark near 1.0 against 0.42 in its middle, less
-smoke and a ring 2 mm deep against 3. The default 6 × 8 × 12 grid against 4 × 5 × 8: the cold spot at serve
-−0.36 K, its peak −0.11 K, the centre −0.13 K, C_min −0.0003. A solve takes about a minute.
+**The thin end leads and the thick end lags.**
 
-The cut in 3-D (`scripts/render_brick3d.py`, the eighth rebuilt whole by its symmetry planes, the thickness drawn
-three times its scale): `figures/brick3d/brick3d_cutaway.png` cuts a quarter of the footprint away to the centre
-planes and colours every visible face by temperature and by moisture at 2 h, at the wrap and at serve (the corners
-lead at the wrap, the interior holds its water, the cold corner marked at serve); `brick3d_sliced.png` is the cut at
-serve as it looks sliced, the surface by the model's L* and the smoke ring at its modelled depth under each face;
-`brick3d_cook.gif` runs the temperature cutaway through the cook.
+- At the wrap the thin end is past 130 °C while the thick end's middle is under 100 °C.
+- At serve the thin end's corner is the cold spot. It heated first, so it cools first in the cambro: 27 K below the
+  deepest point.
+- The lethality and the come-up time pass on the cold spot, as on the deepest point: F 1.9e10 against 720 required,
+  come-up 1.29 h.
+- The thin flat dries harder than the cylinder: it retains 0.17 of its water against 0.25, and goes from 2.65 kg
+  raw to 1.06 kg at serve.
+- The fat renders to 0.81.
+
+**On the cap's top face:**
+
+- bark is 0.99 everywhere
+- smoke deposition runs from 0.04 at the edges to 0.12 in the middle
+- the ring runs from 0.6 mm at the edges to 1.4 mm in the middle
+
+Under the grate side the ring is 2.7 mm.
+
+**Grid check and cost.** The default 12 × 6 × 8 grid against 8 × 4 × 5:
+
+| Quantity | Change |
+|---|---|
+| Cold spot at serve | −1.07 K |
+| Cold-spot peak | +0.65 K |
+| Deepest point | −1.29 K |
+| C_min | +0.0005 |
+| Water retained | −0.011 |
+
+A solve takes about a minute.
+
+**The 3-D views** come from `scripts/render_shadow3d.py`. The half cut is rebuilt whole by its symmetry plane, the
+height drawn twice its scale.
+
+- `figures/shadow3d/shadow3d_cutaway.png` cuts the flat lengthwise through its centre and colours every visible face
+  by temperature and by moisture at 2 h, at the wrap and at serve. The cold spot is marked at serve.
+- `shadow3d_brisket.png` is the flat at serve, whole and cut lengthwise. The surface is coloured by the model's L*,
+  with the fat cap and the smoke ring at its modelled depth.
+- `shadow3d_cook.gif` runs the temperature cutaway through the cook.

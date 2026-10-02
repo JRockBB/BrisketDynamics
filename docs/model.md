@@ -700,7 +700,9 @@ $\hat\xi = 1 - d/d_{\max}$ below the nearest exposed face), and $h_c, k_m$
 scale with the draft, $\theta_2 = [D_{\mathrm{eff}}, k_m, h_c,
 k_{\mathrm{mult}}, k_e, a_{\mathrm{myosin}}, m_{\mathrm{conv}}]$.
 
-The 3-D grid pieces (`Brick3D`, and `Cylinder2D`, the same cylinder as a
+The 3-D grid pieces (`Brick3D`; `BrisketFlat3D`, a trimmed flat tapering in
+thickness and width on a mapped grid with its fat cap a second material
+resolved by its own node layers; and `Cylinder2D`, the same cylinder as a
 method-of-lines piece of the cook system) carry the same set on any
 mesh: the per-node shrink stretch on every edge with the exposed-area
 factor on the surface water flux and the pit's share, the dry-brine

@@ -323,7 +323,7 @@ stack is available, inert by default), not a true packer geometry: the
 slab2d Tesseract shadow-scores plans to serve with the full 1-D physics
 (true cold spot, come-up time, bark and smoke distributions, ring depth,
 fat and juiciness, a doubled-grid check — `docs/results.md`), and a 3-D
-brick of the cut does the same with its corners and edges (`scripts/run_shadow3d.py`) while
+trimmed flat (tapered, with its fat cap) does the same with its ends and edges (`scripts/run_shadow3d.py`) while
 the planners optimize on the 1-D monolith; no animal-to-animal pH, aging or
 water-holding capacity (C3); wind and weather on `UA(t)` beyond the
 pilot's forecast feedforward + ambient filter (C1); rub chemistry beyond

@@ -27,7 +27,8 @@ const G_PIT = PitConfig(; T_amb=300.0, Tpit0=320.0)
     # exposed node that starts at it and runs along the face normal
     @test m.depth[m.core] == maximum(m.depth) && all(m.depth .>= 0) && size(m.face_dist) == (60, 5)
     @test all(m.inward[i][1] == m.boundary[i][1] for i in eachindex(m.boundary))
-    @test length(m.inward) == n_boundary(b) && all(Δ -> Δ > 0, m.inward_Δ)
+    @test length(m.inward) == n_boundary(b)
+    @test all(length(m.inward_d[i]) == length(m.inward[i]) && m.inward_d[i][1] == 0 && all(>(0), diff(m.inward_d[i])) for i in eachindex(m.inward))
     @test_throws ArgumentError initial_state(b, G_θ; ics=(T0f=fill(NaN, b.mesh.N),))
     @test_throws ArgumentError Brick3D(:b; Lx=0.03, Ly=0.1, Lz=0.2, nx=4, ny=3, nz=5, exposed=(false, false, false, false, false, false))
     @test_throws ArgumentError Brick3D(:b; Lx=-0.03, Ly=0.1, Lz=0.2, nx=4, ny=3, nz=5)
@@ -192,4 +193,33 @@ end
     @test abs(second.piece[:b].bitterness - whole.piece[:b].bitterness) < 1e-4
     @test whole.q_meat ≈ whole.piece[:s].q_meat .+ whole.piece[:b].q_meat
     @test all(whole.piece[:b].bark_std .>= 0) && whole.piece[:b].bark_std[end] > 0                 # the bark is a distribution over the faces
+end
+
+@testset "grid: a trimmed brisket flat (the tapered mapped mesh, the fat cap)" begin
+    L, w0, w1, h0, h1 = 0.33, 0.23, 0.18, 0.055, 0.025
+    m = BrisketFlat3D(:f; cap=0.0).mesh
+    b0, b1 = w0 / 2, w1 / 2
+    V = L * (b0 * h0 + b1 * h1) / 3 + L * (b0 * h1 + b1 * h0) / 6                   # the half cut's exact volume
+    dH = (h1 - h0) / L; db = (b1 - b0) / L
+    A = L * (b0 + b1) / 2 * (sqrt(1 + dH^2) + 1) + L * (h0 + h1) / 2 * sqrt(1 + db^2) + b0 * h0 + b1 * h1
+    @test abs(sum(m.vol) / V - 1) < 1e-3 && abs(m.area / A - 1) < 1e-12
+    @test m.depth[m.core] == maximum(m.depth) && m.coords[m.core, 1] < L / 2      # the core toward the thick end
+    # with no taper and no cap the flat is the brick of the same box, term for term
+    ts = collect(0.0:900.0:(4G_HR)); u = fill(0.35, 4); utk = collect(range(0.0, 4G_HR; length=4))
+    flat = BrisketFlat3D(:f; length=L, width_thick=0.2, width_thin=0.2, thickness_thick=0.04, thickness_thin=0.04, cap=0.0, nl=8, nw=4, nt=5)
+    brick = Brick3D(:f; Lx=L, Ly=0.1, Lz=0.04, nx=8, ny=4, nz=5, exposed=(true, true, false, true, true, true))
+    of = system_solve(CookSystem(flat; pit=G_PIT), [G_θ], [2.0], G_φ, u, utk, ts; abstol=1e-9, reltol=1e-9)
+    ob = system_solve(CookSystem(brick; pit=G_PIT), [G_θ], [2.0], G_φ, u, utk, ts; abstol=1e-9, reltol=1e-9)
+    @test maximum(abs.(of.piece[:f].T_field .- ob.piece[:f].T_field)) < 1e-6 && maximum(abs.(of.piece[:f].mass .- ob.piece[:f].mass)) < 1e-9
+    # the fat cap: its own material on the top layer, insulating and rendering
+    pc = BrisketFlat3D(:f)
+    @test 0 < count(==(2), pc.mat) < pc.mesh.N && all(pc.mat[n] == 2 for (n, _) in pc.mesh.boundary[1:2:(2 * 12 * 6)])   # the top's nodes
+    # the cap is its own two node layers along the whole length, its volume exactly the cap's
+    @test count(==(2), pc.mat) == 2 * 12 * 6 && all(pc.mat[n] == ((n - 1) ÷ (12 * 6) >= 6 ? 2 : 1) for n in 1:pc.mesh.N)
+    Vcap = 0.006 * L * (b0 + b1) / 2
+    @test abs(sum(pc.mesh.vol[pc.mat .== 2]) / Vcap - 1) < 1e-3 && abs(sum(pc.mesh.vol) / V - 1) < 1e-3
+    @test all(pc.mesh.inward_d[i][2] ≈ 0.006 / 1.5 for i in 1:2:(2 * 12 * 6))      # the cap's node spacing under the top
+    oc = system_solve(CookSystem(pc; pit=G_PIT), [G_θ], [2.0], G_φ, u, utk, ts)
+    p = oc.piece[:f]
+    @test all(isfinite, p.T_field) && 0 < p.fat_rendered < 1 && p.mass[end] < p.mass[1] && all(p.Tcold .<= p.Tcore .+ 1e-9)
 end

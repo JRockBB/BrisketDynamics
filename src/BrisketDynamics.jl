@@ -117,6 +117,8 @@ export MeatConfig,
     GridMesh,
     Brick3D,
     Cylinder2D,
+    BrisketFlat3D,
+    BRISKET_FLAT_TYPICAL,
     piece_solve,
     n_nodes,
     n_boundary
