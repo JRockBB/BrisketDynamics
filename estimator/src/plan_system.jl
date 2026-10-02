@@ -233,7 +233,7 @@ function system_plan_solve(snap::BeliefSnapshot, z, ζ, f::SystemFreeSet, s::Sys
     h0 = belief_handoff(xb, snap.bl)
     h = merge(h0, (history=get(snap.handoff, :history, nothing),))
     x0 = initial_state(sys, p, play; ics=h.pieces, pit_ics=(; h.pit..., ignited=h.ignited))
-    correction = snap.rom === nothing ? nothing : (t -> _rom_dynamics_correction(snap.rom, t))
+    correction = snap.rom === nothing ? nothing : (t -> _rom_dynamics_correction(snap.rom, t, z, snap.blk))
     # Plan factors differentiate this solve and then demand stationarity. The physics default (1e-6)
     # is adequate for a forward trajectory, but its adaptive-step jitter is larger than the objective
     # changes near a plan optimum and makes valid descent directions fail every line-search trial.
@@ -249,17 +249,17 @@ end
 Every piece's `cook_outputs` under the plan (its own pull, the shared add and serve, the pit's fuel, its past's
 integrals from the snapshot), the damper differences shared.
 """
-function _planning_piece_output(snap::BeliefSnapshot, pc::PieceModel, po, tg, η=(0.0, 0.0))
+function _planning_piece_output(snap::BeliefSnapshot, pc::PieceModel, po, tg, η=(0.0, 0.0); z=snap.z)
     snap.rom === nothing && return po
-    ec = [_rom_piece_error(snap.rom, pc.id, :Tcore, t) for t in tg]
-    es = [_rom_piece_error(snap.rom, pc.id, :Tsurf, t) for t in tg]
+    ec = [_rom_piece_error(snap.rom, pc.id, :Tcore, t, z, snap.blk) for t in tg]
+    es = [_rom_piece_error(snap.rom, pc.id, :Tsurf, t, z, snap.blk) for t in tg]
     Tcore = [po.Tcore[k] - ec[k].bias - η[1] * ec[k].sd for k in eachindex(tg)]
     Tsurf = [po.Tsurf[k] - es[k].bias - η[2] * es[k].sd for k in eachindex(tg)]
     return merge(po, (Tcore=Tcore, Tsurf=Tsurf))
 end
 
-function _planning_piece_quality(snap::BeliefSnapshot, pc::PieceModel, po, o, plan, tg, goals, η=(0.0, 0.0))
-    corrected = _planning_piece_output(snap, pc, po, tg, η)
+function _planning_piece_quality(snap::BeliefSnapshot, pc::PieceModel, po, o, plan, tg, goals, η=(0.0, 0.0); z=snap.z)
+    corrected = _planning_piece_output(snap, pc, po, tg, η; z)
     oi = (; corrected..., m_fuel=o.m_fuel)
     return cook_outputs(oi, tg, diff(plan.u), plan.pieces[pc.id].t_pull, plan.t_add, plan.t_serve,
                         pc.cfg, goals[pc.id]; past=snap.past[pc.id])
@@ -269,7 +269,7 @@ function system_plan_outputs(snap::BeliefSnapshot, z, ζ, f::SystemFreeSet, s::S
     o, plan, tg = system_plan_solve(snap, z, ζ, f, s; y)
     out = Dict{Symbol,Any}()
     for pc in snap.sys.pieces
-        out[pc.id] = _planning_piece_quality(snap, pc, o.piece[pc.id], o, plan, tg, goals)
+        out[pc.id] = _planning_piece_quality(snap, pc, o.piece[pc.id], o, plan, tg, goals; z)
     end
     m0s = [p.m0 for p in values(snap.past) if isfinite(p.m0)]
     m0 = isempty(m0s) ? o.m_fuel[1] : first(m0s)

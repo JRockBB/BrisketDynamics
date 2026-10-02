@@ -169,6 +169,9 @@ _rom_state_noise(rom) = state_noise_from_dict(getproperty(rom, :state_noise))
 _rom_dynamics_correction(rom, t) = (pv=0.0, q=0.0)
 _rom_observation_error(rom, obs, key, t) = rom_error(rom, key, t)
 _rom_piece_error(rom, piece::Symbol, key::Symbol, t) = (bias=0.0, sd=0.0)
+_rom_dynamics_correction(rom, t, z, blk) = (pv=0.0, q=0.0)
+_rom_piece_error(rom, piece::Symbol, key::Symbol, t, z, blk) = (bias=0.0, sd=0.0)
+_rom_observation_bias(rom, obs, key, t, z, blk) = 0.0
 function SystemModel(sys::CookSystem, log::CookLog, blk::LatentBlock; sn=nothing, abstol::Float64=1e-10, reltol::Float64=1e-8, rom=nothing)
     validate_events(sys, collect(log.events))
     _validate_rom_attachment(rom, sys, blk)
@@ -227,7 +230,7 @@ function propagate(m::SystemModel, y0::AbstractVector, z::AbstractVector, t0::Re
         x0 = convert(Vector{promote_type(eltype(x0), eltype(p))}, x0)
         x0[first(state_index(m.sys.layout, :pit, :ignited))] = p[play[(:pit, :phi)][7]]
     end
-    correction = m.rom === nothing ? nothing : (t -> _rom_dynamics_correction(m.rom, t))
+    correction = m.rom === nothing ? nothing : (t -> _rom_dynamics_correction(m.rom, t, z, m.blk))
     A = system_solve_raw(m.sys, p, x0, tk, [Float64(t0), Float64(t1)]; correction, abstol=m.abstol, reltol=m.reltol)
     o = system_outputs(m.sys, A, p, tk, [Float64(t0), Float64(t1)]; correction)
     y1 = belief_encode(belief_from_system(A[:, end], m.bl), m.bl)
@@ -480,7 +483,7 @@ struct ObservationFactor <: Factor
     key_d::Union{Nothing,VarKey}
     t::Float64
     h::Function
-    bias::Float64                 # the reduced model's reduction-error bias on this observable at this time (zero without an artifact)
+    rom_key::Union{Nothing,Symbol} # the reduction-error key of the observable under an artifact (its bias read at the latents), or nothing
     σ::Float64                    # the instrument's floor with the reduction error's spread in quadrature
 end
 function ObservationFactor(model::SystemModel, spec::SensorSpec, rec::MeasurementRecord, key_z::VarKey, key_y::VarKey, key_d::Union{Nothing,VarKey};
@@ -488,15 +491,15 @@ function ObservationFactor(model::SystemModel, spec::SensorSpec, rec::Measuremen
     rec.sensor === spec.id || throw(ArgumentError("the record is $(rec.sensor)'s, the sensor $(spec.id)"))
     (key_m === nothing) == (split === nothing) || throw(ArgumentError("a moving latent copy needs its split, and a split its copy"))
     h = compile_observable(spec.observable, model.sys, model.bl, model.blk, model.log)
-    bias, σ = 0.0, spec.noise.white_sd
+    rom_key, σ = nothing, spec.noise.white_sd
     if model.rom !== nothing
         key = _rom_key(spec.observable)
         if key !== nothing
             e = _rom_observation_error(model.rom, spec.observable, key, rec.t)
-            bias = e.bias; σ = sqrt(σ^2 + e.sd^2)
+            rom_key = key; σ = sqrt(σ^2 + e.sd^2)
         end
     end
-    return ObservationFactor(model, spec, rec.value, censored_at(spec, rec), key_z, key_m, split, key_y, key_d, rec.t, h, bias, σ)
+    return ObservationFactor(model, spec, rec.value, censored_at(spec, rec), key_z, key_m, split, key_y, key_d, rec.t, h, rom_key, σ)
 end
 function vars(f::ObservationFactor)
     ks = f.key_m === nothing ? [f.key_z, f.key_y] : [f.key_z, f.key_m, f.key_y]
@@ -518,8 +521,9 @@ function _obs_pred(f::ObservationFactor, v)
     _validate_rom_use(f.model.rom, f.model.blk, z, f.t, f.t)
     p, _, tk = _point_params(f.model, z, f.t)
     x = system_from_belief(belief_decode(y, f.model.bl), f.model.bl)
-    # ROMError stores ROM − FOM, so the full-order-equivalent prediction is ROM − bias.
-    pred = f.h(x, z, p, tk, f.t) - f.bias
+    # ROMError stores ROM − FOM, so the full-order-equivalent prediction is ROM − bias, the bias at these latents.
+    pred = f.h(x, z, p, tk, f.t)
+    f.rom_key === nothing || (pred -= _rom_observation_bias(f.model.rom, f.spec.observable, f.rom_key, f.t, z, f.model.blk))
     f.key_d === nothing || (pred += v[end])
     return pred
 end

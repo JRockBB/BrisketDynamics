@@ -4037,6 +4037,40 @@ together; they were not separated term by term.
 Still not in either: nothing of the 1-D physics. The 2-D and 3-D bark and
 smoke distributions remain uncalibrated (roadmap C2).
 
+## The reduced-order model earns positive held-out skill (2026-10-01)
+
+The slab standing in for a 3-D brick (`estimator/src/rom.jl`, trained by `estimator/scripts/train_rom_bench.jl`)
+had negative held-out skill on the core and the mass: its error model was one bias per time point, averaged over
+the design, while the reduction error moves with the latents. Three changes, each run through the script's gate
+(25 design draws × 2 control regimes, 8 held-out draws × the 2 and a third never trained, 14 h on the real-cook
+mock's damper, the brick's 120 nodes against the slab's 20, both on the shipped physics with shrinkage):
+
+1. **The designed training, not the test's three draws.** The time-only model on 25 random prior draws passes
+   the gate (core +0.18, mass +0.32), but some held-out draws fall outside its envelope, which the online
+   backend enforces at run time: random draws leave the prior's tails uncovered.
+2. **A covering design.** A Latin hypercube over every latent's 0.1 %–99.9 % prior quantiles (`covering_design`)
+   puts every held-out draw inside the envelope; over that wider range the time-only bias fits any one draw
+   worse (core +0.09, mass +0.05).
+3. **A latent-aware error model.** Per time point, a ridge regression of the error on the standardized latents,
+   the weight chosen by leave-one-design-draw-out cross-validation (an infinite weight, the time-only model, is a
+   candidate), the spread the cross-validated residual's. The observation factors, the dynamics correction and
+   the planner read the bias at the current latents (Duals pass through). Artifact version 3; version 2 reads as
+   time-only.
+
+| Held-out skill (1 − corrected/raw RMS) | time-only, random | time-only, covering | latent-aware, covering | the same, untrained regime |
+|---|---|---|---|---|
+| Core temperature | +0.19 | +0.08 | +0.28 | +0.30 |
+| Surface temperature | +0.20 | +0.20 | +0.39 | +0.35 |
+| Mass | +0.32 | +0.05 | +0.78 | +0.77 |
+| Chamber vapor | +0.59 | +0.52 | +0.57 | +0.56 |
+| Heat load | +0.60 | +0.53 | +0.70 | +0.68 |
+
+Coverage within 2 sd is 0.96–1.00 on the core, the mass and the heat load, 0.91–0.92 on the surface and 0.85–0.88
+on the chamber vapor (narrow). The artifact is `data/calibration/rom_halfbrick_flat.json` (fingerprint
+`d30e37fc3dfa`; every output kept a finite ridge weight). `estimator/test/test_rom.jl` passes 57/57; its three-draw
+held-out check went from corrected/raw core RMS 4.1/3.3 K to 0.69/3.3 K. Not done: the bench with the artifact
+attached, which earns the reduced model's own state noise.
+
 ## The 3-D shadow: the robust plan on a brick of the cut (2026-10-01)
 
 `scripts/run_shadow3d.py` replays a plan to serve on a 3-D brick of the cut in the cook system

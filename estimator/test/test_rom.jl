@@ -158,14 +158,14 @@ heldout_scenarios = [
     op_plain = system_plan_solve(snap_plain, snap_plain.z, ζr, fr_plan, sr)[1]
     @test snap_rom.rom === r && norm(op_rom.X - op_plain.X) > 1e-9
     po_plan = E._planning_piece_output(snap_rom, rom_piece, op_rom.piece[:b], tg_rom)
-    @test po_plan.Tcore[end] ≈ op_rom.piece[:b].Tcore[end] - rom_error(r, :Tcore, tg_rom[end]).bias
+    @test po_plan.Tcore[end] ≈ op_rom.piece[:b].Tcore[end] - rom_error(r, :Tcore, tg_rom[end], snap_rom.z, snap_rom.blk).bias
     Czero = zeros(size(snap_rom.zy_cov))
     snap_rom_zero = BeliefSnapshot(snap_rom.t, snap_rom.sys, snap_rom.bl, snap_rom.blk, snap_rom.z, snap_rom.y,
                                    Czero, snap_rom.x, zeros(size(snap_rom.x_cov)), snap_rom.handoff,
                                    snap_rom.past, snap_rom.provenance, snap_rom.rom)
     pred_rom = system_plan_predictive(snap_rom_zero, ζr, fr_plan, sr, Dict(:b => PlanGoals()))
     @test maximum(pred_rom[:b].sd) > 0                                  # artifact spread survives even with zero posterior covariance
-    et = rom_error(r, :Tcore, t[2])
+    et = rom_error(r, :Tcore, t[2], z_init, blk_p)                      # the bias at the latents the record is made at
     x_corr = system_from_belief(belief_decode(y_corr, m_rom.bl), m_rom.bl)
     p_corr, _, tk_corr = E._point_params(m_rom, z_init, t[2])
     h_core = compile_observable(sensors[1].observable, sys_rom, m_rom.bl, blk_p, clog)
@@ -175,14 +175,15 @@ heldout_scenarios = [
     ]
     fr = add_measurement!(sm, rec_online[1]); fp = add_measurement!(sm, rec_online[2])
     f0 = add_measurement!(sm0, rec_online[1])
-    @test fr.bias == et.bias && abs(fr.σ^2 - (0.1^2 + et.sd^2)) < 1e-12 && fp.bias == 0.0 && fp.σ == 0.1 && f0.bias == 0.0 && f0.σ == 0.1
+    @test fr.rom_key === :Tcore && abs(fr.σ^2 - (0.1^2 + et.sd^2)) < 1e-12 && fp.rom_key === nothing && fp.σ == 0.1 &&
+          f0.rom_key === nothing && f0.σ == 0.1
     vals = [E.variable_value(sm.graph, k) for k in vars(fr)]
     @test abs(E.residual(fr, vals)[1] * fr.σ - (rec_online[1].value - E._obs_pred(fr, reduce(vcat, vals)))) < 1e-9
     zv, yv = vals[1], vals[2]
     pp, _, ttk = E._point_params(m_rom, zv, fr.t)
     xx = system_from_belief(belief_decode(yv, m_rom.bl), m_rom.bl)
     raw_pred = fr.h(xx, zv, pp, ttk, fr.t)
-    @test E._obs_pred(fr, reduce(vcat, vals)) ≈ raw_pred - fr.bias            # stored bias is ROM − FOM: correction subtracts it
+    @test E._obs_pred(fr, reduce(vcat, vals)) ≈ raw_pred - rom_error(r, :Tcore, fr.t, zv, blk_p).bias   # the bias is ROM − FOM at the latents: the correction subtracts it
     @test r.state_noise["rates"]["T"] == 0.123 && m_rom.sn.T == 0.123         # the artifact's process noise is actually loaded
     sys_reg = CookSystem([Slab1D(:a; cfg), Slab1D(:b; cfg)]; pit)
     blk_reg = system_latents(sys_reg, prior_rom, phys_names; area=false)
