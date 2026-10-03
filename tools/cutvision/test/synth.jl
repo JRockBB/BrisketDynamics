@@ -97,6 +97,40 @@ function ribs_shape(; O=V3(0, 0, 0), L=300.0, W=150.0, T=32.0, cap=3.0, crown=6.
     return Shape(sdf, cap, O + V3(0, 0, T / 2), hypot(L / 2, W / 2, T))
 end
 
+# a packer brisket as a height field over an irregular footprint: the outline a rounded rectangle (`L` × `W`) with a
+# few harmonics, the edges rounding off over `edge` mm, the flat thinning from `t_thick` to `t_thin` along its length
+# with gentle bumps, and the point a mound rising `point` mm over the thick end; the fat cap `cap` mm under the top
+function brisket_shape(; O=V3(0, 0, 0), θ=0.35, L=400.0, W=270.0, t_thick=45.0, t_thin=22.0, point=38.0, edge=14.0,
+                       cap=7.0, seed=5)
+    rng = MersenneTwister(seed)
+    harm = [(k, 0.035 * randn(rng) / sqrt(k - 1), 2π * rand(rng)) for k in 2:6]
+    bumps = [(V3(L * (rand(rng) - 0.5), W * (rand(rng) - 0.5), 0), 25 + 40rand(rng), 3.0 * randn(rng)) for _ in 1:7]
+    e = V3(cos(θ), sin(θ), 0); ey = V3(-sin(θ), cos(θ), 0)
+    a, b = L / 2, W / 2; n = 4.0                                      # a rounded rectangle (superellipse)
+    # the outline's radius at angle φ, and how far inside it a point at (s, y) lies
+    rim(φ) = (abs(cos(φ) / a)^n + abs(sin(φ) / b)^n)^(-1 / n) * (1 + sum(c * cos(k * φ + p) for (k, c, p) in harm))
+    inside_mm(s, y) = (φ = atan(y, s); rim(φ) - hypot(s, y))
+    function top(s, y)
+        d = inside_mm(s, y)
+        d <= 0 && return -1.0
+        u = clamp((s + a) / L, 0.0, 1.0)                              # 0 at the thick (point) end
+        t = t_thick + (t_thin - t_thick) * u
+        t += sum(amp * exp(-((s - c[1])^2 + (y - c[2])^2) / (2r^2)) for (c, r, amp) in bumps)
+        t += point * exp(-((s + 0.28L)^2 / (2 * (0.16L)^2) + (y - 0.08W)^2 / (2 * (0.22W)^2)))   # the point
+        q = clamp(d / edge, 0.0, 1.0)
+        return t * sqrt(1 - (1 - q)^2)                                 # the edge rounds off like a pillow's
+    end
+    function sdf(p)
+        q = p - O
+        s, y, z = dot(q, e), dot(q, ey), q[3]
+        d = inside_mm(s, y)
+        d <= 0 && return max(-d, 0.5z, -z)                            # outside: the edge meets the board at zero height
+        tz = top(s, y)
+        return max(-z, 0.5 * (z - tz), -d)
+    end
+    return Shape(sdf, cap, O + V3(0, 0, t_thick / 2), hypot(a * 1.15, b * 1.15, t_thick + point))
+end
+
 # a sphere resting on the board (the checks' exact shape)
 sphere_shape(; O=V3(0, 0, 0), R=60.0, cap=0.0) = Shape(p -> max(norm(p - (O + V3(0, 0, R))) - R, -p[3]), cap, O + V3(0, 0, R), R)
 

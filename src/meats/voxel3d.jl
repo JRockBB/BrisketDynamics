@@ -99,10 +99,10 @@ _lerp(p, q, vp, vq) = p .+ (vp / (vp - vq)) .* (q .- p)
     _iso_triangles(F, h)
 
 The zero level set of `F` (values at cell centres, cell (i, j, k) centred at h·(i − ½, j − ½, k − ½)) by marching
-tetrahedra: each triangle's area and centroid.
+tetrahedra: each triangle's area, centroid and vertices.
 """
 function _iso_triangles(F::AbstractArray{Float64,3}, h)
-    areas = Float64[]; cents = NTuple{3,Float64}[]
+    areas = Float64[]; cents = NTuple{3,Float64}[]; verts = NTuple{3,NTuple{3,Float64}}[]
     nx, ny, nz = size(F)
     for k in 1:(nz - 1), j in 1:(ny - 1), i in 1:(nx - 1)
         vals = ntuple(c -> F[i + _CORNERS[c][1], j + _CORNERS[c][2], k + _CORNERS[c][3]], 8)
@@ -124,11 +124,11 @@ function _iso_triangles(F::AbstractArray{Float64,3}, h)
                 continue
             end
             for (x, y, z) in tris
-                push!(areas, _tri_area(x, y, z)); push!(cents, (x .+ y .+ z) ./ 3)
+                push!(areas, _tri_area(x, y, z)); push!(cents, (x .+ y .+ z) ./ 3); push!(verts, (x, y, z))
             end
         end
     end
-    return areas, cents
+    return areas, cents, verts
 end
 
 # ---- the mesh ---------------------------------------------------------------------------------------------------
@@ -141,7 +141,7 @@ const _DIRS6 = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, 
 The GridMesh of `labels` (cells of side `h` [m]) on cells of side H = k·h: a node per block of k³ cells at least
 `keep` occupied (its volume the occupied fraction of H³, all volumes then scaled so the total is the labels' own),
 its material the block's majority (ties lean). Returns the mesh, each node's label, the surface area no face
-claimed and each exposed face's outward direction.
+claimed, each exposed face's outward direction, and the smooth surface's triangles with each one's face.
 """
 function _voxel_mesh(labels::AbstractArray{<:Integer,3}, h::Float64, k::Int; keep=0.5)
     k >= 1 || throw(ArgumentError("coarsen must be at least 1"))
@@ -206,9 +206,10 @@ function _voxel_mesh(labels::AbstractArray{<:Integer,3}, h::Float64, k::Int; kee
     for i in axes(Fz, 1), j in axes(Fz, 2), z in 1:pad                # the board: the first layer continues below
         Fz[i, j, z] = Fz[i, j, pad + 1]
     end
-    tri_a, tri_c = _iso_triangles(_vblur(Fz, 1.0) .- 0.5, h)
+    tri_a, tri_c, tri_v = _iso_triangles(_vblur(Fz, 1.0) .- 0.5, h)
     lost = 0.0
-    for (a, c) in zip(tri_a, tri_c)
+    tri_f = zeros(Int, length(tri_a))                                 # each triangle's face (0: none)
+    for (t, (a, c)) in enumerate(zip(tri_a, tri_c))
         x = c .- pad * h                                              # back to the labels' frame
         J = ntuple(d -> clamp(floor(Int, x[d] / H) + 1, 1, cn[d]), 3)
         best = 0; bd = Inf
@@ -218,8 +219,11 @@ function _voxel_mesh(labels::AbstractArray{<:Integer,3}, h::Float64, k::Int; kee
             end
         end
         best == 0 ? (lost += a) : (area[best] += a)
+        tri_f[t] = best
     end
     keepf = area .> 1e-6 * H^2
+    renum = cumsum(keepf) .* keepf                                    # old face index → new (0 dropped)
+    tri_f = [f == 0 ? 0 : renum[f] for f in tri_f]
     faces = faces[keepf]; area = area[keepf]
     boundary = [(n, area[f]) for (f, (n, _)) in enumerate(faces)]
     # each exposed face's inward line: the nodes behind it, at depths from the surface
@@ -260,7 +264,9 @@ function _voxel_mesh(labels::AbstractArray{<:Integer,3}, h::Float64, k::Int; kee
     end
     mesh = GridMesh(N, vol, edges, boundary, coords, core, line, sum(last.(boundary)), cn, (cn[1] * H, cn[2] * H, cn[3] * H),
                     reshape(depth, N, 1), depth, inward, inward_d)
-    return mesh, [code[J] for J in nodes], lost, [_DIRS6[di] for (_, di) in faces]
+    shift = pad * h
+    tris = [ntuple(m -> v[m] .- shift, 3) for v in tri_v]             # the triangles in the labels' frame [m]
+    return mesh, [code[J] for J in nodes], lost, [_DIRS6[di] for (_, di) in faces], tris, tri_f
 end
 
 """
@@ -270,6 +276,22 @@ The exposed faces of `VoxelPiece(id, labels, h; coarsen)` in its boundary's orde
 (one of ±x, ±y, ±z), for drawing the surface states on the cut.
 """
 voxel_faces(labels::AbstractArray{<:Integer,3}, h::Real; coarsen::Int=2) = _voxel_mesh(labels, Float64(h), coarsen)[4]
+
+"""
+    voxel_surface(labels, h; coarsen=2)
+
+The smooth surface the exposed areas come from, for drawing: its triangles as an n × 9 matrix (each row the three
+vertices' x, y, z [m] in the labels' frame) and each triangle's exposed face (its index in the boundary's order; 0
+for the board's seam or none), so a face's state can colour the triangles that make up its area.
+"""
+function voxel_surface(labels::AbstractArray{<:Integer,3}, h::Real; coarsen::Int=2)
+    _, _, _, _, tris, tri_f = _voxel_mesh(labels, Float64(h), coarsen)
+    V = zeros(length(tris), 9)
+    for (t, tr) in enumerate(tris), m in 1:3, d in 1:3
+        V[t, 3(m - 1) + d] = tr[m][d]
+    end
+    return V, tri_f
+end
 
 """
     VoxelPiece(id, labels, h; meat=:brisket, coarsen=2, cfg=nothing)
@@ -282,7 +304,7 @@ the board, the first layer on it), on cells `coarsen` times larger (`_voxel_mesh
 function VoxelPiece(id::Symbol, labels::AbstractArray{<:Integer,3}, h::Real; meat::Symbol=:brisket, coarsen::Int=2,
                     cfg::Union{Nothing,MeatConfig}=nothing)
     c = with_config(something(cfg, meat_preset(meat).cfg); A_meat=1.0)
-    mesh, codes, _, _ = _voxel_mesh(labels, Float64(h), coarsen)
+    mesh, codes, _, _, _, _ = _voxel_mesh(labels, Float64(h), coarsen)
     mats = [c, with_config(c; F0=FAT_CAP_F0, W0=FAT_CAP_W0)]
     mat = [l == 2 ? 2 : 1 for l in codes]
     bone = [l == 3 ? 1.0 : 0.0 for l in codes]

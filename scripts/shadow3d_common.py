@@ -121,6 +121,8 @@ def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: f
         out["mat"] = get(s, "mat").astype(int)
         out["bone"] = get(s, "bone")
         out["faces"] = get(s, "faces").astype(int).reshape(-1, 3) if shape is not None else None
+        out["tris"] = get(s, "tris") if shape is not None else None          # the smooth surface (n × 9, m)
+        out["tri_face"] = get(s, "tri_f").astype(int) - 1 if shape is not None else None   # 0-based; −1 none
         mesh = jl.getproperty(s, jl.Symbol("mesh"))
         out["coords"] = get(mesh, "coords")
         out["dims"] = tuple(int(d) for d in jl.getproperty(mesh, jl.Symbol("dims")))

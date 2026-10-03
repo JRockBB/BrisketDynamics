@@ -28,7 +28,7 @@ function shadow3d(θ, φ, u, u_tknots, tsave; nl::Int=12, nw::Int=6, nt::Int=8, 
                   rest_t::Real=293.15, rest_h::Real=1.5, rest_eps::Real=0.10, rest_eta::Real=0.9)
     cfg = MeatConfig(; T0=T0, T_rest=rest_t, h_rest=rest_h, ε_rest=rest_eps, η_rest=rest_eta)
     pit = PitConfig(; T_amb=T_amb, Tpit0=Tpit0, m0=m0)
-    faces = nothing
+    faces = nothing; tris = zeros(0, 9); tri_f = Int[]
     if shape_labels === nothing
         pc = BrisketFlat3D(:brisket; length=dims.length, width_thick=dims.width_thick, width_thin=dims.width_thin,
                            thickness_thick=dims.thickness_thick, thickness_thin=dims.thickness_thin, cap=dims.cap,
@@ -39,6 +39,7 @@ function shadow3d(θ, φ, u, u_tknots, tsave; nl::Int=12, nw::Int=6, nt::Int=8, 
         lean = with_config(meat_preset(meat).cfg; T0, T_rest=rest_t, h_rest=rest_h, ε_rest=rest_eps, η_rest=rest_eta)
         pc = VoxelPiece(:brisket, L, shape_h; meat, coarsen, cfg=lean)
         faces = voxel_faces(L, shape_h; coarsen)
+        tris, tri_f = voxel_surface(L, shape_h; coarsen)
         mult = 1.0
     end
     sys = CookSystem(pc; pit)
@@ -51,5 +52,5 @@ function shadow3d(θ, φ, u, u_tknots, tsave; nl::Int=12, nw::Int=6, nt::Int=8, 
     o = system_solve(sys, [collect(float.(θ))], [mult], collect(float.(φ)), collect(float.(u)),
                      collect(float.(u_tknots)), collect(float.(tsave)); events=ev, t_salt=float(t_salt))
     return (; piece=o.piece[:brisket], o.Tpit, o.m_fuel, o.pv_pit, mesh=pc.mesh, mat=pc.mat, bone=pc.bone, geometry=dims,
-            faces=faces === nothing ? Int[] : reduce(vcat, ([d[1] d[2] d[3]] for d in faces)))
+            faces=faces === nothing ? Int[] : reduce(vcat, ([d[1] d[2] d[3]] for d in faces)), tris, tri_f)
 end

@@ -4251,4 +4251,16 @@ The voxel cut closes on the flat model as its cells shrink. At 6 mm it is within
 model's own grid error (1–2 K). With the cap read from the photos instead (3.8 mm), the cut is 7 % heavier: the cap
 is the input that matters most.
 
-Figures: `figures/shadow3d/synthetic_flat_cap6/` (`scripts/plot_shape3d.py`).
+Figures: `figures/shadow3d/synthetic_flat_cap6/` (`scripts/plot_shape3d.py`). `shape3d_smooth.png` draws the cooked
+states on the smooth surface the exposed areas come from, the section interpolated within the reconstruction's own
+outline; `shape3d_cut.png` shows the simulation's 8 mm cells as they are.
+
+A packer brisket from synthetic photos (`brisket_shape` in `tools/cutvision/test/synth.jl`; an irregular rounded outline
+about 40 × 27 cm, edges that round off, the flat thinning from 45 to 22 mm, the point mounded 38 mm over the thick end,
+a 7 mm cap): reconstructed at volume +0.9 % (3.87 L against 3.84), IoU 0.987, mean surface error 0.77 mm, interior
+fat and lean 98 % right, the cap read at 5.75 mm against 7. Cooked on the robust plan at 8 mm cells (7,600 nodes): the deepest point (under the
+point) 88.8 °C at serve, the cold spot 53.2 °C (the thin flat's edge, cooling first in the rest), 3.72 kg raw to 1.61 kg
+served (`figures/shadow3d/synthetic_packer/`, `data/control/shadow3d_synthetic_packer.json`). `shape3d_smooth.png` draws the
+cooked states on the smooth surface; its colour blends the faces over 1.5 cells because on a dome the cells' terraces
+leave a cell with two exposed faces at each terrace edge, which browns a little faster (a staircase artefact of the
+cells that a one-face colouring prints as rings).
