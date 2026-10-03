@@ -112,3 +112,12 @@ its lengthwise centre section and the bark, smoke and ring over the top face.
 | `shadow3d_cutaway.png` | `scripts/render_shadow3d.py` (the flat in 3-D cut lengthwise through its centre: temperature and moisture at 2 h, the wrap and serve, the cold spot marked) | `README.md`, `docs/results.md` |
 | `shadow3d_brisket.png` | `scripts/render_shadow3d.py` (the flat at serve, whole and cut lengthwise: the surface by the model's L*, the fat cap, the smoke ring at its modelled depth) | `README.md`, `docs/results.md` |
 | `shadow3d_cook.gif` | `scripts/render_shadow3d.py` (the temperature cutaway through the cook, the camera turning) | `README.md` |
+
+A reconstructed cut's figures go to `shadow3d/<name>/` (`scripts/plot_shape3d.py --shape <name>`); the one here is
+the synthetic flat of `tools/cutvision`'s tests reconstructed from its photos (`data/cut/synthetic_flat_cap6`).
+
+| figure | written by | discussed in |
+|---|---|---|
+| `synthetic_flat_cap6/shape3d_plan.png` | `scripts/plot_shape3d.py` (the pit, the deepest point and the cold spot; bark and smoke; mass) | `docs/results.md` |
+| `synthetic_flat_cap6/shape3d_sections.png` | `scripts/plot_shape3d.py` (temperature and moisture on the two sections through the deepest point at 2 h, the wrap and serve) | `docs/results.md` |
+| `synthetic_flat_cap6/shape3d_cut.png` | `scripts/plot_shape3d.py` (the cut at serve in 3-D: its surface by L*, and cut through the deepest point by temperature) | `README.md`, `docs/results.md` |

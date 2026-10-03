@@ -702,14 +702,21 @@ k_{\mathrm{mult}}, k_e, a_{\mathrm{myosin}}, m_{\mathrm{conv}}]$.
 
 The 3-D grid pieces (`Brick3D`; `BrisketFlat3D`, a trimmed flat tapering in
 thickness and width on a mapped grid with its fat cap a second material
-resolved by its own node layers; and `Cylinder2D`, the same cylinder as a
-method-of-lines piece of the cook system) carry the same set on any
+resolved by its own node layers; `VoxelPiece`, a cut of any shape from a
+photo reconstruction's lean, fat and bone cells (`docs/measure_cut.md`),
+its exposed areas the smooth surface's through the cells rather than the
+staircase's, bone a node of bone's conductivity and heat capacity; and
+`Cylinder2D`, the same cylinder as a method-of-lines piece of the cook
+system) carry the same set on any
 mesh: the per-node shrink stretch on every edge with the exposed-area
 factor on the surface water flux and the pit's share, the dry-brine
 salt field from every exposed face, the bone on the same depth
 coordinate, and the smoke ring per exposed node along its inward line.
 A brick of one transverse node with one exposed face is the slab term
-for term. Forward-mode
+for term. A system of grid pieces past 800 nodes solves with a sparse
+Jacobian taken of its right-hand side with the chamber's vapor pressure
+and each piece's exposed-area factor held at their values (the global
+couplings; the solve itself is exact). Forward-mode
 derivatives w.r.t. $\theta_2, \phi$, the damper knots and the seven
 decision scalars (wrap, salt, spritz start and interval, pull, fuel
 addition and split interval) are the `slab2d` Tesseract's endpoints.

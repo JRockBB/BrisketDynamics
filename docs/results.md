@@ -4181,3 +4181,74 @@ height drawn twice its scale.
 - `shadow3d_brisket.png` is the flat at serve, whole and cut lengthwise. The surface is coloured by the model's L*,
   with the fat cap and the smoke ring at its modelled depth.
 - `shadow3d_cook.gif` runs the temperature cutaway through the cook.
+
+## The cut from photos, cooked on its own shape (2026-10-02)
+
+A cut's shape now comes from photos instead of six fitted dimensions. It has to serve four meats (brisket, pork
+butt, ribs and chuck), and a tapered slab can't describe them.
+
+**How the reconstruction works** (`tools/cutvision`, a Julia subproject; the protocol is `docs/measure_cut.md`):
+
+1. Six printed AprilTags on the board calibrate about 23 photos in one Levenberg–Marquardt fit: the tag map, every
+   camera and the focal length. Detections that bend a photo's pose are dropped one at a time.
+2. The meat's silhouettes carve a 2 mm visual hull. Inside a tag card, each pixel is checked against the tag's own
+   pattern, so a card neither carves nor keeps the meat.
+3. Plane-sweep stereo on the meat's texture lowers the hull's top. A hull can't see a flat top come down.
+4. Each surface cell's fat/lean vote is averaged over the photos that see it squarely.
+5. The cap's depth is read on the trimmed sides, from the photos, below the cells' resolution. A measurement on the
+   cut (`cap_mm`) overrides it.
+6. The interior is fat within that depth of a fat surface. Bone comes from the meat's template.
+
+**Accuracy on synthetic photos** (`tools/cutvision/test/runtests.jl`; ray-cast scenes of known cuts with marbled
+texture):
+
+| | Flat | Pork butt | Ribs |
+|---|---|---|---|
+| Volume error | +2.3 % | +1.2 % | +1.8 % |
+| IoU | 0.976 | 0.985 | 0.976 |
+| Mean surface error | 0.83 mm | 0.69 mm | 0.83 mm |
+| Interior fat/lean right | 95.5 % | 98.9 % | 98.3 % |
+
+Calibration: tags within 0.2 mm, the focal length within 0.1 %, reprojection 0.2 px.
+
+Two findings shaped the protocol:
+- **Low views are required.** Views at 42° alone leave a slab's top 30 % too thick; a ring of photos near board
+  level and the stereo step fix it.
+- **The cap is the weak part.** Read from the photos it is within a millimetre on rounded edges (butt 7.2 mm
+  against 8, ribs 2.7 against 3) but about 2 mm thin on a sharp trimmed edge (flat 3.8 against 6). Hence the
+  override.
+
+The hull can't see a hollow under the meat (a rack arched off the board).
+
+**The voxel piece.** `VoxelPiece` turns the labels into a grid piece of the cook system:
+- the reconstruction's cells coarsened, with partial volumes kept
+- each exposed face's area is the smooth surface's through the fine cells: a voxelised sphere's area is within 3 %
+  of 4πR², its volume within 1 %
+- bone is thermal-only, as the slab's bone is
+- a new `chuck()` preset
+
+A voxelised box converges toward `Brick3D` as the cells shrink: the end-of-cook error falls from 1.37 to 1.14 K at
+the core and from 1.97 to 1.34 K in the mean.
+
+**The sparse Jacobian.** Systems of grid pieces past 800 nodes take a sparse Jacobian. It is taken of the
+right-hand side with two global couplings frozen: the chamber vapor pressure and the area factor. The colouring is
+greedy distance-2 and the evaluation is chunked forward-mode.
+- On the flat it agrees with the dense Jacobian to 3e-5 K at the default tolerance (1.5e-6 K at 1e-9) and is
+  4.8× faster.
+- An 11 h cook of the reconstructed flat takes 94 s at 8 mm cells (5,570 nodes) and 403 s at 6 mm (13,000 nodes).
+
+**End to end:** synthetic photos of the typical flat → reconstruction with the 6 mm cap given → the robust plan's
+shadow on the voxel cut (`scripts/run_shadow3d.py --shape synthetic_flat_cap6`):
+
+| At serve | `BrisketFlat3D` | Voxel, 8 mm | Voxel, 6 mm |
+|---|---|---|---|
+| Cold spot | 57.2 °C | 56.3 °C | 57.9 °C |
+| Deepest point | 84.6 °C | 82.6 °C | 83.5 °C |
+| Cold-spot peak | 99.4 °C | 96.6 °C | 97.9 °C |
+| Mass raw / served | 2.65 / 1.06 kg | 2.68 / 1.07 kg | 2.65 / 1.04 kg |
+
+The voxel cut closes on the flat model as its cells shrink. At 6 mm it is within 1.5 K and 2 %, inside the flat
+model's own grid error (1–2 K). With the cap read from the photos instead (3.8 mm), the cut is 7 % heavier: the cap
+is the input that matters most.
+
+Figures: `figures/shadow3d/synthetic_flat_cap6/` (`scripts/plot_shape3d.py`).

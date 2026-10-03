@@ -9,6 +9,7 @@ face, the fat rendered, to serve. `--no-check` skips the coarser-grid discretiza
 
 Usage (from app/):
     uv run python ../scripts/run_shadow3d.py
+    uv run python ../scripts/run_shadow3d.py --shape <name>        # a reconstructed cut (data/cut/<name>/shape.json)
     uv run python ../scripts/run_shadow3d.py --plan schedule_robust.json --nl 12 --nw 6 --nt 8
 """
 
@@ -16,7 +17,7 @@ import argparse
 import json
 
 import numpy as np
-from shadow3d_common import HR, REPO, coords_grid, simulate
+from shadow3d_common import HR, REPO, load_shape, simulate
 
 from brisket_app.control import ControlConfig, lethality_cut
 
@@ -27,11 +28,9 @@ def report(sim, cc):
     F_cold, cut_cold = lethality_cut(tcold, t, cc)
     F_core, cut_core = lethality_cut(tcore, t, cc)
     binding = bool(cc.cut_critical)
-    g = sim["geometry"]
-    S, Y, Z = coords_grid(sim)
     cold = int(np.argmin(np.asarray(sim["T_field"])[:, -1]))
-    sc, yc, zc = (float(a.reshape(-1, order="F")[cold]) for a in (S, Y, Z))
-    return {
+    sc, yc, zc = (100.0 * float(v) for v in np.asarray(sim["coords"])[cold])
+    out = {
         "F_cold": float(F_cold), "cut_h_cold": float(cut_cold),
         "F_core": float(F_core), "cut_h_core": float(cut_core), "cut_critical": binding,
         "cold_ok": bool(F_cold >= cc.leth_f_req and (cut_cold <= cc.cut_cap_h or not binding)),
@@ -45,15 +44,29 @@ def report(sim, cc):
         "smoke_mean": float(sim["bark_s"][-1]), "ring_mean_mm": 1000.0 * float(sim["ring"][-1]),
         "l_star_mean": float(sim["l_star"][-1]), "bitterness": sim["bitterness"],
         "salt_mean": float(np.mean(sim["salt_field"][:, -1])),
-        "cold_spot_at_serve_cm": {"from_thick_end": sc, "from_centre_plane": yc, "above_grate": zc},
         "mass_raw_kg": float(sim["mass"][0]), "mass_serve_kg": float(sim["mass"][-1]),
         "core_to_surface_raw_cm": 100.0 * float(sim["l_thick"][0]),
         "core_to_surface_serve_cm": 100.0 * float(sim["l_thick"][-1]),
-        "length_cm": 100.0 * g["length"], "width_cm": [100.0 * g["width_thick"], 100.0 * g["width_thin"]],
-        "thickness_cm": [100.0 * g["thickness_thick"], 100.0 * g["thickness_thin"]], "fat_cap_mm": 1000.0 * g["cap"],
-        "geometry_source": "BRISKET_FLAT_TYPICAL (typical trimmed flat; thick end first); half the cut by symmetry",
-        "grid": sim["grid"],
+        "grid": sim["grid"], "nodes": int(np.asarray(sim["coords"]).shape[0]),
     }
+    if sim["shape"] is None:
+        g = sim["geometry"]
+        out.update({
+            "cold_spot_at_serve_cm": {"from_thick_end": sc, "from_centre_plane": yc, "above_grate": zc},
+            "length_cm": 100.0 * g["length"], "width_cm": [100.0 * g["width_thick"], 100.0 * g["width_thin"]],
+            "thickness_cm": [100.0 * g["thickness_thick"], 100.0 * g["thickness_thin"]], "fat_cap_mm": 1000.0 * g["cap"],
+            "geometry_source": "BRISKET_FLAT_TYPICAL (typical trimmed flat; thick end first); half the cut by symmetry",
+        })
+    else:
+        m = sim["shape"]["meta"]
+        out.update({
+            "cold_spot_at_serve_cm": {"x": sc, "y": yc, "above_grate": zc},
+            "meat": m["meat"], "volume_l": float(np.sum(sim["vol"]) * 1e3), "exposed_area_m2": float(sim["area"]),
+            "fat_cap_mm": m["cap_mm"], "cap_source": m["cap_source"], "bone_nodes": int(np.sum(np.asarray(sim["bone"]) > 0.5)),
+            "reconstruction_volume_l": m["volume_l"], "reconstruction_mass_kg": m["mass_kg"],
+            "geometry_source": f"reconstructed from photos ({sim['shape']['path']}); the whole cut",
+        })
+    return out
 
 
 def main() -> None:
@@ -64,14 +77,18 @@ def main() -> None:
     ap.add_argument("--nt", type=int, default=8, help="nodes up the thickness")
     ap.add_argument("--t-salt-h", type=float, default=0.0, help="dry-brine hours before the cook")
     ap.add_argument("--no-check", action="store_true", help="skip the coarser-grid check")
+    ap.add_argument("--shape", default=None, help="a reconstructed cut: data/cut/<name>/shape.json or its name")
+    ap.add_argument("--coarsen", type=int, default=4, help="simulation cells per reconstruction cell (a shape)")
     args = ap.parse_args()
 
     cc = ControlConfig()
-    sim = simulate(args.plan, args.nl, args.nw, args.nt, t_salt_s=args.t_salt_h * HR)
+    shape = load_shape(args.shape) if args.shape else None
+    sim = simulate(args.plan, args.nl, args.nw, args.nt, t_salt_s=args.t_salt_h * HR, shape=shape, coarsen=args.coarsen)
     rep = report(sim, cc)
     if not args.no_check:
         cl, cw, ct = max(args.nl * 2 // 3, 3), max(args.nw * 2 // 3, 3), max(args.nt * 2 // 3, 3)
-        coarse = report(simulate(args.plan, cl, cw, ct, t_salt_s=args.t_salt_h * HR), cc)
+        coarse = report(simulate(args.plan, cl, cw, ct, t_salt_s=args.t_salt_h * HR, shape=shape,
+                                 coarsen=(args.coarsen * 3 + 1) // 2), cc)
         rep.update({
             "grid_coarse": coarse["grid"],
             "dtcold_serve_K": rep["tcold_final_C"] - coarse["tcold_final_C"],
@@ -81,15 +98,16 @@ def main() -> None:
             "dw_retained": rep["w_retained"] - coarse["w_retained"],
         })
     rep["assumption"] = (
-        "a typical trimmed flat (tapering thickness and width, a fat cap), not yet measured; "
-        "rested to serve after the planned pull; 1-D-calibrated constants, bark and smoke distributions "
+        ("a typical trimmed flat (tapering thickness and width, a fat cap), not yet measured; " if shape is None
+         else "the cut reconstructed from photos (tools/cutvision), the bone by the meat's template; ")
+        + "rested to serve after the planned pull; 1-D-calibrated constants, bark and smoke distributions "
         "uncalibrated (C2); come-up time reported, "
         + ("binding" if rep["cut_critical"] else "not binding for brisket (FSIS Gap 6)")
     )
     print("3-D shadow report for", args.plan)
     for k, v in rep.items():
         print(f"  {k}: {v}")
-    out = REPO / "data" / "control" / "shadow3d.json"
+    out = REPO / "data" / "control" / ("shadow3d.json" if shape is None else f"shadow3d_{shape['name']}.json")
     out.write_text(json.dumps({"plan": args.plan, **rep}, indent=1))
     print("wrote", out)
 

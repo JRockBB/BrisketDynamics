@@ -70,9 +70,29 @@ SCALARS = ("w_retained", "juiciness", "fat_rendered", "bitterness")
 DIMS = ("length", "width_thick", "width_thin", "thickness_thick", "thickness_thin", "cap")
 
 
-def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: float = 0.0, dt_save: float = 600.0):
-    """One 3-D cook of the plan on the flat to serve: the piece's series, fields and scalars, the pit series, the mesh
-    (coordinates, dims, the exposed nodes with their areas, each node's material) and the cut's dimensions, as numpy."""
+def load_shape(path):
+    """A reconstructed cut (tools/cutvision's shape.json): its labels (0 empty, 1 lean, 2 fat, 3 bone) as an
+    (nx, ny, nz) array in the reconstruction's column-major order, its cell size [m], meat and metadata. A bare name
+    reads data/cut/<name>/shape.json."""
+    p = Path(path)
+    if not p.exists():
+        p = REPO / "data" / "cut" / str(path) / "shape.json"
+    meta = json.loads(p.read_text())
+    runs = np.asarray(meta["labels_rle"], dtype=np.int64).reshape(-1, 2)
+    flat = np.repeat(runs[:, 0].astype(np.int8), runs[:, 1])
+    dims = tuple(int(d) for d in meta["dims"])
+    if flat.size != int(np.prod(dims)):
+        raise ValueError(f"{p}: {flat.size} labels for a {dims} grid")
+    return {"labels": flat.reshape(dims, order="F"), "h": float(meta["voxel_mm"]) / 1000.0, "meat": meta["meat"],
+            "name": p.parent.name, "path": str(p), "meta": meta}
+
+
+def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: float = 0.0, dt_save: float = 600.0,
+             shape=None, coarsen: int = 4):
+    """One 3-D cook of the plan to serve, on the flat or (`shape`, a `load_shape` dict) on a reconstructed cut with
+    cells `coarsen` times the reconstruction's: the piece's series, fields and scalars, the pit series, the mesh
+    (coordinates, dims, the exposed nodes with their areas, each node's material and bone weight, the faces'
+    directions for a reconstructed cut) and the flat's dimensions, as numpy."""
     theta, phi, u, t_end, dec, rest = load_case(plan_name)
     tsave = np.arange(0.0, t_end + 1.0, dt_save)
     utk = np.linspace(0.0, t_end, len(u))
@@ -80,11 +100,17 @@ def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: f
 
     def _run():
         jl = api.jl
+        extra = {}
+        if shape is not None:
+            lab = shape["labels"]
+            extra = dict(shape_labels=api._jvec(lab.reshape(-1, order="F").astype(np.float64)),
+                         shape_dims=api._jvec(np.asarray(lab.shape, dtype=np.float64)), shape_h=shape["h"],
+                         meat=jl.Symbol(shape["meat"]), coarsen=int(coarsen))
         s = jl.shadow3d(
             api._jvec(theta), api._jvec(phi), api._jvec(u), api._jvec(utk), api._jvec(tsave),
             nl=nl, nw=nw, nt=nt, t_salt=t_salt_s, **dec,
             rest_t=float(rest.get("rest_t", 293.15)), rest_h=float(rest.get("rest_h", 1.5)),
-            rest_eps=float(rest.get("rest_eps", 0.10)), rest_eta=float(rest.get("rest_eta", 0.9)),
+            rest_eps=float(rest.get("rest_eps", 0.10)), rest_eta=float(rest.get("rest_eta", 0.9)), **extra,
         )
         p = jl.getproperty(s, jl.Symbol("piece"))
         get = lambda obj, name: np.array(jl.getproperty(obj, jl.Symbol(name)), copy=True)
@@ -93,6 +119,8 @@ def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: f
         for n in ("Tpit", "m_fuel"):
             out[n] = get(s, n)
         out["mat"] = get(s, "mat").astype(int)
+        out["bone"] = get(s, "bone")
+        out["faces"] = get(s, "faces").astype(int).reshape(-1, 3) if shape is not None else None
         mesh = jl.getproperty(s, jl.Symbol("mesh"))
         out["coords"] = get(mesh, "coords")
         out["dims"] = tuple(int(d) for d in jl.getproperty(mesh, jl.Symbol("dims")))
@@ -100,6 +128,8 @@ def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: f
         out["boundary_nodes"] = np.array([int(b[0]) for b in bnd]) - 1        # 0-based
         out["boundary_areas"] = np.array([float(b[1]) for b in bnd])
         out["core"] = int(jl.getproperty(mesh, jl.Symbol("core"))) - 1
+        out["vol"] = get(mesh, "vol")
+        out["area"] = float(jl.getproperty(mesh, jl.Symbol("area")))
         geo = jl.getproperty(s, jl.Symbol("geometry"))
         out["geometry"] = {k: float(jl.getproperty(geo, jl.Symbol(k))) for k in DIMS}
         cfg = jl.MeatConfig()
@@ -107,7 +137,11 @@ def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: f
         return out
 
     sim = api._on_julia_thread(_run)
-    sim.update(t=tsave, plan=plan_name, decisions=dec, grid=f"{nl}x{nw}x{nt}")
+    if shape is None:
+        sim.update(grid=f"{nl}x{nw}x{nt}", shape=None)
+    else:
+        sim.update(grid=f"{coarsen * shape['h'] * 1000:.0f} mm cells", shape=shape, coarsen=coarsen)
+    sim.update(t=tsave, plan=plan_name, decisions=dec)
     return sim
 
 

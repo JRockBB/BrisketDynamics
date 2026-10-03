@@ -140,7 +140,8 @@ const _DIRS6 = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, 
 
 The GridMesh of `labels` (cells of side `h` [m]) on cells of side H = k·h: a node per block of k³ cells at least
 `keep` occupied (its volume the occupied fraction of H³, all volumes then scaled so the total is the labels' own),
-its material the block's majority (ties lean). Returns the mesh and each node's label.
+its material the block's majority (ties lean). Returns the mesh, each node's label, the surface area no face
+claimed and each exposed face's outward direction.
 """
 function _voxel_mesh(labels::AbstractArray{<:Integer,3}, h::Float64, k::Int; keep=0.5)
     k >= 1 || throw(ArgumentError("coarsen must be at least 1"))
@@ -259,8 +260,16 @@ function _voxel_mesh(labels::AbstractArray{<:Integer,3}, h::Float64, k::Int; kee
     end
     mesh = GridMesh(N, vol, edges, boundary, coords, core, line, sum(last.(boundary)), cn, (cn[1] * H, cn[2] * H, cn[3] * H),
                     reshape(depth, N, 1), depth, inward, inward_d)
-    return mesh, [code[J] for J in nodes], lost
+    return mesh, [code[J] for J in nodes], lost, [_DIRS6[di] for (_, di) in faces]
 end
+
+"""
+    voxel_faces(labels, h; coarsen=2)
+
+The exposed faces of `VoxelPiece(id, labels, h; coarsen)` in its boundary's order: each face's outward direction
+(one of ±x, ±y, ±z), for drawing the surface states on the cut.
+"""
+voxel_faces(labels::AbstractArray{<:Integer,3}, h::Real; coarsen::Int=2) = _voxel_mesh(labels, Float64(h), coarsen)[4]
 
 """
     VoxelPiece(id, labels, h; meat=:brisket, coarsen=2, cfg=nothing)
@@ -273,7 +282,7 @@ the board, the first layer on it), on cells `coarsen` times larger (`_voxel_mesh
 function VoxelPiece(id::Symbol, labels::AbstractArray{<:Integer,3}, h::Real; meat::Symbol=:brisket, coarsen::Int=2,
                     cfg::Union{Nothing,MeatConfig}=nothing)
     c = with_config(something(cfg, meat_preset(meat).cfg); A_meat=1.0)
-    mesh, codes, _ = _voxel_mesh(labels, Float64(h), coarsen)
+    mesh, codes, _, _ = _voxel_mesh(labels, Float64(h), coarsen)
     mats = [c, with_config(c; F0=FAT_CAP_F0, W0=FAT_CAP_W0)]
     mat = [l == 2 ? 2 : 1 for l in codes]
     bone = [l == 3 ? 1.0 : 0.0 for l in codes]
