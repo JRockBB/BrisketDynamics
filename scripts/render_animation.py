@@ -40,7 +40,7 @@ def main():
     args = ap.parse_args()
 
     from brisket_app import cooklog
-    from brisket_app.calibrate import THETA_SITES, phi_full
+    from brisket_app.calibrate import THETA_SITES, from_lighting, lighting_grids, phi_full
 
     log = cooklog.load(dt_min=10.0)
     m = json.loads((REPO / "data" / "calibration" / "map_real.json").read_text())
@@ -58,18 +58,30 @@ def main():
     )
 
     t = log["t"]
-    cfg_pit = jl.PitConfig(Tpit0=log["meta"]["tpit0_K"], T_amb=300.0)
     cfg_meat = jl.MeatConfig(T0=log["meta"]["tcore0_K"])
-    sol = jl.monolith_solve(
-        jv(theta), jv(phi), jv(log["u"]), jv(t), jv(t), cfg=cfg_meat, pit=cfg_pit
-    )
+    if from_lighting(log):
+        # the cook from lighting (its documented preheat, the fitted preheat damper u_pre); the animation shows the
+        # cook from meat-on
+        grids, n = lighting_grids(log)
+        tl = np.asarray(grids.tknots)
+        u = np.concatenate([np.full(n, m["u_pre"]), log["u"]])
+        cfg_pit = jl.PitConfig(Tpit0=300.0, T_amb=300.0)
+        sol = jl.monolith_solve(
+            jv(theta), jv(phi), jv(u), jv(tl), jv(tl), cfg=cfg_meat, pit=cfg_pit, t_load=float(tl[n])
+        )
+    else:
+        n = 0
+        cfg_pit = jl.PitConfig(Tpit0=log["meta"]["tpit0_K"], T_amb=300.0)
+        sol = jl.monolith_solve(
+            jv(theta), jv(phi), jv(log["u"]), jv(t), jv(t), cfg=cfg_meat, pit=cfg_pit
+        )
 
-    tpit = np.asarray(sol.Tpit).copy() - 273.15
-    T = np.asarray(sol.T_field).copy() - 273.15  # nx × nt
-    W = np.asarray(sol.W_field).copy()  # dry-basis
-    C = np.asarray(sol.C_field).copy()
-    F = np.asarray(sol.F_field).copy()  # un-rendered fat, dry-basis
-    j_evap = np.asarray(sol.j_evap).copy() * 1e6  # mg/m2/s
+    tpit = np.asarray(sol.Tpit).copy()[n:] - 273.15
+    T = np.asarray(sol.T_field).copy()[:, n:] - 273.15  # nx × nt
+    W = np.asarray(sol.W_field).copy()[:, n:]  # dry-basis
+    C = np.asarray(sol.C_field).copy()[:, n:]
+    F = np.asarray(sol.F_field).copy()[:, n:]  # un-rendered fat, dry-basis
+    j_evap = np.asarray(sol.j_evap).copy()[n:] * 1e6  # mg/m2/s
     W0 = float(cfg_meat.W0)
     F0 = float(cfg_meat.F0)
     nx, nt = T.shape
@@ -160,7 +172,7 @@ def main():
     # ylim headroom: data tops out ~112 °C; the 115-145 band is reserved
     # for the 3-line status text so it never sits on the pit trace
     axS.set(
-        xlabel="time [h]",
+        xlabel="time from meat-on [h]",
         ylabel="T [°C]",
         ylim=(15, 145),
         title='the calibrated cook (Mache/TVWBB, 18.5" WSM)',

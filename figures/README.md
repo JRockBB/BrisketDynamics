@@ -18,6 +18,10 @@ The physics itself: the model diagrams, the bark model's forward validation, a f
 
 The real-cook calibration and its posterior: the MAP fit, the NUTS and Laplace corners and predictives, the width comparison, the pooled cooks, the wrap step response, the water budget.
 
+The MAP and Laplace figures include the documented preheat and start from
+lighting. The NUTS, TMB and width-comparison figures retain the earlier
+meat-on fit; their from-lighting port is tracked in `docs/roadmap.md` C0.
+
 | figure | written by | discussed in |
 |---|---|---|
 | `cooklog_fit_map.png` | `scripts/run_gn_map.py` | `README.md`, `docs/writeup.md`, `docs/submission.md` |

@@ -156,6 +156,8 @@ def test_advance_plant_carries_complete_handoff(monkeypatch):
             "bark_b": np.array([0.1, 0.2]),
             "bark_s": np.array([0.2, 0.3]),
             "ring": np.asarray(0.004),
+            "t_load_used": np.asarray(-1.0e9),
+            "load_reached": np.asarray(1.0),
         }
 
     monkeypatch.setattr(mpc, "coupled_cook", coupled)
@@ -170,3 +172,4 @@ def test_advance_plant_carries_complete_handoff(monkeypatch):
     assert new.mpan0 == 1.1
     assert new.tpan0 == 296.0
     assert new.tfb0 == 425.0
+    assert new.loaded  # the meat in from the start: the executed load rides the hand-off

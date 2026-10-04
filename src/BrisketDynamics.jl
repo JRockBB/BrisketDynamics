@@ -25,6 +25,7 @@ include("cookers/pellet.jl")
 include("cookers/offset.jl")
 include("cookers/pibil.jl")
 include("monolith.jl")
+include("preheat.jl")
 # after the monolith: coupled_solve_2d uses PitConfig, Humidity and the
 # pit algebra
 include("meats/slab2d.jl")
@@ -45,6 +46,10 @@ export MeatConfig,
     pit_solve,
     Humidity,
     monolith_solve,
+    preheat_time,
+    load_blend,
+    LOAD_AT_START,
+    PREHEAT_MAX,
     monolith_solve_tf,
     monolith_jacobian,
     monolith_stack,

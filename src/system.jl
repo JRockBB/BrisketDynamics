@@ -39,7 +39,7 @@ piece_parameter_schema(::PieceModel) = (:D_eff, :k_m, :h_c, :L, :k_mult, :k_e, :
 "Indices of that schema which are estimable for this model."
 piece_parameter_indices(pc::PieceModel) = eachindex(piece_parameter_schema(pc))
 "Events a piece model accepts."
-piece_event_kinds(::PieceModel) = (:wrap, :pull, :spritz)
+piece_event_kinds(::PieceModel) = (:load, :wrap, :pull, :spritz)
 "Semantic observables a piece model can compile through the estimator adapter."
 piece_observable_schema(::PieceModel) = (:temperature, :surface_temperature, :mass, :bark)
 "Restart fields owned by a piece model."
@@ -177,9 +177,10 @@ end
 """
     CookEvent(kind, target, t; params...)
 
-An event of the cook: `kind` one of `:wrap`, `:pull`, `:spritz` (on a piece, `params` `dt` and `m`: the
-train's finite positive interval [s] and dose [kg/m²]) and `:add` (on the pit, `params` `dt_add`: the split
-interval, Inf for one addition). `t` [s] is absolute cook time. Events are validated data; both positional
+An event of the cook: `kind` one of `:load` (the piece goes on: before it the pit preheats without it, the piece
+holding its raw state; absent, the piece is in from t = 0), `:wrap`, `:pull`, `:spritz` (on a piece, `params` `dt`
+and `m`: the train's finite positive interval [s] and dose [kg/m²]) and `:add` (on the pit, `params` `dt_add`: the
+split interval, Inf for one addition). `t` [s] is absolute cook time, from lighting. Events are validated data; both positional
 and keyword construction enforce the same contract.
 """
 struct CookEvent
@@ -193,7 +194,7 @@ struct CookEvent
     end
 end
 function _validate_event_fields(kind::Symbol, target::Symbol, t::Real, nt::NamedTuple)
-    kind in (:wrap, :pull, :spritz, :add) || throw(ArgumentError("an event is :wrap, :pull, :spritz or :add, not :$kind"))
+    kind in (:load, :wrap, :pull, :spritz, :add) || throw(ArgumentError("an event is :load, :wrap, :pull, :spritz or :add, not :$kind"))
     kind === :add && target !== :pit && throw(ArgumentError("a fuel addition is the pit's event (target :pit), not $(target)'s"))
     kind !== :add && target === :pit && throw(ArgumentError("a $kind is a piece's event, not the pit's"))
     isfinite(t) && t >= 0 || throw(ArgumentError("an event time must be finite and nonnegative"))
@@ -238,8 +239,10 @@ end
 "The named event parameters of piece `id` from a list of events (`NEVER` where an event is absent)."
 function piece_events(events::AbstractVector{CookEvent}, id::Symbol; cfg::MeatConfig=MeatConfig())
     t_wrap, t_pull, t_spritz, dt_spritz, m_spritz = WRAP_NEVER, PULL_NEVER, SPRITZ_NEVER, 3600.0, cfg.m_spritz
+    t_load = LOAD_AT_START
     for e in events
         e.target === id || continue
+        e.kind === :load && (t_load = e.t)
         e.kind === :wrap && (t_wrap = e.t)
         e.kind === :pull && (t_pull = e.t)
         if e.kind === :spritz
@@ -248,7 +251,7 @@ function piece_events(events::AbstractVector{CookEvent}, id::Symbol; cfg::MeatCo
             m_spritz = Float64(get(e.params, :m, cfg.m_spritz))
         end
     end
-    return (t_wrap=t_wrap, t_pull=t_pull, t_spritz=t_spritz, dt_spritz=dt_spritz, m_spritz=m_spritz)
+    return (t_load=t_load, t_wrap=t_wrap, t_pull=t_pull, t_spritz=t_spritz, dt_spritz=dt_spritz, m_spritz=m_spritz)
 end
 "The pit's event parameters from a list of events."
 function pit_events(events::AbstractVector{CookEvent}; pit::PitConfig=PitConfig())
@@ -266,7 +269,7 @@ end
     ParamLayout(sys, nu)
 
 The named layout of the system's parameter vector `p` for `nu` damper knots: per piece its model-owned θ block
-(`(id, :theta)`), its exposed area `(id, :A_meat)` and its event parameters (`(id, :t_wrap)`,
+(`(id, :theta)`), its exposed area `(id, :A_meat)` and its event parameters (`(id, :t_load)`, `(id, :t_wrap)`,
 `(id, :t_pull)`, `(id, :t_spritz)`, `(id, :dt_spritz)`, `(id, :m_spritz)`); then the
 pit's φ block `(:pit, :phi)` (`PIT_NP`), the damper knots `(:pit, :u_knots)`, `(:pit, :t_add)` and
 `(:pit, :dt_add)`. Index by key: `play[(:brisket, :theta)]`.
@@ -276,7 +279,7 @@ struct ParamLayout
     ranges::Dict{Tuple{Symbol,Symbol},UnitRange{Int}}
     n::Int
 end
-const PIECE_PARAM_SCALARS = (:A_meat, :t_wrap, :t_pull, :t_spritz, :dt_spritz, :m_spritz)
+const PIECE_PARAM_SCALARS = (:A_meat, :t_load, :t_wrap, :t_pull, :t_spritz, :dt_spritz, :m_spritz)
 function ParamLayout(sys::CookSystem, nu::Int)
     keys = Tuple{Symbol,Symbol}[]; ranges = Dict{Tuple{Symbol,Symbol},UnitRange{Int}}()
     o = 0
@@ -304,6 +307,7 @@ n_params(pl::ParamLayout) = pl.n
 struct _SysIndex
     θ::Vector{UnitRange{Int}}
     A::Vector{Int}
+    t_load::Vector{Int}
     t_wrap::Vector{Int}
     t_pull::Vector{Int}
     t_spritz::Vector{Int}
@@ -318,7 +322,7 @@ struct _SysIndex
 end
 function _SysIndex(sys::CookSystem, play::ParamLayout)
     f(s) = [first(play[(pc.id, s)]) for pc in sys.pieces]
-    return _SysIndex([play[(pc.id, :theta)] for pc in sys.pieces], f(:A_meat), f(:t_wrap), f(:t_pull), f(:t_spritz),
+    return _SysIndex([play[(pc.id, :theta)] for pc in sys.pieces], f(:A_meat), f(:t_load), f(:t_wrap), f(:t_pull), f(:t_spritz),
                      f(:dt_spritz), f(:m_spritz), [sys.layout.piece_range[pc.id] for pc in sys.pieces],
                      play[(:pit, :phi)], play[(:pit, :u_knots)], first(play[(:pit, :t_add)]), first(play[(:pit, :dt_add)]),
                      sys.layout.pit_range)
@@ -348,6 +352,7 @@ function pack_params(sys::CookSystem, θs::AbstractVector, As::AbstractVector, �
         ev = piece_events(events, pc.id; cfg=pc.cfg)
         p[play[(pc.id, :theta)]] = θs[i]
         p[first(play[(pc.id, :A_meat)])] = As[i]
+        p[first(play[(pc.id, :t_load)])] = ev.t_load
         p[first(play[(pc.id, :t_wrap)])] = ev.t_wrap
         p[first(play[(pc.id, :t_pull)])] = ev.t_pull
         p[first(play[(pc.id, :t_spritz)])] = ev.t_spritz
@@ -458,7 +463,7 @@ function _system_instant(sys::CookSystem, x, p, t, ud, ix::_SysIndex, hoisted; p
         c_i, n_i, a_i, s_i, pl_i = _piece_exchange(pc, view(x, ix.x[i]), t, θ, airflow, p[ix.t_wrap[i]], p[ix.t_pull[i]],
                                                          p[ix.A[i]], hoisted[i])
         cond[i] = c_i; nums[i] = n_i; area[i] = a_i; s[i] = s_i; pl[i] = pl_i
-        gate = 1 - pl_i
+        gate = (1 - pl_i) * load_blend(t, p[ix.t_load[i]], pc.cfg)     # in the pit: loaded and not pulled
         num += gate * n_i
         den += gate * c_i
     end
@@ -507,13 +512,23 @@ function make_system_rhs(sys::CookSystem, u_t0::Real, u_dt::Real, nu::Int; corre
             args = (sys.pieces[i], view(dx, ix.x[i]), view(x, ix.x[i]), t, θ, Tp, inst.mdot, pv_piece, inst.airflow,
                     p[ix.t_wrap[i]], p[ix.t_pull[i]], p[ix.t_spritz[i]], p[ix.dt_spritz[i]], p[ix.m_spritz[i]],
                     hoisted[i], p[ix.A[i]])
-            q_meat += freeze ? _piece_rhs!(args...; freeze=true) : _piece_rhs!(args...)
+            qi = freeze ? _piece_rhs!(args...; freeze=true) : _piece_rhs!(args...)
+            # before its load the piece is not in the pit: it holds its raw state and draws nothing
+            ld = load_blend(t, p[ix.t_load[i]], sys.pieces[i].cfg)
+            dxi = view(dx, ix.x[i])
+            @inbounds for k in eachindex(dxi)
+                dxi[k] *= ld
+            end
+            q_meat += ld * qi
         end
         q_meat -= corr.q
         # The lid is one physical opening. Shared trains and coincident/overlapping pulses therefore take the
         # widest opening rather than adding several copies of the same heat-loss path.
         t_add = p[ix.t_add]; dt_add = p[ix.dt_add]
         lid = lid_open(t, t_add, pit.τ_open_add)
+        for i in 1:np                                                  # the door open while a piece goes on
+            lid = max(lid, lid_open(t, p[ix.t_load[i]], pit.τ_open_load))
+        end
         for g in _spritz_groups(p, ix)
             gate = zero(Tp)
             for i in g
@@ -671,12 +686,13 @@ function piece_outputs(pc::Slab1D, Ap::AbstractMatrix, θ, A_m, ps::NamedTuple, 
     f_aw_ts = 1 ./ (1 .+ cfg.k_aw .* max.(Ap[5nx, :], 0.0))
     # the fluxes under the resolved chamber vapor pressure: the mixing term is inside pv_star already
     fluxes = surface_fluxes_blended.(Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, ps.pv_star, 0.0, Ref(cfg), f_aw_ts)
-    j_evap = getproperty.(fluxes, :j)
-    j_pit = getproperty.(fluxes, :j_pit)
-    q_meat = A_m * cfg.n_meat .* a_ts .* surface_q_pit_blended.(ps.Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
+    ld_ts = load_blend.(tsave, get(ev, :t_load, LOAD_AT_START), Ref(cfg))   # nothing crosses before the load
+    j_evap = getproperty.(fluxes, :j) .* ld_ts
+    j_pit = getproperty.(fluxes, :j_pit) .* ld_ts
+    q_meat = A_m * cfg.n_meat .* a_ts .* ld_ts .* surface_q_pit_blended.(ps.Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
     bark_b = Ap[5nx + 1, :]; bark_s = Ap[5nx + 2, :]; ring = Ap[5nx + 3, :]
     dep_dirty = cfg.k_dep .* wet_blend.(a_w_oswin.(Wsurf, Ref(cfg)), Ref(cfg)) .* max.(ps.mdot, 0.0) .* (1 .- ps.smoke_clean) .*
-                (1 .- s_ts) .* (1 .- pl_ts) .* (1 .- bark_s)
+                (1 .- s_ts) .* (1 .- pl_ts) .* (1 .- bark_s) .* ld_ts
     w_retained = fv_mean(Ap[(nx + 1):2nx, end]) / cfg.W0
     F_mean = fv_mean(Ap[(3nx + 1):4nx, end])
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
@@ -685,7 +701,7 @@ function piece_outputs(pc::Slab1D, Ap::AbstractMatrix, θ, A_m, ps::NamedTuple, 
     cumtrap(v) = vcat(zero(eltype(v)), cumsum((v[1:(end - 1)] .+ v[2:end]) ./ 2 .* dts))
     evap_w_cum = cumtrap(ja) ./ (RHO_DRY * θ[4])
     bitterness_cum = cumtrap(dep_dirty)
-    jsp = spritz_rate.(tsave, ev.t_spritz, ev.dt_spritz, ev.m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts
+    jsp = spritz_rate.(tsave, ev.t_spritz, ev.dt_spritz, ev.m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts .* ld_ts
     spritz_w_cum = cfg.f_abs .* cumtrap(jsp) ./ (RHO_DRY * θ[4])
     evap_w, spritz_w, bitterness = evap_w_cum[end], spritz_w_cum[end], bitterness_cum[end]
     mass = [meat_mass_slab(dot(wfv, view(Ap, (nx + 1):2nx, k)) / (nx - 1), dot(wfv, view(Ap, (3nx + 1):4nx, k)) / (nx - 1), A_m, θ[4], cfg)
@@ -736,7 +752,8 @@ function system_outputs(sys::CookSystem, A::AbstractMatrix, p::AbstractVector, u
     length(histories) == length(sys.pieces) || throw(ArgumentError("one cumulative-history offset is required per piece"))
     raw_pieces = map(enumerate(sys.pieces)) do (i, pc)
         θ = p[ix.θ[i]]
-        ev = (t_wrap=p[ix.t_wrap[i]], t_pull=p[ix.t_pull[i]], t_spritz=p[ix.t_spritz[i]], dt_spritz=p[ix.dt_spritz[i]], m_spritz=p[ix.m_spritz[i]])
+        ev = (t_load=p[ix.t_load[i]], t_wrap=p[ix.t_wrap[i]], t_pull=p[ix.t_pull[i]], t_spritz=p[ix.t_spritz[i]],
+              dt_spritz=p[ix.dt_spritz[i]], m_spritz=p[ix.m_spritz[i]])
         po = piece_outputs(pc, view(A, ix.x[i], :), θ, p[ix.A[i]], ps, tsave, ev)
         h = histories[i]
         ew = get(h, :evap_w, 0.0); sw = get(h, :spritz_w, 0.0); bt = get(h, :bitterness, 0.0)

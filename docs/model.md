@@ -68,6 +68,7 @@ with $h_c$.
 | $s(t)$ | Texas-crutch wrap blend | `wrap_blend` |
 | $\varepsilon(s)$ | wrap-blended emissivity | in RHS |
 | $p(t)$ | pull blend (in the pit → resting) | `pull_blend` |
+| $\ell(t)$ | load blend (raw, waiting out the preheat → in the pit) | `load_blend` |
 | $v(W,F)$, $\varsigma$ | specific volume per kg dry matter; thickness stretch $(v/v_0)^{n_{sh}}$ | `specific_volume`, in RHS |
 | $p_{v,\mathrm{base}}$, $c$ | pit base vapor pressure [Pa]; vapor-mixing coefficient | in `coupled.py`, `mixing_coefficient` |
 | $\dot m_{\mathrm{air}}$ | pit air mass flow [kg/s] | in `coupled.py` |
@@ -499,6 +500,35 @@ lit coals also move the ignited fraction of the (now larger) bed toward 1.
 $t_{\mathrm{add}}$ is a differentiable decision (never = beyond the
 horizon, exactly zero); the lid lift it costs is $q_{\mathrm{lid}}$ below.
 
+**The preheat and the load.** Time runs from lighting. The pit is lit at
+ambient with a full fuel ring and a chimney start's lit fraction,
+$a(0) = a_{\mathrm{light}} = 0.15$ (15–20 lit coals on a ring; a documented
+default, not calibrated), and comes up empty. The meat goes on at
+$t_{\mathrm{load}}$: with
+$\ell(t) = \sigma\big((t - t_{\mathrm{load}})/\delta_{\mathrm{load}}\big)$,
+$\delta_{\mathrm{load}} = 2$ min, every meat state's right-hand side is
+multiplied by $\ell$ (before the load the raw cut holds its fridge
+temperature, water, salt and bark) and so are its draws on the pit
+($q_{\mathrm{meat}}$, its vapor, the smoke it takes). Loading lifts the
+lid, $\mathrm{open}(t)$ a window of $\tau_{\mathrm{open,load}} = 3$ min at
+$t_{\mathrm{load}}$. The planner's decision is not the time but the pit
+temperature the meat goes in at, $T_{\mathrm{load}}$
+($93$–$149$ °C, 200–300 °F): `preheat_time` integrates the six pit states with no
+meat from lighting under the planned damper until $T_p = T_{\mathrm{load}}$
+(a terminating root-find), and the cook takes that time. The model itself
+stays time-driven, no latch; the partials of $t_{\mathrm{load}}$ come from
+the implicit-function theorem at the crossing,
+$t = t^* - (T_p(t^*) - T_{\mathrm{load}})/\dot T_p(t^*)$ in dual
+arithmetic, so $T_{\mathrm{load}}$, $\varphi$ and the preheat's damper
+knots are differentiable decisions. A pit that never reaches
+$T_{\mathrm{load}}$ within 6 h (a fire that is effectively dead) loads at 6 h, and the plan pays for
+its shortfall $\Delta T = T_{\mathrm{load}} - T_p(6\,\mathrm{h})$ smoothly,
+$w_{\mathrm{miss}}\,(\Delta T / 10\,\mathrm{K})^2$; $\Delta T$ is a differentiable output, so the penalty
+has a gradient that opens the preheat damper. A slow pit just loads later, and the cook time it eats is
+priced by $J$ through the same implicit-function partials. In the system each piece has its own load (`CookEvent(:load)`),
+so pieces go on at different times. The food-safety clocks (lethality,
+come-up time) start at meat-on.
+
 At $a_0 = 1$ the spread term vanishes and the two-state model is
 recovered exactly. $\dot m_b$ is exported (exact algebraic recompute at
 save times) as the smoke-flux forcing to the bark model.
@@ -658,7 +688,21 @@ $$
 
 with $\mu^{\mathrm{pit}} = T_p(t;\theta,\varphi)$ and
 $\mu^{\mathrm{core}} = T_{\mathrm{core}}(t;\theta,\varphi)$, independently
-for each probe. $\rho = 0$ recovers the iid model. LogNormal priors
+for each probe. $\rho = 0$ recovers the iid model.
+
+**From lighting.** A log that documents its preheat (the real cook's ~90 min
+empty warm-up, `data/cook_log/PROVENANCE.md`; `cooklog` spec `preheat_min`)
+is modelled from lighting: the pit at ambient, a full 7 kg ring,
+$a_0 = a_{\mathrm{light}}$ fixed (no longer a latent; $k_{\mathrm{spr}}$
+carries the come-up), the unlogged preheat damper one latent
+$u_{\mathrm{pre}} \sim$ Beta$(2,2)$ held over the preheat, and the meat loaded
+at the documented time with its lid pulse. The observations are the log's,
+from meat-on; the pit at meat-on is a prediction of the preheat, not an
+initial condition. The fit's latents (`monolith.SITES_LIT`) are $\theta$,
+the five pit sites, $k_{\mathrm{spr}}$ and $u_{\mathrm{pre}}$; the MAP file
+carries $a_0 = a_{\mathrm{light}}$ so every consumer of $\varphi$ gets a cook
+from lighting. A log without a documented preheat keeps the start-of-log
+layout (the pit from its first reading, $a_0$ a latent). LogNormal priors
 centered on the model defaults (Beta for the (0,1)-bounded
 $u_{\mathrm{leak}}, a_0, \rho$). MAP by Gauss–Newton on the monolith's
 Jacobian (`scripts/run_gn_map.py`); Laplace and the TMB nested-Laplace

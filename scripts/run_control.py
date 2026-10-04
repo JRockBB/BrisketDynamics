@@ -56,6 +56,9 @@ def main():
     tx = monolith_client()
     grids = CookGrids(dt_exchange=600.0, n_u=16)
     cc = ControlConfig(n_iter=args.iters)
+    # the cook from lighting: the pit at ambient, the meat on when the empty pit reaches the load temperature
+    ics = {"tpit0": 300.0, "t_amb": 300.0}
+    T_load0 = 0.5 * (cc.T_load_min + cc.T_load_max)
 
     baseline = coupled_cook(
         jnp.asarray(theta),
@@ -63,7 +66,9 @@ def main():
         jnp.full(grids.n_u, args.u_init),
         tx,
         grids,
+        ics=ics,
         t_salt=t_salt,
+        T_load=T_load0,
     )
     c0 = float(baseline["c_field_final"][0])
     print(
@@ -78,6 +83,7 @@ def main():
         grids=grids,
         cc=cc,
         u_init=args.u_init,
+        ics=ics,
         t_salt=t_salt,
         callback=lambda i, l, u: print(
             f"  iter {i:4d}  J={l:10.4f}  u=[{u.min():.2f}..{u.max():.2f}]"
@@ -89,14 +95,19 @@ def main():
         jnp.asarray(u_opt),
         tx,
         grids,
+        ics=ics,
         t_salt=t_salt,
+        T_load=hist["T_load"],
     )
     c1 = float(after["c_field_final"][0])
     print(
         f"optimized: core doneness {c1:.3f}, J {hist['losses'][0]:.2f} -> "
-        f"{hist.get('best_loss', hist['losses'][-1]):.2f} in {hist['wall_s']:.0f} s"
+        f"{hist.get('best_loss', hist['losses'][-1]):.2f} in {hist['wall_s']:.0f} s; "
+        f"meat on at {float(after['t_load_used']) / HR:.2f} h (pit {hist['T_load'] - 273.15:.0f} C)"
     )
-    sr = safety_report(after["tsurf"], after["tcore"], grids.tknots, cc)
+    sr = safety_report(
+        after["tsurf"], after["tcore"], grids.tknots, cc, t_load=float(after["t_load_used"])
+    )
     print(
         f"safety (soft penalties, not a certification): surface F={sr['F_s']:.3g}s "
         f"come-up={sr['cut_h']:.2f}h; core F={sr['F_core']:.3g}s "
@@ -115,6 +126,8 @@ def main():
                 "doneness_after": c1,
                 "J_first": float(hist["losses"][0]),
                 "J_last": float(hist["losses"][-1]),
+                "T_load": float(hist["T_load"]),
+                "t_load_h": float(after["t_load_used"]) / HR,
                 "iters": args.iters,
                 "map_source": "map_result.json",
             },
@@ -158,7 +171,7 @@ def main():
         cc.t_surf_max - 273.15, color="r", lw=0.8, ls=":", label="bark limit"
     )
     axes[1].set(
-        xlabel="time [h]",
+        xlabel="time from lighting [h]",
         ylabel="temperature [C]",
         title=f"doneness {c0:.2f} -> {c1:.2f} (target {cc.c_target})",
     )
@@ -166,7 +179,7 @@ def main():
     axes[2].step(grids.u_tknots / HR, u_opt, where="mid", label="optimized")
     axes[2].axhline(args.u_init, ls="--", color="gray", label="baseline")
     axes[2].set(
-        xlabel="time [h]",
+        xlabel="time from lighting [h]",
         ylabel="damper fraction",
         ylim=(0, 1),
         title="recovered schedule",

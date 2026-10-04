@@ -9,15 +9,19 @@ Tesseracts' state IO), then the plant executes the first interval.
 This is state-feedback MPC (the controller reads the plant state directly);
 output-feedback with an estimator is future work, noted in the roadmap.
 
-The cook runs to serve (``t_f``): every replan optimizes the schedule, the
-wrap and the pull over the remaining time, scored at serve; the pull
-executes like the wrap (candidate -> commit -> irreversible) and the plant
-then rests to serve.
+The cook runs from lighting to serve (``t_f``): the pit preheats empty and
+the meat goes on when the plant's pit first reaches the planned load
+temperature (``T_load``, re-optimized every replan until then; the load is
+then an executed time the hand-off carries). Every replan optimizes the
+schedule, the wrap and the pull over the remaining time, scored at serve;
+the pull executes like the wrap (candidate -> commit -> irreversible) and
+the plant then rests to serve.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from itertools import pairwise
 
 import jax.numpy as jnp
 import numpy as np
@@ -28,7 +32,7 @@ from .control import (
     optimize_schedule,
     safety_penalty,
 )
-from .coupled import HR, CookGrids, coupled_cook
+from .coupled import A_LIGHT, HR, CookGrids, coupled_cook
 
 
 @dataclass
@@ -62,13 +66,21 @@ class CookState:
     cut_h: float = 0.0  # banked surface come-up time [h] of executed cook
     leth_f_core: float = 0.0  # the same two on the core node (cold spot)
     cut_h_core: float = 0.0
+    t_load: float = float(
+        "nan"
+    )  # when the meat went on [s from lighting]; NaN = still preheating
+
+    @property
+    def loaded(self) -> bool:
+        """Whether the meat is on."""
+        return bool(np.isfinite(self.t_load))
 
     @classmethod
     def fresh(
         cls,
-        tpit0=293.15,
+        tpit0=300.0,
         m0=7.0,
-        a0=1.0,
+        a0=A_LIGHT,
         t0_meat=281.15,
         mpan0=0.0,
         tpan0=293.15,
@@ -76,8 +88,9 @@ class CookState:
         c_fb=2.0e4,
         ua_fb=12.0,
         c_duct=0.0,
+        t_load=float("nan"),
     ):
-        """Cold-start state: ambient pit, full fuel ring, fridge meat."""
+        """Start at lighting: the pit ambient, a full fuel ring, a chimney start's lit fraction; the meat raw, not yet on."""
         z = np.zeros(0)
         return cls(
             0.0,
@@ -95,6 +108,7 @@ class CookState:
             c_fb=c_fb,
             ua_fb=ua_fb,
             c_duct=c_duct,
+            t_load=t_load,
         )
 
 
@@ -124,6 +138,30 @@ def _ics(state: CookState, t_amb: float) -> dict:
     return ics
 
 
+def _load_args(
+    state: CookState, T_load: float, t_load_abs: float | None = None
+) -> dict:
+    """Return the load inputs of a solve starting from ``state``.
+
+    The executed load (segment-relative, negative) once the meat is on; before
+    it, a fixed load time ``t_load_abs`` [s from lighting] when given, else the
+    pending load temperature [K].
+    """
+    if state.loaded:
+        return {"t_load": state.t_load - state.t, "T_load": 0.0}
+    if t_load_abs is not None:
+        return {"t_load": float(t_load_abs) - state.t, "T_load": 0.0}
+    return {"t_load": -1.0e9, "T_load": float(T_load)}
+
+
+def state_after_load_pit(
+    seg_traj: dict, state: CookState, t_seg_start: float, dt_seg: float
+) -> float:
+    """Return the plant's pit temperature [K] at the segment's executed load."""
+    tseg = np.linspace(0.0, dt_seg, len(seg_traj["tpit"]))
+    return float(np.interp(state.t_load - t_seg_start, tseg, seg_traj["tpit"]))
+
+
 def _with_a0(phi: np.ndarray, a0: float) -> np.ndarray:
     """Return phi with its ignition entry replaced by the plant's current a0."""
     out = np.asarray(phi, dtype=np.float64).copy()
@@ -147,8 +185,17 @@ def advance_plant(
     dt_spritz_seg: float = 3600.0,
     spritz_dose_seg: float = 0.05,
     t_salt: float = 0.0,
+    T_load_seg: float = 0.0,
+    t_load_abs: float | None = None,
+    ambient_fn=None,
+    ambient_tstops=(),
 ) -> tuple[CookState, dict]:
     """Run the plant one interval; return (new state, trajectories).
+
+    Before the meat is on, it goes on when the plant's own pit first reaches
+    ``T_load_seg`` [K] (inside the segment or not at all), or at the fixed
+    ``t_load_abs`` [s from lighting] when given; after, the state's executed
+    load time rides the solve.
 
     ``t_wrap_seg`` / ``t_pull_seg`` are the wrap and pull moments in
     SEGMENT-relative time: 1e9 = not this segment, a value inside [0, dt)
@@ -158,6 +205,47 @@ def advance_plant(
     """
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
     grids = CookGrids(t_end=dt, dt_exchange=min(600.0, dt / 2), n_u=len(u_seg))
+    changes = [float(t) - state.t for t in ambient_tstops if state.t < t < state.t + dt]
+    if changes:
+        if ambient_fn is None:
+            raise ValueError("ambient_tstops requires ambient_fn")
+        # Split only the plant at weather changes. Include each original damper
+        # knot so two-point subintervals preserve its piecewise-linear schedule
+        # exactly; the controller still replans on its original hourly clock.
+        edges = np.unique(np.r_[grids.u_tknots, changes])
+        start = state.t
+        samples, pieces = [], []
+        for left, right in pairwise(edges):
+            state, trace = advance_plant(
+                state,
+                np.interp([left, right], grids.u_tknots, u_seg),
+                right - left,
+                theta,
+                phi,
+                ambient_fn(start + (left + right) / 2),
+                tols=tols,
+                t_wrap_seg=t_wrap_seg - left,
+                t_pull_seg=t_pull_seg - left,
+                rest=rest,
+                t_add_seg=t_add_seg - left,
+                t_spritz_seg=t_spritz_seg - left,
+                dt_spritz_seg=dt_spritz_seg,
+                spritz_dose_seg=spritz_dose_seg,
+                t_salt=t_salt,
+                T_load_seg=T_load_seg,
+                t_load_abs=t_load_abs,
+            )
+            samples.extend(np.linspace(left, right, len(trace["tpit"]))[:-1])
+            pieces.append(trace)
+        samples.append(dt)
+        return state, {
+            k: np.interp(
+                grids.tknots,
+                samples,
+                np.concatenate([p[k][:-1] for p in pieces] + [pieces[-1][k][-1:]]),
+            )
+            for k in pieces[0]
+        }
     sim = coupled_cook(
         jnp.asarray(theta),
         jnp.asarray(_with_a0(phi, state.a0)),
@@ -175,8 +263,16 @@ def advance_plant(
         # the brine: t_salt seeds the analytic profile on a FRESH cut;
         # once the state carries a salt field the profile rides the ICs
         t_salt=(t_salt if state.s_field0 is None else 0.0),
+        **_load_args(state, T_load_seg, t_load_abs),
         **tols,
     )
+    t_ld = float(sim["t_load_used"])
+    if state.loaded:
+        t_load_abs = state.t_load
+    elif float(sim["load_reached"]) > 0.5 and t_ld < dt:
+        t_load_abs = state.t + t_ld
+    else:
+        t_load_abs = float("nan")
     new = CookState(
         t=state.t + dt,
         tpit0=float(sim["tpit"][-1]),
@@ -202,6 +298,7 @@ def advance_plant(
         cut_h=state.cut_h,
         leth_f_core=state.leth_f_core,
         cut_h_core=state.cut_h_core,
+        t_load=t_load_abs,
     )
     return new, {
         k: np.asarray(sim[k])
@@ -300,9 +397,11 @@ def executed_objective(out, cc: ControlConfig, t_f: float) -> dict:
     fuel_frac = out.get("fuel_frac", 0.0)
 
     tcore = np.asarray(out["tcore"])
-    safety = safety_penalty(*lethality_cut(tsurf, t, cc), cc) + safety_penalty(
-        *lethality_cut(tcore, t, cc), cc
-    )
+    t_ld = out.get("t_load_exec_abs")
+    t_ld = None if t_ld is None else float(t_ld)
+    safety = safety_penalty(
+        *lethality_cut(tsurf, t, cc, t_load=t_ld), cc
+    ) + safety_penalty(*lethality_cut(tcore, t, cc, t_load=t_ld), cc)
 
     # smoothness over the executed per-segment means (hourly steps)
     u_pit = u[in_pit]
@@ -354,8 +453,17 @@ def plan(
     z_m_init: float | None = None,
     spritz_dose: float = 0.05,
     t_salt: float = 0.0,
+    z_l_init: float | None = None,
+    T_load: float = 0.0,
+    t_load_abs: float | None = None,
+    callback=None,
 ):
     """Re-optimize the remaining-horizon plan from the current state.
+
+    Before the meat is on, the load temperature is a decision (``cc.opt_load``,
+    warm-started at ``z_l_init``; else the fixed ``T_load``) unless a fixed
+    load time ``t_load_abs`` [s from lighting] is given; once on, the
+    executed load time is fixed (negative, relative to now).
 
     The horizon is the remaining time to serve; with ``cc.opt_pull`` the
     pull is optimized inside it (the rest is what follows) and quality is
@@ -370,6 +478,8 @@ def plan(
         t_end=t_remaining, dt_exchange=min(600.0, t_remaining / 4), n_u=n_u
     )
     tx = _CLIENTS
+    if state.loaded or t_load_abs is not None:
+        cc = replace(cc, opt_load=False)
     u_opt, hist = optimize_schedule(
         theta,
         _with_a0(phi, state.a0),
@@ -401,6 +511,9 @@ def plan(
         z_m_init=z_m_init,
         spritz_dose=spritz_dose,
         t_salt=(t_salt if state.s_field0 is None else 0.0),
+        z_l_init=z_l_init,
+        callback=callback,
+        **_load_args(state, T_load, t_load_abs),
     )
     return u_opt, grids, hist
 
@@ -496,13 +609,23 @@ def run_cook(
     dt_spritz_init: float | None = None,
     spritz_dose_init: float | None = None,
     t_salt: float = 0.0,
-    tpit0: float = 293.15,
+    tpit0: float | None = None,
     t0_meat: float = 281.15,
     theta_model=None,
+    T_load_init: float | None = None,
+    t_load_init_abs: float | None = None,
+    a0: float = A_LIGHT,
+    plant_tstops=(),
 ):
     """Simulate a full cook under MPC or open-loop control.
 
-    ``t_f`` is the cook length, start to serve. The meat is pulled at
+    ``t_f`` is the cook length, lighting to serve: the pit is lit at
+    ambient (``tpit0``, default the plant's ambient at t = 0) with ``a0`` of
+    the bed lit (default a chimney start's) and preheats empty; the meat goes on when the
+    plant's pit first reaches the load temperature (``T_load_init``, the
+    incumbent plan's, default the middle of the ControlConfig band; MPC
+    re-optimizes it every replan until the meat is on), or at the fixed
+    ``t_load_init_abs`` [s from lighting] when given. The meat is pulled at
     ``t_pull_init_abs`` (open-loop: verbatim; MPC with cc.opt_pull: the
     incumbent, re-timed every replan and executed under ``wrap_commit``)
     and rests under the ``rest`` preset to serve, where the terminal
@@ -537,9 +660,22 @@ def run_cook(
     """
     cc = cc or ControlConfig()
     phi_model = phi_plant if phi_model is None else phi_model
-    theta_model = theta if theta_model is None else theta_model   # the controller's meat; the plant keeps theta
-    state = CookState.fresh(tpit0=tpit0, t0_meat=t0_meat)
+    theta_model = (
+        theta if theta_model is None else theta_model
+    )  # the controller's meat; the plant keeps theta
+    tpit0 = float(plant_t_amb_fn(0.0)) if tpit0 is None else tpit0
+    state = CookState.fresh(tpit0=tpit0, t0_meat=t0_meat, a0=a0)
     m0_start = state.m0
+    # the load: a decision (a pit temperature) until the plant's pit reaches it, then an executed time
+    T_load_cur = (
+        0.5 * (cc.T_load_min + cc.T_load_max)
+        if T_load_init is None
+        else float(T_load_init)
+    )
+    load_history: list[
+        tuple[float, float, float]
+    ] = []  # (replan t, T_load, planned abs load time)
+    replan_history = []
     traj = {k: [] for k in ("t", "tpit", "tcore", "tsurf", "u")}
     replan_pull = mode == "mpc" and cc.opt_pull
     t_pull_abs: float | None = t_pull_init_abs
@@ -570,15 +706,22 @@ def run_cook(
 
     def record_segment(seg_traj, t_seg_start, dt_seg, u_trace):
         # safety banking with the CONFIGURED constants (hard-coded 60C/6K
-        # here would silently disagree with a customized ControlConfig)
+        # here would silently disagree with a customized ControlConfig);
+        # the clocks start at meat-on
         nseg_t = len(seg_traj["tpit"])
         tseg = np.linspace(0.0, dt_seg, nseg_t)
-        F_s, c_s = lethality_cut(np.asarray(seg_traj["tsurf"]), tseg, cc)
-        F_c, c_c = lethality_cut(np.asarray(seg_traj["tcore"]), tseg, cc)
-        state.leth_f += float(F_s)
-        state.cut_h += float(c_s)
-        state.leth_f_core += float(F_c)
-        state.cut_h_core += float(c_c)
+        if state.loaded:
+            t_ld = state.t_load - t_seg_start
+            F_s, c_s = lethality_cut(
+                np.asarray(seg_traj["tsurf"]), tseg, cc, t_load=t_ld
+            )
+            F_c, c_c = lethality_cut(
+                np.asarray(seg_traj["tcore"]), tseg, cc, t_load=t_ld
+            )
+            state.leth_f += float(F_s)
+            state.cut_h += float(c_s)
+            state.leth_f_core += float(F_c)
+            state.cut_h_core += float(c_c)
         traj["t"].extend((t_seg_start + tseg).tolist())
         for k in ("tpit", "tcore", "tsurf"):
             traj[k].extend(seg_traj[k].tolist())
@@ -675,6 +818,9 @@ def run_cook(
             )
             fm = float(np.clip(fm, 1e-3, 1 - 1e-3))
             zm0 = float(np.log(fm / (1 - fm)))
+            fl = (T_load_cur - cc.T_load_min) / (cc.T_load_max - cc.T_load_min)
+            fl = float(np.clip(fl, 1e-3, 1 - 1e-3))
+            zl0 = float(np.log(fl / (1 - fl)))
             u_plan, plan_grids, hist = plan(
                 theta_model,
                 phi_model,
@@ -706,7 +852,32 @@ def run_cook(
                 z_m_init=zm0,
                 spritz_dose=spritz_dose_cur,
                 t_salt=t_salt,
+                z_l_init=zl0,
+                T_load=T_load_cur,
+                t_load_abs=t_load_init_abs,
+                callback=lambda i, loss, _u, t_h=state.t / HR: log(
+                    f"  replan {t_h:.2f} h, iteration {i}: J={loss:.6f}"
+                ),
             )
+            replan_history.append(
+                {
+                    "t_h": state.t / HR,
+                    "wall_s": hist["wall_s"],
+                    "iterations": hist["n_iter_run"],
+                    "converged": hist["converged"],
+                    "J_start": float(hist["losses"][0]),
+                    "J_best": hist["best_loss"],
+                }
+            )
+            log(
+                f"  replan at {state.t / HR:.2f} h: {hist['n_iter_run']} iterations, "
+                f"{hist['wall_s']:.1f} s, J {float(hist['losses'][0]):.6f} -> {hist['best_loss']:.6f}"
+            )
+            if not state.loaded and t_load_init_abs is None:
+                T_load_cur = float(hist["T_load"])
+                load_history.append(
+                    (state.t, T_load_cur, state.t + float(hist["t_load"]))
+                )
             # each live decision: the planned moment tracks the candidate,
             # execution is gated by wrap_commit (deferral on ridge noise)
             if cc.opt_wrap and not wrapped:
@@ -821,6 +992,10 @@ def run_cook(
             dt_spritz_seg=dt_spritz_cur,
             spritz_dose_seg=spritz_dose_cur,
             t_salt=t_salt,
+            T_load_seg=T_load_cur,
+            t_load_abs=t_load_init_abs,
+            ambient_fn=plant_t_amb_fn,
+            ambient_tstops=plant_tstops,
         )
         if pull_now:
             pulled = True
@@ -850,6 +1025,7 @@ def run_cook(
                 t_spritz=ts_seg,
                 dt_spritz=dt_spritz_cur,
                 spritz_dose=spritz_dose_cur,
+                **_load_args(state_before, T_load_cur, t_load_init_abs),
             )
             innov = float(seg_traj["tpit"][-1]) - float(np.asarray(pred["tpit"])[-1])
             # phi = [C_th, UA, ...]: the lag linearization uses the model's
@@ -881,6 +1057,11 @@ def run_cook(
             f"C={state.c_field0[0]:.3f}  u~{np.mean(u_seg):.2f}  "
             f"T_amb={t_amb - 273.15:.0f} C  "
             f"T_amb_hat={kf.x - 273.15:.1f}±{np.sqrt(kf.p):.1f} C"
+            + (
+                f"  LOADED at {state.t_load / HR:.2f} h (pit {state_after_load_pit(seg_traj, state, t_seg_start, dt_seg) - 273.15:.0f} C)"
+                if state.loaded and state.t_load >= t_seg_start
+                else ("" if state.loaded else "  preheating")
+            )
             + (f"  PULLED at {t_pull_exec_abs / HR:.2f} h -> rest" if pull_now else "")
             + (
                 f"  CHIMNEY at {t_add_exec_abs / HR:.2f} h"
@@ -960,4 +1141,8 @@ def run_cook(
     out["spritz_history"] = spritz_history
     out["spritz_candidates"] = spritz_candidates
     out["t_amb_hat_hist"] = t_amb_hat_hist
+    out["T_load"] = T_load_cur if t_load_init_abs is None else float("nan")
+    out["t_load_exec_abs"] = state.t_load if state.loaded else None
+    out["load_history"] = load_history
+    out["replan_history"] = replan_history
     return out

@@ -586,6 +586,7 @@ function piece_outputs(pc::GridPiece, Ap::AbstractMatrix, θ, A_m, ps::NamedTupl
     wa = bareas ./ mesh.area
     Tsurf = vec(wa' * T[bnodes, :]); Wsurf = vec(wa' * W[bnodes, :])
     s_ts = wrap_blend.(tsave, ev.t_wrap, Ref(cfg)); pl_ts = pull_blend.(tsave, ev.t_pull, Ref(cfg))
+    ld_ts = load_blend.(tsave, get(ev, :t_load, LOAD_AT_START), Ref(cfg))   # nothing crosses before the load
     g_fac = (ps.airflow ./ cfg.g_ref) .^ θ[8]
     h_ts = θ[3] .* g_fac; km_ts = θ[2] .* g_fac
     n_s, n_a, v0 = shrink_exponents(cfg)
@@ -601,7 +602,7 @@ function piece_outputs(pc::GridPiece, Ap::AbstractMatrix, θ, A_m, ps::NamedTupl
             jv += wa[b] * fl.j; jp += wa[b] * fl.j_pit
             qm += bareas[b] * surface_q_pit_blended(ps.Tpit[k], T[n, k], h_ts[k], s_ts[k], pl_ts[k], mats[mat[n]])
         end
-        j_evap[k] = jv; j_pit[k] = jp; q_meat[k] = A_m * cfg.n_meat * a_ts[k] * qm
+        j_evap[k] = ld_ts[k] * jv; j_pit[k] = ld_ts[k] * jp; q_meat[k] = ld_ts[k] * A_m * cfg.n_meat * a_ts[k] * qm
     end
     bark_b = vec(wa' * B); bark_s = vec(wa' * S); ring = vec(wa' * Rg)
     bark_std = [sqrt(max(dot(wa, (B[:, k] .- bark_b[k]) .^ 2), 0.0)) for k in 1:nt]
@@ -614,7 +615,7 @@ function piece_outputs(pc::GridPiece, Ap::AbstractMatrix, θ, A_m, ps::NamedTupl
     dts = diff(collect(float.(tsave)))
     cumtrap(v) = vcat(zero(eltype(v)), cumsum((v[1:(end - 1)] .+ v[2:end]) ./ 2 .* dts))
     evap_w_cum = cumtrap(j_evap .* a_ts .* mesh.area) ./ (RHO_DRY * sum(mesh.vol))
-    jsp = spritz_rate.(tsave, ev.t_spritz, ev.dt_spritz, ev.m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts
+    jsp = spritz_rate.(tsave, ev.t_spritz, ev.dt_spritz, ev.m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts .* ld_ts
     spritz_w_cum = cfg.f_abs .* cumtrap(jsp .* mesh.area) ./ (RHO_DRY * sum(mesh.vol))
     dep_dirty = zeros(promote_type(eltype(Ap), eltype(ps.mdot)), nt)
     for k in 1:nt
@@ -623,6 +624,7 @@ function piece_outputs(pc::GridPiece, Ap::AbstractMatrix, θ, A_m, ps::NamedTupl
                             (1 - ps.smoke_clean[k]) * (1 - s_ts[k]) * (1 - pl_ts[k]) * (1 - S[b, k])
         end
     end
+    dep_dirty .*= ld_ts
     bitterness_cum = cumtrap(dep_dirty)
     evap_w, spritz_w, bitterness = evap_w_cum[end], spritz_w_cum[end], bitterness_cum[end]
     mass = [RHO_DRY * A_m * sum(mesh.vol[n] * ((1 - F0n[n]) + F[n, k] + (1 - cfg.η_drain) * (F0n[n] - F[n, k]) + W[n, k]) for n in 1:N) for k in 1:nt]

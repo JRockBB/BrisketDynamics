@@ -66,6 +66,7 @@ def simulate(args):
     dts = plan.get("dt_spritz_robust_min", plan.get("dt_spritz_plan_min"))
     tp = plan.get("t_pull_robust_h", plan.get("t_pull_plan_h"))
     ta = plan.get("t_add_robust_h", plan.get("t_add_plan_h"))
+    T_load = plan.get("T_load_robust", plan.get("T_load_plan"))
     tsave = np.arange(0.0, t_end + 1, 600.0)
     utk = np.linspace(0.0, t_end, len(u))
     kw = dict(
@@ -97,11 +98,17 @@ def simulate(args):
                 ε_rest=float(rest.get("rest_eps", 0.10)),
                 η_rest=float(rest.get("rest_eta", 0.9)),
             )
+        # the cook from lighting under the planners' conditions; the meat on when this pit reaches the plan's T_load
+        kwj["pit"] = jl.PitConfig(T_amb=300.0, Tpit0=300.0)
+        if T_load:
+            kwj["t_load"] = float(jl.first(jl.preheat_time(float(T_load), api._jvec(phi), api._jvec(u),
+                                                           api._jvec(utk), pit=kwj["pit"], Tpit0=300.0)))
         o = jl.coupled_solve_2d(api._jvec(theta[list(THETA2_IDX)]), api._jvec(phi), api._jvec(u),
                                 api._jvec(utk), api._jvec(tsave), **kwj)
         get = lambda name: np.array(jl.getproperty(o, jl.Symbol(name)), copy=True)
         out = {n: get(n) for n in series}
         out.update({n: float(get(n)) for n in scalars})
+        out["t_load_h"] = kwj["t_load"] / HR if "t_load" in kwj else None
         return out
 
     sim = api._on_julia_thread(_run)
@@ -136,6 +143,13 @@ def fig_plan(sim):
             label="core (axis)")
     ax.plot(th, sim["Tcold"] - 273.15, color="tab:cyan", lw=2, ls="--",
             label="TRUE cold spot (grid min)")
+    if sim.get("t_load_h"):
+        ax.axvline(sim["t_load_h"], color="gray", lw=1, ls="-.")
+        # Before loading, the raw meat is below this label and the warm pit
+        # above it. Keep the text left of the line, clear of the heating trace.
+        ax.annotate("meat on", (sim["t_load_h"], 45.0),
+                    xytext=(-6, 0), textcoords="offset points",
+                    color="gray", fontsize=9, ha="right", va="center", rotation=90)
     if sim["t_wrap_h"]:
         ax.axvline(sim["t_wrap_h"], color="gray", lw=1, ls=":")
         ax.annotate("wrap", (sim["t_wrap_h"], ax.get_ylim()[0] + 5),
@@ -174,7 +188,7 @@ def fig_plan(sim):
     ax.plot(th, 100 * sim["Hz_eff_t"], color="tab:green", lw=2,
             label="thickness")
     ax.set_ylabel("size [cm]")
-    ax.set_xlabel("time [h]")
+    ax.set_xlabel("time from lighting [h]")
     ax.legend(loc="upper right", fontsize=9)
     for a in axes:
         a.grid(alpha=0.25, lw=0.5)

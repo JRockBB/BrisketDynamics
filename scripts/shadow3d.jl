@@ -1,5 +1,6 @@
 # The 3-D shadow of a plan: the planned cook re-simulated on a trimmed brisket flat (`BrisketFlat3D`) in the pit,
-# through the cook system (`system_solve`), to serve. Loaded into a Julia session that has `using BrisketDynamics`
+# through the cook system (`system_solve`), from lighting to serve: the pit preheats empty and the meat goes on when
+# this pit first reaches the plan's load temperature (`preheat_time`, a `CookEvent(:load)`). Loaded into a Julia session that has `using BrisketDynamics`
 # (scripts/run_shadow3d.py, plot_shadow3d.py and render_shadow3d.py include it into the slab2d Tesseract's session).
 #
 # The cut: a flat tapering in thickness and width from its thick (point) end to its thin end, a fat cap on top, the
@@ -13,10 +14,13 @@
 
 """
     shadow3d(θ, φ, u, u_tknots, tsave; nl, nw, nt, dims, shape_labels, shape_dims, shape_h, meat, coarsen, t_wrap,
-             t_pull, t_add, t_spritz, dt_spritz, m_spritz, t_salt, T0, Tpit0, T_amb, m0, rest_t, rest_h, rest_eps, rest_eta)
+             t_pull, t_add, t_spritz, dt_spritz, m_spritz, t_salt, T_load, t_load, T0, Tpit0, T_amb, m0, rest_t, rest_h,
+             rest_eps, rest_eta)
 
 The planned cook to serve on the flat (`dims` its dimensions, `BRISKET_FLAT_TYPICAL`'s fields) or, given
-`shape_labels`, on the reconstructed cut. Events at 1e8 s or later never happen. Returns the piece's outputs
+`shape_labels`, on the reconstructed cut. Events at 1e8 s or later never happen. Time runs from lighting (the pit at
+`Tpit0`): the meat goes on when the empty pit first reaches `T_load` [K] (> 0), else at `t_load` [s] (default in from
+the start); the returned `t_load` is the one used. Returns the piece's outputs
 (`system_outputs(...).piece[:brisket]`), the pit series, the mesh, each node's material (1 lean, 2 fat cap), its
 bone weight, the dimensions (the flat's) and, for a reconstructed cut, each exposed face's outward direction.
 """
@@ -24,7 +28,8 @@ function shadow3d(θ, φ, u, u_tknots, tsave; nl::Int=12, nw::Int=6, nt::Int=8, 
                   shape_labels=nothing, shape_dims=nothing, shape_h::Real=0.002, meat::Symbol=:brisket, coarsen::Int=4,
                   t_wrap::Real=1e9, t_pull::Real=1e9, t_add::Real=1e9,
                   t_spritz::Real=1e9, dt_spritz::Real=3600.0, m_spritz::Real=0.05, t_salt::Real=0.0,
-                  T0::Real=281.15, Tpit0::Real=293.15, T_amb::Real=293.15, m0::Real=7.0,
+                  T_load::Real=0.0, t_load::Real=LOAD_AT_START,
+                  T0::Real=281.15, Tpit0::Real=300.0, T_amb::Real=300.0, m0::Real=7.0,
                   rest_t::Real=293.15, rest_h::Real=1.5, rest_eps::Real=0.10, rest_eta::Real=0.9)
     cfg = MeatConfig(; T0=T0, T_rest=rest_t, h_rest=rest_h, ε_rest=rest_eps, η_rest=rest_eta)
     pit = PitConfig(; T_amb=T_amb, Tpit0=Tpit0, m0=m0)
@@ -49,8 +54,13 @@ function shadow3d(θ, φ, u, u_tknots, tsave; nl::Int=12, nw::Int=6, nt::Int=8, 
     never(t_pull) || push!(ev, CookEvent(:pull, :brisket, t_pull))
     never(t_spritz) || push!(ev, CookEvent(:spritz, :brisket, t_spritz; dt=dt_spritz, m=m_spritz))
     never(t_add) || push!(ev, CookEvent(:add, :pit, t_add))
+    if T_load > 0                                                     # the plan's load temperature → this pit's time
+        t_load = first(preheat_time(T_load, collect(float.(φ)), collect(float.(u)), collect(float.(u_tknots));
+                                    cfg, pit, Tpit0, mfuel0=m0))
+    end
+    t_load > -1e8 && push!(ev, CookEvent(:load, :brisket, t_load))
     o = system_solve(sys, [collect(float.(θ))], [mult], collect(float.(φ)), collect(float.(u)),
                      collect(float.(u_tknots)), collect(float.(tsave)); events=ev, t_salt=float(t_salt))
-    return (; piece=o.piece[:brisket], o.Tpit, o.m_fuel, o.pv_pit, mesh=pc.mesh, mat=pc.mat, bone=pc.bone, geometry=dims,
+    return (; piece=o.piece[:brisket], o.Tpit, o.m_fuel, o.pv_pit, t_load=float(t_load), mesh=pc.mesh, mat=pc.mat, bone=pc.bone, geometry=dims,
             faces=faces === nothing ? Int[] : reduce(vcat, ([d[1] d[2] d[3]] for d in faces)), tris, tri_f)
 end

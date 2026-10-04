@@ -19,4 +19,5 @@ const PIT_φ_GRAD = [15e3, 20.0, 3e-4, 1.2e7, 0.2, 3e-4, 0.85]
     include("test_system.jl")
     include("test_grid3d.jl")
     include("test_voxel3d.jl")
+    include("test_preheat.jl")
 end

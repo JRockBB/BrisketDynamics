@@ -51,12 +51,15 @@ def plot_plan(sim):
     ax.plot(t, sim["Tcore"] - 273.15, color="tab:blue", lw=2, label="the cut's deepest point")
     ax.plot(t, sim["Tcold"] - 273.15, color="tab:cyan", lw=2, ls="--", label="TRUE cold spot (grid min)")
     ax.set_ylabel("temperature [°C]")
-    marks = [("wrap", dec["t_wrap"], ":"), ("pull", dec["t_pull"], "--"), ("fuel add", dec["t_add"], "-.")]
+    marks = [("meat on", sim.get("t_load", -1e9), (0, (5, 2, 1, 2))), ("wrap", dec["t_wrap"], ":"),
+             ("pull", dec["t_pull"], "--"), ("fuel add", dec["t_add"], "-.")]
     for lab, tt, ls in marks:
-        if tt < 1e8 and tt / HR <= t[-1]:
+        if 0.0 <= tt < 1e8 and tt / HR <= t[-1]:
             ax.axvline(tt / HR, color="gray", lw=1, ls=ls)
-            ax.annotate(lab, (tt / HR, ax.get_ylim()[0] + 5), xytext=(-4, 0), textcoords="offset points",
-                        color="gray", fontsize=9, ha="right", rotation=90)
+            label_y = 45.0 if lab == "meat on" else ax.get_ylim()[0] + 5
+            ax.annotate(lab, (tt / HR, label_y), xytext=(-6, 0), textcoords="offset points",
+                        color="gray", fontsize=9, ha="right", rotation=90,
+                        va="center" if lab == "meat on" else "baseline")
     ax.legend(loc="upper left", fontsize=9)
     ax.grid(alpha=0.3)
     serve_n = int(np.argmin(np.asarray(sim["T_field"])[:, -1]))
@@ -87,7 +90,7 @@ def plot_plan(sim):
     ax = axes[3]
     ax.plot(t, sim["mass"], color="tab:olive", lw=2)
     ax.set_ylabel("mass [kg]")
-    ax.set_xlabel("time [h]")
+    ax.set_xlabel("time from lighting [h]")
     ax.grid(alpha=0.3)
     fig.tight_layout()
     fig.savefig(OUT / "shadow3d_plan.png", dpi=140)

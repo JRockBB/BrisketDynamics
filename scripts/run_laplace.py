@@ -7,7 +7,10 @@ curvature Jᵀ Σ⁻¹ J + prior (the solve's second derivatives dropped), the
 noise block and the physics × noise cross block are exact, and numpyro
 applies the constrained→unconstrained chain rule. No finite differences.
 Draws are transformed back to the constrained space and written like the
-ADVI output, so every downstream consumer reads them unchanged.
+ADVI output, so every downstream consumer reads them unchanged. The latents
+are the log's (`monolith.names_for`): the real cook is modelled from lighting,
+k_spread and the preheat damper u_pre sampled, a0 fixed at the chimney
+start's A_LIGHT and written into the samples as a constant.
 
 Run from app/:  uv run python -u ../scripts/run_laplace.py
 Writes data/calibration/laplace_samples_real.npz, laplace_mean_real.json,
@@ -28,10 +31,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 import jax
 import jax.numpy as jnp
 from brisket_app import calibrate, cooklog
-from brisket_app.calibrate import phi_full
 from brisket_app.clients import monolith_client
-from brisket_app.coupled import CookGrids
-from brisket_app.monolith import ALL_NAMES_SORTED, N_THETA, NAMES, model_mean
+from brisket_app.coupled import A_LIGHT, HR, CookGrids
+from brisket_app.monolith import NOISE_NAMES, from_lighting, model_mean, names_for
 from brisket_app.plots import corner_plot, posterior_predictive_plot
 from jax.flatten_util import ravel_pytree
 from numpyro.distributions import biject_to
@@ -42,14 +44,14 @@ REPO = Path(__file__).resolve().parents[1]
 NEWTON_CLIP = 0.3  # max |dz| per coordinate in unconstrained space
 
 
-def _hessian_of(model, init, seed):
+def _hessian_of(model, init, seed, all_names):
     """(z0, names, unravel, inverse transforms, H, grad) of a model's potential at `init`."""
     mi = initialize_model(
         jax.random.PRNGKey(seed), model, init_strategy=init_to_value(values=init)
     )
     z0, unravel = ravel_pytree(mi.param_info.z)
     names = sorted(mi.param_info.z.keys())
-    assert names == ALL_NAMES_SORTED
+    assert names == all_names
     inv_transforms = {
         k: biject_to(site["fn"].support)
         for k, site in mi.model_trace.items()
@@ -80,7 +82,11 @@ def main():
         for k, v in json.loads((cal / args.init_json).read_text()).items()
         if not k.startswith("_")
     }
-    x0 = np.concatenate([[init[k] for k in NAMES[:N_THETA]], phi_full(init)])
+    NAMES = names_for(log)
+    ALL_NAMES_SORTED = sorted(NAMES + NOISE_NAMES)
+    lit = from_lighting(log)
+    init = {k: v for k, v in init.items() if k in ALL_NAMES_SORTED}   # a0 is fixed from lighting, not a site
+    x0 = np.array([init[k] for k in NAMES])
 
     t0 = time.perf_counter()
     mu0, J = model_mean(x0, log)
@@ -91,7 +97,7 @@ def main():
     )
     surrogate = calibrate.bound_model_real_linear(log, mu0, J, x0)
     z0, names, _unravel, inv_transforms, pot, H, g0 = _hessian_of(
-        surrogate, init, args.seed
+        surrogate, init, args.seed, ALL_NAMES_SORTED
     )
     p0 = float(pot(jnp.asarray(z0)))
     n = z0.size
@@ -126,6 +132,8 @@ def main():
         stacked[k] = np.asarray(inv_transforms[k](jnp.asarray(Z[:, j]))).reshape(
             args.draws
         )
+    if lit:
+        stacked["a0"] = np.full(args.draws, A_LIGHT)  # the phi layout's lit fraction: a cook from lighting
     out = cal / "laplace_samples_real.npz"
     np.savez(out, **stacked)
     mean = {k: float(np.mean(v)) for k, v in stacked.items()}
@@ -135,6 +143,17 @@ def main():
     sd = {k: float(np.std(v)) for k, v in stacked.items()}
     print(f"wrote {out.name} ({args.draws} draws), laplace_mean_real.json")
     print("posterior sd / mean:", {k: round(sd[k] / abs(mean[k]), 3) for k in names})
+
+    corner_names = NAMES + [k for k, _ in calibrate.RHO_SITES]
+    corner_plot(
+        stacked, REPO / "figures" / "calibration" / "corner_laplace_real.png", names=corner_names
+    )
+    if lit:
+        _predictive_from_lighting(stacked, NAMES, log, REPO / "figures" / "calibration"
+                                  / "posterior_predictive_laplace_real.png", seed=args.seed)
+        print("wrote figures/calibration/corner_laplace_real.png, "
+              "figures/calibration/posterior_predictive_laplace_real.png")
+        return
 
     grids = CookGrids(
         t_end=float(log["t"][-1]),
@@ -151,15 +170,6 @@ def main():
         "t_amb": 300.0,
         "t0_meat": log["meta"]["tcore0_K"],
     }
-    corner_names = (
-        [k for k, _ in calibrate.THETA_SITES]
-        + [k for k, _ in calibrate.PHI_SITES]
-        + [k for k, _ in calibrate.PHI_SITES_IGNITION]
-        + [k for k, _ in calibrate.RHO_SITES]
-    )
-    corner_plot(
-        stacked, REPO / "figures" / "calibration" / "corner_laplace_real.png", names=corner_names
-    )
     posterior_predictive_plot(
         stacked,
         pp_data,
@@ -172,6 +182,42 @@ def main():
     print(
         "wrote figures/calibration/corner_laplace_real.png, figures/calibration/posterior_predictive_laplace_real.png"
     )
+
+
+def _predictive_from_lighting(stacked, names, log, path, n_draws=30, seed=0):
+    """The posterior-predictive band of the cook from lighting (the preheat included) over the log."""
+    from brisket_app.monolith import preheat_trace
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    rng = np.random.default_rng(seed)
+    n_total = len(stacked[names[0]])
+    idx = rng.choice(n_total, size=min(n_draws, n_total), replace=False)
+    runs = [preheat_trace(np.array([float(stacked[k][i]) for k in names]), log) for i in idx]
+    t_pre = runs[0]["t_load"]
+    th = runs[0]["t"] / HR
+    to = (np.asarray(log["t"]) - log["t"][0] + t_pre) / HR
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharex=True)
+    for ax, key, obs, mk in [
+        (axes[0], "tpit", log["obs_pit"], log["mask_pit"]),
+        (axes[1], "tcore", log["obs_core"], log["mask_core"]),
+    ]:
+        Y = np.stack([r[key] for r in runs]) - 273.15
+        lo, med, hi = np.percentile(Y, [5, 50, 95], axis=0)
+        ax.fill_between(th, lo, hi, color="tab:orange", alpha=0.3, label="posterior 90% band")
+        ax.plot(th, med, color="tab:orange", lw=1.5, label="posterior median")
+        ax.plot(to[mk], np.asarray(obs)[mk] - 273.15, ".", ms=2.5, color="k", alpha=0.5, label="observed")
+        ax.axvline(t_pre / HR, color="0.5", lw=1.0, ls="-.")
+        ax.set(xlabel="time from lighting [h]", ylabel="temperature [C]",
+               title=("pit" if key == "tpit" else "core") + " (meat on at the dash-dot line)")
+        ax.legend(fontsize=8)
+    fig.suptitle("Real cook from lighting - Laplace posterior predictive")
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
 
 
 if __name__ == "__main__":

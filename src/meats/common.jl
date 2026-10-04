@@ -108,6 +108,7 @@ Base.@kwdef struct MeatConfig
     # η 0); warming cabinet ≈ (T 335 K, h 5, ε 0.85, η 0.9). Literature-fixed:
     # the cook log ends at the pull, so nothing here is calibrated.
     δ_pull::Float64 = 300.0     # pull blend width [s] (pull + wrap for the hold)
+    δ_load::Float64 = 120.0     # load blend width [s] (the meat goes on over a couple of minutes)
     T_rest::Float64 = 293.15    # rest environment temperature [K]
     h_rest::Float64 = 1.5       # effective convective coefficient at rest [W m⁻² K⁻¹]
     ε_rest::Float64 = 0.10      # effective emissivity at rest (foil)
@@ -219,6 +220,11 @@ const WRAP_NEVER = 1.0e9
 const PULL_NEVER = 1.0e9
 # Default spritz start: beyond any horizon (no spritz).
 const SPRITZ_NEVER = 1.0e9
+# Default load time: long before the start, so the meat is in the pit from t = 0 (the blend is exactly 1 there).
+const LOAD_AT_START = -1.0e9
+# The longest a preheat waits for the empty pit to reach the load temperature [s]: a pitmaster waits for a slow pit
+# (the cost is the cook time it eats), only a fire that is effectively dead misses
+const PREHEAT_MAX = 6 * 3600.0
 
 """
     spritz_pulse_time(t, t_spritz, dt_spritz)
@@ -373,6 +379,15 @@ Smooth pull switch: 0 in the pit, → 1 resting after `t_pull` over width
 pull_blend(t, t_pull, cfg::MeatConfig) = logistic((t - t_pull) / cfg.δ_pull)
 
 """
+    load_blend(t, t_load, cfg)
+
+The meat in the pit: 0 before it is loaded (the pit preheats empty; the meat holds its raw state, draws no heat,
+takes no smoke), 1 after, a logistic of width `δ_load` centred at `t_load` [s after lighting]. `LOAD_AT_START`
+(the default) is exactly 1 from t = 0. The mirror of [`pull_blend`](@ref).
+"""
+load_blend(t, t_load, cfg::MeatConfig) = logistic((t - t_load) / cfg.δ_load)
+
+"""
     surface_heat_rest(Ts::Number, cfg::MeatConfig)
 
 Surface heat flux density into the meat from the REST environment
@@ -467,7 +482,8 @@ state it closes with the raw density (1060 kg/m³) and `RHO_DRY` to ~1 %.
 - `v::Number`: Specific volume [m³ per kg dry matter].
 """
 function specific_volume(W, F, cfg::MeatConfig)
-    fat = F + (1 - cfg.η_drain) * (cfg.F0 - F)
+    Fp = max(F, zero(F))                     # like the water: a solver iterate below zero is not a negative volume
+    fat = Fp + (1 - cfg.η_drain) * (cfg.F0 - Fp)
     return (1 - cfg.F0) / cfg.ρ_sol + fat / cfg.ρ_fat + max(W, zero(W)) / cfg.ρ_water
 end
 

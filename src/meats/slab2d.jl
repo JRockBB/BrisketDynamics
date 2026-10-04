@@ -586,6 +586,9 @@ exchanging the area-integrated surface heat uptake and evaporation of
 lagged. Wrap, pull, salt and spritz are carried; after `t_pull` the
 meat's heat and vapor exchange go to zero through the pull blend and
 the pit runs on alone while the meat rests to the horizon (serve).
+Time runs from lighting: before `t_load` the pit preheats empty (the meat
+is not stepped and holds its raw state), and the lid lifts while the meat
+goes on; `LOAD_AT_START` (the default) has it in from t = 0.
 The burn rate is the meat's smoke forcing (deposition and the ring on
 every face) and the burn cleanliness scores its dirty share.
 
@@ -629,6 +632,7 @@ function coupled_solve_2d(
     m_spritz::Real=NaN,
     t_add::Real=ADD_NEVER,
     dt_add::Real=NaN,
+    t_load::Real=LOAD_AT_START,
 )
     length(φ) == PIT_NP ||
         throw(ArgumentError("φ must have length $PIT_NP; got $(length(φ))"))
@@ -650,7 +654,7 @@ function coupled_solve_2d(
     nsv = length(tsave)
     # the lid as ONE physical opening (the monolith's gate): the fuel
     # addition, and each spritz pulse while unwrapped and in the pit
-    lid_at(t) = max(lid_open(t, t_add, pit.τ_open_add),
+    lid_at(t) = max(lid_open(t, t_add, pit.τ_open_add), lid_open(t, t_load, pit.τ_open_load),
                     lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz),
                              pit.τ_open_spritz) *
                     (1 - wrap_blend(t, t_wrap, cfg)) * (1 - pull_blend(t, t_pull, cfg)))
@@ -705,7 +709,13 @@ function coupled_solve_2d(
         airflow_steps[n] = airflow
         # the burn is the meat's smoke; its cleanliness scores the dirty share
         clean = burn_cleanliness(airflow, a, m, pit)
-        q_meat, j_meat = eng.step!(t_now, Tp, pv, ṁ, clean, airflow)
+        # the meat is stepped from its load on: before it the pit preheats empty and the meat holds its raw state
+        # (a step boundary, so the 2-D path takes t_load as data, not as a differentiable input)
+        if t_now + h / 2 >= _primal(t_load)
+            q_meat, j_meat = eng.step!(t_now, Tp, pv, ṁ, clean, airflow)
+        else
+            q_meat, j_meat = zero(Tv), zero(Tv)
+        end
         ṁ_add = fuel_add_rate(t_now, t_add, dta, pit)
         lid = lid_at(t_now)
         q_lid = pit.UA_open * (Tp - pit.T_amb) * lid

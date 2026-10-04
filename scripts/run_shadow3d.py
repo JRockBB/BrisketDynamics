@@ -25,8 +25,9 @@ from brisket_app.control import ControlConfig, lethality_cut
 def report(sim, cc):
     t = sim["t"]
     tcold, tcore = sim["Tcold"], sim["Tcore"]
-    F_cold, cut_cold = lethality_cut(tcold, t, cc)
-    F_core, cut_core = lethality_cut(tcore, t, cc)
+    t_on = sim["t_load"] if sim["t_load"] > -1e8 else None             # the clocks from meat-on
+    F_cold, cut_cold = lethality_cut(tcold, t, cc, t_load=t_on)
+    F_core, cut_core = lethality_cut(tcore, t, cc, t_load=t_on)
     binding = bool(cc.cut_critical)
     cold = int(np.argmin(np.asarray(sim["T_field"])[:, -1]))
     sc, yc, zc = (100.0 * float(v) for v in np.asarray(sim["coords"])[cold])
@@ -34,6 +35,8 @@ def report(sim, cc):
         "F_cold": float(F_cold), "cut_h_cold": float(cut_cold),
         "F_core": float(F_core), "cut_h_core": float(cut_core), "cut_critical": binding,
         "cold_ok": bool(F_cold >= cc.leth_f_req and (cut_cold <= cc.cut_cap_h or not binding)),
+        "t_load_h": t_on / HR if t_on is not None else None,
+        "T_load": sim["decisions"]["T_load"] or None,
         "t_pull_h": sim["decisions"]["t_pull"] / HR if sim["decisions"]["t_pull"] < 1e8 else None,
         "t_add_h": sim["decisions"]["t_add"] / HR if sim["decisions"]["t_add"] < 1e8 else None,
         "tcold_final_C": float(tcold[-1] - 273.15), "tcold_peak_C": float(np.max(tcold) - 273.15),
@@ -83,9 +86,11 @@ def main() -> None:
 
     cc = ControlConfig()
     shape = load_shape(args.shape) if args.shape else None
+    print(f"simulating {args.shape or 'trimmed flat'} on the report grid ...", flush=True)
     sim = simulate(args.plan, args.nl, args.nw, args.nt, t_salt_s=args.t_salt_h * HR, shape=shape, coarsen=args.coarsen)
     rep = report(sim, cc)
     if not args.no_check:
+        print("report-grid solve complete; checking the coarser grid ...", flush=True)
         cl, cw, ct = max(args.nl * 2 // 3, 3), max(args.nw * 2 // 3, 3), max(args.nt * 2 // 3, 3)
         coarse = report(simulate(args.plan, cl, cw, ct, t_salt_s=args.t_salt_h * HR, shape=shape,
                                  coarsen=(args.coarsen * 3 + 1) // 2), cc)

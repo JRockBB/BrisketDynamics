@@ -125,8 +125,11 @@ def _init():
         # duration mode), 0 = off -> Inf]. The disabled sentinels give exactly-zero derivative
         # columns through the smooth blends -- no special casing.
         _dta_jl(dt_add) = dt_add > 0 ? float(dt_add) : Inf
+        # the load: T_load > 0 [K] sets it through the preheat (the empty pit reaching it), else t_load [s from
+        # lighting; a fraction of t_f in duration mode; <= -1e8 in from the start]
+        _Tl_jl(T_load) = T_load > 0 ? float(T_load) : NaN
         function _mono_apply(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                             dt_spritz, m_spritz, t_f, t_salt, dt_add,
+                             dt_spritz, m_spritz, t_f, t_salt, dt_add, t_load, T_load,
                              kwargs...)
             kw = _mono_kw(kwargs...)
             o = t_f > 0 ?
@@ -134,21 +137,23 @@ def _init():
                                   frac_pull=t_pull, frac_add=t_add,
                                   frac_spritz=t_spritz, frac_dt_spritz=dt_spritz,
                                   m_spritz, t_salt=float(t_salt),
-                                  frac_dt_add=_dta_jl(dt_add), kw...) :
+                                  frac_dt_add=_dta_jl(dt_add), frac_load=t_load,
+                                  T_load=_Tl_jl(T_load), kw...) :
                 monolith_solve(θ, φ, u, utk, tsave; t_wrap, t_pull, t_add, t_spritz,
                                dt_spritz, m_spritz, t_salt=float(t_salt),
-                               dt_add=_dta_jl(dt_add), kw...)
+                               dt_add=_dta_jl(dt_add), t_load, T_load=_Tl_jl(T_load), kw...)
             return (o.Tpit, o.Tcore, o.Tsurf, o.m_fuel, o.ignited, o.mdot, o.j_evap,
                     o.q_meat, o.C_field_final, o.w_retained, o.bark_b, o.bark_s,
                     o.l_star, o.juiciness, o.fat_rendered, o.l_thick, o.pv_pit,
                     o.pv_base, o.evap_w, o.drip_w, o.drip_f, o.T_field[:, end],
                     o.W_field[:, end], o.F_field[:, end], o.ring[end], o.spritz_w,
-                    o.salt_field[:, end], o.m_pan, o.T_pan, o.T_firebox)
+                    o.salt_field[:, end], o.m_pan, o.T_pan, o.T_firebox, o.t_load,
+                    o.load_reached ? 1.0 : 0.0, o.load_shortfall)
         end
         # python column layout (1-based): 1..b core, b+1..b+6 event tail,
-        # b+7 t_f, b+8 t_salt, b+9 dt_add
+        # b+7 t_f, b+8 t_salt, b+9 dt_add, b+10 t_load, b+11 T_load
         function _mono_jac(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                           dt_spritz, m_spritz, t_f, t_salt, dt_add, sel,
+                           dt_spritz, m_spritz, t_f, t_salt, dt_add, t_load, T_load, sel,
                            kwargs...)
             kw = _mono_kw(kwargs...)
             b = 15 + length(u)
@@ -161,7 +166,8 @@ def _init():
                                                   t_pull, t_add, t_spritz, dt_spritz,
                                                   m_spritz, sel2;
                                                   t_salt=float(t_salt),
-                                                  frac_dt_add=_dta_jl(dt_add), kw...)
+                                                  frac_dt_add=_dta_jl(dt_add), frac_load=t_load,
+                                                  T_load=_Tl_jl(T_load), kw...)
             end
             # seconds-mode stack: [1..b; tail6; t_salt; dt_add] -- only
             # a requested t_f column has no slot (identically zero)
@@ -170,7 +176,7 @@ def _init():
                                         t_spritz, dt_spritz, m_spritz,
                                         [i <= b + 6 ? i : i - 1 for i in keep];
                                         t_salt=float(t_salt),
-                                        dt_add=_dta_jl(dt_add), kw...)
+                                        dt_add=_dta_jl(dt_add), t_load, T_load=_Tl_jl(T_load), kw...)
             length(keep) == length(sel) && return J
             Jf = zeros(size(J, 1), length(sel))
             j = 1
@@ -183,24 +189,26 @@ def _init():
             return Jf
         end
         function _mono_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz,
-                           dt_spritz, m_spritz, t_f, t_salt, dt_add, dv,
+                           dt_spritz, m_spritz, t_f, t_salt, dt_add, t_load, T_load, dv,
                            kwargs...)
             kw = _mono_kw(kwargs...)
             b = 15 + length(u)
             dv = collect(Float64, dv)
+            length(dv) < b + 11 && (dv = vcat(dv, zeros(b + 11 - length(dv))))
             if t_f > 0
                 dv2 = vcat(dv[1:b], dv[b + 7], dv[(b + 1):(b + 6)],
-                           dv[(b + 8):(b + 9)])
+                           dv[(b + 8):(b + 11)])
                 return monolith_stack_jvp_tf(θ, φ, u, t_f, utk, tsave, t_wrap, t_pull,
                                              t_add, t_spritz, dt_spritz, m_spritz,
                                              dv2; t_salt=float(t_salt),
-                                             frac_dt_add=_dta_jl(dt_add), kw...)
+                                             frac_dt_add=_dta_jl(dt_add), frac_load=t_load,
+                                             T_load=_Tl_jl(T_load), kw...)
             end
             return monolith_stack_jvp(θ, φ, u, utk, tsave, t_wrap, t_pull, t_add,
                                       t_spritz, dt_spritz, m_spritz,
-                                      vcat(dv[1:(b + 6)], dv[(b + 8):(b + 9)]);
+                                      vcat(dv[1:(b + 6)], dv[(b + 8):(b + 11)]);
                                       t_salt=float(t_salt),
-                                      dt_add=_dta_jl(dt_add), kw...)
+                                      dt_add=_dta_jl(dt_add), t_load, T_load=_Tl_jl(T_load), kw...)
         end
         """
     )
@@ -227,7 +235,7 @@ STACK_SERIES = (
     "l_thick",
 )
 STACK_FIELDS = ("c_field_final",)
-STACK_SCALARS = ("w_retained", "juiciness", "fat_rendered")
+STACK_SCALARS = ("w_retained", "juiciness", "fat_rendered", "load_shortfall")
 DIFF_INPUTS = (
     "theta",
     "phi",
@@ -241,6 +249,8 @@ DIFF_INPUTS = (
     "t_f",
     "t_salt",
     "dt_add",
+    "t_load",
+    "T_load",
 )
 
 
@@ -309,6 +319,16 @@ class InputSchema(BaseModel):
         description="Wood-split interval [s]: a finite value turns t_add into a "
         "pulse train (one split of m_chimney every dt_add); a FRACTION of "
         "t_f in duration mode; 0 = single addition.",
+    )
+    t_load: Differentiable[Array[(), Float64]] = Field(
+        default=-1.0e9,
+        description="When the meat goes on [s after lighting; a FRACTION of t_f in duration mode]: before it the pit "
+        "preheats empty and the meat holds its raw state; <= -1e8 = in from the start. Ignored when T_load > 0",
+    )
+    T_load: Differentiable[Array[(), Float64]] = Field(
+        default=0.0,
+        description="The pit temperature the meat goes in at [K]: when > 0 the load is when the empty pit first "
+        "reaches it (the preheat, differentiable); 0 = use t_load",
     )
     n_meat: float = Field(default=1.0, description="Identical briskets sharing the pit")
     abstol: float = Field(default=1e-6, description="Solver absolute tolerance")
@@ -455,6 +475,16 @@ class OutputSchema(BaseModel):
     t_firebox: Array[(None,), Float64] = Field(
         description="Firebox temperature [K] (handoff)"
     )
+    t_load_used: Array[(), Float64] = Field(
+        description="When the meat went on [s after lighting]: t_load, or the preheat's time to T_load"
+    )
+    load_shortfall: Differentiable[Array[(), Float64]] = Field(
+        description="How far short of T_load the empty pit stayed at the preheat's cap [K] (0 when reached or "
+        "T_load unused); differentiable, the planner's miss penalty"
+    )
+    load_reached: Array[(), Float64] = Field(
+        description="1 when the empty pit reached T_load within 6 h (PREHEAT_MAX) (the load then the preheat's), else 0"
+    )
 
 
 SOFT_FAIL = os.environ.get("BRISKET_SOFT_FAIL", "0") == "1"
@@ -517,6 +547,8 @@ def _packed(inputs: InputSchema):
         float(np.asarray(inputs.t_f)),
         float(np.asarray(inputs.t_salt)),
         float(np.asarray(inputs.dt_add)),
+        float(np.asarray(inputs.t_load)),
+        float(np.asarray(inputs.T_load)),
     )
     tail = (
         float(inputs.abstol),
@@ -555,7 +587,7 @@ def _packed(inputs: InputSchema):
 
 def _jl_args(head, tail):
     (theta, phi, u, utk, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz, m_sp,
-     t_f, t_salt, dt_add) = head
+     t_f, t_salt, dt_add, t_load, T_load) = head
     jt = [_jvec(v) if isinstance(v, np.ndarray) else v for v in tail]
     return [
         _jvec(theta),
@@ -572,6 +604,8 @@ def _jl_args(head, tail):
         t_f,
         t_salt,
         dt_add,
+        t_load,
+        T_load,
     ], jt
 
 
@@ -599,6 +633,8 @@ def _input_slices(nu: int) -> dict[str, slice]:
         "t_f": slice(b + 6, b + 7),
         "t_salt": slice(b + 7, b + 8),
         "dt_add": slice(b + 8, b + 9),
+        "t_load": slice(b + 9, b + 10),
+        "T_load": slice(b + 10, b + 11),
     }
 
 
@@ -649,6 +685,9 @@ def apply(inputs: InputSchema) -> OutputSchema:
             z,
             np.full(nt, _SENTINEL_T),
             np.full(nt, _SENTINEL_T),
+            0.0,
+            0.0,
+            0.0,
         ]
     keys = (
         "tpit",
@@ -681,6 +720,9 @@ def apply(inputs: InputSchema) -> OutputSchema:
         "m_pan",
         "t_pan",
         "t_firebox",
+        "t_load_used",
+        "load_reached",
+        "load_shortfall",
     )
     return OutputSchema(**dict(zip(keys, vals, strict=True)))
 
@@ -704,6 +746,8 @@ def abstract_eval(abstract_inputs):
     out["ring"] = sc
     out["spritz_w"] = sc
     out.update({k: vec(nt) for k in ("m_pan", "t_pan", "t_firebox")})
+    out["t_load_used"] = sc
+    out["load_reached"] = sc
     return out
 
 
@@ -792,7 +836,7 @@ def jacobian_vector_product(
     """J·tangent over the requested inputs (one Dual solve)."""
     nu = len(inputs.u_knots)
     sl = _input_slices(nu)
-    dv = np.zeros(N_THETA + N_PHI + nu + 9)
+    dv = np.zeros(N_THETA + N_PHI + nu + 11)
     for n in DIFF_INPUTS:
         if n in jvp_inputs and n in tangent_vector:
             dv[sl[n]] = np.atleast_1d(_own(tangent_vector[n])).reshape(-1)

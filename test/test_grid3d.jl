@@ -210,7 +210,9 @@ end
     brick = Brick3D(:f; Lx=L, Ly=0.1, Lz=0.04, nx=8, ny=4, nz=5, exposed=(true, true, false, true, true, true))
     of = system_solve(CookSystem(flat; pit=G_PIT), [G_θ], [2.0], G_φ, u, utk, ts; abstol=1e-9, reltol=1e-9)
     ob = system_solve(CookSystem(brick; pit=G_PIT), [G_θ], [2.0], G_φ, u, utk, ts; abstol=1e-9, reltol=1e-9)
-    @test maximum(abs.(of.piece[:f].T_field .- ob.piece[:f].T_field)) < 1e-6 && maximum(abs.(of.piece[:f].mass .- ob.piece[:f].mass)) < 1e-9
+    # two mesh code paths: 2e-10 K / 3e-13 kg plain, 9e-7 K / 5e-9 kg under Pkg.test's --check-bounds=yes (the
+    # summation order changes, the adaptive stepper at 1e-9 follows); the equality is the solver's, not the bits'
+    @test maximum(abs.(of.piece[:f].T_field .- ob.piece[:f].T_field)) < 5e-6 && maximum(abs.(of.piece[:f].mass .- ob.piece[:f].mass)) < 5e-8
     # the fat cap: its own material on the top layer, insulating and rendering
     pc = BrisketFlat3D(:f)
     @test 0 < count(==(2), pc.mat) < pc.mesh.N && all(pc.mat[n] == 2 for (n, _) in pc.mesh.boundary[1:2:(2 * 12 * 6)])   # the top's nodes

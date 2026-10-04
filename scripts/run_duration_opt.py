@@ -1,7 +1,7 @@
 """Differentiable duration: the cook length as a gradient decision.
 
 The roadmap's s = t/t_f item: instead of the outer scan over cook lengths
-(13 inner optimizations, ~95 min), optimize (t_f, wrap fraction, pull
+(13 inner optimizations), optimize (t_f, wrap fraction, pull
 fraction, damper schedule) JOINTLY by gradient — d(quality at serve)/d(t_f)
 flows through the monolith's fractional-time mode, horizon-stretching terms
 included. Warm-started from the scan optimum by default (--cold starts at
@@ -36,7 +36,8 @@ from brisket_app.coupled import HR
 REPO = Path(__file__).resolve().parents[1]
 HOURS = HR
 # the same cook conditions fullplan plans under (run_fullplan.py ICS)
-ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
+# the cook from lighting: the pit at ambient, the meat from the fridge (on at the plan's load)
+ICS = {"tpit0": 300.0, "t_amb": 300.0, "t0_meat": 281.15}
 
 
 def _logit(f: float) -> float:
@@ -82,6 +83,7 @@ def main():
         fw0 = seed["best_t_wrap_h"] / seed["best_t_f_h"]
         fp0 = seed["best_t_pull_h"] / seed["best_t_f_h"]
         u_seed = np.asarray(seed["best_u"], dtype=float)
+        T_load0 = float(seed.get("best_T_load") or 0.5 * (cc.T_load_min + cc.T_load_max))
         s_seed = np.linspace(0.0, 1.0, len(u_seed))
         u0 = np.clip(np.interp(s_u, s_seed, u_seed), 1e-3, 1 - 1e-3)
         print(
@@ -91,6 +93,7 @@ def main():
         )
     else:
         t_f0, fw0, fp0 = 12.0 * HOURS, 0.6, 0.75
+        T_load0 = 0.5 * (cc.T_load_min + cc.T_load_max)
         u0 = np.full(args.n_u, 0.5)
         print("cold start: t_f=12 h, wrap 0.6, pull 0.75, u=0.5", flush=True)
     z_tf0 = _logit((t_f0 - t_lo) / (t_hi - t_lo))
@@ -99,12 +102,13 @@ def main():
         "z_w": jnp.asarray(_logit(fw0)),
         "z_p": jnp.asarray(_logit(fp0)),
         "z_tf": jnp.asarray(z_tf0),
+        "z_l": jnp.asarray(_logit((T_load0 - cc.T_load_min) / (cc.T_load_max - cc.T_load_min))),
     }
 
     def loss(p):
         return objective_tf(
             p["z"], p["z_w"], p["z_p"], p["z_tf"], theta, phi, tx, s_u, s_save, cc,
-            tols, t_lo, t_hi, ics=ICS,
+            tols, t_lo, t_hi, ics=ICS, z_l=p["z_l"],
         )
 
     vg = jax.value_and_grad(loss)
@@ -143,6 +147,7 @@ def main():
     fw = float(jax.nn.sigmoid(p["z_w"]))
     fp = float(jax.nn.sigmoid(p["z_p"]))
     u = np.asarray(jax.nn.sigmoid(p["z"]))
+    T_load = float(cc.T_load_min + (cc.T_load_max - cc.T_load_min) * jax.nn.sigmoid(p["z_l"]))
     wall = time.perf_counter() - t0
     print(
         f"joint optimum: J={best['J']:.4f}  cook {t_f / HOURS:.2f} h  "
@@ -174,6 +179,7 @@ def main():
         "t_pull_h": fp * t_f / HOURS,
         "frac_wrap": fw,
         "frac_pull": fp,
+        "T_load": T_load,
         "u": u.tolist(),
         "s_u": s_u.tolist(),
         "n_iter": len(hist),
@@ -187,6 +193,17 @@ def main():
     }
     (ctl / "duration_opt.json").write_text(json.dumps(out, indent=2))
     print("wrote data/control/duration_opt.json")
+    # the joint optimum in the plan layout run_robust_control reads (its --plan)
+    plan = {
+        "_source": "duration_opt.json adapted for run_robust_control",
+        "best_t_f_h": out["t_f_h"],
+        "best_t_wrap_h": out["t_wrap_h"],
+        "best_t_pull_h": out["t_pull_h"],
+        "best_u": out["u"],
+        "best_T_load": out["T_load"],
+    }
+    (ctl / "duration_opt_plan.json").write_text(json.dumps(plan, indent=2))
+    print("wrote data/control/duration_opt_plan.json")
     _figure(out, REPO)
 
 
@@ -206,7 +223,7 @@ def _figure(out: dict, repo: Path):
             color="0.6",
             ms=4,
             lw=1.2,
-            label="outer scan (13 inner optimizations, ~95 min)",
+            label=f"outer scan ({len(out['scan']['durations_h'])} inner optimizations)",
         )
     th = [h["t_f_h"] for h in out["history"]]
     js = [h["J"] for h in out["history"]]
@@ -238,7 +255,7 @@ def _figure(out: dict, repo: Path):
         label=f"joint gradient optimum ({out['wall_s'] / 60:.0f} min)",
     )
     ax.set(
-        xlabel="cook length, start to serve [h]",
+        xlabel="cook length, lighting to serve [h]",
         ylabel="quality objective J",
         title="Duration as a differentiable decision (s = t/t$_f$)",
     )

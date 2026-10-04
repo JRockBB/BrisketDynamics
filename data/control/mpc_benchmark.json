@@ -1,0 +1,152 @@
+{
+  "baseline_commit": "3ce6f6f",
+  "julia": "1.11.9",
+  "python": "3.12.10",
+  "protocol": "scripts/bench_mpc.py; fixed map_real parameters with a0=0.15, same normalized fullplan schedule, 1e-6 ODE tolerances; first call reported separately, median of three warm calls. off means meat loaded at start; on means load temperature is a decision. after is the intermediate six-state BDF version; final uses six-state Tsit5. Physics gradients omitted only in after/final.",
+  "results": [
+    {
+      "source": "previous_commit",
+      "case": "11:15:off",
+      "first_call_s": 52.65688050002791,
+      "warm_calls_s": [
+        3.446032900013961,
+        3.3320758000481874,
+        3.0556531000183895
+      ],
+      "warm_median_s": 3.3320758000481874,
+      "objective": 18.494567485767536
+    },
+    {
+      "source": "previous_commit",
+      "case": "16:21:off",
+      "first_call_s": 31.171374600031413,
+      "warm_calls_s": [
+        4.585019099991769,
+        4.255951100029051,
+        4.339197500026785
+      ],
+      "warm_median_s": 4.339197500026785,
+      "objective": 1.2330795292724013
+    },
+    {
+      "source": "before",
+      "case": "11:15:off",
+      "first_call_s": 49.26393790007569,
+      "warm_calls_s": [
+        3.178632299997844,
+        2.8210498000262305,
+        2.861072300001979
+      ],
+      "warm_median_s": 2.861072300001979,
+      "objective": 18.494567485767536
+    },
+    {
+      "source": "before",
+      "case": "16:21:off",
+      "first_call_s": 29.511352900066413,
+      "warm_calls_s": [
+        4.193897300050594,
+        3.881176199996844,
+        3.8299045000458136
+      ],
+      "warm_median_s": 3.881176199996844,
+      "objective": 1.2330795292724013
+    },
+    {
+      "source": "before",
+      "case": "16:21:on",
+      "first_call_s": 14.400836499989964,
+      "warm_calls_s": [
+        5.563464500010014,
+        5.730375799932517,
+        5.847051699995063
+      ],
+      "warm_median_s": 5.730375799932517,
+      "objective": 1.0088654704767945
+    },
+    {
+      "source": "before",
+      "case": "15:20:on",
+      "first_call_s": 36.89388260000851,
+      "warm_calls_s": [
+        5.2608521999791265,
+        5.204486800008453,
+        5.165352400043048
+      ],
+      "warm_median_s": 5.204486800008453,
+      "objective": 1.8575120142449657
+    },
+    {
+      "source": "after",
+      "case": "11:15:off",
+      "first_call_s": 58.21123640006408,
+      "warm_calls_s": [
+        1.56706180004403,
+        1.506236599991098,
+        1.5609771000454202
+      ],
+      "warm_median_s": 1.5609771000454202,
+      "objective": 18.494567485767536
+    },
+    {
+      "source": "after",
+      "case": "16:21:off",
+      "first_call_s": 33.94901890004985,
+      "warm_calls_s": [
+        2.5375465999823064,
+        2.478056999971159,
+        2.500146900070831
+      ],
+      "warm_median_s": 2.500146900070831,
+      "objective": 1.2330795292724013
+    },
+    {
+      "source": "after",
+      "case": "16:21:on",
+      "first_call_s": 9.226736700045876,
+      "warm_calls_s": [
+        3.7849516000133008,
+        3.239179499913007,
+        3.3863463999005035
+      ],
+      "warm_median_s": 3.3863463999005035,
+      "objective": 1.0088604940197403
+    },
+    {
+      "source": "after",
+      "case": "15:20:on",
+      "first_call_s": 4.058802799903788,
+      "warm_calls_s": [
+        3.425959299900569,
+        3.3780606999062,
+        3.2970559999812394
+      ],
+      "warm_median_s": 3.3780606999062,
+      "objective": 1.8573893509471082
+    },
+    {
+      "source": "final",
+      "case": "16:21:on",
+      "first_call_s": 54.72598739992827,
+      "warm_calls_s": [
+        2.860315200057812,
+        2.8459187999833375,
+        2.8630948999198154
+      ],
+      "warm_median_s": 2.860315200057812,
+      "objective": 1.008856593984482
+    },
+    {
+      "source": "final",
+      "case": "15:20:on",
+      "first_call_s": 3.6073722000001,
+      "warm_calls_s": [
+        2.7707325000083074,
+        2.7945566999260336,
+        2.839940599980764
+      ],
+      "warm_median_s": 2.7945566999260336,
+      "objective": 1.857248279988236
+    }
+  ]
+}

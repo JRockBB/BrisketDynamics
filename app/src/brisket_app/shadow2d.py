@@ -72,6 +72,8 @@ def shadow_report(
     t_pull: float = 1.0e9,
     t_add: float = 1.0e9,
     dt_add: float = 0.0,
+    T_load: float = 0.0,
+    t_load: float = -1.0e9,
     rest: dict | None = None,
     cc: ControlConfig | None = None,
     radius: float | None = None,
@@ -99,6 +101,11 @@ def shadow_report(
     t_add, dt_add : float
         The planned fuel addition [s] (1e9 = none) and split interval [s]
         (0 = one chimney); the addition and every spritz lift the lid.
+    T_load, t_load : float
+        The load: time runs from lighting and the pit preheats empty; the
+        meat goes on when this pit first reaches ``T_load`` [K] (> 0), else
+        at ``t_load`` [s] (default in from the start). The safety clocks
+        start at meat-on.
     rest : dict, optional
         The plan's rest environment (``rest_t``, ``rest_h``, ``rest_eps``,
         ``rest_eta``), the same keys the monolith takes; default cambro.
@@ -135,15 +142,16 @@ def shadow_report(
     decisions = {
         "t_wrap": t_wrap, "t_salt": t_salt, "t_spritz": t_spritz,
         "dt_spritz": dt_spritz, "t_pull": t_pull, "t_add": t_add,
-        "dt_add": dt_add,
+        "dt_add": dt_add, "T_load": T_load, "t_load": t_load,
     }
     out = _apply(tx, theta, phi, u_knots, grids, decisions, radius, nr, nz,
                  h_step, n_meat, rest, extra)
     t = np.asarray(grids.tknots, dtype=float)
     tcold = np.asarray(out["tcold"], dtype=float)
     tcore = np.asarray(out["tcore"], dtype=float)
-    F_cold, cut_cold = lethality_cut(tcold, t, cc)
-    F_core, cut_core = lethality_cut(tcore, t, cc)
+    t_on = float(np.asarray(out["t_load_used"]))
+    F_cold, cut_cold = lethality_cut(tcold, t, cc, t_load=t_on)
+    F_core, cut_core = lethality_cut(tcore, t, cc, t_load=t_on)
     cut_binding = bool(cc.cut_critical)
     rep = {
         "F_cold": float(F_cold),
@@ -155,6 +163,8 @@ def shadow_report(
             F_cold >= cc.leth_f_req and (cut_cold <= cc.cut_cap_h or not cut_binding)
         ),
         "t_pull_h": (float(t_pull) / 3600.0) if float(t_pull) < 1.0e8 else None,
+        "t_load_h": t_on / 3600.0 if t_on > -1.0e8 else None,
+        "T_load": float(T_load) if T_load > 0 else None,
         "tcold_final_C": float(tcold[-1] - 273.15),
         "tcold_peak_C": float(np.max(tcold) - 273.15),
         "tcore_final_C": float(tcore[-1] - 273.15),

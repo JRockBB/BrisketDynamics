@@ -51,10 +51,10 @@ def upsample(v, n=UP):
     return along(along(np.asarray(v, dtype=float), 0), 1)
 
 
-def render_supersampled(fig, dpi):
+def render_supersampled(fig, dpi, tight=True):
     """The figure drawn at SUPER x `dpi` and downscaled to `dpi` with a Lanczos filter (smooth face edges)."""
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=SUPER * dpi, bbox_inches="tight")
+    fig.savefig(buf, format="png", dpi=SUPER * dpi, bbox_inches="tight" if tight else None)
     buf.seek(0)
     im = Image.open(buf).convert("RGB")
     return im.resize((im.width // SUPER, im.height // SUPER), Image.LANCZOS)
@@ -220,11 +220,14 @@ def plot_animation(sim, frames, fps):
     norm = mcolors.Normalize(min(F.min() for F in Fs), max(F.max() for F in Fs))
     cm = plt.get_cmap("inferno")
     fig = plt.figure(figsize=(9.0, 5.0))
+    fig.subplots_adjust(left=0.02, right=0.90, bottom=0.03, top=0.87)
     ax = fig.add_subplot(111, projection="3d")
     fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cm), ax=ax, shrink=0.55, pad=0.02, label="temperature [°C]")
     dec = sim["decisions"]
 
     def phase(th):
+        if th < sim.get("t_load", -1e9) / HR:
+            return "preheating (meat off)"
         if th >= dec["t_pull"] / HR:
             return "resting"
         return "wrapped" if th >= dec["t_wrap"] / HR else "in the smoke"
@@ -236,12 +239,13 @@ def plot_animation(sim, frames, fps):
         draw_half(ax, sim, F, lambda v: cm(norm(v)))
         frame_half(ax, sim, "")
         ax.view_init(elev=VIEW["elev"], azim=VIEW["azim"] - 10.0 + 22.0 * n / max(len(ks) - 1, 1))
-        ax.set_title(f"t = {t[ks[n]]:4.1f} h · {phase(t[ks[n]])} · deepest point {float(sim['Tcore'][ks[n]]) - 273.15:5.1f} °C · "
-                     f"cold spot {F.min():5.1f} °C (height ×{EXAG:.0f})", fontsize=9)
-        frames_rgb.append(render_supersampled(fig, 100))
+        fig.suptitle(f"t = {t[ks[n]]:4.1f} h · {phase(t[ks[n]])} · deepest point {float(sim['Tcore'][ks[n]]) - 273.15:5.1f} °C · "
+                     f"cold spot {F.min():5.1f} °C (height ×{EXAG:.0f})", fontsize=9, y=0.98)
+        # Keep one canvas size as the camera moves; cropping to the smallest
+        # tight frame clips other frames' colorbar labels.
+        frames_rgb.append(render_supersampled(fig, 100, tight=False))
     plt.close(fig)
-    w = min(f.width for f in frames_rgb); h = min(f.height for f in frames_rgb)
-    frames_rgb = [f.crop((0, 0, w, h)).quantize(colors=255, method=Image.Quantize.MEDIANCUT) for f in frames_rgb]
+    frames_rgb = [f.quantize(colors=255, method=Image.Quantize.MEDIANCUT) for f in frames_rgb]
     frames_rgb[0].save(OUT / "shadow3d_cook.gif", save_all=True, append_images=frames_rgb[1:],
                        duration=int(1000 / fps), loop=0, optimize=True)
     print("wrote shadow3d_cook.gif")

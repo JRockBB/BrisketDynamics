@@ -7,6 +7,14 @@ their Jacobian w.r.t. the 15 physics latents through the Tesseract's
 Levenberg-Marquardt and the Fisher information apply directly. Parameters
 live in numpyro's unconstrained space (log for LogNormal sites, logit for
 Beta sites) so the Fisher covariance is comparable with the Laplace one.
+
+A log that documents its preheat (``meta["preheat_s"] > 0``) is fitted from
+lighting (`SITES_LIT`): the pit at ambient with a full fuel ring, the bed a
+chimney start's ``A_LIGHT`` (a0 is no longer a latent), the unlogged preheat
+damper one latent ``u_pre`` held over the preheat, the meat loaded at the
+documented time (with its lid pulse); the observations are the log's, from
+meat-on. A log without one keeps the start-of-log layout (`SITES`: the pit
+from its first reading, a0 a latent).
 """
 
 from __future__ import annotations
@@ -19,11 +27,16 @@ import numpyro.distributions as dist
 from .calibrate import (
     PHI_SITES,
     PHI_SITES_IGNITION,
+    PREHEAT_SITES,  # noqa: F401  (re-exported: the from-lighting latent)
     SIGMA_FLOOR_K,
+    SITES_LIT,
     THETA_SITES,
     contiguous_runs,
+    from_lighting,
+    lighting_grids,
 )
 from .clients import monolith_client
+from .coupled import A_LIGHT
 
 SITES = (
     THETA_SITES + PHI_SITES + PHI_SITES_IGNITION
@@ -33,21 +46,66 @@ N_PHYS = len(SITES)
 N_THETA = len(THETA_SITES)
 T_AMB = 300.0
 NOISE_NAMES = ["sigma_pit", "sigma_core", "rho_pit", "rho_core"]
+# from lighting (calibrate.SITES_LIT): a0 fixed at A_LIGHT, the preheat damper u_pre a vague latent
+NAMES_LIT = [n for n, _ in SITES_LIT]
+assert PHI_SITES_IGNITION[0][0] == "k_spread" and len(SITES_LIT) == len(SITES)
+
+
+def sites_for(log: dict):
+    """Return the fit's sites for this log: `SITES_LIT` from lighting, else `SITES`."""
+    return SITES_LIT if from_lighting(log) else SITES
+
+
+def names_for(log: dict) -> list[str]:
+    """Return the fit's latent names for this log."""
+    return [n for n, _ in sites_for(log)]
+
+
+def phi_of(x, log: dict) -> np.ndarray:
+    """Return the 7-vector phi of the fit's latents ``x`` (a0 = A_LIGHT from lighting)."""
+    x = np.asarray(x, dtype=float)
+    if from_lighting(log):
+        return np.concatenate([x[N_THETA : N_THETA + len(PHI_SITES) + 1], [A_LIGHT]])
+    return x[N_THETA:]
 # numpyro flattens the unconstrained params dict in sorted-key order
 ALL_NAMES_SORTED = sorted(NAMES + NOISE_NAMES)
 
 
+def n_preheat(log: dict) -> int:
+    """Grid points of the preheat before the log's t = 0 (the log's spacing; 0 without one)."""
+    return lighting_grids(log)[1] if from_lighting(log) else 0
+
+
 def _inputs(x, log: dict) -> dict:
     x = np.asarray(x, dtype=float)
+    t = np.asarray(log["t"], dtype=float)
+    u = np.asarray(log["u"], dtype=float)
+    t_amb = float(log["meta"].get("t_amb_K", T_AMB))
+    if not from_lighting(log):
+        return {
+            "theta": x[:N_THETA],
+            "phi": x[N_THETA:],
+            "u_knots": u,
+            "u_tknots": t,
+            "tsave": t,
+            "tpit0": float(log["meta"]["tpit0_K"]),
+            "t_amb": t_amb,
+            "t0_meat": float(log["meta"]["tcore0_K"]),
+        }
+    # from lighting: the preheat's knots on the log's spacing (calibrate.lighting_grids, the NumPyro model's grid),
+    # the damper u_pre over them, the meat on at the end
+    grids, n = lighting_grids(log)
+    tl = np.asarray(grids.tknots, dtype=float)
     return {
         "theta": x[:N_THETA],
-        "phi": x[N_THETA:],
-        "u_knots": np.asarray(log["u"], dtype=float),
-        "u_tknots": np.asarray(log["t"], dtype=float),
-        "tsave": np.asarray(log["t"], dtype=float),
-        "tpit0": float(log["meta"]["tpit0_K"]),
-        "t_amb": float(log["meta"].get("t_amb_K", T_AMB)),
+        "phi": phi_of(x, log),
+        "u_knots": np.concatenate([np.full(n, x[-1]), u]),
+        "u_tknots": tl,
+        "tsave": tl,
+        "tpit0": t_amb,
+        "t_amb": t_amb,
         "t0_meat": float(log["meta"]["tcore0_K"]),
+        "t_load": np.asarray(float(tl[n])),
     }
 
 
@@ -56,9 +114,10 @@ def model_mean(x, log: dict, jac: bool = True):
 
     Parameters
     ----------
-    x : array-like, length 14
-        Physics latents in monolith order (THETA_SITES then PHI_SITES +
-        PHI_SITES_IGNITION), constrained space.
+    x : array-like, length 15
+        Physics latents in the log's order (`sites_for`: THETA_SITES then
+        PHI_SITES + PHI_SITES_IGNITION, or from lighting k_spread + u_pre),
+        constrained space.
     log : dict
         `cooklog.load` output.
     jac : bool
@@ -74,16 +133,43 @@ def model_mean(x, log: dict, jac: bool = True):
     """
     tx = monolith_client()
     inp = _inputs(x, log)
+    n = n_preheat(log)                                                # the observations are from meat-on
     out = tx.apply(inp)
-    mu = np.concatenate([np.asarray(out["tpit"]), np.asarray(out["tcore"])])
+    mu = np.concatenate([np.asarray(out["tpit"])[n:], np.asarray(out["tcore"])[n:]])
     if not jac:
         return mu, None
     J = tx.jacobian(inp, ["theta", "phi"], ["tpit", "tcore"])
+    if n == 0:
+        rows = [
+            np.hstack([np.asarray(J[k]["theta"]), np.asarray(J[k]["phi"])])
+            for k in ("tpit", "tcore")
+        ]
+        return mu, np.vstack(rows)
+    # from lighting: phi's a0 column is fixed (dropped); u_pre's column is the damper knots' over the preheat (one
+    # directional derivative)
+    du = np.zeros(len(inp["u_knots"]))
+    du[:n] = 1.0
+    jv = tx.jacobian_vector_product(inp, ["u_knots"], ["tpit", "tcore"], {"u_knots": du})
     rows = [
-        np.hstack([np.asarray(J[k]["theta"]), np.asarray(J[k]["phi"])])
+        np.hstack([
+            np.asarray(J[k]["theta"])[n:],
+            np.asarray(J[k]["phi"])[n:, :-1],
+            np.asarray(jv[k])[n:, None],
+        ])
         for k in ("tpit", "tcore")
     ]
     return mu, np.vstack(rows)
+
+
+def preheat_trace(x, log: dict) -> dict:
+    """Return the fitted cook's pit and core over the whole grid from lighting.
+
+    The preheat included; times [s] from lighting, the log's t = 0 at ``t_load``.
+    """
+    inp = _inputs(x, log)
+    out = monolith_client().apply(inp)
+    return {"t": np.asarray(inp["tsave"]), "tpit": np.asarray(out["tpit"]), "tcore": np.asarray(out["tcore"]),
+            "t_load": float(log["meta"].get("preheat_s", 0.0))}
 
 
 # --- unconstrained parameterization and priors -------------------------------
@@ -93,37 +179,37 @@ def _is_beta(d) -> bool:
     return isinstance(d, dist.Beta)
 
 
-def to_z(x):
+def to_z(x, sites=SITES):
     """Constrained → unconstrained (log for LogNormal sites, logit for Beta sites)."""
     x = np.asarray(x, dtype=float)
     return np.array(
         [
             np.log(v / (1 - v)) if _is_beta(d) else np.log(v)
-            for v, (_, d) in zip(x, SITES, strict=True)
+            for v, (_, d) in zip(x, sites, strict=True)
         ]
     )
 
 
-def from_z(z):
+def from_z(z, sites=SITES):
     """Unconstrained → constrained."""
     z = np.asarray(z, dtype=float)
     return np.array(
         [
             1 / (1 + np.exp(-v)) if _is_beta(d) else np.exp(v)
-            for v, (_, d) in zip(z, SITES, strict=True)
+            for v, (_, d) in zip(z, sites, strict=True)
         ]
     )
 
 
-def dx_dz(z):
+def dx_dz(z, sites=SITES):
     """Diagonal of the transform Jacobian dx/dz."""
-    x = from_z(z)
+    x = from_z(z, sites)
     return np.array(
-        [v * (1 - v) if _is_beta(d) else v for v, (_, d) in zip(x, SITES, strict=True)]
+        [v * (1 - v) if _is_beta(d) else v for v, (_, d) in zip(x, sites, strict=True)]
     )
 
 
-def prior_terms(z):
+def prior_terms(z, sites=SITES):
     """−log p(z), its gradient and its (diagonal) Hessian in the unconstrained space.
 
     LogNormal sites are Gaussian in z; Beta(a, b) sites carry the logit
@@ -131,7 +217,7 @@ def prior_terms(z):
     """
     z = np.asarray(z, dtype=float)
     f, g, h = 0.0, np.zeros_like(z), np.zeros_like(z)
-    for i, (v, (_, d)) in enumerate(zip(z, SITES, strict=True)):
+    for i, (v, (_, d)) in enumerate(zip(z, sites, strict=True)):
         if _is_beta(d):
             a, b = float(d.concentration1), float(d.concentration0)
             s = 1 / (1 + np.exp(-v))
@@ -208,13 +294,14 @@ def effective_sigma(params: dict) -> tuple[float, float, float, float]:
 
 def objective(z, wh: Whitened, log: dict, jac: bool = True):
     """F(z) = ½‖w‖² − log p(z) (up to constants), with gradient and Gauss-Newton Hessian."""
-    mu, J = model_mean(from_z(z), log, jac=jac)
+    sites = sites_for(log)
+    mu, J = model_mean(from_z(z, sites), log, jac=jac)
     w = wh.residual(mu)
-    fp, gp, hp = prior_terms(z)
+    fp, gp, hp = prior_terms(z, sites)
     F = 0.5 * float(w @ w) + fp
     if not jac:
         return F, None, None, w
-    Jw = wh.jacobian(J) * dx_dz(z)[None, :]
+    Jw = wh.jacobian(J) * dx_dz(z, sites)[None, :]
     g = Jw.T @ w + gp
     H = Jw.T @ Jw + np.diag(hp)
     return F, g, H, w

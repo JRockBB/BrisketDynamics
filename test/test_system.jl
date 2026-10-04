@@ -53,8 +53,8 @@ end
     @test_throws ArgumentError CookSystem(Slab1D(Symbol("")))
     @test_throws ArgumentError CookSystem(Slab1D[])
     play = ParamLayout(sys, 7)
-    @test n_params(play) == 2 * (8 + 6) + 7 + 7 + 2
-    @test play[(:flat, :theta)] == 1:8 && play[(:butt, :theta)] == 15:22 && play[(:pit, :phi)] == 29:35 && play[(:pit, :u_knots)] == 36:42
+    @test n_params(play) == 2 * (8 + 7) + 7 + 7 + 2                        # per piece: θ and seven scalars (t_load the seventh)
+    @test play[(:flat, :theta)] == 1:8 && play[(:butt, :theta)] == 16:23 && play[(:pit, :phi)] == 31:37 && play[(:pit, :u_knots)] == 38:44
     @test_throws ArgumentError play[(:ribs, :theta)]
     # events: each piece reads its own, the pit its addition; unnamed events are never
     ev = [CookEvent(:wrap, :flat, 4SYS_HR), CookEvent(:spritz, :butt, 2SYS_HR; dt=1800.0, m=0.06), CookEvent(:add, :pit, 3SYS_HR; dt_add=Inf)]
@@ -145,7 +145,7 @@ end
     # the RHS at one instant: the system's derivative equals the monolith's at the same state and parameters
     rhs_s, _ = make_system_rhs(sys, SYS_UTK[1], SYS_UTK[2] - SYS_UTK[1], length(SYS_U))
     rhs_m = BrisketDynamics.make_monolith_rhs(cfg, SYS_PIT, Humidity(), SYS_UTK[1], SYS_UTK[2] - SYS_UTK[1], length(SYS_U))
-    pm = vcat(θ, φ, SYS_U, kw.t_wrap, PULL_NEVER, kw.t_add, kw.t_spritz, kw.dt_spritz, kw.m_spritz, SYS_PIT.dt_add, 0.11)
+    pm = vcat(θ, φ, SYS_U, kw.t_wrap, PULL_NEVER, kw.t_add, kw.t_spritz, kw.dt_spritz, kw.m_spritz, SYS_PIT.dt_add, LOAD_AT_START, 0.11)
     nm = 5 * cfg.nx + 3
     for k in (2, 13, 25)
         xs = so.X[:, k]

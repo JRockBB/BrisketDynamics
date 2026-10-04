@@ -94,7 +94,7 @@ def _init():
         function _s2_kw(radius, height, nr, nz, h_step, n_meat, k_grain,
                         d_grain, f_top, z_split, t0_meat, tpit0, t_amb, m0,
                         afr, y_w, pan, omega, rest_t, rest_h, rest_eps,
-                        rest_eta)
+                        rest_eta, t_load, T_load)
             cfg = MeatConfig(T0=t0_meat, T_rest=rest_t, h_rest=rest_h,
                              ε_rest=rest_eps, η_rest=rest_eta)
             pit = PitConfig(T_amb=t_amb, Tpit0=tpit0, m0=m0)
@@ -102,24 +102,33 @@ def _init():
                                            omega_amb=omega)
             return (; R=radius, Hz=height, nr=Int(nr), nz=Int(nz), h=h_step,
                     cfg, pit, hum, n_meat, k_grain, D_grain=d_grain,
-                    F_top=f_top, z_split)
+                    F_top=f_top, z_split, t_load=float(t_load), T_load=float(T_load))
+        end
+        # the load (data on the 2-D path): T_load > 0 [K] puts the meat on when this pit, preheating empty under the
+        # schedule, first reaches it; else t_load [s from lighting; <= -1e8 in from the start]
+        function _s2_resolve(kw, φ, u, utk)
+            t_ld = kw.T_load > 0 ?
+                first(preheat_time(kw.T_load, collect(Float64, φ), collect(Float64, u), collect(Float64, utk);
+                                   cfg=kw.cfg, pit=kw.pit, hum=kw.hum, Tpit0=kw.pit.Tpit0, mfuel0=kw.pit.m0)) :
+                kw.t_load
+            return merge(Base.structdiff(kw, NamedTuple{(:T_load,)}), (; t_load=t_ld))
         end
         # dt_add: 0 = one chimney (Inf), as in the monolith Tesseract
         _s2_dta(dt_add) = dt_add > 0 ? float(dt_add) : Inf
         function _s2_apply(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
                            dt_spritz, t_pull, t_add, dt_add, kwargs...)
-            kw = _s2_kw(kwargs...)
+            kw = _s2_resolve(_s2_kw(kwargs...), φ, u, utk)
             o = coupled_solve_2d(θ2, φ, u, utk, tsave; t_wrap, t_salt,
                                  t_spritz, dt_spritz, t_pull, t_add,
                                  dt_add=_s2_dta(dt_add), kw...)
             return (o.Tpit, o.Tcore, o.Tcold, o.m_fuel, o.w_retained, o.C_min,
                     o.bark_mean, o.bark_std, o.salt_mean, o.R_eff, o.Hz_eff,
                     o.smoke_mean, o.ring_mean, o.l_star_mean, o.bitterness,
-                    o.fat_rendered, o.juiciness, o.pv_pit, o.j_evap)
+                    o.fat_rendered, o.juiciness, o.pv_pit, o.j_evap, kw.t_load)
         end
         function _s2_jac(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
                          dt_spritz, t_pull, t_add, dt_add, sel, kwargs...)
-            kw = _s2_kw(kwargs...)
+            kw = _s2_resolve(_s2_kw(kwargs...), φ, u, utk)
             return slab2d_stack_jacobian(θ2, φ, u, utk, tsave, t_wrap, t_salt,
                                          t_spritz, dt_spritz, t_pull,
                                          collect(Int, sel); t_add,
@@ -127,7 +136,7 @@ def _init():
         end
         function _s2_jvp(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
                          dt_spritz, t_pull, t_add, dt_add, dv, kwargs...)
-            kw = _s2_kw(kwargs...)
+            kw = _s2_resolve(_s2_kw(kwargs...), φ, u, utk)
             return slab2d_stack_jvp(θ2, φ, u, utk, tsave, t_wrap, t_salt,
                                     t_spritz, dt_spritz, t_pull,
                                     collect(Float64, dv); t_add,
@@ -250,6 +259,16 @@ class InputSchema(BaseModel):
     rest_h: float = Field(default=1.5, description="Convective coefficient at rest [W/m²K]")
     rest_eps: float = Field(default=0.10, description="Emissivity at rest")
     rest_eta: float = Field(default=0.9, description="Evaporation suppression at rest")
+    t_load: float = Field(
+        default=-1.0e9,
+        description="When the meat goes on [s after lighting]: before it the pit preheats empty and the meat holds "
+        "its raw state; <= -1e8 = in from the start. Data, not differentiable; ignored when T_load > 0",
+    )
+    T_load: float = Field(
+        default=0.0,
+        description="The pit temperature the meat goes in at [K]: when > 0 the load is when this pit, preheating "
+        "empty under the schedule, first reaches it; 0 = use t_load",
+    )
 
 
 class OutputSchema(BaseModel):
@@ -306,6 +325,9 @@ class OutputSchema(BaseModel):
     )
     pv_pit: Array[(None,), Float64] = Field(description="Pit vapor pressure [Pa]")
     j_evap: Array[(None,), Float64] = Field(description="Meat evaporation [kg/s]")
+    t_load_used: Array[(), Float64] = Field(
+        description="When the meat went on [s after lighting]: t_load, or the preheat's time to T_load"
+    )
 
 
 def _packed(inputs: InputSchema):
@@ -346,6 +368,8 @@ def _packed(inputs: InputSchema):
         float(inputs.rest_h),
         float(inputs.rest_eps),
         float(inputs.rest_eta),
+        float(inputs.t_load),
+        float(inputs.T_load),
     )
     return head, tail
 
@@ -389,7 +413,7 @@ def apply(inputs: InputSchema) -> OutputSchema:
         "tpit", "tcore", "tcold", "m_fuel", "w_retained", "c_min",
         "bark_mean", "bark_std", "salt_mean", "r_eff", "hz_eff",
         "smoke_mean", "ring_mean", "l_star_mean", "bitterness",
-        "fat_rendered", "juiciness", "pv_pit", "j_evap",
+        "fat_rendered", "juiciness", "pv_pit", "j_evap", "t_load_used",
     )
     return OutputSchema(**dict(zip(keys, vals, strict=True)))
 
@@ -401,7 +425,7 @@ def abstract_eval(abstract_inputs):
     sc = ShapeDType(shape=(), dtype="float64")
     out = {k: vec(nt) for k in STACK_SERIES}
     out.update({k: sc for k in STACK_SCALARS})
-    out.update({"pv_pit": vec(nt), "j_evap": vec(nt)})
+    out.update({"pv_pit": vec(nt), "j_evap": vec(nt), "t_load_used": sc})
     return out
 
 

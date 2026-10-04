@@ -56,9 +56,12 @@ def load_case(plan_name: str):
         return float(v) * HR if v is not None else 1.0e9
 
     dts = plan.get("dt_spritz_robust_min", plan.get("dt_spritz_plan_min"))
+    T_load = plan.get("T_load_robust", plan.get("T_load_plan"))
     decisions = {
         "t_wrap": hours("t_wrap"), "t_pull": hours("t_pull"), "t_add": hours("t_add"),
         "t_spritz": hours("t_spritz"), "dt_spritz": float(dts) * 60.0 if dts is not None else 3600.0,
+        # the meat goes on when the shadow's own pit reaches the plan's load temperature (from lighting)
+        "T_load": float(T_load) if T_load else 0.0,
     }
     rest = plan.get("rest") or {}
     return theta, phi, u, t_end, decisions, rest
@@ -118,6 +121,7 @@ def simulate(plan_name: str, nl: int = 12, nw: int = 6, nt: int = 8, t_salt_s: f
         out.update({n: float(get(p, n)) for n in SCALARS})
         for n in ("Tpit", "m_fuel"):
             out[n] = get(s, n)
+        out["t_load"] = float(jl.getproperty(s, jl.Symbol("t_load")))
         out["mat"] = get(s, "mat").astype(int)
         out["bone"] = get(s, "bone")
         out["faces"] = get(s, "faces").astype(int).reshape(-1, 3) if shape is not None else None

@@ -107,11 +107,14 @@ def plot_plan(sim, out):
     ax.plot(t, sim["Tcore"] - 273.15, color="tab:blue", lw=2, label="the cut's deepest point")
     ax.plot(t, sim["Tcold"] - 273.15, color="tab:cyan", lw=2, ls="--", label="TRUE cold spot (grid min)")
     ax.set_ylabel("temperature [°C]")
-    for lab, tt, ls in (("wrap", dec["t_wrap"], ":"), ("pull", dec["t_pull"], "--"), ("fuel add", dec["t_add"], "-.")):
-        if tt < 1e8 and tt / HR <= t[-1]:
+    for lab, tt, ls in (("meat on", sim.get("t_load", -1e9), (0, (5, 2, 1, 2))), ("wrap", dec["t_wrap"], ":"),
+                        ("pull", dec["t_pull"], "--"), ("fuel add", dec["t_add"], "-.")):
+        if 0.0 <= tt < 1e8 and tt / HR <= t[-1]:
             ax.axvline(tt / HR, color="gray", lw=1, ls=ls)
-            ax.annotate(lab, (tt / HR, ax.get_ylim()[0] + 5), xytext=(-4, 0), textcoords="offset points", color="gray",
-                        fontsize=9, ha="right", rotation=90)
+            label_y = 45.0 if lab == "meat on" else ax.get_ylim()[0] + 5
+            ax.annotate(lab, (tt / HR, label_y), xytext=(-6, 0), textcoords="offset points", color="gray",
+                        fontsize=9, ha="right", rotation=90,
+                        va="center" if lab == "meat on" else "baseline")
     ax.legend(loc="upper left", fontsize=9); ax.grid(alpha=0.3)
     ax.set_title(f"3-D shadow of {sim['plan']}: {title_of(sim)}\ncold spot at serve {sim['Tcold'][-1] - 273.15:.1f} °C, "
                  f"deepest point {sim['Tcore'][-1] - 273.15:.1f} °C", fontsize=10)
@@ -125,7 +128,7 @@ def plot_plan(sim, out):
                 f"water retained {sim['w_retained']:.2f} · fat rendered {sim['fat_rendered']:.2f}", (0.99, 0.05),
                 xycoords="axes fraction", ha="right", fontsize=9, color="dimgray")
     ax = axes[2]
-    ax.plot(t, sim["mass"], color="tab:olive", lw=2); ax.set_ylabel("mass [kg]"); ax.set_xlabel("time [h]"); ax.grid(alpha=0.3)
+    ax.plot(t, sim["mass"], color="tab:olive", lw=2); ax.set_ylabel("mass [kg]"); ax.set_xlabel("time from lighting [h]"); ax.grid(alpha=0.3)
     fig.tight_layout(); fig.savefig(out / "shape3d_plan.png", dpi=140); plt.close(fig)
     print("wrote shape3d_plan.png")
 
@@ -328,6 +331,8 @@ def stamp(sim, k):
     t = sim["t"][k] / HR
     dec = sim["decisions"]
     phase = "resting" if t >= dec["t_pull"] / HR else "wrapped" if t >= dec["t_wrap"] / HR else "smoking"
+    if t < sim.get("t_load", -1e9) / HR:
+        phase = "preheating (meat off)"
     return (f"t = {t:4.1f} h · {phase} · pit {sim['Tpit'][k] - 273.15:5.1f} °C · deepest point "
             f"{sim['Tcore'][k] - 273.15:5.1f} °C · cold spot {sim['Tcold'][k] - 273.15:5.1f} °C")
 
@@ -429,8 +434,8 @@ def plot_slice_gif(sim, out, frames=60, fps=10):
         ax.plot(t, sim["Tpit"] - 273.15, color="tab:red", lw=1.5, label="pit")
         ax.plot(t, sim["Tcore"] - 273.15, color="tab:blue", lw=1.5, label="deepest point")
         ax.plot(t, sim["Tcold"] - 273.15, color="tab:cyan", lw=1.5, ls="--", label="cold spot")
-        for tt, ls in ((dec["t_wrap"], ":"), (dec["t_pull"], "--")):
-            if tt < 1e8:
+        for tt, ls in ((sim.get("t_load", -1e9), (0, (5, 2, 1, 2))), (dec["t_wrap"], ":"), (dec["t_pull"], "--")):
+            if 0.0 <= tt < 1e8:
                 ax.axvline(tt / HR, color="gray", lw=1, ls=ls)
         ax.axvline(t[k], color="black", lw=1.5)
         ax.set_xlim(t[0], t[-1])

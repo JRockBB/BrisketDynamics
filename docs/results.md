@@ -4,6 +4,160 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Preheat before loading, and MPC runtime (2026-10-04)
+
+Time now starts at lighting. The empty pit warms under the planned damper,
+then the meat goes on at the time the empty pit reaches the planner's
+`T_load` (200–300 °F). The meat fields and the food-safety clocks wait for
+the load, and loading opens the lid for three minutes. An executed load
+is carried through subsequent MPC intervals as a fixed time. The bed
+starts from a chimney start, `a_light = 0.15`.
+
+The real cook's documented 90-minute preheat is included in its refit.
+`data/calibration/gn_map_real.json` records F = 124.25, versus 133.18 for
+the old meat-on fit. The unlogged preheat damper is a latent `u_pre`;
+`a0` is fixed. The fitted pit reaches about 120 °C at meat-on without a
+temperature observation there. The new Laplace posterior, fullplan,
+duration, robust and start-time artifacts were regenerated from this fit.
+The estimator retains its separate initialization and was not changed.
+
+The fullplan scan selects 16 hours from lighting to serve: meat-on at
+2.35 h, wrap at 10.81 h, pull at 11.29 h, then 4.71 h of rest. Its score
+is 1.009, doneness 0.940 and juiciness 0.408. The continuous duration
+optimization stays at 15.993 h. Both choose the lower load-temperature
+bound. The robust 16-hour plan loads earlier (0.79 h at the mean draw)
+and pulls later (13.67 h); mean held-out J over 30 Laplace draws falls
+from 10.65 for the nominal plan to 1.89. Neither plan executes a fuel
+addition or spritz. The start-time calculation adds 1.70 h to the nominal
+duration to reach its 90% draw threshold; the robust duration needs no
+additional margin. The objective's free elapsed time and the load bound
+remain explicit policy questions in roadmap C0.
+
+Plan figures: [fullplan](../figures/control/fullplan.png),
+[continuous duration](../figures/control/duration_opt.png),
+[robust schedule](../figures/control/control_robust.png),
+[start-time comparison](../figures/control/start_time_compare.png).
+
+**Measured MPC cost.** `scripts/bench_mpc.py` times the same objective
+inputs on the previous commit (`3ce6f6f`), the inherited preheat code and
+the repaired code. It uses the current fitted parameters and the same
+normalized damper schedule in each comparison, with solver tolerances
+1e-6, Julia 1.11.9 and Python 3.12.10. These are medians of three warm
+value-and-gradient calls; startup and compilation are recorded separately
+in `data/control/mpc_benchmark.json`.
+
+| Objective setup | Previous commit | Inherited preheat code | Repaired code |
+| --- | ---: | ---: | ---: |
+| 11 h, 15 knots, meat loaded at start | 3.33 s | 2.86 s | 1.56 s |
+| 16 h, 21 knots, meat loaded at start | 4.34 s | 3.88 s | 2.50 s |
+| 16 h, 21 knots, load-temperature decision | — | 5.73 s | 2.86 s |
+| 15 h, 20 knots, load-temperature decision | — | 5.20 s | 2.79 s |
+
+There was no measured slowdown on identical inputs with preheat disabled.
+The added preheat solve and the larger planning problem added work. The
+repair integrates only the six evolving pit states with Tsit5, using the
+monolith's burn, humidity, pan and firebox equations. It keeps the
+crossing-time derivative and differentiable miss penalty. Its scalar
+types no longer depend on the number of damper knots. The optimizer
+differentiates its decisions only, removing 15 discarded physics columns,
+and reuses the best evaluation's load result instead of running another
+full cook just to report that time. The horizon, hourly replanning,
+200-iteration cap, convergence rule and quality objective are retained.
+
+The MPC demo's cold front is fixed at the plan's meat-on plus two hours
+(4.35 h from lighting), identically for all comparisons. The plant splits
+its integration at the weather event without shifting the controller's
+hourly replanning clock. Each completed cook is saved independently in
+`scratchpad/regen/mpc_result`; matching code and inputs can resume those
+checkpoints. Replan iteration counts, elapsed time and initial/best J are
+saved in the result JSON. `--replot` continues to render from saved traces.
+
+To repeat the current optimizer benchmark from `app/`:
+`uv run python ../scripts/bench_mpc.py --decisions-only --cases 16:21:on 15:20:on --out ../scratchpad/mpc_bench.json`.
+These timings measure a gradient evaluation, not a complete replan or
+the entire four-cook demonstration.
+
+**Executed MPC comparison.** All four cooks serve at 16 h from lighting;
+the two disturbed cooks share the front at 4.345 h. The final scores in
+`data/control/mpc_result.json` include the executed history, unlike a
+replan's score for its remaining horizon.
+
+| Cook | Meat-on [h] | Pull [h] | Doneness | Juiciness | Executed J |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reference, no front | 2.345 | 11.290 | 0.938 | 0.408 | 1.010 |
+| Open loop, cold front | 2.345 | 11.290 | 0.653 | 0.488 | 9.025 |
+| MPC, no front | 2.345 | 13.080 | 0.950 | 0.380 | 1.047 |
+| MPC, cold front | 2.345 | 12.990 | 0.946 | 0.404 | 1.002 |
+
+The disturbed MPC restores near-reference quality, wrapping at 10.88 h
+and delaying the pull by 1.70 h. No comparison executes a chimney or
+spritz. Nominal MPC slightly worsens the full executed score and
+juiciness relative to the reference; hourly refinement is not an
+automatic quality gain. The [MPC figure](../figures/control/mpc_demo.png)
+shows the load times, the shared front and the executed schedules.
+
+The complete nominal and cold-front MPC cooks took 53.8 and 48.5 minutes,
+respectively; the four-cook script took 103.1 minutes including startup
+and rendering. Seven nominal and eight disturbed replans reached the
+unchanged 200-iteration cap. The repeated remaining-horizon optimizations
+still dominate the end-to-end runtime. Per-replan timings and
+convergence flags are retained in the result JSON.
+
+**Spatial shadows.** The reports replay the robust 16-hour schedule with
+their existing unsalted defaults: load at 1.048 h on the MAP pit and pull
+at 13.674 h. These geometry checks reuse the 1-D-calibrated parameters.
+The 2-D illustrations instead use a 12-hour dry brine, as their titles
+state, and a 24×20 grid; the 2-D report uses 16×14 with a 32×28 check.
+
+| Shadow | Peak cold spot [°C] | Serve cold spot [°C] | Minimum doneness | Water retained | Juiciness |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Axisymmetric 2-D | 97.60 | 60.65 | 0.9938 | 0.171 | 0.247 |
+| Tapered flat, 12×6×8 | 101.23 | 45.97 | 0.9999 | 0.080 | 0.212 |
+| Reconstructed flat, 8 mm cells | 98.73 | 45.79 | 0.9974 | 0.108 | 0.212 |
+| Reconstructed flat, 6 mm cap | 100.55 | 45.19 | 0.9995 | 0.074 | 0.212 |
+| Reconstructed packer, 8 mm cells | 97.63 | 40.88 | 0.9963 | 0.130 | 0.264 |
+
+Doubling the 2-D grid changes the serve cold spot by 0.065 K and minimum
+doneness by 0.00013. The tapered 3-D flat's coarser-grid check changes
+the serve cold spot by 0.144 K and the deepest-point temperature by
+2.53 K. The reconstructed 6 mm cap's coarse check changes those two
+temperatures by 1.56 K and 3.88 K, respectively. These shadows predict
+substantial drying and high doneness under the transferred schedule;
+the geometry-dependent quality gap remains. The packer's corresponding
+coarse-grid temperature shifts are 0.301 K and 0.055 K.
+The pit continues its supplied schedule after pull while the meat rests.
+
+Figures: [2-D plan](../figures/slab2d/slab2d_plan.png),
+[2-D fields](../figures/slab2d/slab2d_fields.png),
+[2-D cook](../figures/slab2d/cook2d.gif),
+[3-D plan](../figures/shadow3d/shadow3d_plan.png),
+[3-D cutaway](../figures/shadow3d/shadow3d_cutaway.png),
+[3-D cook](../figures/shadow3d/shadow3d_cook.gif),
+[6 mm cap](../figures/shadow3d/synthetic_flat_cap6/shape3d_plan.png),
+[packer plan](../figures/shadow3d/synthetic_packer/shape3d_plan.png),
+[packer sections](../figures/shadow3d/synthetic_packer/shape3d_sections.png),
+[packer cook](../figures/shadow3d/synthetic_packer/shape3d_cook.gif).
+
+The remaining regeneration batch (steps 8–21) completed successfully,
+including the [bark comparison](../figures/model/bark_model.png),
+[damper optimization](../figures/control/control_before_after.png) and
+[real-cook replay](../figures/model/cook_animation.gif). The separate
+damper example retains its synthetic `map_result.json` calibration;
+its best J fell from 59.40 to 1.13 and core doneness rose from 0.244 to
+0.930. The replay includes the fitted preheat internally, then displays
+the logged period with time measured from meat-on. All 19 static figures
+from this batch were inspected, as were early, middle and late frames of
+all six animations. Overlapping load annotations and a clipped 3-D
+animation colorbar were corrected and checked again.
+
+Validation: 40/40 preheat tests, including six-state/full-model agreement
+for charcoal, water-pan, two-zone and electric pits and finite-difference
+sensitivity checks. The full app suite passed 96/96; after the final
+preheat-integrator adjustment, all 26 affected MPC, planner and duration
+tests passed again. Tests cover decision-only/full gradient agreement,
+exact weather timing, load-state handoff, safety banking and checkpoint
+round-tripping and invalidation.
+
 ## Grid pieces, reduced-order artifacts, the multi-meat planner, and a two-piece cook assimilated (2026-09-25)
 
 The second day of the plan's build (`docs/multi-meat-inference-plan.md`;
