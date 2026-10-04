@@ -338,11 +338,18 @@ run_set("transactions") && @testset "failed assimilation rolls back; checkpoints
 end
 
 # the online run over the arrivals; the belief per arrival
-function run_online(recs; lag, kw...)
-    sm = online_init(SystemModel(sys, CookLog(t, u; events, sensors, measurements=recs), blk; sn=StateNoise()); lag, kw...)
+function run_online(recs; lag, accuracy=(1e-10,1e-8), newton_tol=E.ONLINE_NEWTON_TOL, kw...)
+    sm = online_init(SystemModel(sys, CookLog(t, u; events, sensors, measurements=recs), blk; sn=StateNoise(),
+                                abstol=accuracy[1], reltol=accuracy[2], floor_abstol=1e-10, floor_reltol=1e-8); lag, kw...)
     out = NamedTuple[]
     for grp in arrivals(recs)
-        push!(out, assimilate!(sm, grp))
+        push!(out, assimilate!(sm, grp; newton_tol))
+        if ONLY == ["lag"]
+            r = last(out)
+            println("  lag=", lag, " t=", r.t, " iterations=", r.iters,
+                    " committed=", r.committed, " gradient=", r.gradient,
+                    " Newton sd=", r.newton_sd); flush(stdout)
+        end
     end
     return sm, out
 end
@@ -396,7 +403,13 @@ end
 run_set("lag") && @testset "the fixed lag against the full history; a delayed reading against the in-order run" begin
     # the two full-history solves below are compared to 1e-3: pinned by tight tolerances so the gate tests the insertion, not
     # the solver's slack (at the default ftol of 1e-2 nats two paths to the optimum differ by a tenth of a sd)
-    sm_full, out_full = run_online(recs; lag=typemax(Int), tol=1e-6, ftol=1e-6)
+    # Tighten numerical integration explicitly, preserving the process-noise
+    # allowance. At default accuracy the adaptive objective can stall above
+    # this strict optimizer tolerance despite an accurately computed tangent.
+    accuracy = (1e-14,1e-12)
+    sm_full, out_full = run_online(recs; lag=typemax(Int), tol=1e-6, ftol=1e-6, accuracy, newton_tol=1e-4)
+    println("  full-history iterations: ", [r.iters for r in out_full]); flush(stdout)
+    @test all(r.converged for r in out_full)
     sm_lag, out_lag = run_online(recs; lag=1)
     @test length(sm_full.nodes) == K_END && length(sm_lag.nodes) == 2
     rf, rl = out_full[end], out_lag[end]
@@ -407,8 +420,10 @@ run_set("lag") && @testset "the fixed lag against the full history; a delayed re
     # result is the in-order one, the fixed-lag one within the linearization of what left the window
     late = MeasurementRecord(:pit, t[6], readings.pit[6])
     recs_wo = [r for r in recs if !(r.sensor === :pit && r.t == t[6])]
-    sm_d, _ = run_online(recs_wo; lag=typemax(Int), tol=1e-6, ftol=1e-6)
-    rd_ = assimilate!(sm_d, [late])
+    sm_d, _ = run_online(recs_wo; lag=typemax(Int), tol=1e-6, ftol=1e-6, accuracy, newton_tol=1e-4)
+    rd_ = assimilate!(sm_d, [late]; newton_tol=1e-4)
+    println("  delayed-reading difference: pit = ", abs(rd_.T_pit[1] - rf.T_pit[1]),
+            " K; latents = ", maximum(abs.(rd_.z .- rf.z) ./ sqrt.(diag(rf.z_cov))), " posterior sd"); flush(stdout)
     @test rd_.converged
     @test abs(rd_.T_pit[1] - rf.T_pit[1]) < 1e-3 && maximum(abs.(rd_.z .- rf.z) ./ sqrt.(diag(rf.z_cov))) < 1e-3
     # the delayed node was found, not made again

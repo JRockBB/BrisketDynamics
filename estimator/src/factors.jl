@@ -838,19 +838,60 @@ function _limit_step!(d::AbstractVector, offsets, max_step::Float64, step_bounds
     return bounded
 end
 
+# A straight step through a nearly deterministic dynamics constraint can have a
+# huge second-order defect even when its linearized residual is tiny. Transport
+# the state endpoints with the nonlinear propagation, retaining the proposed
+# first-order process innovations. Only the search path changes: the objective,
+# acceptance, stationarity and covariance still use the original graph.
+function _dynamics_retraction_data(g::FactorGraph)
+    fs = sort([f for f in g.factors if f isa DynamicsFactor]; by=f -> f.t1)
+    allunique(f.key_y1 for f in fs) ||
+        throw(ArgumentError("dynamics retraction requires one incoming propagation per state node"))
+    return map(fs) do f
+        z, y0, y1 = _dyn_unpack(f, _vals(g, f))
+        c = _dyn_eval!(f, z, y0; jac=true)
+        (f=f, z=copy(z), y0=copy(y0), y1=copy(y1), defect=y1 .- c.f, Jy=c.Jy, Jz=c.Jz)
+    end
+end
+
+function _retract_dynamics(xtrial, offsets, data)
+    # Proposed defects use the original tangent step. Endpoints are then
+    # transported in time order, including chains and split latent blocks.
+    xn = copy(xtrial)
+    for d in data
+        f = d.f
+        z, y0, y1 = _dyn_unpack(f, [xtrial[offsets[k]] for k in vars(f)])
+        defect = d.defect .+ (y1 .- d.y1) .- d.Jy * (y0 .- d.y0) .- d.Jz * (z .- d.z)
+        zr, yr, _ = _dyn_unpack(f, [xn[offsets[k]] for k in vars(f)])
+        xn[offsets[f.key_y1]] .= _dyn_eval!(f, zr, yr; jac=false).f .+ defect
+    end
+    return xn
+end
+
+function _within_step_bounds(d, offsets, max_step, step_bounds; origin=zeros(length(d)))
+    # Subtracting the accepted point from a trial can lose a few ulps of the
+    # point itself, even when the tangent step was exactly on the bound.
+    slack(r, b) = 16eps(Float64) * max(1.0, b, norm(origin[r], Inf))
+    norm(d, Inf) <= max_step + slack(eachindex(d), max_step) || return false
+    return all(!haskey(offsets, k) || norm(d[offsets[k]], Inf) <= b + slack(offsets[k], b) for (k, b) in step_bounds)
+end
+
 # The full undamped Gauss--Newton displacement in local coordinate-step units. Solving the coupled
 # least-squares problem is essential: dividing the score by diagonal curvature can report convergence
-# arbitrarily far along a correlated valley. This metric remains invariant to uniform residual scaling.
+# arbitrarily far along a correlated valley. The coordinate metric remains invariant to uniform residual scaling;
+# the joint decrement uses the declared noise scale, through the whitened Jacobian.
 # A positive coordinate scale makes the comparison dimensionless when one graph contains,
 # for example, latent coordinates of order one and a humidity discrepancy measured in pascals. It also
 # prevents a tiny damped move from being called stationary when an undamped relative move is still large.
-function _scaled_gradient(J::AbstractMatrix, r::AbstractVector, scales::AbstractVector=ones(size(J, 2)))
-    isempty(r) && return 0.0
+function _stationarity_metrics(J::AbstractMatrix, r::AbstractVector, scales::AbstractVector)
+    isempty(r) && return (0.0, 0.0)
     length(scales) == size(J, 2) || throw(DimensionMismatch("the stationarity scales do not match the graph coordinates"))
     all(isfinite, scales) && all(>(0), scales) || throw(ArgumentError("stationarity scales must be finite and positive"))
     δ = _ls_step(J, r, 0.0)
-    return maximum(abs.(δ) ./ scales; init=0.0)
+    return maximum(abs.(δ) ./ scales; init=0.0), norm(J * δ)
 end
+_scaled_gradient(J::AbstractMatrix, r::AbstractVector, scales::AbstractVector=ones(size(J, 2))) =
+    first(_stationarity_metrics(J, r, scales))
 # The undamped Gauss-Newton step at a point, in two metrics: its largest scaled coordinate move (the solver's
 # tolerance is stated in these) and its largest move in units of the point's own Gauss-Newton posterior standard
 # deviation, from the same pivoted QR ((JᵀJ)⁻¹ = P R⁻¹ R⁻ᵀ Pᵀ). The first metric is the same coupled
@@ -964,9 +1005,11 @@ latent trust bound. A correction is retained only when it lowers the trial objec
 requires the decrease predicted by the base descent direction. A failed line search refreshes any stale
 physics Jacobian at the accepted mean before retrying with increased damping. Convergence additionally requires the scaled
 full undamped Gauss--Newton displacement to be below `gtol`; a small damped, bounded, or backtracked move alone is never
-convergence. The only numerical-resolution exception requires three complete Armijo failures without an
-accepted move and a fresh scaled gradient no larger than `resolution_gtol` (which must be at least `gtol`);
-this covers objectives quantized by an ODE solve without accepting the large-gradient damped-step failure
+convergence. The numerical-resolution exception requires three stalled trials and a fresh scaled
+gradient no larger than `resolution_gtol` (which must be at least `gtol`). Failed searches count as stalled;
+unbounded accepted moves count only while their total scaled displacement remains within `tol` of the
+stall anchor, so roundoff-sized decreases cannot indefinitely reset this check. Caller-bounded moves do
+not qualify. This covers objectives quantized by an ODE solve without accepting the large-gradient damped-step failure
 the stationarity gate was added to reject. `stationarity_scales` maps variables to positive scalar or
 per-coordinate characteristic scales; the reported gradient and both thresholds are relative to those
 scales. The default `2gtol` is deliberately narrow; an ODE-backed caller may supply a separately measured
@@ -974,23 +1017,45 @@ resolution envelope. `newton_step` and `newton_sd` are the undamped Gauss-Newton
 scaled coordinate move and its largest move in the point's own posterior standard deviations (`_newton_step_metrics`;
 NaN for a sparse solve). The historically named `gradient` field also reports the scaled full displacement.
 With `newton_tol` > 0 (off by
-default) a solve stalled three complete line searches at one point is also accepted when that point's `newton_sd`, at an
+default) a solve stalled three trials is also accepted when its `newton_sd`, at an
 exact relinearization, is under `newton_tol`. This resolution exception measures the move against the posterior
 width as well as the declared coordinate units; it never fires on a sparse solve. `expand` > 0 lets an accepted full step
 whose decrease beat the model's by more than `EXPAND_GAIN` double (up to `expand` times, within the bounds) while the
 objective keeps falling: a path change for under-stepping on curved valleys, never a certificate.
-`restart_newton_tol` (off by default) permits the same three-failure check to request a fresh solver attempt:
+`restart_newton_tol` (off by default) permits the same three-stall check to request a fresh solver attempt:
 when the posterior step is below this bound but no acceptance rule passes, return `converged=false` early,
 with `restart_requested=true` in the last history entry. It changes the retry budget, never the acceptance gate.
+
+`retract_dynamics=true` follows the nonlinear propagation along the proposed
+step while retaining its linearized process innovations. It requires one incoming
+dynamics factor per state node. The existing secant-cache radii govern the search
+linearization; rejected searches and final certificates refresh stale derivatives.
+All caller bounds also apply to the transported endpoint. On graphs
+with dynamics this replaces chord corrections; expansion follows the same
+nonlinear path and still respects the original bounds.
+The original graph objective, stationarity tests and posterior covariance remain
+authoritative. Graphs without dynamics retain the ordinary search.
+
+`joint_tol` (off by default) additionally accepts a fresh linearization whose
+undamped Gauss--Newton decrement `norm(J * δ)` is below this bound. With local
+covariance `C = inv(J'J)`, this is `sqrt(δ' * inv(C) * δ)`: it accounts for
+correlations and bounds the displacement of every linear contrast in its own
+posterior SD. It does not require numerical stalling. Cached derivatives may
+only prompt the check; acceptance always uses fresh derivatives. The returned
+`newton_joint_sd` reports this metric, while `newton_sd` remains the largest
+component displacement divided by its marginal SD. This is a local Gaussian
+accuracy criterion; the original nonlinear objective still governs the search.
 """
 function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::Float64=1e-8, gtol::Float64=tol,
                        resolution_gtol::Float64=2gtol, newton_tol::Float64=0.0, restart_newton_tol::Float64=0.0,
+                       joint_tol::Float64=0.0,
                        λ0::Float64=0.0, sparse::Bool=false,
                        verbose::Bool=false, max_step::Float64=Inf, step_bounds::AbstractDict=Dict{VarKey,Float64}(), soc::Int=10,
                        stationarity_scales::AbstractDict=Dict(),
-                       adaptive_damping::Bool=false, expand::Int=0)
+                       adaptive_damping::Bool=false, expand::Int=0, retract_dynamics::Bool=false)
     isfinite(resolution_gtol) && resolution_gtol >= gtol ||
         throw(ArgumentError("resolution_gtol must be finite and no smaller than gtol"))
+    isfinite(joint_tol) && joint_tol >= 0 || throw(ArgumentError("joint_tol must be finite and non-negative"))
     newton_tol >= 0 || throw(ArgumentError("newton_tol must be non-negative"))
     isfinite(restart_newton_tol) && restart_newton_tol >= 0 ||
         throw(ArgumentError("restart_newton_tol must be finite and non-negative"))
@@ -1005,28 +1070,34 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
     isfinite(F) || error("the objective is not finite at the start of the solve")
     λ = λ0
     hist = NamedTuple[]; converged = false; rejected_at_point = 0
+    stall_anchor = copy(x)
     for it in 1:iters
         t0 = time()
+        # Reuse the established secant cache within its declared radii. Failed
+        # searches and every final certificate still refresh stale derivatives.
         J, r, _, _ = linearize(g; order, sparse)
         F = _objective_at(g, x, offsets)                               # the baseline under the linearization's own whitening (a refresh is cached solves, no new ones)
-        grad = _scaled_gradient(J, r, gradient_scales)
-        if grad <= gtol
+        grad, joint_sd = _stationarity_metrics(J, r, gradient_scales)
+        if grad <= gtol || (joint_tol > 0 && joint_sd <= joint_tol)
             # A cached secant within `relin_tol` is sufficient for a trial direction, but not for a
             # stationarity certificate. Refresh any dynamics Jacobian not made at this exact mean.
             _ensure_current_dynamics!(g)
             J, r, _, _ = linearize(g; order, sparse)
             F = _objective_at(g, x, offsets)
-            grad = _scaled_gradient(J, r, gradient_scales)
-            if grad <= gtol
+            grad, joint_sd = _stationarity_metrics(J, r, gradient_scales)
+            if grad <= gtol || (joint_tol > 0 && joint_sd <= joint_tol)
                 converged = true
                 push!(hist, (it=it, F=F, F_trial=F, step=0.0, alpha=0.0, damping=λ, trials=0, soc=0,
-                             accepted=true, bounded=false, gradient=grad, wall=time() - t0))
+                             accepted=true, bounded=false, gradient=grad, newton_joint_sd=joint_sd,
+                             joint_converged=grad > gtol, wall=time() - t0))
                 break
             end
         end
         δ = _ls_step(J, r, λ)
         bounded = _limit_step!(δ, offsets, max_step, step_bounds)
         d0 = dot(r, J * δ)                                             # the directional derivative of ½‖r‖² along δ
+        transport = retract_dynamics ? _dynamics_retraction_data(g) : []
+        curved = !isempty(transport)
         cand = Ref((F=Inf, x=x, soc=0, bounded=bounded))
         function try_point(xn)
             for k in order; g.values[k] .= xn[offsets[k]]; end
@@ -1035,6 +1106,14 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         function try_step(α)
             base = α .* δ
             xn = x .+ base
+            if curved
+                xn = try _retract_dynamics(xn, offsets, transport) catch err
+                    err isa InterruptException && rethrow()
+                    return Inf
+                end
+                fraction = min(α, 1.0)
+                _within_step_bounds(xn .- x, offsets, fraction * max_step, Dict(k => fraction * b for (k,b) in step_bounds); origin=x) || return Inf
+            end
             best = (F=try_point(xn), x=xn, soc=0, bounded=bounded)
             disp = base
             # The correction is a new COMPLETE damped displacement, not an increment with its own
@@ -1044,7 +1123,7 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             # a full latent trust radius after Armijo shortened the base step.
             trial_max_step = isfinite(max_step) ? α * max_step : max_step
             trial_bounds = Dict(k => α * b for (k, b) in step_bounds)
-            for sc in 1:soc
+            for sc in 1:(curved ? 0 : soc)
                 isfinite(best.F) || break
                 rn = try _residuals_at(g, best.x, offsets) catch err; err isa InterruptException ? rethrow() : nothing end
                 rn === nothing && break
@@ -1076,11 +1155,11 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             verbose && flush(stdout)
             # Near the ODE solver's resolution floor an exact descent direction can fail Armijo at every
             # trial because the requested objective drop is below repeatable integration noise. Do not
-            # resurrect the old "small damped step means convergence" rule: require three consecutive
-            # complete line-search failures at the SAME accepted point, then refresh every dynamics
+            # resurrect the old "small damped step means convergence" rule: require three stalled
+            # trials within tol of the stall anchor, then refresh every dynamics
             # linearization and accept only a KKT displacement within the caller's explicit numerical
             # resolution envelope. A large gradient still fails and remains transactional in the online backend.
-            # With `newton_tol` > 0 the same three failures also qualify a point whose undamped joint step is under
+            # With `newton_tol` > 0 the same three stalls also qualify a point whose undamped joint step is under
             # `newton_tol` of a posterior sd. This uses the posterior width instead of characteristic coordinate
             # units, at the exactly relinearized point, like the coordinate-resolution check.
             if rejected_at_point >= 3 && (grad <= resolution_gtol || newton_tol > 0 || restart_newton_tol > 0)
@@ -1103,7 +1182,6 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             λ > 1e8 && break
             continue
         end
-        rejected_at_point = 0
         xn = cand[].x; nsoc = cand[].soc; bounded = cand[].bounded
         # Expansion (`expand` > 0 doublings, off by default): a full step whose decrease beat the Gauss-Newton model's
         # prediction by more than EXPAND_GAIN is under-stepping along a curved valley (the two-probe control of
@@ -1111,7 +1189,7 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         # the iteration cap). The same accepted displacement is doubled while the objective keeps falling, never past
         # the caller's bounds. Only the path changes: convergence is still the stationarity certificate.
         if expand > 0 && α == 1.0
-            d1 = xn .- x
+            d1 = curved ? δ : xn .- x
             Jd = J * d1
             pred1 = -(dot(r, Jd) + 0.5 * sum(abs2, Jd))
             if pred1 > 0 && (F - Fn) / pred1 > EXPAND_GAIN
@@ -1124,20 +1202,37 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
                 for _ in 1:expand
                     2scale <= room || break
                     xt = x .+ (2scale) .* d1
-                    Ft = try_point(xt)
+                    Ft = if curved
+                        trial_F = try_step(2scale)
+                        xt = cand[].x
+                        trial_F <= F + 1e-4 * (2scale) * d0 ? trial_F : Inf
+                    else
+                        try_point(xt)
+                    end
                     (isfinite(Ft) && Ft < Fn) || break
                     scale *= 2; xn = xt; Fn = Ft
                 end
                 scale > 1 && (bounded = bounded || 2scale > room)
+                curved && (α = scale)
             end
         end
         dropped = F - Fn
         stepn = norm(xn .- x); moved = norm(xn .- x, Inf)
-        Jstep = J * (xn .- x)
+        Jstep = J * (curved ? α .* δ : xn .- x)
         predicted_drop = -(dot(r, Jstep) + 0.5 * sum(abs2, Jstep))
         gain = predicted_drop > 0 ? dropped / predicted_drop : -Inf
         for k in order; g.values[k] .= xn[offsets[k]]; end
         x = xn; F = Fn
+        # ODE roundoff can accept microscopic decreases between rejected
+        # searches. They must not reset the stall counter indefinitely. Count
+        # only unbounded moves whose TOTAL displacement since the anchor is
+        # within tol; a fresh coupled certificate below remains mandatory.
+        if !bounded && maximum(abs.(x .- stall_anchor) ./ gradient_scales) <= tol
+            rejected_at_point += 1
+        else
+            rejected_at_point = 0
+            stall_anchor = copy(x)
+        end
         if adaptive_damping
             if α < 0.1 || gain < 0.25
                 λ = λ == 0 ? 1e-3 : 10λ
@@ -1153,15 +1248,26 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         verbose && flush(stdout)
         # A small move/drop only asks for a stationarity check at the accepted point. Refresh the dynamics
         # Jacobians so the returned covariance and mean use the same local model of the fixed objective.
-        if moved < tol || (dropped < ftol && α == 1.0 && λ < 1e-2 && !bounded)
+        if moved < tol || rejected_at_point >= 3 || (dropped < ftol && α == 1.0 && λ < 1e-2 && !bounded)
             _ensure_current_dynamics!(g)
             Jf, rf, _, _ = linearize(g; order, sparse)
             F = _objective_at(g, x, offsets)
-            gradf = _scaled_gradient(Jf, rf, gradient_scales)
-            if gradf <= gtol
+            gradf, joint_sd = _stationarity_metrics(Jf, rf, gradient_scales)
+            if gradf <= gtol || (joint_tol > 0 && joint_sd <= joint_tol)
                 converged = true
-                hist[end] = merge(hist[end], (F=F, gradient_final=gradf))
+                hist[end] = merge(hist[end], (F=F, gradient_final=gradf,
+                                             newton_joint_sd=joint_sd, joint_converged=gradf > gtol))
                 break
+            elseif rejected_at_point >= 3
+                nsd = (gradf <= resolution_gtol || max(newton_tol, restart_newton_tol) <= 0) ? NaN : newton_sd_at(Jf, rf)
+                if gradf <= resolution_gtol || (newton_tol > 0 && isfinite(nsd) && nsd <= newton_tol)
+                    converged = true
+                    hist[end] = merge(hist[end], (F=F, gradient_final=gradf, newton_sd=nsd, resolution_limited=true))
+                    break
+                elseif restart_newton_tol > 0 && isfinite(nsd) && nsd <= restart_newton_tol
+                    hist[end] = merge(hist[end], (F=F, gradient_final=gradf, newton_sd=nsd, restart_requested=true))
+                    break
+                end
             end
         end
     end
@@ -1169,15 +1275,16 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
     _ensure_current_dynamics!(g)
     Jf, rf, _, _ = linearize(g; order, sparse)
     F = _objective_at(g, x, offsets)
-    grad = _scaled_gradient(Jf, rf, gradient_scales)
+    grad, joint_sd = _stationarity_metrics(Jf, rf, gradient_scales)
     # The last permitted iteration may land exactly at a stationary point. Its refreshed KKT check is
     # authoritative even when no earlier in-loop stopping branch had set `converged`.
-    converged = converged || grad <= gtol
+    converged = converged || grad <= gtol || (joint_tol > 0 && joint_sd <= joint_tol)
     # Also report the joint step in posterior standard deviations at the accepted point.
     newton_step, newton_sd = sparse ? (NaN, NaN) : _newton_step_metrics(Jf, rf, gradient_scales)
     verbose && @printf("    GN final  F %.6g  gradient %.3g  Newton step %.3g (%.2f posterior sd)  converged %s\n", F, grad, newton_step, newton_sd, converged)
     verbose && flush(stdout)
-    return (F=F, hist=hist, converged=converged, gradient=grad, newton_step=newton_step, newton_sd=newton_sd)
+    return (F=F, hist=hist, converged=converged, gradient=grad, newton_step=newton_step,
+            newton_sd=newton_sd, newton_joint_sd=joint_sd, joint_tol=joint_tol)
 end
 
 """

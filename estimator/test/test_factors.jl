@@ -49,6 +49,18 @@ E.residual(f::ResolutionProbe, vals) = [vals[1][1] - f.target]
 E.jacobians(::ResolutionProbe, vals) = [fill(1.0, 1, 1)]
 E.loss(f::ResolutionProbe, vals) = round(0.5 * (vals[1][1] - f.target)^2; digits=6)
 
+# An objective with deterministic integration-sized noise can accept tiny moves
+# between failed searches. Its exact tangent still sets the acceptance envelope.
+struct NoisyResolutionProbe <: Factor
+    key::VarKey
+    target::Float64
+end
+E.vars(f::NoisyResolutionProbe) = [f.key]
+E.ndim(::NoisyResolutionProbe) = 1
+E.residual(f::NoisyResolutionProbe, vals) = [vals[1][1] - f.target]
+E.jacobians(::NoisyResolutionProbe, vals) = [ones(1, 1)]
+E.loss(f::NoisyResolutionProbe, vals) = 0.5 * (vals[1][1] - f.target)^2 + 1e-7 * sin(vals[1][1] / 1e-9)
+
 mutable struct CachedCurvatureProbe <: Factor
     key::VarKey
     at::Float64
@@ -376,6 +388,16 @@ end
     rres = gauss_newton!(gres; iters=3, tol=1e-4, gtol=1e-4, soc=0)
     @test rres.converged && rres.gradient ≈ 1.5e-4 && get(rres.hist[end], :resolution_limited, false)
     @test variable_value(gres, kr) == [0.0]
+    gn = FactorGraph(); add_variable!(gn, kr, [0.0]); add_factor!(gn, NoisyResolutionProbe(kr, 1.5e-4))
+    rn = gauss_newton!(gn; iters=20, tol=1e-4, soc=0)
+    @test rn.converged && length(rn.hist) == 3 && rn.gradient <= 2e-4
+    @test count(h -> h.accepted && h.step < 1e-4, rn.hist) >= 1
+    @test get(rn.hist[end], :resolution_limited, false)
+    # Tiny caller-bounded moves are intentional progress, not numerical stalls.
+    gb = FactorGraph(); add_variable!(gb, kr, [0.0])
+    add_factor!(gb, LinearFactor([kr], [ones(1, 1)], [1.5e-4]))
+    rb = gauss_newton!(gb; iters=6, tol=1e-4, max_step=1e-8, soc=0)
+    @test !rb.converged && all(h.bounded for h in rb.hist)
     kw = VarKey(:state, :measured_resolution, 1)
     gwide = FactorGraph(); add_variable!(gwide, kw, [0.0]); add_factor!(gwide, ResolutionProbe(kw, 4.5e-4))
     rwide = gauss_newton!(gwide; iters=3, gtol=1e-4, resolution_gtol=5e-4, soc=0)

@@ -8,16 +8,16 @@
 #
 # Run: julia --threads=4 --project=estimator estimator/scripts/stream_bench.jl [n_cooks] [seed0] [out.json] [hours] [lag]
 #        [attach slice|node] [pace] [pit_s] [core_s] [hum_s] [mass_s] [node_ratio] [lag_max] [prior_relin]
-#   pace: -1 takes a node's worth per update (the estimator's own chunking); 0 takes every arrival alone; k > 0 is compute-paced: an update takes every reading that arrived during the
+#   pace: -1 is an offline node-batched diagnostic; 0 takes each arrival time; k > 0 is compute-paced: an update takes every reading that arrived during the
 #         previous update's measured compute time times k (k = 1 the live machine; k > 1 a slower one, fewer updates,
-#         the same posterior at each: the window solve is exact however readings are grouped)
+#         readings retain their original timestamps). Node placement is independent of update scheduling.
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 ENV["JULIA_FASTCHOLESKY_NO_WARN_NON_SYMMETRIC"] = "1"
 include(joinpath(@__DIR__, "..", "src", "BrisketEstimator.jl"))
 using .BrisketEstimator
 using BrisketDynamics
-using JSON, LinearAlgebra, Random, Printf
+using JSON, LinearAlgebra, Random, Printf, Serialization
 const E = BrisketEstimator
 
 A_ = ARGS
@@ -28,6 +28,7 @@ hours = length(A_) >= 4 ? parse(Float64, A_[4]) : 14.0
 LAG = length(A_) >= 5 ? parse(Int, A_[5]) : 3
 ATTACH = length(A_) >= 6 ? Symbol(A_[6]) : :slice
 PACE = length(A_) >= 7 ? parse(Float64, A_[7]) : 0.0
+UPDATE_POLICY = PACE < 0 ? "node_batches" : PACE == 0 ? "every_arrival" : "processing_backlog"
 STEP = Dict(:pit => length(A_) >= 8 ? parse(Float64, A_[8]) : 30.0, :core => length(A_) >= 9 ? parse(Float64, A_[9]) : 30.0,
             :humidity => length(A_) >= 10 ? parse(Float64, A_[10]) : 120.0, :mass => length(A_) >= 11 ? parse(Float64, A_[11]) : 120.0)
 NODE_RATIO = length(A_) >= 12 ? parse(Float64, A_[12]) : 1.0
@@ -37,6 +38,7 @@ JITTER = 0.25                                                    # each interval
 
 REPO = normpath(joinpath(@__DIR__, "..", ".."))
 include(joinpath(@__DIR__, "stream_fixture.jl"))
+include(joinpath(@__DIR__, "stream_schedule.jl"))
 START_MODE = Symbol(get(ENV, "STREAM_START", "legacy"))
 NOISE_MODE = Symbol(get(ENV, "STREAM_NOISE", START_MODE === :lighting ? "matched" : "stress"))
 NOISE_MODE in (:matched, :stress) || throw(ArgumentError("STREAM_NOISE is matched or stress"))
@@ -82,6 +84,7 @@ const BATCH_S = parse(Float64, get(ENV, "STREAM_BATCH_S", "3600.0"))
 const MAX_SLICE_S = parse(Float64, get(ENV, "STREAM_MAX_SLICE_S", "Inf"))
 const FAIL_FAST = parse(Bool, get(ENV, "STREAM_FAIL_FAST", START_MODE === :lighting ? "true" : "false"))
 const VERBOSE_UPDATE = parse(Int, get(ENV, "STREAM_VERBOSE_UPDATE", "0")) # negative: every update
+const CHECKPOINT_PATH = get(ENV, "STREAM_CHECKPOINT_PATH", "")
 isfinite(BATCH_S) && BATCH_S > 0 || throw(ArgumentError("STREAM_BATCH_S must be positive and finite"))
 sn = let d = StateNoise()
     rates = (:T, :W, :C, :F, :S, :bark, :T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
@@ -181,13 +184,16 @@ end
 cooks = Any[]; skipped = Int[]; failures = Any[]
 active_cook = Ref{Any}(nothing)
 const BENCH_BACKEND = backend_fingerprint()
-const BENCH_SOURCE = bytes2hex(E.SHA.sha1(vcat(read(@__FILE__), read(joinpath(@__DIR__, "stream_fixture.jl")))))
+const BENCH_SOURCE = bytes2hex(E.SHA.sha1(vcat(read(@__FILE__), read(joinpath(@__DIR__, "stream_fixture.jl")), read(joinpath(@__DIR__, "stream_schedule.jl")))))
 dst = joinpath(REPO, "data", "mock", out_name)
 save() = open(dst, "w") do io
     write(io, json_document(Dict("plant" => "monolith (1-D, 40 nodes) in segments, constant parameters; streaming real-cook instruments",
         "backend" => "system", "estimator" => "the fixed-lag smoother, lag $LAG (to $LAG_MAX while the latents move), attach $ATTACH, node_ratio $NODE_RATIO",
         "names" => allnames, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped, "steps_s" => Dict(string(k) => v for (k, v) in STEP),
-        "jitter" => JITTER, "pace" => PACE, "groups" => group_names, "lag" => LAG, "backend_fingerprint" => BENCH_BACKEND,
+        "jitter" => JITTER, "pace" => PACE, "update_policy" => UPDATE_POLICY,
+        "julia_threads" => Threads.nthreads(), "blas_threads" => BLAS.get_num_threads(),
+        "timing_basis" => "Complete assimilate! wall time, including any compilation in that call; fixture generation, scoring and checkpoint I/O excluded",
+        "groups" => group_names, "lag" => LAG, "backend_fingerprint" => BENCH_BACKEND,
         "bench_fingerprint" => BENCH_SOURCE, "start_mode" => string(START_MODE), "noise_mode" => string(NOISE_MODE),
         "initial_mode" => string(INITIAL_MODE), "batch_s" => BATCH_S, "max_slice_s" => MAX_SLICE_S, "lag_max" => LAG_MAX, "prior_relin" => PRIOR_RELIN,
         "abstol" => BENCH_ABSTOL, "reltol" => BENCH_RELTOL,
@@ -242,36 +248,54 @@ for c in 1:n_cooks
                         floor_abstol=BENCH_FLOOR_ABSTOL, floor_reltol=BENCH_FLOOR_RELTOL)
     sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN, max_slice_s=MAX_SLICE_S)
     temps = Any[]; out = NamedTuple[]; failed = nothing
-    active_cook[] = Dict("seed" => seed, "temps" => temps, "n_readings" => length(recs), "n_updates" => 0)
+    input_records = [Dict("sensor"=>string(r.sensor), "t_s"=>r.t, "value"=>r.value) for r in recs]
+    input_fingerprint = bytes2hex(E.SHA.sha1(json_document([(string(r.sensor),r.t,r.value) for r in recs])))
+    active_cook[] = Dict("seed" => seed, "temps" => temps, "n_readings" => length(recs), "n_updates" => 0,
+                         "input_records" => input_records, "input_fingerprint" => input_fingerprint)
     save()
     i = 1; clock = 0.0
     while i <= length(recs)
         # the batch: this reading, and under compute pacing every reading that arrived while the last update ran
         j = i
         if PACE < 0
-            # a node's worth: the readings up to the next node the estimator will make (its own chunking of what waits)
+            # Offline diagnostic: look ahead to the next node before updating.
+            # The causal policies below never wait to assemble a node's readings.
             k = i
             next_edge = edges[something(findfirst(>=(recs[i].t), edges), length(edges))]
             horizon = min(recs[i].t + BATCH_S, next_edge)
             while k < length(recs) && recs[k + 1].t <= horizon; k += 1; end
             j = i + length(first(E._slice_chunks(sm, recs[i:k]))) - 1
         else
-            horizon = PACE > 0 ? max(recs[i].t, clock) : recs[i].t
-            while j < length(recs) && recs[j + 1].t <= horizon + 1e-9; j += 1; end
+            j, horizon = stream_arrival_batch(recs, i, clock; paced=PACE > 0)
         end
         batch = recs[i:j]
+        processing_start = PACE > 0 ? horizon : recs[j].t
+        # Optional diagnostic restart before the arrival, including the exact
+        # readings. This does not enter the measured assimilation wall time.
+        isempty(CHECKPOINT_PATH) || serialize(CHECKPOINT_PATH, (sm=sm, recs=batch, seed=seed))
         empty!(E.SLICE_TIMERS); nodes_before = sm.node_count
+        assimilation_start = time()
         r = try
             assimilate!(sm, batch; verbose=(VERBOSE_UPDATE < 0 || length(out) + 1 == VERBOSE_UPDATE))
         catch err
             err isa InterruptException && rethrow(); failed = err; break
         end
-        PACE > 0 && (clock = recs[j].t + PACE * r.wall)
+        # A queued batch starts when the previous solve finishes, even when its
+        # newest reading is older. Using that reading's time rewound the clock
+        # and understated backlog latency.
+        assimilation_wall = time() - assimilation_start
+        processing_finish = processing_start + (PACE > 0 ? PACE * assimilation_wall : 0.0)
+        PACE > 0 && (clock = processing_finish)
         k = kof[r.t]
         zt = truth_at(z0, dd, r.t, events.t_add); ez = r.z .- zt
         _, y_true = truth_belief(o, k)
         eT = [r.T_pit[1] - o.Tpit[k], r.pieces[PIECE].T_centre[1] - o.Tcore[k], r.pieces[PIECE].T_surface[1] - o.Tsurf[k]]
         push!(temps, Dict("t_h" => r.t / 3600, "k" => k, "n_readings" => length(batch), "committed" => r.committed, "updated" => r.committed,
+            "arrivals" => [Dict("sensor" => string(rec.sensor), "t_s" => rec.t) for rec in batch],
+            "processing_start_s" => processing_start, "processing_finish_s" => processing_finish,
+            "oldest_reading_latency_s" => processing_finish - first(batch).t,
+            "newest_reading_latency_s" => processing_finish - last(batch).t,
+            "nodes_added" => sm.node_count - nodes_before,
             "n_censored" => count(rec -> E.censored_at(sensor(model.log, rec.sensor), rec), batch),
             "z" => copy(r.z), "z_sd" => sqrt.(max.(diag(r.z_cov), 0.0)), "z_true" => zt,
             "nees_g" => group_nees(r.y .- y_true, r.y_cov),
@@ -280,8 +304,11 @@ for c in 1:n_cooks
             "nis" => r.nis, "dof" => r.dof, "innov" => Dict(string(findfirst(==(id), SENSOR_IDS)) => [v] for (id, v) in r.innov_std),
             "innovation_whitened" => [Dict("t" => w.t, "sensor" => string(w.sensor), "value" => w.value) for w in r.innovation_whitened],
             "nees_z" => nees(ez, r.z_cov), "nees_z16" => nees(ez[keep16], r.z_cov[keep16, keep16]), "nees_T" => nees(eT, r.x_cov[[ip, ic, is], [ip, ic, is]]),
-            "wall_s" => r.wall, "iters" => r.iters, "attempts" => r.attempts, "gradient" => r.gradient,
-            "newton_sd" => r.newton_sd, "converged" => r.converged, "n_nodes" => r.n_nodes))
+            "wall_s" => assimilation_wall, "iters" => r.iters, "attempts" => r.attempts, "gradient" => r.gradient,
+            "chunks" => get(r, :chunks, 1), "solver_metrics_scope" => "last internal chunk",
+            "newton_sd" => r.newton_sd, "newton_tol" => r.newton_tol,
+            "newton_joint_sd" => r.newton_joint_sd, "joint_tol" => r.joint_tol,
+            "converged" => r.converged, "n_nodes" => r.n_nodes))
         push!(out, (t=r.t, z=copy(r.z), z_cov=copy(r.z_cov), committed=r.committed))
         active_cook[]["n_updates"] = length(out)
         active_cook[]["wall_filter_s"] = time() - t0w
@@ -289,8 +316,8 @@ for c in 1:n_cooks
         save()
         if true
             zs_ = ez ./ sqrt.(max.(diag(r.z_cov), 1e-300)); iw = argmax(abs.(zs_))
-            @printf("  seed %d t %.2f h: %d updates, %d nodes in window (+%d), last update %.1f s (%d readings, %d iters, %d attempts, committed %s), NIS/dof %.2f, worst latent %s %+.2f sd, k_spread %+.2f, a0 %+.2f, prior rebuilt %d | %s\n",
-                    seed, r.t / 3600, length(out), r.n_nodes, sm.node_count - nodes_before, r.wall, length(batch), r.iters, get(r, :attempts, 0), string(r.committed), r.nis / max(r.dof, 1),
+            @printf("  seed %d t %.2f h: %d updates, %d nodes in window (+%d), last update %.1f s (%d readings, %d chunks; last chunk %d iters, %d attempts, committed %s), NIS/dof %.2f, worst latent %s %+.2f sd, k_spread %+.2f, a0 %+.2f, prior rebuilt %d | %s\n",
+                    seed, r.t / 3600, length(out), r.n_nodes, sm.node_count - nodes_before, assimilation_wall, length(batch), get(r, :chunks, 1), r.iters, get(r, :attempts, 0), string(r.committed), r.nis / max(r.dof, 1),
                     allnames[iw], zs_[iw], zs_[idx["k_spread"]], zs_[ia0], sm.n_prior_relin,
                     join(["$k $(round(v; digits=1))" for (k, v) in sort(collect(E.SLICE_TIMERS); by=last, rev=true)], ", ")); flush(stdout)
         end
@@ -304,20 +331,21 @@ for c in 1:n_cooks
     end
     if failed !== nothing
         @printf("cook %d (seed %d): the estimator failed at %.2f h (%s); skipped\n", c, seed, isempty(out) ? 0.0 : out[end].t / 3600, sprint(showerror, failed)[1:min(end, 160)])
-        push!(failures, Dict("seed" => seed, "stage" => "estimator", "error" => sprint(showerror, failed), "temps" => temps))
+        push!(failures, Dict("seed" => seed, "stage" => "estimator", "error" => sprint(showerror, failed), "temps" => temps,
+                             "input_records" => input_records, "input_fingerprint" => input_fingerprint))
         push!(skipped, seed); active_cook[] = nothing; save(); continue
     end
-    # Score the newest committed-time estimate available by the edge, never a
-    # future update selected just because it happens to be nearer to that edge.
-    at_edge(te) = something(findlast(x -> x.t <= te, out), 1)
-    batches = [(j = at_edge(te); x = out[j]; row = temps[j]; zt = truth_at(z0, dd, x.t, events.t_add); sd = sqrt.(diag(x.z_cov));
+    available_edges = [(te, stream_available_at(temps,te)) for te in edges]
+    batches = [(x = out[j]; row = temps[j]; zt = truth_at(z0, dd, x.t, events.t_add); sd = sqrt.(diag(x.z_cov));
                 Dict("t_h" => te / 3600, "state_t_h" => x.t / 3600,
                      "nees_z" => row["nees_z"], "nees_z16" => row["nees_z16"], "nees_T" => row["nees_T"], "nees_g" => row["nees_g"],
                      "pit" => row["pit"], "centre" => row["centre"], "surface" => row["surface"],
                      "z" => x.z, "sd" => sd, "err_sd" => (x.z .- zt) ./ sd, "z_true" => zt,
-                     "err_sd_graphfilter" => (x.z .- zt) ./ sd, "err_sd_system" => (x.z .- zt) ./ sd)) for te in edges]
+                     "err_sd_graphfilter" => (x.z .- zt) ./ sd, "err_sd_system" => (x.z .- zt) ./ sd)) for (te,j) in available_edges if j !== nothing]
     push!(cooks, Dict("seed" => seed, "batches" => batches, "temps" => temps, "wall_filter_s" => time() - t0w, "n_updates" => length(out),
-                      "n_readings" => length(recs), "n_uncommitted" => count(x -> !x.committed, out)))
+                      "n_readings" => length(recs), "n_uncommitted" => count(x -> !x.committed, out),
+                      "input_records" => input_records, "input_fingerprint" => input_fingerprint,
+                      "unavailable_edges_h" => [te/3600 for (te,j) in available_edges if j === nothing]))
     zs(key) = [(x[key][1] - x[key][3]) / x[key][2] for x in temps]
     med(v) = sort(abs.(v))[div(end + 1, 2)]
     nis_r = [x["nis"] / x["dof"] for x in temps if x["dof"] > 0 && isfinite(x["nis"])]

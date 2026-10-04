@@ -92,19 +92,37 @@ end
 # Encode must invert decode in the physical interior. Smoothing just the encoder changed the physical
 # state at every restart (e.g. C=0.002 became 0.001632), creating dynamics information without evolution.
 # Only clip inside a numerical boundary layer, comparable to the decoder's own physical floor. This
-# prevents log(0) and unresolved log-coordinate swings; there is no transition band that changes interior
-# states. The integrator-error covariance floor handles the remaining boundary-scale numerical error.
+# prevents log(0) and unresolved log-coordinate swings. The integrator-error covariance floor handles
+# the remaining boundary-scale numerical error.
 const BELIEF_ENC_MIN = 1e-8
 const BELIEF_ENC_MIN_UNIT = 1e-8
+# Keep a state decoded at the numerical floor on the same derivative branch
+# after an ODE restart. Without this guard, roundoff of ~1e-19 in a zero salt or
+# pan state flips its propagation derivative between zero and one. The guard
+# has a 1e-14-wide constant part followed by a C1 transition of the same width;
+# interior states retain the exact inverse. A hard guard would introduce a jump
+# in the dynamics residual at its edge.
+const BELIEF_ENC_GUARD = 1e-6
+function _belief_floor(s, δ)
+    width = δ * oftype(s, BELIEF_ENC_GUARD)
+    lo, hi = δ + width, δ + 2width
+    _primal(s) <= _primal(lo) && return δ
+    _primal(s) >= _primal(hi) && return s
+    u = (s - lo) / width
+    return δ + width * u^2 * (5 - 3u)
+end
 function _belief_enc(x, kind::Symbol)
     kind === :free && return x
     if kind === :positive
         δ = oftype(x, BELIEF_ENC_MIN)
-        return _state_invsoftplus(max(x - oftype(x, STATE_POSITIVE_FLOOR), δ))
+        return _state_invsoftplus(_belief_floor(x - oftype(x, STATE_POSITIVE_FLOOR), δ))
     end
     δ = oftype(x, kind === :ignited ? BELIEF_ENC_MIN : BELIEF_ENC_MIN_UNIT)
     ε = oftype(x, STATE_UNIT_EPS)
-    qs = clamp((x - ε) / (one(x) - 2ε), δ, one(x) - δ)
+    q = (x - ε) / (one(x) - 2ε)
+    edge = _primal(δ) * (1 + 2BELIEF_ENC_GUARD)
+    qs = _primal(q) < edge ? _belief_floor(q, δ) :
+         _primal(q) > 1 - edge ? one(x) - _belief_floor(one(x) - q, δ) : q
     return log(qs / (one(qs) - qs))
 end
 _belief_dec(y, kind::Symbol) = kind === :free ? y : _state_decode(y, kind === :ignited ? :unit : kind)

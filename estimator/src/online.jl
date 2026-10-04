@@ -78,6 +78,10 @@ const ONLINE_ODE_RESOLUTION_GTOL = 5e-4
 # complete line searches could not leave, whose undamped step at an exact relinearization is under this many posterior sds,
 # is accepted (2026-09-26: the smoother lost one arrival in thirty at a diagonal read of 5e-4 with the joint step at 1e-4 sd)
 const ONLINE_NEWTON_TOL = 1e-2
+# A fresh joint posterior-distance certificate avoids polishing adaptive-ODE
+# noise after the estimate is already accurate. This target is ten times
+# tighter than the existing marginal-SD exception, and includes correlations.
+const ONLINE_JOINT_TOL = 1e-3
 # the doublings an accepted full step may take when it beat the model (gauss_newton!'s `expand`): the two-probe control's
 # seed 3012 (2026-09-30) crawled its 80 iterations at gain 2 along the probe depths' valley and was refused
 const ONLINE_EXPAND = Ref(4)
@@ -90,11 +94,12 @@ _tick!(k::Symbol, dt) = (SLICE_TIMERS[k] = get(SLICE_TIMERS, k, 0.0) + dt)
 # envelope only as sqrt(number of grid intervals), and never beyond the dynamics factors' own relinearization
 # radius: a point outside that radius has a resolvable fresh local model rather than a numerical-floor excuse.
 function _online_resolution_gtol(sm)
-    isempty(sm.dyn) && return ONLINE_ODE_RESOLUTION_GTOL
+    requested = min(1.0, sm.tol / 1e-4)
+    isempty(sm.dyn) && return requested * ONLINE_ODE_RESOLUTION_GTOL
     Δgrid = minimum(diff(sm.model.log.t_grid))
     Δfactor = maximum(f.t1 - f.t0 for f in values(sm.dyn))
     relin_cap = minimum(f.relin_tol for f in values(sm.dyn))
-    return min(relin_cap, ONLINE_ODE_RESOLUTION_GTOL * sqrt(max(1.0, Δfactor / Δgrid)))
+    return requested * min(relin_cap, ONLINE_ODE_RESOLUTION_GTOL * sqrt(max(1.0, Δfactor / Δgrid)))
 end
 
 """
@@ -202,8 +207,8 @@ end
 
 The belief before any sample: the latents at each family's moments in its coordinate (the filter's start), the
 first node at `t0` with the recipe's state (the system's initial state at the prior centre, the ignited
-fraction from a0) at the `StateNoise` initial widths mapped into the belief's coordinates. `ftol`, the objective's
-drop under which a solve stops, is a hundredth of a nat (the RxInfer filter stops at a twentieth). `graph` and `cook`
+fraction from a0) at the `StateNoise` initial widths mapped into the belief's coordinates. `ftol`, the objective
+drop prompting a fresh stationarity check, is a hundredth of a nat. `graph` and `cook`
 let several cooks share one graph under distinct keys (the offline backend); `hierarchy = (idx, key_pop, tau)`
 ties the latents `idx` of this cook to the population variable `key_pop` with the between-cook sds `tau`
 instead of giving them the family's prior. `als` is the bench's accumulator (`ALSFeed`), fed after every committed
@@ -213,6 +218,11 @@ the previous node's by a random walk of `sd_per_hour` (each in its coordinate) w
 on the slice crossing `t`; the rest stay one static block (`LatentSplit`). A cook with a hierarchy cannot drift.
 For `attach=:slice`, `max_slice_s` optionally creates a node at the first reading at least that long after
 the current anchor. It bounds dense slice factors when process rates are tiny; `Inf` (the default) disables it.
+`tol` also scales the coordinate-resolution acceptance limit. It does not change the model's integration
+settings. For stricter optimization, request more accurate `abstol`/`reltol` explicitly in `SystemModel`,
+holding `floor_abstol`/`floor_reltol` fixed to preserve the statistical model.
+The separate `newton_tol` keyword of `assimilate!` or `solve_window!` sets the numerical-resolution
+exception in posterior standard deviations; it is not inferred from coordinate units.
 """
 function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=3, iters::Int=40, restarts::Int=1, tol::Float64=1e-4,
                      ftol::Float64=1e-2, latent_step::Float64=0.25, goals::PlanGoals=PlanGoals(), graph::FactorGraph=FactorGraph(),
@@ -902,8 +912,9 @@ function rebuild_prior!(sm::FixedLagSmoother)
     return lf
 end
 
-"The window solved by damped Gauss-Newton on the exact objective."
-function solve_window!(sm::FixedLagSmoother; verbose::Bool=false)
+"The window solved on the graph objective; `newton_tol` tightens the joint and stalled marginal posterior-SD checks (zero disables both)."
+function solve_window!(sm::FixedLagSmoother; verbose::Bool=false, newton_tol::Float64=ONLINE_NEWTON_TOL)
+    isfinite(newton_tol) && newton_tol >= 0 || throw(ArgumentError("newton_tol must be finite and non-negative"))
     all_hist = NamedTuple[]
     r = nothing
     attempts = 0
@@ -918,6 +929,10 @@ function solve_window!(sm::FixedLagSmoother; verbose::Bool=false)
         end
     end
     measured_resolution_gtol = _online_resolution_gtol(sm)
+    # Coordinate accuracy and posterior-relative numerical resolution have
+    # different units. Let callers state the latter directly instead of
+    # inferring it from the coordinate tolerance.
+    posterior_resolution = newton_tol
     for attempt in 1:(sm.restarts + 1)
         attempts = attempt
         # Preserve permutation accuracy with fresh-damping solves under the narrow generic
@@ -933,15 +948,16 @@ function solve_window!(sm::FixedLagSmoother; verbose::Bool=false)
             for (_, k) in sm.nodes; bounds[key_drift(sm, k.k)] = sm.latent_step; end
         end
         rc = gauss_newton!(sm.graph; iters=sm.iters, tol=sm.tol, ftol=sm.ftol, verbose,
-                           resolution_gtol, newton_tol=attempt == sm.restarts + 1 ? ONLINE_NEWTON_TOL : 0.0,
-                           restart_newton_tol=attempt < sm.restarts + 1 ? ONLINE_NEWTON_TOL : 0.0,
-                           step_bounds=bounds, stationarity_scales, expand=ONLINE_EXPAND[])
+                           resolution_gtol, newton_tol=attempt == sm.restarts + 1 ? posterior_resolution : 0.0,
+                           restart_newton_tol=attempt < sm.restarts + 1 ? posterior_resolution : 0.0,
+                           step_bounds=bounds, stationarity_scales, expand=ONLINE_EXPAND[], retract_dynamics=true,
+                           joint_tol=min(posterior_resolution, ONLINE_JOINT_TOL))
         append!(all_hist, (merge(h, (attempt=attempt,)) for h in rc.hist))
         r = rc
         rc.converged && break
     end
     sm.n_solves += 1
-    return merge(r, (hist=all_hist, attempts=attempts))
+    return merge(r, (hist=all_hist, attempts=attempts, newton_tol=newton_tol))
 end
 
 # the past's integrals of one slice's outputs, per piece
@@ -1221,22 +1237,29 @@ function _slice_chunks(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRec
 end
 
 """
-    assimilate!(sm, recs; verbose=false) -> record
+    assimilate!(sm, recs; verbose=false, newton_tol=0.01) -> record
 
 Readings into the window, the window solved, the old nodes marginalized: one arrival step (`_assimilate_one!`). Under
 `attach = :slice` a batch that crosses several nodes is taken a node's worth at a time (`_slice_chunks`): each chunk its
 own committed step; the record returned is the last one's, with the batch's readings, its summed NIS and degrees of
 freedom, its standardized innovations and its whole wall time. A chunk that does not commit ends the batch there (the
 earlier chunks stay committed) and its record is returned.
+A fresh joint Gauss--Newton posterior distance below `min(newton_tol, 0.001)`
+also establishes numerical convergence. This accounts for correlations across
+all graph coordinates. `newton_tol` additionally bounds the largest marginal-SD
+step when three stalled trials invoke the numerical-resolution exception.
+The default remains 0.01; zero disables both posterior-relative checks.
+These bounds are independent of coordinate `tol`. Both use fresh derivatives.
 """
-function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; verbose::Bool=false)
-    sm.attach === :slice || return _assimilate_one!(sm, recs; verbose)
+function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; verbose::Bool=false, newton_tol::Float64=ONLINE_NEWTON_TOL)
+    isfinite(newton_tol) && newton_tol >= 0 || throw(ArgumentError("newton_tol must be finite and non-negative"))
+    sm.attach === :slice || return _assimilate_one!(sm, recs; verbose, newton_tol)
     isempty(recs) && throw(ArgumentError("nothing to assimilate"))
     chunks = _slice_chunks(sm, recs)
-    length(chunks) == 1 && return _assimilate_one!(sm, recs; verbose)
+    length(chunks) == 1 && return _assimilate_one!(sm, recs; verbose, newton_tol)
     t0 = time(); nis = 0.0; dof = 0; innov_std = Dict{Symbol,Float64}(); white = NamedTuple[]; last = nothing
     for ch in chunks
-        r = _assimilate_one!(sm, ch; verbose)
+        r = _assimilate_one!(sm, ch; verbose, newton_tol)
         isfinite(r.nis) && (nis += r.nis; dof += r.dof)
         merge!(innov_std, r.innov_std); append!(white, r.innovation_whitened); last = r
         r.committed || return merge(r, (nis=dof > 0 ? nis : NaN, dof=dof, innov_std=innov_std,
@@ -1260,7 +1283,7 @@ leaves (`past`: the smoothed past at the lag, `belief_at`'s fields without the j
 the previous node, re-solved once with the new readings before it goes). A committed arrival feeds the bench's
 accumulator when the smoother carries one.
 """
-function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; verbose::Bool=false)
+function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; verbose::Bool=false, newton_tol::Float64=ONLINE_NEWTON_TOL)
     t0 = time()
     isempty(recs) && throw(ArgumentError("nothing to assimilate"))
     # Validate the whole batch before the first graph mutation. The deep snapshot then makes solver failure
@@ -1312,13 +1335,14 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             white = pc === nothing ? NamedTuple[] : pc.white
         end
         als = (sm.als !== nothing && pc !== nothing) ? _als_pieces(sm, sm.als, pc, t_arr) : nothing
-        tq = time(); r = solve_window!(sm; verbose); _tick!(:solve, time() - tq)
+        tq = time(); r = solve_window!(sm; verbose, newton_tol); _tick!(:solve, time() - tq)
         if !r.converged
             _restore_transaction!(sm, saved)
             sm.n_solves += 1
             b = belief_at(sm)                                            # the belief as it stands (the previous node's); the record's time is the arrival's
             rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
-                            iters=length(r.hist), attempts=r.attempts, converged=false, committed=false, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, wall=time() - t0,
+                            iters=length(r.hist), attempts=r.attempts, converged=false, committed=false, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, newton_tol=newton_tol,
+                            newton_joint_sd=r.newton_joint_sd, joint_tol=r.joint_tol, wall=time() - t0,
                             n_nodes=length(sm.nodes), innovation_whitened=white, resid=nothing, past=nothing))
             return _push_record!(sm, rec)
         end
@@ -1347,7 +1371,8 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             sm.z_sd = sm.split === nothing ? sdz : sdz[sm.split.static]
         end
         rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
-                        iters=length(r.hist), attempts=r.attempts, converged=true, committed=true, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, wall=time() - t0,
+                        iters=length(r.hist), attempts=r.attempts, converged=true, committed=true, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, newton_tol=newton_tol,
+                        newton_joint_sd=r.newton_joint_sd, joint_tol=r.joint_tol, wall=time() - t0,
                         n_nodes=length(sm.nodes), innovation_whitened=white, resid=resid, past=past))
         # Finish graph/covariance work before mutating the accumulator: a failed belief extraction must
         # not leave calibration statistics for an arrival whose graph is rolled back.

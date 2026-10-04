@@ -30,7 +30,12 @@ function stream(tmax)
     return recs
 end
 model = SystemModel(sys, CookLog(t, u; sensors), blk; sn=StateNoise())
-run(recs; kw...) = (sm = online_init(model; lag=typemax(Int), kw...); out = [assimilate!(sm, [r]) for r in recs]; (sm, out))
+function run(recs; accuracy=(1e-10,1e-8), newton_tol=E.ONLINE_NEWTON_TOL, kw...)
+    m = SystemModel(model.sys,model.log,model.blk;sn=model.sn,abstol=accuracy[1],reltol=accuracy[2],
+                    floor_abstol=1e-10,floor_reltol=1e-8)
+    sm = online_init(m;lag=typemax(Int),kw...)
+    return sm, [assimilate!(sm,[r];newton_tol) for r in recs]
+end
 
 @testset "an optional slice-age cap bounds factors even at zero process variance" begin
     recs = stream(600.0)
@@ -73,8 +78,16 @@ end
 
 @testset "with a node at every reading the slice path is the node path" begin
     recs = stream(420.0)
-    sn_, on_ = run(recs; attach=:node, tol=1e-7, ftol=1e-9)
-    ss_, os_ = run(recs; attach=:slice, node_ratio=0.0, tol=1e-7, ftol=1e-9)
+    # This is a strict path-equivalence check. Preserve its noise allowance
+    # while resolving the dynamics accurately enough for tol=1e-7.
+    accuracy=(1e-14,1e-12)
+    # Numerical stationarity is ten times tighter than the posterior comparison
+    # below. It is stated in posterior units, independently of coordinate tol.
+    sn_, on_ = run(recs; attach=:node, tol=1e-7, ftol=1e-9, accuracy, newton_tol=1e-4)
+    ss_, os_ = run(recs; attach=:slice, node_ratio=0.0, tol=1e-7, ftol=1e-9, accuracy, newton_tol=1e-4)
+    @test all(r.committed for r in on_)
+    @test all(r.committed for r in os_)
+    @test all(r.newton_tol == 1e-4 for r in vcat(on_,os_))
     @test length(ss_.nodes) == length(sn_.nodes)
     a, b = on_[end], os_[end]
     @test maximum(abs.(a.z .- b.z) ./ sqrt.(diag(a.z_cov))) < 1e-3
