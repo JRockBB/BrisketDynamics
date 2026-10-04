@@ -17,6 +17,9 @@ from tesseract_jax import apply_tesseract
 jax.config.update("jax_enable_x64", True)
 
 HR = 3600.0
+# PitConfig.a_light: the lit fraction of the bed at lighting (a chimney start of 15-20 lit coals on a full ring), the
+# pit's ignited state for a cook from lighting
+A_LIGHT = 0.15
 
 
 @dataclass(frozen=True)
@@ -69,7 +72,6 @@ ICS_KEYS = (
     "m_pan0",
     "t_pan0",
     "t_firebox0",
-    "wrap_latch0",
     "c_fb",
     "ua_fb",
     "c_duct",
@@ -104,8 +106,9 @@ def coupled_cook(
     n_meat: float = 1.0,
     spritz_dose=0.05,
     t_salt=0.0,
-    t_trig=0.0,
     dt_add=0.0,
+    t_load=-1.0e9,
+    T_load=0.0,
 ):
     """Simulate the coupled pit-brisket system in ONE solve, differentiably.
 
@@ -144,11 +147,13 @@ def coupled_cook(
         Water per spritz per exposed area [kg/m²].
     t_salt : float
         Dry-brine time before the cook [s]; 0 = unsalted.
-    t_trig : float
-        Wrap-trigger core temperature [K] (smooth OR with t_wrap); 0 = off.
     dt_add : float
         Wood-split interval [s] (t_add becomes a pulse train); 0 = single
         addition.
+    t_load, T_load : float
+        The load: time runs from lighting and the pit preheats empty until the meat goes on. ``T_load`` > 0
+        [K] puts it on when the empty pit first reaches that temperature (differentiable); otherwise
+        ``t_load`` [s]; the defaults (``t_load`` = -1e9, ``T_load`` = 0) have the meat in from the start.
     """
     ics = ics or {}
     humidity = humidity or Humidity()
@@ -167,8 +172,9 @@ def coupled_cook(
             "dt_spritz": jnp.asarray(dt_spritz),
             "spritz_dose": jnp.asarray(spritz_dose),
             "t_salt": jnp.asarray(t_salt),
-            "t_trig": jnp.asarray(t_trig),
             "dt_add": jnp.asarray(dt_add),
+            "t_load": jnp.asarray(t_load),
+            "T_load": jnp.asarray(T_load),
             "n_meat": float(n_meat),
             "abstol": abstol,
             "reltol": reltol,
@@ -207,8 +213,9 @@ def coupled_cook_tf(
     n_meat: float = 1.0,
     spritz_dose=0.05,
     t_salt=0.0,
-    t_trig=0.0,
     frac_dt_add=0.0,
+    frac_load=-FRAC_NEVER,
+    T_load=0.0,
 ):
     """`coupled_cook` with the cook duration as a differentiable decision.
 
@@ -246,8 +253,9 @@ def coupled_cook_tf(
             "dt_spritz": jnp.asarray(frac_dt_spritz),
             "spritz_dose": jnp.asarray(spritz_dose),
             "t_salt": jnp.asarray(t_salt),
-            "t_trig": jnp.asarray(t_trig),
             "dt_add": jnp.asarray(frac_dt_add),
+            "t_load": jnp.asarray(frac_load),
+            "T_load": jnp.asarray(T_load),
             "t_f": jnp.asarray(t_f),
             "n_meat": float(n_meat),
             "abstol": abstol,

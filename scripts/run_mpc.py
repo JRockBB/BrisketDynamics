@@ -2,8 +2,8 @@
 
 The plan under defense is the fullplan optimum (data/control/
 fullplan_result.json: pit horizon, wrap, pull, rest), not a freshly derived
-schedule. The calibrated smoker is the plant. At t = 2 h — BEFORE the
-planned wrap — a cold front drops ambient by 15 K, which the controller's
+schedule. The calibrated smoker is the plant. Two hours after the plan's
+meat-on time a cold front drops ambient by 15 K, which the controller's
 model does not know. Every cook runs to SERVE (pull + rest) and quality is
 read there. Compare:
   reference: the assessed plan, no disturbance
@@ -22,8 +22,10 @@ can be redrawn without another cook).
 """
 
 import argparse
+import hashlib
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app" / "src"))
 
 REPO = Path(__file__).resolve().parents[1]
 HR = 3600.0
-T_DIST = 2 * HR  # before the planned ~3.5 h wrap: exercises wrap re-timing
+COLD_FRONT_DELAY = 2 * HR  # measured from the plan's meat-on, not from lighting
 T_AMB_BASE, T_AMB_COLD = 300.0, 285.0
 
 
@@ -62,6 +64,55 @@ TRAJ_KEYS = ("t", "tcore", "tpit", "tsurf", "u")
 METRIC_KEYS = ("doneness", "juiciness", "l_star_end", "smoke_end")
 
 
+def planned_disturbance_time(plan):
+    """One common weather event, two hours after the reference plan's load."""
+    load_h = plan.get("best_t_load_h", plan.get("t_load_h"))
+    if load_h is None:
+        if plan.get("best_T_load") or plan.get("T_load"):
+            raise ValueError(
+                "A preheating plan must record its meat-on time to place the cold front"
+            )
+        load_h = 0.0  # legacy plans start with the meat already on
+    if not np.isfinite(load_h):
+        raise ValueError("The plan's meat-on time must be finite")
+    return float(load_h) * HR + COLD_FRONT_DELAY
+
+
+def _json_default(value):
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f"Cannot serialize {type(value).__name__}")
+
+
+def cached_cook(path, fingerprint, run, fresh=False):
+    """Save each completed cook atomically; reuse only matching inputs/code."""
+    if path.exists() and not fresh:
+        saved = json.loads(path.read_text())
+        if saved["fingerprint"] == fingerprint:
+            print(f"resuming {path.stem} from completed checkpoint", flush=True)
+            result = saved["result"]
+            for key in TRAJ_KEYS:
+                result[key] = np.asarray(result[key])
+            return result
+    t0 = time.perf_counter()
+    result = run()
+    # The demo uses terminal metrics, trajectories and event histories. The
+    # dataclass final_state is only needed to continue a live run_cook.
+    saved = {
+        "fingerprint": fingerprint,
+        "wall_s": time.perf_counter() - t0,
+        "result": {k: v for k, v in result.items() if k != "final_state"},
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(saved, default=_json_default))
+    temp.replace(path)
+    print(f"saved {path.stem} ({saved['wall_s']:.1f} s)", flush=True)
+    return result
+
+
 def traces_path(out_name: str) -> Path:
     """NPZ sidecar next to the result json (mpc_result.json → mpc_result_traces.npz)."""
     p = Path(out_name)
@@ -89,6 +140,8 @@ def save_mpc_traces(path, ref, ol, mp0, mp, t_dist_h, wrap_mode):
         payload[f"{tag}_t_wrap_abs"] = _nan(r.get("t_wrap_abs"))
         payload[f"{tag}_t_wrap_exec_abs"] = _nan(r.get("t_wrap_exec_abs"))
         payload[f"{tag}_t_pull_exec_abs"] = _nan(r.get("t_pull_exec_abs"))
+        payload[f"{tag}_t_load_exec_abs"] = _nan(r.get("t_load_exec_abs"))
+        payload[f"{tag}_T_load"] = _nan(r.get("T_load"))
         payload[f"{tag}_t_add_exec_abs"] = _nan(r.get("t_add_exec_abs"))
         payload[f"{tag}_t_spritz_exec_abs"] = _nan(r.get("t_spritz_exec_abs"))
         payload[f"{tag}_dt_spritz"] = _nan(r.get("dt_spritz"))
@@ -138,6 +191,12 @@ def load_mpc_traces(path):
             else np.nan
         )
         r["t_wrap_exec_abs"] = None if np.isnan(te) else te
+        tl = (
+            float(z[f"{tag}_t_load_exec_abs"])
+            if f"{tag}_t_load_exec_abs" in names
+            else np.nan
+        )
+        r["t_load_exec_abs"] = None if np.isnan(tl) else tl
         tp = (
             float(z[f"{tag}_t_pull_exec_abs"])
             if f"{tag}_t_pull_exec_abs" in names
@@ -161,7 +220,9 @@ def load_mpc_traces(path):
         }
         cooks.append(r)
     meta = {
-        "t_dist_h": float(z["t_dist_h"]) if "t_dist_h" in names else T_DIST / HR,
+        "t_dist_h": float(z["t_dist_h"])
+        if "t_dist_h" in names
+        else COLD_FRONT_DELAY / HR,
         "wrap_mode": bool(int(z["wrap_mode"])) if "wrap_mode" in names else True,
     }
     return cooks, meta
@@ -193,7 +254,7 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
         ax.axvline(t_dist_h, color="steelblue", lw=1, ls="-.")
     ax0 = axes[0]
     ax0.set_ylim(0.0, 100.0)
-    # Sit above the axes: a horizontal box at t = 2 h is ~3 h wide and covers
+    # Sit above the axes: a horizontal box at the front covers
     # the rising traces. Offset points keep this off the data entirely.
     ax0.annotate(
         "cold front (−15 K)",
@@ -291,10 +352,12 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
                 color=color,
                 bbox={"fc": "white", "ec": "none", "alpha": 0.8, "pad": 1},
             )
-    axes[0].set(xlabel="time [h]", ylabel="core [°C]")
-    axes[1].set(xlabel="time [h]", ylabel="pit [°C]", title="pit temperature")
+    axes[0].set(xlabel="time from lighting [h]", ylabel="core [°C]")
+    axes[1].set(
+        xlabel="time from lighting [h]", ylabel="pit [°C]", title="pit temperature"
+    )
     axes[2].set(
-        xlabel="time [h]",
+        xlabel="time from lighting [h]",
         ylabel="damper fraction",
         ylim=(0, 1),
         title="executed schedules (MPC re-plans hourly)",
@@ -321,6 +384,8 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
     # one self-contained column per series, colored like the traces
     for i, (r, (name, _ls, color)) in enumerate(zip(cooks, SERIES, strict=True)):
         tp = r.get("t_pull_exec_abs")
+        tl = r.get("t_load_exec_abs")
+        load_label = f"meat on {tl / HR:.1f} h" if tl is not None else "meat on —"
         ta, ts = r.get("t_add_exec_abs"), r.get("t_spritz_exec_abs")
         fig.text(
             0.14 + i * 0.24,
@@ -329,7 +394,8 @@ def render_mpc_figure(ref, ol, mp0, mp, figure_path, t_dist_h, wrap_mode=True):
             f"J = {r['J_executed']['J']:.2f}\n"
             f"doneness  {r['doneness']:.2f}\n"
             f"juiciness  {r['juiciness']:.2f}"
-            + (f"\npull  {tp / HR:.1f} h" if tp is not None else "")
+            + f"\n{load_label}"
+            + (f" / pull {tp / HR:.1f} h" if tp is not None else "")
             + (f"\nchimney  {ta / HR:.1f} h" if _fired_add(r) else "\nchimney  none")
             + (
                 f"\nspritz  from {ts / HR:.1f} h, every {(r.get('dt_spritz') or 0.0) / 60:.0f} min"
@@ -353,7 +419,7 @@ def main():
     Loads the ASSESSED optimal cook (fullplan json) as the plan under
     defense, then runs four cooks against the plant, each pulled and rested
     to serve: a reference with no cold front, the plan executed open-loop
-    through the t = 2 h ambient drop, and MPC (with and without the front)
+    through the ambient drop two hours after meat-on, and MPC (with and without the front)
     re-planning schedule + wrap + pull hourly from measured state. Prints
     the quality at serve of each, writes data/control/mpc_result.json, and
     renders figures/control/mpc_demo.png.
@@ -377,10 +443,23 @@ def main():
         default=12.0,
         help="dry-brine hours before the cook (overnight rub; 0 = unsalted)",
     )
-    ap.add_argument("--tpit0-K", type=float, default=293.15, help="pit temperature at the start [K]")
-    ap.add_argument("--t0-meat-K", type=float, default=281.15, help="meat temperature at the start [K]")
+    ap.add_argument(
+        "--tpit0-K",
+        type=float,
+        default=300.0,
+        help="pit temperature at lighting [K] (ambient)",
+    )
+    ap.add_argument(
+        "--t0-meat-K",
+        type=float,
+        default=281.15,
+        help="meat temperature at the start [K]",
+    )
     ap.add_argument("--figure", default="mpc_demo.png")
     ap.add_argument("--out", default="mpc_result.json")
+    ap.add_argument(
+        "--fresh", action="store_true", help="ignore completed-cook checkpoints"
+    )
     ap.add_argument(
         "--replot",
         action="store_true",
@@ -421,13 +500,14 @@ def main():
     mpc.set_clients(monolith_client())
     print(f"plant: {params_path.name}", flush=True)
 
-    cold_front = lambda t: T_AMB_COLD if t >= T_DIST else T_AMB_BASE
     no_dist = lambda t: T_AMB_BASE
     cc = ControlConfig(opt_wrap=True)
 
     # the plan under defense (fullplan scan json)
     plan_path = REPO / "data" / "control" / (args.plan or "fullplan_result.json")
     b = json.loads(plan_path.read_text())
+    t_dist = planned_disturbance_time(b)
+    cold_front = lambda t: T_AMB_COLD if t >= t_dist else T_AMB_BASE
     T_F = float(b["best_t_f_h"] if "best_t_f_h" in b else b["t_f_h"]) * HR
     t_wrap_star = (
         float(b["best_t_wrap_h"] if "best_t_wrap_h" in b else b["t_wrap_h"]) * HR
@@ -446,7 +526,11 @@ def main():
         else None
     )
     print(f"using plan {plan_path.name}")
+    print(f"cold front: {t_dist / HR:.2f} h from lighting (2 h after planned meat-on)")
     ics_kw = {"tpit0": args.tpit0_K, "t0_meat": args.t0_meat_K}
+    # the plan's load temperature: open-loop loads when its pit reaches it, MPC re-decides it until the meat is on
+    T_LOAD = b.get("best_T_load") or b.get("T_load")
+    T_LOAD = float(T_LOAD) if T_LOAD else None
     # a chimney after the pull, or a spritz after the wrap or the pull, never fires
     adds = T_ADD is not None and T_ADD < (T_PULL or T_F)
     spritzes = T_SPRITZ is not None and T_SPRITZ < min(t_wrap_star, T_PULL or T_F)
@@ -463,7 +547,8 @@ def main():
             if spritzes
             else ", no spritz"
         )
-        + f", serve at {T_F / HR:.1f} h, "
+        + (f", meat on at a pit of {T_LOAD - 273.15:.0f} C" if T_LOAD else "")
+        + f", serve at {T_F / HR:.1f} h from lighting, "
         f"u in [{u0_plan.min():.2f}, {u0_plan.max():.2f}]"
     )
     pull_kw = {
@@ -473,10 +558,34 @@ def main():
         "dt_spritz_init": DT_SPRITZ,
         "spritz_dose_init": SPRITZ_DOSE,
         "t_salt": args.t_salt_h * HR,
+        "T_load_init": T_LOAD,
     }
+    digest = hashlib.sha256()
+    for path in [
+        Path(__file__),
+        plan_path,
+        params_path,
+        *sorted((REPO / "src").rglob("*.jl")),
+        *sorted((REPO / "app/src/brisket_app").glob("*.py")),
+        REPO / "tesseracts/monolith/tesseract_api.py",
+    ]:
+        digest.update(path.read_bytes())
+    digest.update(
+        json.dumps(
+            {"pull": pull_kw, "ics": ics_kw, "t_dist": t_dist}, sort_keys=True
+        ).encode()
+    )
+    fingerprint = digest.hexdigest()
+
+    def run_one(tag, *pos, **kw):
+        path = REPO / "scratchpad/regen" / Path(args.out).stem / f"{tag}.json"
+        return cached_cook(
+            path, fingerprint, lambda: mpc.run_cook(*pos, **kw), fresh=args.fresh
+        )
 
     print("reference (no disturbance):")
-    ref = mpc.run_cook(
+    ref = run_one(
+        "reference",
         theta,
         phi,
         no_dist,
@@ -489,10 +598,12 @@ def main():
         **ics_kw,
     )
     print("open-loop through the cold front:")
-    ol = mpc.run_cook(
+    ol = run_one(
+        "openloop",
         theta,
         phi,
         cold_front,
+        plant_tstops=(t_dist,),
         t_f=T_F,
         mode="openloop",
         u_openloop=u0_plan,
@@ -502,7 +613,8 @@ def main():
         **ics_kw,
     )
     print("MPC, NO disturbance (discriminator: plan-refinement vs weather):")
-    mp0 = mpc.run_cook(
+    mp0 = run_one(
+        "mpc_nominal",
         theta,
         phi,
         no_dist,
@@ -517,10 +629,12 @@ def main():
         **ics_kw,
     )
     print("MPC through the cold front:")
-    mp = mpc.run_cook(
+    mp = run_one(
+        "mpc",
         theta,
         phi,
         cold_front,
+        plant_tstops=(t_dist,),
         t_f=T_F,
         mode="mpc",
         model_t_amb=T_AMB_BASE,
@@ -573,7 +687,18 @@ def main():
             )
         )
         print(f"    components: {jj}")
-        sr = safety_report(r["tsurf"], r["tcore"], r["t"], cc)
+        if r.get("t_load_exec_abs") is not None:
+            print(
+                f"    meat on at {r['t_load_exec_abs'] / HR:.2f} h "
+                f"(load temperature {r['T_load'] - 273.15:.0f} C)"
+            )
+        else:
+            print(
+                "    the meat never went on (the pit never reached the load temperature)"
+            )
+        sr = safety_report(
+            r["tsurf"], r["tcore"], r["t"], cc, t_load=r.get("t_load_exec_abs")
+        )
         print(
             f"    safety: surface F={sr['F_s']:.3g}s come-up={sr['cut_h']:.2f}h; "
             f"core F={sr['F_core']:.3g}s come-up={sr['cut_h_core']:.2f}h; ok={sr['ok']}"
@@ -595,6 +720,21 @@ def main():
                     for k in ("doneness", "juiciness", "l_star_end", "smoke_end")
                 },
                 **{
+                    f"t_load_h_{tag}": (
+                        r["t_load_exec_abs"] / HR
+                        if r.get("t_load_exec_abs") is not None
+                        else None
+                    )
+                    for tag, r in [
+                        ("reference", ref),
+                        ("openloop", ol),
+                        ("mpc_nominal", mp0),
+                        ("mpc", mp),
+                    ]
+                },
+                "T_load_plan": T_LOAD,
+                "T_load_mpc": mp.get("T_load"),
+                **{
                     f"J_{tag}": r["J_executed"]
                     for tag, r in [
                         ("reference", ref),
@@ -603,7 +743,9 @@ def main():
                         ("mpc", mp),
                     ]
                 },
-                "t_disturbance_h": T_DIST / HR,
+                "t_disturbance_h": t_dist / HR,
+                "replan_history_nominal": mp0.get("replan_history", []),
+                "replan_history_mpc": mp.get("replan_history", []),
                 "dT_amb": T_AMB_BASE - T_AMB_COLD,
                 "params": args.params,
                 "plan": args.plan or "fullplan_result.json",
@@ -666,7 +808,7 @@ def main():
     )
 
     traces = traces_path(args.out)
-    save_mpc_traces(traces, ref, ol, mp0, mp, t_dist_h=T_DIST / HR, wrap_mode=wrap_mode)
+    save_mpc_traces(traces, ref, ol, mp0, mp, t_dist_h=t_dist / HR, wrap_mode=wrap_mode)
     print(f"wrote {traces.relative_to(REPO)}")
     render_mpc_figure(
         ref,
@@ -674,7 +816,7 @@ def main():
         mp0,
         mp,
         REPO / "figures" / "control" / args.figure,
-        t_dist_h=T_DIST / HR,
+        t_dist_h=t_dist / HR,
         wrap_mode=wrap_mode,
     )
     print(f"wrote figures/control/{args.figure}")

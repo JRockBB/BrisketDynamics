@@ -103,3 +103,29 @@ def test_pull_rests_to_serve(case):
     )
     assert rep2["radius_source"].startswith("equivalent")
     assert rep2["radius_m"] == pytest.approx(0.1382, abs=2e-3)
+
+
+def test_smoke_and_fuel_addition(case):
+    """The burn smokes every face (deposition, ring, L*), and t_add is a
+    differentiable input: the chimney feeds the fuel and its lid lift
+    costs the pit."""
+    tx, inputs, grids = case
+    base = tx.apply(inputs)
+    assert 0.0 < float(base["smoke_mean"]) < 1.0
+    assert float(base["ring_mean"]) > 0.0
+    assert float(base["l_star_mean"]) < 52.0  # darker than the raw rub
+    assert float(base["bitterness"]) >= 0.0
+    assert 0.0 < float(base["fat_rendered"]) < 1.0  # fat renders per node
+    assert float(base["juiciness"]) > float(base["w_retained"])
+    t_add = 0.75 * HR
+    added = tx.apply({**inputs, "t_add": t_add})
+    m0, m1 = np.asarray(base["m_fuel"]), np.asarray(added["m_fuel"])
+    assert m1[-1] > m0[-1] + 0.5  # one chimney is 1.4 kg
+    i = int(np.searchsorted(grids.tknots, t_add))
+    assert float(np.asarray(added["tpit"])[i]) < float(np.asarray(base["tpit"])[i])
+    J = tx.jacobian({**inputs, "t_add": t_add}, ["t_add", "dt_add"],
+                    ["m_fuel", "smoke_mean"])
+    assert np.asarray(J["m_fuel"]["t_add"]).shape == (grids.nt,)
+    assert np.all(np.isfinite(np.asarray(J["m_fuel"]["t_add"])))
+    assert np.max(np.abs(np.asarray(J["m_fuel"]["t_add"]))) > 0
+    assert np.ndim(J["smoke_mean"]["dt_add"]) == 0

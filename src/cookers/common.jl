@@ -32,6 +32,8 @@ Base.@kwdef struct PitConfig
     UA_open::Float64 = 110.0     # lid-open loss coefficient [W/K]
     τ_open_add::Float64 = 120.0  # lid open to dump a chimney [s]
     τ_open_spritz::Float64 = 30.0  # lid open per spritz [s]
+    τ_open_load::Float64 = 180.0  # lid open to put the meat on [s]
+    a_light::Float64 = 0.15       # lit fraction of the bed at lighting (a chimney of lit coals on it)
     # Electric source mode: when > 0 the heat input is p_heater·u (the
     # damper input becomes the element duty) and NOTHING burns — no fuel
     # loss, no combustion water, no smoke, so bark deposition and the

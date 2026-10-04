@@ -69,10 +69,10 @@ function ALSFeed(model::SystemModel; lag_s::Float64=7200.0, bin_s::Float64=120.0
 end
 
 # Adaptive ODE solves cease to give a repeatable descent signal below roughly five parts in ten thousand
-# in the solver's diagonal Gauss--Newton coordinate. This is not a general convergence tolerance: it is
+# in the solver's scaled Gauss--Newton coordinate. This is not a general convergence tolerance: it is
 # consulted only after three complete Armijo failures at one point, and the stricter `tol` still governs
-# ordinary stationary solves. The two-piece adversarial gate leaves a resolvable 7.8e-4 displacement at
-# arrival 12 (which must restart) and a repeatably unresolvable 4.63e-4 displacement at arrival 13.
+# ordinary stationary solves. This envelope was originally measured with diagonal scaling;
+# the coupled displacement check is stricter in correlated directions and must pass the regression gates.
 const ONLINE_ODE_RESOLUTION_GTOL = 5e-4
 # the joint stationarity rescue of a stalled solve (gauss_newton!'s `newton_tol`), on the final attempt only: a point three
 # complete line searches could not leave, whose undamped step at an exact relinearization is under this many posterior sds,
@@ -143,6 +143,7 @@ mutable struct FixedLagSmoother
     slice_recs::Dict{VarKey,Vector{MeasurementRecord}}      # :slice: per anchor node its uncensored readings
     slice_G::Dict{Tuple{Symbol,Float64},Vector{Float64}}    # :slice: per reading (sensor, time) its sensitivity, fixed at first sight
     node_ratio::Float64                                     # :slice: a new node when the process variance a reading sees exceeds this times its measurement variance
+    max_slice_s::Float64                                    # :slice: an optional age cap; Inf preserves variance-only placement
     slice_rd::Dict{Tuple{Symbol,Float64},SliceReading}      # :slice: per reading its compiled form
     lag_max::Int                                            # the window may hold up to this many nodes behind the newest while the latents still move
     settle_tol::Float64                                     # a node may leave once the latents moved less than this many posterior sds since its first solve
@@ -190,7 +191,8 @@ Advance the immutable execution record used by future factors. Existing factors 
 function update_execution!(sm::FixedLagSmoother; u=sm.model.log.u, events=sm.model.log.events)
     old = sm.model
     log = with_execution(old.log; u, events)
-    sm.model = SystemModel(old.sys, log, old.blk; sn=old.sn, abstol=old.abstol, reltol=old.reltol, rom=old.rom)
+    sm.model = SystemModel(old.sys, log, old.blk; sn=old.sn, abstol=old.abstol, reltol=old.reltol, rom=old.rom,
+                           floor_abstol=old.floor_abstol, floor_reltol=old.floor_reltol)
     return sm
 end
 
@@ -209,18 +211,21 @@ arrival. `relin_tol` and `relin_tol_state` are the dynamics factors' relineariza
 the node's move). `drift = (moving, sd_per_hour, jumps)` makes the latents `moving` a copy per window node tied to
 the previous node's by a random walk of `sd_per_hour` (each in its coordinate) with `jumps = [(index, t, sd)]` added
 on the slice crossing `t`; the rest stay one static block (`LatentSplit`). A cook with a hierarchy cannot drift.
+For `attach=:slice`, `max_slice_s` optionally creates a node at the first reading at least that long after
+the current anchor. It bounds dense slice factors when process rates are tiny; `Inf` (the default) disables it.
 """
 function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=3, iters::Int=40, restarts::Int=1, tol::Float64=1e-4,
                      ftol::Float64=1e-2, latent_step::Float64=0.25, goals::PlanGoals=PlanGoals(), graph::FactorGraph=FactorGraph(),
                      cook::Symbol=:cook, hierarchy=nothing, record_limit::Int=256, als::Union{Nothing,ALSFeed}=nothing,
                      relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol, drift=nothing, attach::Symbol=:node, node_ratio::Float64=1.0,
-                     lag_max::Int=lag, settle_tol::Float64=0.1, prior_relin::Float64=Inf)
+                     lag_max::Int=lag, settle_tol::Float64=0.1, prior_relin::Float64=Inf, max_slice_s::Float64=Inf)
     attach in (:node, :slice) || throw(ArgumentError("attach must be :node or :slice, not $attach"))
     attach === :slice && als !== nothing && throw(ArgumentError("the ALS accumulator reads one node per arrival; it is not built for :slice"))
     lag >= 0 || throw(ArgumentError("the lag counts nodes kept behind the newest; it cannot be negative"))
     iters >= 0 || throw(ArgumentError("iters cannot be negative"))
     restarts >= 0 || throw(ArgumentError("restarts cannot be negative"))
     record_limit >= 0 || throw(ArgumentError("record_limit cannot be negative"))
+    max_slice_s > 0 || throw(ArgumentError("max_slice_s must be positive (Inf disables the age cap)"))
     g = graph
     blk = model.blk; bl = model.bl
     z0 = [z_moments(p)[1] for p in blk.sites]
@@ -290,7 +295,7 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                             ObservationFactor[], lag, iters, restarts, tol, ftol, latent_step, relin_tol, relin_tol_state, goals, past, Float64(t0), NamedTuple[],
                             record_limit, 0, 0, als, split, drift_q, drift_jumps, Dict{Tuple{VarKey,VarKey},HierarchyFactor}(),
                             attach, Dict{VarKey,SliceObservationFactor}(), Dict{VarKey,Vector{MeasurementRecord}}(),
-                            Dict{Tuple{Symbol,Float64},Vector{Float64}}(), node_ratio, Dict{Tuple{Symbol,Float64},SliceReading}(),
+                            Dict{Tuple{Symbol,Float64},Vector{Float64}}(), node_ratio, max_slice_s, Dict{Tuple{Symbol,Float64},SliceReading}(),
                             max(lag_max, lag), settle_tol, Float64[], Dict{VarKey,Vector{Float64}}(),
                             prior_relin, Factor[], Dict{VarKey,Vector{Float64}}(), Float64[], 0)
 end
@@ -564,10 +569,27 @@ Nothing is solved here.
 function add_measurement!(sm::FixedLagSmoother, rec::MeasurementRecord)
     spec = sensor(sm.model.log, rec.sensor)
     rec.t >= sm.nodes[1][1] - 1e-9 || throw(ArgumentError("a sample at $(rec.t) s precedes the window's oldest node"))
-    ky = _node_at!(sm, rec.t)
+    touched = Set{VarKey}()
+    ky = if sm.attach === :slice
+        # A node-backed reading (in particular a censored one) cuts the same
+        # process and OU bridges as a variance/event node. Inserting only the
+        # state left the preceding factor open and lost its endpoint correlation.
+        for te in _event_times(sm.model.log, sm.nodes[end][1], rec.t)
+            _slice_new_node!(sm, te, touched)
+        end
+        any(abs(tn - rec.t) < 1e-6 for (tn, _) in sm.nodes) ?
+            _node_at!(sm, rec.t) : _slice_new_node!(sm, rec.t, touched)
+    else
+        _node_at!(sm, rec.t)
+    end
     kd = _disc_at!(sm, spec, rec.t)
     f = ObservationFactor(sm.model, spec, rec, sm.key_z, ky, kd; key_m=_key_m(sm, ky), split=sm.split)
     add_factor!(sm.graph, f); push!(sm.obs, f)
+    if !isempty(touched)
+        for (_, ka) in sm.nodes
+            ka in touched && _rebuild_slice!(sm, ka)
+        end
+    end
     return f
 end
 
@@ -659,7 +681,7 @@ end
 Uncensored readings into the window through the physics, in time order: a node at every lid-open event since the newest
 node; a new node at a reading when the process noise it would see from the newest node (its channel's sensitivity through
 the state's process covariance over the gap) exceeds `node_ratio` times its own measurement variance (the white floor and
-the OU discrepancy's); otherwise it joins the newest node's open slice. A delayed reading joins the closed slice it falls
+the OU discrepancy's), or its age reaches `max_slice_s`; otherwise it joins the newest node's open slice. A delayed reading joins the closed slice it falls
 in. Every slice the batch touched is rebuilt once at the end. The node rule's sensitivities come from ONE solve from the
 newest node over the batch's times.
 """
@@ -681,7 +703,7 @@ function _add_slice_readings!(sm::FixedLagSmoother, recs::AbstractVector{Measure
                 g = slice_sensitivity(sm.model, _slice_reading(sm, rec), Y[rec.t], z)
                 Q = belief_process_cov(sm.model.bl, sm.model.sn, (rec.t - tn) / 3600)
                 v_meas = spec.noise.white_sd^2 + (has_discrepancy(spec.noise) ? spec.noise.ar_sd^2 : 0.0)
-                dot(g, Q * g) > sm.node_ratio * v_meas && _slice_new_node!(sm, rec.t, touched)
+                (rec.t - tn >= sm.max_slice_s || dot(g, Q * g) > sm.node_ratio * v_meas) && _slice_new_node!(sm, rec.t, touched)
             end
         end
         ka = sm.nodes[findlast(x -> x[1] <= rec.t + 1e-9, sm.nodes)][2]
@@ -708,16 +730,28 @@ function _slice_new_node!(sm::FixedLagSmoother, t::Float64, touched::Set{VarKey}
     return kn
 end
 
+function _whitened_innovations(ν, S, ids, times)
+    isempty(ν) && return NamedTuple[]
+    # A batch's marginally standardized rows are correlated. Whiten in
+    # chronological order to expose sequential conditional innovations.
+    order = sortperm(eachindex(ν); by=i -> (times[i], string(ids[i])))
+    w = cholesky(Symmetric(S[order, order])).L \ ν[order]
+    return [(t=Float64(times[i]), sensor=ids[i], value=w[j]) for (j, i) in enumerate(order)]
+end
+
 """
-    _predicted_consistency_slice(sm, added) -> NamedTuple
+    _predicted_consistency_slice(sm, added; exclude=Factor[]) -> NamedTuple
 
 The arrival's readings against the belief before them, in the slice factors they joined: per slice, the new readings'
 innovation conditioned on the slice's earlier readings' (their noise is joint), `ν = v_new − μ_new − K (v_old − μ_old)`
 with `K = Σ_no Σ_oo⁻¹`, its rows `H = ∂μ_new − K ∂μ_old` over the factor's variables, and `S = H C Hᵀ + Σ_nn − K Σ_on`
 with `C` the joint covariance of those variables in the graph holding the slices WITHOUT the new readings. Summed over the
-slices the arrival touched.
+slices the arrival touched. `exclude` holds other observation factors from this same arrival, including capped
+readings: they must not inform the pre-update covariance. `white` retains every innovation, whitened in
+chronological order within the batch.
 """
-function _predicted_consistency_slice(sm::FixedLagSmoother, added::Vector{Tuple{VarKey,Vector{MeasurementRecord}}})
+function _predicted_consistency_slice(sm::FixedLagSmoother, added::Vector{Tuple{VarKey,Vector{MeasurementRecord}}};
+                                      exclude::AbstractVector{<:Factor}=Factor[])
     g = sm.graph
     parts = NamedTuple[]
     for (ka, newrecs) in added
@@ -726,7 +760,14 @@ function _predicted_consistency_slice(sm::FixedLagSmoother, added::Vector{Tuple{
         N = findall(isnew); O = findall(.!isnew)
         push!(parts, (f=f, N=N, O=O, fo=_slice_subset(f, O)))
     end
-    swapped = [(findfirst(x -> x === pt.f, g.factors), pt.f, pt.fo) for pt in parts]
+    swapped = Tuple{Int,Factor,Union{Nothing,Factor}}[
+        (something(findfirst(x -> x === pt.f, g.factors)), pt.f, pt.fo) for pt in parts]
+    for f in exclude
+        pos = findfirst(x -> x === f, g.factors)
+        pos === nothing && throw(ArgumentError("an excluded arrival factor is not in the graph"))
+        any(s -> s[1] == pos, swapped) && throw(ArgumentError("an arrival factor cannot be excluded twice"))
+        push!(swapped, (pos, f, nothing))
+    end
     keys = VarKey[]
     for pt in parts, k in vars(pt.f)
         k in keys || push!(keys, k)
@@ -741,7 +782,7 @@ function _predicted_consistency_slice(sm::FixedLagSmoother, added::Vector{Tuple{
             fo === nothing ? insert!(g.factors, pos, f) : (g.factors[pos] = f)
         end
     end
-    ν = Float64[]; Hs = Matrix{Float64}[]; Ns = Matrix{Float64}[]; ids = Symbol[]
+    ν = Float64[]; Hs = Matrix{Float64}[]; Ns = Matrix{Float64}[]; ids = Symbol[]; times = Float64[]
     for pt in parts
         f = pt.f; N, O = pt.N, pt.O
         vals = [variable_value(g, k) for k in vars(f)]
@@ -760,6 +801,7 @@ function _predicted_consistency_slice(sm::FixedLagSmoother, added::Vector{Tuple{
             push!(Ns, f.Σ[N, N] .- Kg * f.Σ[O, N])
         end
         append!(ids, [f.readings[i].spec.id for i in N])
+        append!(times, [f.readings[i].t for i in N])
     end
     H = reduce(vcat, Hs)
     Rn = zeros(length(ν), length(ν)); o = 0
@@ -768,7 +810,8 @@ function _predicted_consistency_slice(sm::FixedLagSmoother, added::Vector{Tuple{
     end
     S = Matrix(Symmetric(H * C * H' + Rn))
     sdev = sqrt.(max.(diag(S), 1e-300))
-    return (nis=isempty(ν) ? NaN : dot(ν, S \ ν), dof=length(ν), nu=ν, sdev=sdev, ids=ids)
+    white = _whitened_innovations(ν, S, ids, times)
+    return (nis=isempty(ν) ? NaN : sum(abs2(r.value) for r in white), dof=length(ν), nu=ν, sdev=sdev, ids=ids, white=white)
 end
 
 """
@@ -877,8 +920,10 @@ function solve_window!(sm::FixedLagSmoother; verbose::Bool=false)
     measured_resolution_gtol = _online_resolution_gtol(sm)
     for attempt in 1:(sm.restarts + 1)
         attempts = attempt
-        # Preserve permutation accuracy by exhausting fresh-damping solves under the narrow generic
-        # resolution gate. Only the final configured attempt may use the measured adaptive-ODE
+        # Preserve permutation accuracy with fresh-damping solves under the narrow generic
+        # resolution gate. A stalled point already inside the posterior-step envelope can request
+        # its restart early instead of exhausting the budget at the same mean. Only the final
+        # configured attempt may accept under the measured adaptive-ODE
         # envelope; this keeps a resolvable 4e-4 stall from becoming a different accepted posterior
         # merely because a system's pieces changed order.
         resolution_gtol = attempt == sm.restarts + 1 ?
@@ -889,6 +934,7 @@ function solve_window!(sm::FixedLagSmoother; verbose::Bool=false)
         end
         rc = gauss_newton!(sm.graph; iters=sm.iters, tol=sm.tol, ftol=sm.ftol, verbose,
                            resolution_gtol, newton_tol=attempt == sm.restarts + 1 ? ONLINE_NEWTON_TOL : 0.0,
+                           restart_newton_tol=attempt < sm.restarts + 1 ? ONLINE_NEWTON_TOL : 0.0,
                            step_bounds=bounds, stationarity_scales, expand=ONLINE_EXPAND[])
         append!(all_hist, (merge(h, (attempt=attempt,)) for h in rc.hist))
         r = rc
@@ -1018,7 +1064,8 @@ function _predicted_consistency(sm::FixedLagSmoother, fs::AbstractVector{Observa
     end
     S = Matrix(Symmetric(H * C * H' + I))
     sdev = sqrt.(max.(diag(S), 1e-12))
-    return (nis=p == 0 ? NaN : dot(ν, S \ ν), dof=p, S=S, nu=ν, sdev=sdev, H=H, C=C, off=off, live=live)
+    white = _whitened_innovations(ν, S, [f.spec.id for f in live], [f.t for f in live])
+    return (nis=p == 0 ? NaN : sum(abs2(r.value) for r in white), dof=p, S=S, nu=ν, sdev=sdev, H=H, C=C, off=off, live=live, white=white)
 end
 
 # the accumulator's reading of one arrival in the feed's frame [latents; newest node; each discrepancy sensor's
@@ -1164,7 +1211,7 @@ function _slice_chunks(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRec
         g = slice_sensitivity(sm.model, _slice_reading(sm, r), Y[r.t], z)
         Q = belief_process_cov(sm.model.bl, sm.model.sn, (r.t - tcur) / 3600)
         v_meas = spec.noise.white_sd^2 + (has_discrepancy(spec.noise) ? spec.noise.ar_sd^2 : 0.0)
-        dot(g, Q * g) > sm.node_ratio * v_meas && (push!(bounds, r.t); tcur = r.t)
+        (r.t - tcur >= sm.max_slice_s || dot(g, Q * g) > sm.node_ratio * v_meas) && (push!(bounds, r.t); tcur = r.t)
     end
     chunks = [MeasurementRecord[] for _ in 0:length(bounds)]
     for r in rs
@@ -1187,15 +1234,16 @@ function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecor
     isempty(recs) && throw(ArgumentError("nothing to assimilate"))
     chunks = _slice_chunks(sm, recs)
     length(chunks) == 1 && return _assimilate_one!(sm, recs; verbose)
-    t0 = time(); nis = 0.0; dof = 0; innov_std = Dict{Symbol,Float64}(); last = nothing
+    t0 = time(); nis = 0.0; dof = 0; innov_std = Dict{Symbol,Float64}(); white = NamedTuple[]; last = nothing
     for ch in chunks
         r = _assimilate_one!(sm, ch; verbose)
-        r.committed || return merge(r, (wall=time() - t0, chunks=length(chunks)))
         isfinite(r.nis) && (nis += r.nis; dof += r.dof)
-        merge!(innov_std, r.innov_std); last = r
+        merge!(innov_std, r.innov_std); append!(white, r.innovation_whitened); last = r
+        r.committed || return merge(r, (nis=dof > 0 ? nis : NaN, dof=dof, innov_std=innov_std,
+            innovation_whitened=white, wall=time() - t0, chunks=length(chunks)))
     end
     return merge(last, (sensors=[x.sensor for x in recs], nis=dof > 0 ? nis : NaN, dof=dof, innov_std=innov_std,
-                        wall=time() - t0, chunks=length(chunks)))
+                        innovation_whitened=white, wall=time() - t0, chunks=length(chunks)))
 end
 
 """
@@ -1243,7 +1291,7 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
                 ka = sm.nodes[findlast(x -> x[1] <= r.t + 1e-9, sm.nodes)][2]
                 push!(get!(added, ka, MeasurementRecord[]), r)
             end
-            tq = time(); pcs = isempty(added) ? nothing : _predicted_consistency_slice(sm, [(k, v) for (k, v) in added]); _tick!(:nis, time() - tq)
+            tq = time(); pcs = isempty(added) ? nothing : _predicted_consistency_slice(sm, [(k, v) for (k, v) in added]; exclude=fs); _tick!(:nis, time() - tq)
             pco = isempty(fs) ? nothing : _predicted_consistency(sm, fs)
             nis = (pcs === nothing ? 0.0 : pcs.nis) + (pco === nothing ? 0.0 : pco.nis)
             dof = (pcs === nothing ? 0 : pcs.dof) + (pco === nothing ? 0 : pco.dof)
@@ -1252,6 +1300,7 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             pcs === nothing || for (i, id) in enumerate(pcs.ids); innov_std[id] = pcs.nu[i] / pcs.sdev[i]; end
             pco === nothing || for (i, f) in enumerate(pco.live); innov_std[f.spec.id] = pco.nu[i] / pco.sdev[i]; end
             innov = Dict{Symbol,Float64}(id => v for (id, v) in innov_std)
+            white = vcat(pcs === nothing ? NamedTuple[] : pcs.white, pco === nothing ? NamedTuple[] : pco.white)
             pc = nothing
         else
             fs = [add_measurement!(sm, r) for r in recs]
@@ -1260,6 +1309,7 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             nis = pc === nothing ? NaN : pc.nis
             dof = pc === nothing ? 0 : pc.dof
             innov_std = pc === nothing ? Dict{Symbol,Float64}() : Dict(f.spec.id => pc.nu[i] / pc.sdev[i] for (i, f) in enumerate(pc.live))
+            white = pc === nothing ? NamedTuple[] : pc.white
         end
         als = (sm.als !== nothing && pc !== nothing) ? _als_pieces(sm, sm.als, pc, t_arr) : nothing
         tq = time(); r = solve_window!(sm; verbose); _tick!(:solve, time() - tq)
@@ -1269,7 +1319,7 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             b = belief_at(sm)                                            # the belief as it stands (the previous node's); the record's time is the arrival's
             rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
                             iters=length(r.hist), attempts=r.attempts, converged=false, committed=false, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, wall=time() - t0,
-                            n_nodes=length(sm.nodes), resid=nothing, past=nothing))
+                            n_nodes=length(sm.nodes), innovation_whitened=white, resid=nothing, past=nothing))
             return _push_record!(sm, rec)
         end
         resid = _residual_power(sm, fs, t_arr)
@@ -1298,7 +1348,7 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
         end
         rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
                         iters=length(r.hist), attempts=r.attempts, converged=true, committed=true, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, wall=time() - t0,
-                        n_nodes=length(sm.nodes), resid=resid, past=past))
+                        n_nodes=length(sm.nodes), innovation_whitened=white, resid=resid, past=past))
         # Finish graph/covariance work before mutating the accumulator: a failed belief extraction must
         # not leave calibration statistics for an arrival whose graph is rolled back.
         als === nothing || als_update!(sm.als.acc, als.F, als.dQ, als.H, als.S, als.K, als.e, als.rowch, t_arr; dR=als.dR)

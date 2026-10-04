@@ -36,10 +36,11 @@ pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"])
 prior_json = JSON.parsefile(joinpath(REPO, "data", "calibration", prior_file))
 prior_phys = read_sites(prior_json["prior"]); phys_names = String.(prior_json["names"])
 ev = m["events"]
-# the geometry: the prior's central half-thickness, a flat's footprint; no shrinkage on either side (the grid piece's contract)
+# the geometry: the prior's central half-thickness, a flat's footprint; the shipped physics on both sides (the grid
+# piece shrinks per node since 2026-10-01, the slab in its material coordinate)
 L_fom = from_z(z_moments(prior_phys[4])[1], prior_phys[4])
 Ly, Lz = 0.30, 0.40
-cfg = MeatConfig(; nx=NX, n_shrink=0.0, T0=Float64(meta["tcore0_K"]), A_meat=Ly * Lz)
+cfg = MeatConfig(; nx=NX, T0=Float64(meta["tcore0_K"]), A_meat=Ly * Lz)
 fom = Brick3D(:b; Lx=L_fom, Ly, Lz, nx=6, ny=4, nz=5, exposed=(false, true, true, true, true, true), cfg)
 rom_piece = Slab1D(:b; cfg)
 sys_fom = CookSystem(fom; pit); sys_rom = CookSystem(rom_piece; pit)
@@ -48,7 +49,9 @@ prior_rom[4] = PriorSite("lognormal", log(L_fom), prior_phys[4].p2)             
 blk = system_latents(sys_rom, prior_rom, phys_names; area=false)
 z0 = [z_moments(p)[1] for p in blk.sites]
 rng = MersenneTwister(5000 + seed)
-design = vcat([copy(z0)], [draw_truth(rng, blk.sites) for _ in 1:n_design])
+# a covering design (a Latin hypercube over the prior's 0.1 %–99.9 % quantiles of every latent), so the artifact's
+# envelope is the prior's bulk rather than the extremes a few random draws reach; the prior centre first
+design = vcat([copy(z0)], covering_design(blk.sites, n_design; rng))
 heldout = [draw_truth(rng, blk.sites) for _ in 1:n_heldout]
 # the regimes: the mock's cook; the damper perturbed with the wrap an hour earlier; held out, another perturbation with the wrap an hour later and the spritz train denser
 t_wrap, t_add, t_spritz, dt_spritz, m_spritz = Float64(ev["t_wrap"]), Float64(ev["t_add"]), Float64(ev["t_spritz"]), Float64(ev["dt_spritz"]), Float64(ev["m_spritz"])

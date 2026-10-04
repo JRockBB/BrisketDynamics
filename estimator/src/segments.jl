@@ -7,8 +7,7 @@
 # monolith takes the meat fields, the bark and ring states and the salt field as initial conditions
 # (`T0f`, `W0f`, `C0f`, `F0f`, `B0`, `S0`, `R0`, `Ssalt0f`) and the pit's state through its config
 # and the pit's state as solver keywords (`Tpit0`, `mfuel0`, `mpan0`, `Tpan0`, `Tfb0`), the ignited fraction
-# through `a0` (φ[7], the only place a0 acts); the state-triggered wrap latch is not carried (the wrap here is
-# a time). Every handed-off quantity may be a ForwardDiff Dual, so a segmented cook differentiates. Event times stay absolute, so a
+# through `a0` (φ[7], the only place a0 acts). Every handed-off quantity may be a ForwardDiff Dual, so a segmented cook differentiates. Event times stay absolute, so a
 # segment after the wrap is wrapped from its first step and an add before it is already in `m0`; a
 # boundary must not fall inside the add's pulse.
 
@@ -17,7 +16,9 @@ function handoff(o, k::Int)
     ics = (T0f=o.T_field[:, k], W0f=o.W_field[:, k], C0f=o.C_field[:, k], F0f=o.F_field[:, k], Ssalt0f=o.salt_field[:, k],
            B0=o.bark_b[k], S0=o.bark_s[k], R0=o.ring[k],
            Tpit0=o.Tpit[k], mfuel0=o.m_fuel[k], mpan0=o.m_pan[k], Tpan0=o.T_pan[k], Tfb0=o.T_firebox[k])
-    return ics, clamp(o.ignited[k], 1e-6, 1 - 1e-6)
+    # The solver accepts the physical endpoints. Pulling a fully lit bed back
+    # to 1 - 1e-6 creates fresh ignition dynamics at every segmented restart.
+    return ics, clamp(o.ignited[k], zero(o.ignited[k]), one(o.ignited[k]))
 end
 
 """

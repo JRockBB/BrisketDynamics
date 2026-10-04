@@ -32,10 +32,23 @@ end
 model = SystemModel(sys, CookLog(t, u; sensors), blk; sn=StateNoise())
 run(recs; kw...) = (sm = online_init(model; lag=typemax(Int), kw...); out = [assimilate!(sm, [r]) for r in recs]; (sm, out))
 
+@testset "an optional slice-age cap bounds factors even at zero process variance" begin
+    recs = stream(600.0)
+    sm = online_init(model; attach=:slice, node_ratio=Inf, max_slice_s=180.0)
+    chunks = E._slice_chunks(sm, recs)
+    @test length(chunks) > 1
+    E._add_slice_readings!(sm, recs)
+    @test first.(sm.nodes)[2:end] == [first(ch).t for ch in chunks[2:end]]
+    @test maximum(diff(first.(sm.nodes))) <= 180 + 37
+    @test_throws ArgumentError online_init(model; max_slice_s=0.0)
+end
+
 @testset "a slice factor's Jacobian is its predictions' derivative" begin
     recs = stream(600.0)
     sm, out = run(recs; attach=:slice)
     @test all(r -> r.committed, out)
+    @test all(r -> length(r.innovation_whitened) == r.dof &&
+        isapprox(sum(abs2(w.value) for w in r.innovation_whitened), r.nis; rtol=1e-10), out)
     @test length(sm.nodes) < length(recs)                            # readings shared nodes
     f = first(values(sm.slices))
     vals = [copy(variable_value(sm.graph, k)) for k in vars(f)]
@@ -49,6 +62,13 @@ run(recs; kw...) = (sm = online_init(model; lag=typemax(Int), kw...); out = [ass
     Jmine = reduce(hcat, Jμ)
     @test maximum(abs.(Jref .- Jmine)) <= 1e-6 * max(1.0, maximum(abs.(Jref)))
     @test isapprox(first(E._slice_predict(fr, vals)), μ; rtol=1e-10)
+    nj = f.n_jacobians
+    trial = deepcopy(vals); trial[1] .+= 1e-6
+    residual(f, trial)
+    E._ensure_current!(f, sm.graph)
+    μrestored, Jrestored = E._slice_predict(f, vals; jac=true)
+    @test f.n_jacobians == nj
+    @test μrestored ≈ μ && Jrestored == Jμ
 end
 
 @testset "with a node at every reading the slice path is the node path" begin

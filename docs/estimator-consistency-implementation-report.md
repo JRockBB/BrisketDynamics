@@ -1,5 +1,10 @@
 # Estimator Consistency: Implementation Report
 
+The user resumed this work on 2026-10-04 and authorized merging
+`Photo-segementation`, estimator changes and overnight runs on
+`estimator-consistency`. See [the preheat integration report](estimator-preheat-consistency.md)
+for the new findings and validation status. The entries below are the historical record.
+
 Plan: `docs/estimator-consistency-roadmap.md` (reviewed and revised on 2026-09-26 before any code; the review is its
 first section). Built on 2026-09-26 on `master` from commit `0e43d16`. Nothing is committed; the working tree is left
 for review.

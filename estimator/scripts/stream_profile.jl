@@ -8,30 +8,35 @@ src = read(joinpath(@__DIR__, "stream_bench.jl"), String)
 include_string(Main, src[1:first(findfirst("for c in 1:n_cooks", src)) - 1], joinpath(@__DIR__, "stream_bench.jl"))
 
 rng = MersenneTwister(2000 + seed)
-z0 = draw_truth(rng, sites); dd0 = DriftDraw(rng, idx; sites)
+z0 = draw_stream_truth(rng); dd0 = DriftDraw(rng, idx; sites)
 dd = DriftDraw(Dict(k => zero(v) for (k, v) in dd0.inc), Dict(k => 0.0 for (k, v) in dd0.jump))
 seg_edges, blocks = drift_segments(t, z0, dd, events.t_add)
 xs = [from_z(z, sites) for z in blocks]
 Am, depth = xs[1][AREA], probe_depth(xs[1][4], xs[1][DEPTH])
 rs = MersenneTwister(9000 + seed); sched = schedules(rs)
-o = plant(xs, seg_edges, sort(unique(vcat(values(sched)...))), Am); kof = Dict(τ => k for (k, τ) in enumerate(o.t))
+o = plant(xs, seg_edges, sort(unique(vcat(values(sched)...))), Am;
+          initial_ics=draw_initial_ics(MersenneTwister(19000 + seed)))
+kof = Dict(τ => k for (k, τ) in enumerate(o.t))
 recs = MeasurementRecord[]
 for id in SENSOR_IDS
     d = 0.0; tp = -Inf; sd0, τc = OU[id]
     for τ in sched[id]
         ρ = isfinite(tp) ? exp(-(τ - tp) / τc) : 0.0
         d = ρ * d + sqrt(1 - ρ^2) * randn(rs); tp = τ
-        cl = clean_at(o, kof[τ]; A=Am, L=xs[1][4], depth, cfg)
+        cl = stream_clean_at(o, kof[τ]; A=Am, L=xs[1][4], depth, cfg)
         v = getfield(cl, id) + (id === :pit ? pit_sd_at(nc, τ, events.t_add) : sd0) * d + WHITE[id] * randn(rs)
         push!(recs, MeasurementRecord(id, τ, id === :humidity ? min(v, nc.hum_cap) : v))
     end
 end
 sort!(recs; by=r -> r.t)
-model = SystemModel(sys, CookLog(t, u; events=cook_events, sensors, measurements=recs), blk; sn)
-sm = online_init(model; lag=LAG, attach=:slice, node_ratio=NODE_RATIO)
+model = SystemModel(sys, CookLog(t, u; events=cook_events, sensors, measurements=recs), blk; sn, abstol=BENCH_ABSTOL, reltol=BENCH_RELTOL,
+                    floor_abstol=BENCH_FLOOR_ABSTOL, floor_reltol=BENCH_FLOOR_RELTOL)
+sm = online_init(model; lag=LAG, attach=:slice, node_ratio=NODE_RATIO, max_slice_s=MAX_SLICE_S)
 i = 1
 while i <= length(recs)
-    k = i; while k < length(recs) && recs[k + 1].t <= recs[i].t + 3600.0; k += 1; end
+    edge = edges[something(findfirst(>=(recs[i].t), edges), length(edges))]
+    horizon = min(recs[i].t + BATCH_S, edge)
+    k = i; while k < length(recs) && recs[k + 1].t <= horizon; k += 1; end
     j = i + length(first(E._slice_chunks(sm, recs[i:k]))) - 1
     r = assimilate!(sm, recs[i:j]); r.committed || error("uncommitted at $(r.t)")
     global i = j + 1

@@ -2,10 +2,12 @@
 
 The fidelity rung above the 1-D monolith: `coupled_solve_2d` co-integrates
 the six pit states with the 2-D ADI meat (shrink metrics, dry-brine salt
-field, spritz, wrap, PULL and rest, grain anisotropy, point-over-flat),
-and the stacked forward-mode endpoints differentiate w.r.t. theta2, phi,
-the damper schedule and the five decision scalars (wrap, salt, spritz
-start and interval, pull). The solve runs to SERVE: after `t_pull` the
+field, spritz, wrap, PULL and rest, grain anisotropy, point-over-flat,
+smoke deposition and the smoke ring on every face) and carries the pit
+events (a fuel addition or split train, the lid lifts), and the stacked
+forward-mode endpoints differentiate w.r.t. theta2, phi, the damper
+schedule and the seven decision scalars (wrap, salt, spritz start and
+interval, pull, fuel addition and split interval). The solve runs to SERVE: after `t_pull` the
 meat rests in the configured environment while the pit runs on, exactly
 as the 1-D plan is scored. Intended use: full-fidelity SHADOW SCORING of
 1-D plans (true cold-spot safety, bark distribution) — the planners
@@ -92,7 +94,7 @@ def _init():
         function _s2_kw(radius, height, nr, nz, h_step, n_meat, k_grain,
                         d_grain, f_top, z_split, t0_meat, tpit0, t_amb, m0,
                         afr, y_w, pan, omega, rest_t, rest_h, rest_eps,
-                        rest_eta)
+                        rest_eta, t_load, T_load)
             cfg = MeatConfig(T0=t0_meat, T_rest=rest_t, h_rest=rest_h,
                              ε_rest=rest_eps, η_rest=rest_eta)
             pit = PitConfig(T_amb=t_amb, Tpit0=tpit0, m0=m0)
@@ -100,30 +102,45 @@ def _init():
                                            omega_amb=omega)
             return (; R=radius, Hz=height, nr=Int(nr), nz=Int(nz), h=h_step,
                     cfg, pit, hum, n_meat, k_grain, D_grain=d_grain,
-                    F_top=f_top, z_split)
+                    F_top=f_top, z_split, t_load=float(t_load), T_load=float(T_load))
         end
+        # the load (data on the 2-D path): T_load > 0 [K] puts the meat on when this pit, preheating empty under the
+        # schedule, first reaches it; else t_load [s from lighting; <= -1e8 in from the start]
+        function _s2_resolve(kw, φ, u, utk)
+            t_ld = kw.T_load > 0 ?
+                first(preheat_time(kw.T_load, collect(Float64, φ), collect(Float64, u), collect(Float64, utk);
+                                   cfg=kw.cfg, pit=kw.pit, hum=kw.hum, Tpit0=kw.pit.Tpit0, mfuel0=kw.pit.m0)) :
+                kw.t_load
+            return merge(Base.structdiff(kw, NamedTuple{(:T_load,)}), (; t_load=t_ld))
+        end
+        # dt_add: 0 = one chimney (Inf), as in the monolith Tesseract
+        _s2_dta(dt_add) = dt_add > 0 ? float(dt_add) : Inf
         function _s2_apply(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
-                           dt_spritz, t_pull, kwargs...)
-            kw = _s2_kw(kwargs...)
+                           dt_spritz, t_pull, t_add, dt_add, kwargs...)
+            kw = _s2_resolve(_s2_kw(kwargs...), φ, u, utk)
             o = coupled_solve_2d(θ2, φ, u, utk, tsave; t_wrap, t_salt,
-                                 t_spritz, dt_spritz, t_pull, kw...)
+                                 t_spritz, dt_spritz, t_pull, t_add,
+                                 dt_add=_s2_dta(dt_add), kw...)
             return (o.Tpit, o.Tcore, o.Tcold, o.m_fuel, o.w_retained, o.C_min,
                     o.bark_mean, o.bark_std, o.salt_mean, o.R_eff, o.Hz_eff,
-                    o.pv_pit, o.j_evap)
+                    o.smoke_mean, o.ring_mean, o.l_star_mean, o.bitterness,
+                    o.fat_rendered, o.juiciness, o.pv_pit, o.j_evap, kw.t_load)
         end
         function _s2_jac(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
-                         dt_spritz, t_pull, sel, kwargs...)
-            kw = _s2_kw(kwargs...)
+                         dt_spritz, t_pull, t_add, dt_add, sel, kwargs...)
+            kw = _s2_resolve(_s2_kw(kwargs...), φ, u, utk)
             return slab2d_stack_jacobian(θ2, φ, u, utk, tsave, t_wrap, t_salt,
                                          t_spritz, dt_spritz, t_pull,
-                                         collect(Int, sel); kw...)
+                                         collect(Int, sel); t_add,
+                                         dt_add=_s2_dta(dt_add), kw...)
         end
         function _s2_jvp(θ2, φ, u, utk, tsave, t_wrap, t_salt, t_spritz,
-                         dt_spritz, t_pull, dv, kwargs...)
-            kw = _s2_kw(kwargs...)
+                         dt_spritz, t_pull, t_add, dt_add, dv, kwargs...)
+            kw = _s2_resolve(_s2_kw(kwargs...), φ, u, utk)
             return slab2d_stack_jvp(θ2, φ, u, utk, tsave, t_wrap, t_salt,
                                     t_spritz, dt_spritz, t_pull,
-                                    collect(Float64, dv); kw...)
+                                    collect(Float64, dv); t_add,
+                                    dt_add=_s2_dta(dt_add), kw...)
         end
         """
     )
@@ -134,7 +151,7 @@ with filelock.FileLock(
 ):
     _on_julia_thread(_init)
 
-N_THETA2, N_PHI = 6, 7
+N_THETA2, N_PHI = 7, 7
 STACK_SERIES = ("tpit", "tcore", "tcold", "m_fuel")
 STACK_SCALARS = (
     "w_retained",
@@ -144,6 +161,12 @@ STACK_SCALARS = (
     "salt_mean",
     "r_eff",
     "hz_eff",
+    "smoke_mean",
+    "ring_mean",
+    "l_star_mean",
+    "bitterness",
+    "fat_rendered",
+    "juiciness",
 )
 DIFF_INPUTS = (
     "theta2",
@@ -154,7 +177,11 @@ DIFF_INPUTS = (
     "t_spritz",
     "dt_spritz",
     "t_pull",
+    "t_add",
+    "dt_add",
 )
+# the decision scalars (their Jacobian blocks are scalars, not vectors)
+SCALAR_INPUTS = DIFF_INPUTS[3:]
 
 
 def _jvec(x):
@@ -167,8 +194,8 @@ class InputSchema(BaseModel):
     """Inputs to the 2-D coupled cook (shadow-scoring fidelity rung)."""
 
     theta2: Differentiable[Array[(N_THETA2,), Float64]] = Field(
-        description="Meat parameters [D_eff, k_m, h_c, k_mult, k_e, a_myosin] "
-        "(theta without L and m_conv; geometry is radius/height)"
+        description="Meat parameters [D_eff, k_m, h_c, k_mult, k_e, a_myosin, m_conv] "
+        "(theta without L; geometry is radius/height)"
     )
     phi: Differentiable[Array[(N_PHI,), Float64]] = Field(
         description="Pit parameters [C_th, UA, r_max, dH_eff, u_leak, k_spread, a0]"
@@ -193,6 +220,16 @@ class InputSchema(BaseModel):
     t_pull: Differentiable[Array[(), Float64]] = Field(
         default=1.0e9,
         description="Pull time [s]; the meat rests to the horizon after it; 1e9 = never",
+    )
+    t_add: Differentiable[Array[(), Float64]] = Field(
+        default=1.0e9,
+        description="Mid-cook fuel addition time [s] (one chimney, and its lid "
+        "lift); 1e9 = none",
+    )
+    dt_add: Differentiable[Array[(), Float64]] = Field(
+        default=0.0,
+        description="Wood-split interval [s]: a finite value turns t_add into a "
+        "pulse train (one split of m_chimney every dt_add); 0 = single addition",
     )
     radius: float = Field(
         description="Cylinder radius [m]; no default — derive it from the cut "
@@ -222,6 +259,16 @@ class InputSchema(BaseModel):
     rest_h: float = Field(default=1.5, description="Convective coefficient at rest [W/m²K]")
     rest_eps: float = Field(default=0.10, description="Emissivity at rest")
     rest_eta: float = Field(default=0.9, description="Evaporation suppression at rest")
+    t_load: float = Field(
+        default=-1.0e9,
+        description="When the meat goes on [s after lighting]: before it the pit preheats empty and the meat holds "
+        "its raw state; <= -1e8 = in from the start. Data, not differentiable; ignored when T_load > 0",
+    )
+    T_load: float = Field(
+        default=0.0,
+        description="The pit temperature the meat goes in at [K]: when > 0 the load is when this pit, preheating "
+        "empty under the schedule, first reaches it; 0 = use t_load",
+    )
 
 
 class OutputSchema(BaseModel):
@@ -258,8 +305,29 @@ class OutputSchema(BaseModel):
     hz_eff: Differentiable[Array[(), Float64]] = Field(
         description="Current (shrunk) height [m]"
     )
+    smoke_mean: Differentiable[Array[(), Float64]] = Field(
+        description="Area-weighted smoke deposition over the exposed faces"
+    )
+    ring_mean: Differentiable[Array[(), Float64]] = Field(
+        description="Area-weighted smoke-ring depth [m], material coordinate"
+    )
+    l_star_mean: Differentiable[Array[(), Float64]] = Field(
+        description="Surface lightness L* at the face-mean bark and smoke"
+    )
+    bitterness: Differentiable[Array[(), Float64]] = Field(
+        description="Area-mean dirty-smoke deposition integral"
+    )
+    fat_rendered: Differentiable[Array[(), Float64]] = Field(
+        description="Rendered share of the cut's initial fat (per-node rendering)"
+    )
+    juiciness: Differentiable[Array[(), Float64]] = Field(
+        description="Retained water plus retained rendered fat (the 1-D score)"
+    )
     pv_pit: Array[(None,), Float64] = Field(description="Pit vapor pressure [Pa]")
     j_evap: Array[(None,), Float64] = Field(description="Meat evaporation [kg/s]")
+    t_load_used: Array[(), Float64] = Field(
+        description="When the meat went on [s after lighting]: t_load, or the preheat's time to T_load"
+    )
 
 
 def _packed(inputs: InputSchema):
@@ -274,6 +342,8 @@ def _packed(inputs: InputSchema):
         float(np.asarray(inputs.t_spritz)),
         float(np.asarray(inputs.dt_spritz)),
         float(np.asarray(inputs.t_pull)),
+        float(np.asarray(inputs.t_add)),
+        float(np.asarray(inputs.dt_add)),
     )
     tail = (
         float(inputs.radius),
@@ -298,14 +368,16 @@ def _packed(inputs: InputSchema):
         float(inputs.rest_h),
         float(inputs.rest_eps),
         float(inputs.rest_eta),
+        float(inputs.t_load),
+        float(inputs.T_load),
     )
     return head, tail
 
 
 def _jl_args(head):
-    t2, phi, u, utk, tsave, tw, ts, tsp, dts, tp = head
+    t2, phi, u, utk, tsave, *scalars = head
     return [_jvec(t2), _jvec(phi), _jvec(u), _jvec(utk), _jvec(tsave),
-            tw, ts, tsp, dts, tp]
+            *scalars]
 
 
 def _stack_layout(nt: int):
@@ -323,6 +395,8 @@ def _input_slices(nu: int) -> dict[str, slice]:
         "t_spritz": slice(b + 2, b + 3),
         "dt_spritz": slice(b + 3, b + 4),
         "t_pull": slice(b + 4, b + 5),
+        "t_add": slice(b + 5, b + 6),
+        "dt_add": slice(b + 6, b + 7),
     }
 
 
@@ -338,7 +412,8 @@ def apply(inputs: InputSchema) -> OutputSchema:
     keys = (
         "tpit", "tcore", "tcold", "m_fuel", "w_retained", "c_min",
         "bark_mean", "bark_std", "salt_mean", "r_eff", "hz_eff",
-        "pv_pit", "j_evap",
+        "smoke_mean", "ring_mean", "l_star_mean", "bitterness",
+        "fat_rendered", "juiciness", "pv_pit", "j_evap", "t_load_used",
     )
     return OutputSchema(**dict(zip(keys, vals, strict=True)))
 
@@ -350,7 +425,7 @@ def abstract_eval(abstract_inputs):
     sc = ShapeDType(shape=(), dtype="float64")
     out = {k: vec(nt) for k in STACK_SERIES}
     out.update({k: sc for k in STACK_SCALARS})
-    out.update({"pv_pit": vec(nt), "j_evap": vec(nt)})
+    out.update({"pv_pit": vec(nt), "j_evap": vec(nt), "t_load_used": sc})
     return out
 
 
@@ -405,7 +480,7 @@ def jacobian(inputs: InputSchema, jac_inputs: set, jac_outputs: set):
             blk = rows[:, a:b]
             if k in STACK_SCALARS:
                 blk = blk[0]
-            if name in ("t_wrap", "t_salt", "t_spritz", "dt_spritz", "t_pull"):
+            if name in SCALAR_INPUTS:
                 blk = blk[..., 0]
             blocks[name] = np.array(blk, dtype=np.float64)
         out[k] = blocks
@@ -418,7 +493,7 @@ def jacobian_vector_product(
     """J·tangent (one Dual solve)."""
     nu = len(inputs.u_knots)
     sl = _input_slices(nu)
-    dv = np.zeros(N_THETA2 + N_PHI + nu + 5)
+    dv = np.zeros(N_THETA2 + N_PHI + nu + len(SCALAR_INPUTS))
     for n in DIFF_INPUTS:
         if n in jvp_inputs and n in tangent_vector:
             dv[sl[n]] = np.atleast_1d(

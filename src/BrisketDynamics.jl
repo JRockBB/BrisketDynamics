@@ -5,6 +5,7 @@ using SciMLBase: SciMLBase
 using OrdinaryDiffEqBDF: FBDF, QNDF
 using OrdinaryDiffEqTsit5: Tsit5
 using ForwardDiff
+using SparseArrays: SparseMatrixCSC, sparse, nzrange
 
 include("thermophysics.jl")
 include("interpolation.jl")
@@ -13,6 +14,7 @@ include("meats/brisket.jl")
 include("meats/chicken.jl")
 include("meats/ribs.jl")
 include("meats/pork_butt.jl")
+include("meats/chuck.jl")
 include("meats/newman.jl")
 include("meats/sausage.jl")
 include("meats/salmon.jl")
@@ -23,6 +25,7 @@ include("cookers/pellet.jl")
 include("cookers/offset.jl")
 include("cookers/pibil.jl")
 include("monolith.jl")
+include("preheat.jl")
 # after the monolith: coupled_solve_2d uses PitConfig, Humidity and the
 # pit algebra
 include("meats/slab2d.jl")
@@ -30,6 +33,8 @@ include("meats/slab2d.jl")
 include("system.jl")
 # grid pieces (the 3-D brick, the axisymmetric cylinder) on the piece interface
 include("meats/grid3d.jl")
+include("meats/voxel3d.jl")
+include("sparse_jacobian.jl")
 
 export MeatConfig,
     meat_solve,
@@ -41,6 +46,10 @@ export MeatConfig,
     pit_solve,
     Humidity,
     monolith_solve,
+    preheat_time,
+    load_blend,
+    LOAD_AT_START,
+    PREHEAT_MAX,
     monolith_solve_tf,
     monolith_jacobian,
     monolith_stack,
@@ -62,6 +71,8 @@ export MeatConfig,
     pibil_pv,
     electric_pit,
     pork_butt,
+    chuck,
+    meat_preset,
     pellet,
     earth_pit,
     newman_center,
@@ -117,6 +128,11 @@ export MeatConfig,
     GridMesh,
     Brick3D,
     Cylinder2D,
+    BrisketFlat3D,
+    VoxelPiece,
+    voxel_faces,
+    voxel_surface,
+    BRISKET_FLAT_TYPICAL,
     piece_solve,
     n_nodes,
     n_boundary

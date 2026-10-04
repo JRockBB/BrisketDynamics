@@ -39,9 +39,10 @@ end
     sys = CookSystem([a, b]; pit=SYS_PIT)
     lay = sys.layout
     @test lay.pieces == [:flat, :butt] && n_pieces(sys) == 2
-    @test n_state(sys) == (5 * 12 + 4) + (5 * 9 + 4) + 6
-    @test state_index(lay, :flat, :T) == 1:12 && state_index(lay, :flat, :latch) == (5 * 12 + 4):(5 * 12 + 4)
-    @test state_index(lay, :butt, :W) == (5 * 12 + 4 + 9 + 1):(5 * 12 + 4 + 18)
+    @test n_state(sys) == (5 * 12 + 3) + (5 * 9 + 3) + 6
+    @test state_index(lay, :flat, :T) == 1:12 && state_index(lay, :flat, :ring) == (5 * 12 + 3):(5 * 12 + 3)
+    @test_throws ArgumentError state_index(lay, :flat, :latch)   # the wrap is the planner's time, not a state
+    @test state_index(lay, :butt, :W) == (5 * 12 + 3 + 9 + 1):(5 * 12 + 3 + 18)
     @test state_index(lay, :pit, :T_pit) == (n_state(sys) - 5):(n_state(sys) - 5) && state_index(lay, :pit, :T_fb) == n_state(sys):n_state(sys)
     ks = coordinate_kinds(lay)
     @test length(ks) == n_state(sys) && ks[1] == :positive && ks[state_index(lay, :flat, :C)[1]] == :unit && ks[state_index(lay, :pit, :ignited)[1]] == :unit
@@ -52,7 +53,7 @@ end
     @test_throws ArgumentError CookSystem(Slab1D(Symbol("")))
     @test_throws ArgumentError CookSystem(Slab1D[])
     play = ParamLayout(sys, 7)
-    @test n_params(play) == 2 * (8 + 7) + 7 + 7 + 2
+    @test n_params(play) == 2 * (8 + 7) + 7 + 7 + 2                        # per piece: θ and seven scalars (t_load the seventh)
     @test play[(:flat, :theta)] == 1:8 && play[(:butt, :theta)] == 16:23 && play[(:pit, :phi)] == 31:37 && play[(:pit, :u_knots)] == 38:44
     @test_throws ArgumentError play[(:ribs, :theta)]
     # events: each piece reads its own, the pit its addition; unnamed events are never
@@ -144,8 +145,8 @@ end
     # the RHS at one instant: the system's derivative equals the monolith's at the same state and parameters
     rhs_s, _ = make_system_rhs(sys, SYS_UTK[1], SYS_UTK[2] - SYS_UTK[1], length(SYS_U))
     rhs_m = BrisketDynamics.make_monolith_rhs(cfg, SYS_PIT, Humidity(), SYS_UTK[1], SYS_UTK[2] - SYS_UTK[1], length(SYS_U))
-    pm = vcat(θ, φ, SYS_U, kw.t_wrap, PULL_NEVER, kw.t_add, kw.t_spritz, kw.dt_spritz, kw.m_spritz, Inf, SYS_PIT.dt_add, 0.11)
-    nm = 5 * cfg.nx + 4
+    pm = vcat(θ, φ, SYS_U, kw.t_wrap, PULL_NEVER, kw.t_add, kw.t_spritz, kw.dt_spritz, kw.m_spritz, SYS_PIT.dt_add, LOAD_AT_START, 0.11)
+    nm = 5 * cfg.nx + 3
     for k in (2, 13, 25)
         xs = so.X[:, k]
         xm = vcat(xs[1:nm], xs[nm + 1], xs[nm + 2], xs[nm + 3], xs[nm + 4], xs[nm + 5], xs[nm + 6])   # the same order for one piece
@@ -241,7 +242,7 @@ end
     k = findfirst(SYS_TSAVE .>= 2SYS_HR)
     h = system_handoff(whole, k)
     @test length(h.pieces) == 2 && h.pit.Tpit0 == whole.Tpit[k] && h.ignited ≈ whole.ignited[k] && h.x == whole.X[:, k]
-    @test h.pieces[1].LATCH0 == whole.piece[:flat].wrap_latch[k] && length(h.pieces[2].T0f) == 9
+    @test h.pieces[1].R0 == whole.piece[:flat].ring[k] && length(h.pieces[2].T0f) == 9
     tt = SYS_TSAVE[k:end]
     # the named restart: the pieces' fields and the pit's keywords, the ignited fraction in place of a0
     second = system_solve(sys, [θ, θ], [0.12, 0.05], φ, SYS_U, SYS_UTK, tt; events=ev, ics=h.pieces,

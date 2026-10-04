@@ -143,7 +143,8 @@ provenance(f::LinearFactor) = f.source
 # --- the model a dynamics factor and an observation factor read ----------------------------------------------------
 
 """
-    SystemModel(sys, log, blk, bl; sn=StateNoise(), abstol=1e-10, reltol=1e-8)
+    SystemModel(sys, log, blk; sn=StateNoise(), abstol=1e-10, reltol=1e-8,
+                floor_abstol=abstol, floor_reltol=reltol)
 
 A CookSystem with its cook log (damper, events), its latent block and its belief layout, the process noise
 the belief's state receives and the solver tolerances: what the dynamics and the observation factors need to
@@ -151,6 +152,9 @@ propagate a belief state and to read an observable from one. The tolerances are 
 (1e-6): a smoother evaluates the dynamics residual `y1 − f(y0)` whitened by the process noise, and in the
 coordinates of a field near zero (the salt of an unsalted cut, the collagen at the start) that noise is far
 below the integrator's error at 1e-6, which would make the objective rough at the level of whole nats.
+`floor_abstol` and `floor_reltol` set the numerical-error allowance in the process covariance. They default
+to the solve tolerances, preserving the original model. Hold them fixed when tightening `abstol`/`reltol`
+to improve optimization accuracy without simultaneously narrowing the statistical model's state noise.
 """
 struct SystemModel
     sys::CookSystem
@@ -161,7 +165,13 @@ struct SystemModel
     abstol::Float64
     reltol::Float64
     rom::Any                      # a ReducedOrderModel (rom.jl) whose reduction error the observation factors add, or nothing
+    floor_abstol::Float64
+    floor_reltol::Float64
 end
+# Preserve the positional constructor used by existing diagnostic callers.
+SystemModel(sys::CookSystem, log::CookLog, blk::LatentBlock, bl::BeliefLayout, sn,
+            abstol::Float64, reltol::Float64, rom) =
+    SystemModel(sys, log, blk, bl, sn, abstol, reltol, rom, abstol, reltol)
 _validate_rom_attachment(rom, sys, blk) = nothing
 _validate_rom_use(rom, blk, z, t0, t1) = nothing
 _validate_rom_observable(rom, obs) = nothing
@@ -169,7 +179,13 @@ _rom_state_noise(rom) = state_noise_from_dict(getproperty(rom, :state_noise))
 _rom_dynamics_correction(rom, t) = (pv=0.0, q=0.0)
 _rom_observation_error(rom, obs, key, t) = rom_error(rom, key, t)
 _rom_piece_error(rom, piece::Symbol, key::Symbol, t) = (bias=0.0, sd=0.0)
-function SystemModel(sys::CookSystem, log::CookLog, blk::LatentBlock; sn=nothing, abstol::Float64=1e-10, reltol::Float64=1e-8, rom=nothing)
+_rom_dynamics_correction(rom, t, z, blk) = (pv=0.0, q=0.0)
+_rom_piece_error(rom, piece::Symbol, key::Symbol, t, z, blk) = (bias=0.0, sd=0.0)
+_rom_observation_bias(rom, obs, key, t, z, blk) = 0.0
+function SystemModel(sys::CookSystem, log::CookLog, blk::LatentBlock; sn=nothing, abstol::Float64=1e-10, reltol::Float64=1e-8, rom=nothing,
+                     floor_abstol::Float64=abstol, floor_reltol::Float64=reltol)
+    all(x -> isfinite(x) && x > 0, (abstol, reltol, floor_abstol, floor_reltol)) ||
+        throw(ArgumentError("integration and covariance-floor tolerances must be finite and positive"))
     validate_events(sys, collect(log.events))
     _validate_rom_attachment(rom, sys, blk)
     actual_sn = sn === nothing ? (rom === nothing ? StateNoise() : _rom_state_noise(rom)) : sn
@@ -178,7 +194,7 @@ function SystemModel(sys::CookSystem, log::CookLog, blk::LatentBlock; sn=nothing
         _validate_rom_observable(rom, sp.observable)
         compile_observable(sp.observable, sys, bl, blk, log)
     end
-    return SystemModel(sys, log, blk, bl, actual_sn, abstol, reltol, rom)
+    return SystemModel(sys, log, blk, bl, actual_sn, abstol, reltol, rom, floor_abstol, floor_reltol)
 end
 export SystemModel
 
@@ -214,7 +230,7 @@ end
     propagate(m::SystemModel, y0, z, t0, t1; first_slice=false) -> (y1, o)
 
 The belief state at `t1` from the belief state `y0` (coordinates) at `t0` under the latents `z`: decoded,
-lifted to the system's state (the latches at zero), integrated over the slice, encoded again; `first_slice` reads
+lifted to the system's state, integrated over the slice, encoded again; `first_slice` reads
 the ignited fraction from the latent a0 rather than from the state (the cook's first slice, as the filter).
 Duals in `y0` and `z` flow through the solve (the factor's Jacobian). Also returns the slice's outputs.
 """
@@ -227,7 +243,7 @@ function propagate(m::SystemModel, y0::AbstractVector, z::AbstractVector, t0::Re
         x0 = convert(Vector{promote_type(eltype(x0), eltype(p))}, x0)
         x0[first(state_index(m.sys.layout, :pit, :ignited))] = p[play[(:pit, :phi)][7]]
     end
-    correction = m.rom === nothing ? nothing : (t -> _rom_dynamics_correction(m.rom, t))
+    correction = m.rom === nothing ? nothing : (t -> _rom_dynamics_correction(m.rom, t, z, m.blk))
     save = output_times===nothing ? [Float64(t0),Float64(t1)] : collect(Float64,output_times)
     output_times===nothing || (length(save)>=2 && first(save)==t0 && last(save)==t1 && all(isfinite,save) && all(>(0),diff(save))) ||
         throw(ArgumentError("propagation output times must increase from t0 through t1"))
@@ -256,7 +272,7 @@ function propagate_states(m::SystemModel, y0::AbstractVector, z::AbstractVector,
         x0 = convert(Vector{promote_type(eltype(x0), eltype(p))}, x0)
         x0[first(state_index(m.sys.layout, :pit, :ignited))] = p[play[(:pit, :phi)][7]]
     end
-    correction = m.rom === nothing ? nothing : (t -> _rom_dynamics_correction(m.rom, t))
+    correction = m.rom === nothing ? nothing : (t -> _rom_dynamics_correction(m.rom, t, z, m.blk))
     A = system_solve_raw(m.sys, p, x0, tk, vcat(Float64(t0), collect(Float64, times)); correction, abstol=m.abstol, reltol=m.reltol)
     return reduce(hcat, [belief_encode(belief_from_system(A[:, j + 1], m.bl), m.bl) for j in eachindex(times)])
 end
@@ -356,7 +372,7 @@ function _process_cov_coord(f::DynamicsFactor, y1, Q::AbstractMatrix; to_coord=b
     Qc = to_coord(Q, y1, m.bl)
     x = belief_decode(y1, m.bl)
     d = inv.(max.(belief_decode_jacobian(y1, m.bl), eps(Float64)))
-    err = INTEGRATOR_FLOOR .* (m.abstol .+ m.reltol .* abs.(x)) .* d
+    err = INTEGRATOR_FLOOR .* (m.floor_abstol .+ m.floor_reltol .* abs.(x)) .* d
     for i in eachindex(err); Qc[i, i] += err[i]^2; end
     return Qc
 end
@@ -522,7 +538,7 @@ struct ObservationFactor <: Factor
     key_d::Union{Nothing,VarKey}
     t::Float64
     h::Function
-    bias::Float64                 # the reduced model's reduction-error bias on this observable at this time (zero without an artifact)
+    rom_key::Union{Nothing,Symbol} # the reduction-error key of the observable under an artifact (its bias read at the latents), or nothing
     σ::Float64                    # the instrument's floor with the reduction error's spread in quadrature
 end
 function ObservationFactor(model::SystemModel, spec::SensorSpec, rec::MeasurementRecord, key_z::VarKey, key_y::VarKey, key_d::Union{Nothing,VarKey};
@@ -530,15 +546,15 @@ function ObservationFactor(model::SystemModel, spec::SensorSpec, rec::Measuremen
     rec.sensor === spec.id || throw(ArgumentError("the record is $(rec.sensor)'s, the sensor $(spec.id)"))
     (key_m === nothing) == (split === nothing) || throw(ArgumentError("a moving latent copy needs its split, and a split its copy"))
     h = compile_observable(spec.observable, model.sys, model.bl, model.blk, model.log)
-    bias, σ = 0.0, spec.noise.white_sd
+    rom_key, σ = nothing, spec.noise.white_sd
     if model.rom !== nothing
         key = _rom_key(spec.observable)
         if key !== nothing
             e = _rom_observation_error(model.rom, spec.observable, key, rec.t)
-            bias = e.bias; σ = sqrt(σ^2 + e.sd^2)
+            rom_key = key; σ = sqrt(σ^2 + e.sd^2)
         end
     end
-    return ObservationFactor(model, spec, rec.value, censored_at(spec, rec), key_z, key_m, split, key_y, key_d, rec.t, h, bias, σ)
+    return ObservationFactor(model, spec, rec.value, censored_at(spec, rec), key_z, key_m, split, key_y, key_d, rec.t, h, rom_key, σ)
 end
 function vars(f::ObservationFactor)
     ks = f.key_m === nothing ? [f.key_z, f.key_y] : [f.key_z, f.key_m, f.key_y]
@@ -560,8 +576,9 @@ function _obs_pred(f::ObservationFactor, v)
     _validate_rom_use(f.model.rom, f.model.blk, z, f.t, f.t)
     p, _, tk = _point_params(f.model, z, f.t)
     x = system_from_belief(belief_decode(y, f.model.bl), f.model.bl)
-    # ROMError stores ROM − FOM, so the full-order-equivalent prediction is ROM − bias.
-    pred = f.h(x, z, p, tk, f.t) - f.bias
+    # ROMError stores ROM − FOM, so the full-order-equivalent prediction is ROM − bias, the bias at these latents.
+    pred = f.h(x, z, p, tk, f.t)
+    f.rom_key === nothing || (pred -= _rom_observation_bias(f.model.rom, f.spec.observable, f.rom_key, f.t, z, f.model.blk))
     f.key_d === nothing || (pred += v[end])
     return pred
 end
@@ -683,7 +700,9 @@ function _ensure_current!(f::DynamicsFactor, g::FactorGraph)
     c = f.cache
     c === nothing && return nothing
     z = _factor_latents(f, g); y0 = g.values[f.key_y0]
-    if c.Jy === nothing || c.z != z || c.y0 != y0 || c.jz != z || c.jy0 != y0
+    # Trial residuals can move the primal cache without moving the Jacobian's
+    # reference point. _dyn_eval! refreshes that primal independently.
+    if c.Jy === nothing || c.jz != z || c.jy0 != y0
         _invalidate_linearization!(f)
     end
     return nothing
@@ -819,25 +838,23 @@ function _limit_step!(d::AbstractVector, offsets, max_step::Float64, step_bounds
     return bounded
 end
 
-# The normal-equation gradient in local coordinate-step units. Dividing by each Jacobian column's squared
-# norm is the diagonal Gauss--Newton displacement: unlike a raw score (or a score divided only by the column
-# norm), it compares directly with the solver's coordinate tolerance and remains invariant to residual-row
-# scaling. A further positive coordinate scale makes that comparison dimensionless when one graph contains,
+# The full undamped Gauss--Newton displacement in local coordinate-step units. Solving the coupled
+# least-squares problem is essential: dividing the score by diagonal curvature can report convergence
+# arbitrarily far along a correlated valley. This metric remains invariant to uniform residual scaling.
+# A positive coordinate scale makes the comparison dimensionless when one graph contains,
 # for example, latent coordinates of order one and a humidity discrepancy measured in pascals. It also
 # prevents a tiny damped move from being called stationary when an undamped relative move is still large.
 function _scaled_gradient(J::AbstractMatrix, r::AbstractVector, scales::AbstractVector=ones(size(J, 2)))
     isempty(r) && return 0.0
     length(scales) == size(J, 2) || throw(DimensionMismatch("the stationarity scales do not match the graph coordinates"))
     all(isfinite, scales) && all(>(0), scales) || throw(ArgumentError("stationarity scales must be finite and positive"))
-    g = J' * r
-    d2 = [sum(abs2, view(J, :, j)) for j in axes(J, 2)]
-    return maximum(abs.(g) ./ (max.(d2, eps(Float64)) .* scales); init=0.0)
+    δ = _ls_step(J, r, 0.0)
+    return maximum(abs.(δ) ./ scales; init=0.0)
 end
 # The undamped Gauss-Newton step at a point, in two metrics: its largest scaled coordinate move (the solver's
 # tolerance is stated in these) and its largest move in units of the point's own Gauss-Newton posterior standard
-# deviation, from the same pivoted QR ((JᵀJ)⁻¹ = P R⁻¹ R⁻ᵀ Pᵀ). The diagonal certificate above is blind along a
-# correlated valley: every coordinate's own displacement can be under tolerance while the joint step is a posterior
-# width long (the loosened-relinearization A/B of 2026-09-26 reached points two posterior sds apart, both certified).
+# deviation, from the same pivoted QR ((JᵀJ)⁻¹ = P R⁻¹ R⁻ᵀ Pᵀ). The first metric is the same coupled
+# displacement used by the convergence check; the second also accounts for the posterior's local width.
 # The solver reports both at its accepted point; a dense graph only (the offline sparse problem is too large to invert).
 function _newton_step_metrics(J::AbstractMatrix, r::AbstractVector, scales::AbstractVector)
     isempty(r) && return (0.0, 0.0)
@@ -944,8 +961,9 @@ point, with the same Marquardt penalty as the base step; caller bounds and `max_
 complete displacement, scaled by the line-search fraction. Thus a correction can move unbounded state nodes
 enough to absorb a dynamics factor's nonlinear response, but cannot evade damping, the line search, or a
 latent trust bound. A correction is retained only when it lowers the trial objective, while Armijo still
-requires the decrease predicted by the base descent direction. Convergence additionally requires the scaled
-normal-equation gradient to be below `gtol`; a small damped, bounded, or backtracked move alone is never
+requires the decrease predicted by the base descent direction. A failed line search refreshes any stale
+physics Jacobian at the accepted mean before retrying with increased damping. Convergence additionally requires the scaled
+full undamped Gauss--Newton displacement to be below `gtol`; a small damped, bounded, or backtracked move alone is never
 convergence. The only numerical-resolution exception requires three complete Armijo failures without an
 accepted move and a fresh scaled gradient no larger than `resolution_gtol` (which must be at least `gtol`);
 this covers objectives quantized by an ODE solve without accepting the large-gradient damped-step failure
@@ -954,22 +972,28 @@ per-coordinate characteristic scales; the reported gradient and both thresholds 
 scales. The default `2gtol` is deliberately narrow; an ODE-backed caller may supply a separately measured
 resolution envelope. `newton_step` and `newton_sd` are the undamped Gauss-Newton step at the accepted point, its largest
 scaled coordinate move and its largest move in the point's own posterior standard deviations (`_newton_step_metrics`;
-NaN for a sparse solve): the joint stationarity read the diagonal certificate cannot give. With `newton_tol` > 0 (off by
+NaN for a sparse solve). The historically named `gradient` field also reports the scaled full displacement.
+With `newton_tol` > 0 (off by
 default) a solve stalled three complete line searches at one point is also accepted when that point's `newton_sd`, at an
-exact relinearization, is under `newton_tol`: the diagonal read divides each coordinate's score by its own column only
-and sits at several times its tolerance on a correlated valley where no belief would move, and the joint step is what
-the belief would do. The normal certificate is unchanged; the rescue never fires on a sparse solve. `expand` > 0 lets an accepted full step
+exact relinearization, is under `newton_tol`. This resolution exception measures the move against the posterior
+width as well as the declared coordinate units; it never fires on a sparse solve. `expand` > 0 lets an accepted full step
 whose decrease beat the model's by more than `EXPAND_GAIN` double (up to `expand` times, within the bounds) while the
 objective keeps falling: a path change for under-stepping on curved valleys, never a certificate.
+`restart_newton_tol` (off by default) permits the same three-failure check to request a fresh solver attempt:
+when the posterior step is below this bound but no acceptance rule passes, return `converged=false` early,
+with `restart_requested=true` in the last history entry. It changes the retry budget, never the acceptance gate.
 """
 function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::Float64=1e-8, gtol::Float64=tol,
-                       resolution_gtol::Float64=2gtol, newton_tol::Float64=0.0, λ0::Float64=0.0, sparse::Bool=false,
+                       resolution_gtol::Float64=2gtol, newton_tol::Float64=0.0, restart_newton_tol::Float64=0.0,
+                       λ0::Float64=0.0, sparse::Bool=false,
                        verbose::Bool=false, max_step::Float64=Inf, step_bounds::AbstractDict=Dict{VarKey,Float64}(), soc::Int=10,
                        stationarity_scales::AbstractDict=Dict(),
                        adaptive_damping::Bool=false, expand::Int=0)
     isfinite(resolution_gtol) && resolution_gtol >= gtol ||
         throw(ArgumentError("resolution_gtol must be finite and no smaller than gtol"))
     newton_tol >= 0 || throw(ArgumentError("newton_tol must be non-negative"))
+    isfinite(restart_newton_tol) && restart_newton_tol >= 0 ||
+        throw(ArgumentError("restart_newton_tol must be finite and non-negative"))
     order = g.keys
     offsets, n = _offsets(g, order)
     gradient_scales = _stationarity_scale_vector(order, offsets, n, stationarity_scales)
@@ -1040,11 +1064,16 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         accepted = α > 0 && isfinite(Fn) && Fn <= F
         if !accepted
             for k in order; g.values[k] .= x[offsets[k]]; end
+            # A secant Jacobian can point uphill at the accepted mean. Retrying
+            # it with more damping cannot repair that direction. Refresh stale
+            # Jacobians before the next attempt, even outside the stopping gate.
+            _ensure_current_dynamics!(g)
             rejected_at_point += 1
             λ = λ == 0 ? 1e-3 : 10λ
             push!(hist, (it=it, F=F, F_trial=Fn, step=norm(δ), alpha=0.0, damping=λ, trials=trials, soc=0,
                          accepted=false, bounded=bounded, gradient=grad, wall=time() - t0))
             verbose && @printf("    GN it %2d rejected  F %.6g  |step| %.3g  slope %.3g  damping %.2g\n", it, F, norm(δ), d0, λ)
+            verbose && flush(stdout)
             # Near the ODE solver's resolution floor an exact descent direction can fail Armijo at every
             # trial because the requested objective drop is below repeatable integration noise. Do not
             # resurrect the old "small damped step means convergence" rule: require three consecutive
@@ -1052,21 +1081,22 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             # linearization and accept only a KKT displacement within the caller's explicit numerical
             # resolution envelope. A large gradient still fails and remains transactional in the online backend.
             # With `newton_tol` > 0 the same three failures also qualify a point whose undamped joint step is under
-            # `newton_tol` of a posterior sd: the diagonal read divides each coordinate's score by its own column only
-            # and can sit at several times its tolerance where no belief would move (the fixed-lag smoother of
-            # 2026-09-26 threw away one arrival in thirty at 5e-4 against 1e-4 with the joint step at 1e-4 sd and the
-            # objective flat to six digits, the ODE solves' floor). The read is taken at the exactly relinearized
-            # point, like the resolution check; the normal certificate is untouched.
-            if rejected_at_point >= 3 && (grad <= resolution_gtol || newton_tol > 0)
+            # `newton_tol` of a posterior sd. This uses the posterior width instead of characteristic coordinate
+            # units, at the exactly relinearized point, like the coordinate-resolution check.
+            if rejected_at_point >= 3 && (grad <= resolution_gtol || newton_tol > 0 || restart_newton_tol > 0)
                 _ensure_current_dynamics!(g)
                 Jc, rc, _, _ = linearize(g; order, sparse)
                 Fc = _objective_at(g, x, offsets)
                 gradc = _scaled_gradient(Jc, rc, gradient_scales)
-                nsdc = (gradc <= resolution_gtol || newton_tol <= 0) ? NaN : newton_sd_at(Jc, rc)
-                if gradc <= resolution_gtol || nsdc <= newton_tol
+                nsdc = (gradc <= resolution_gtol || max(newton_tol, restart_newton_tol) <= 0) ? NaN : newton_sd_at(Jc, rc)
+                if gradc <= resolution_gtol || (newton_tol > 0 && isfinite(nsdc) && nsdc <= newton_tol)
                     F = Fc
                     converged = true
                     hist[end] = merge(hist[end], (F=F, gradient_final=gradc, newton_sd=nsdc, resolution_limited=true))
+                    break
+                elseif restart_newton_tol > 0 && isfinite(nsdc) && nsdc <= restart_newton_tol
+                    F = Fc
+                    hist[end] = merge(hist[end], (F=F, gradient_final=gradc, newton_sd=nsdc, restart_requested=true))
                     break
                 end
             end
@@ -1120,6 +1150,7 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         push!(hist, (it=it, F=F, F_trial=Fn, step=stepn, alpha=α, damping=λ, trials=trials, soc=nsoc,
                      accepted=true, bounded=bounded, gradient=grad, gain=gain, wall=time() - t0))
         verbose && @printf("    GN it %2d  F %.6g  |step| %.3g  alpha %.3g (%d trials, %d soc)  gain %.3g  damping %.2g%s\n", it, F, stepn, α, trials, nsoc, gain, λ, bounded ? "  bounded" : "")
+        verbose && flush(stdout)
         # A small move/drop only asks for a stationarity check at the accepted point. Refresh the dynamics
         # Jacobians so the returned covariance and mean use the same local model of the fixed objective.
         if moved < tol || (dropped < ftol && α == 1.0 && λ < 1e-2 && !bounded)
@@ -1142,9 +1173,10 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
     # The last permitted iteration may land exactly at a stationary point. Its refreshed KKT check is
     # authoritative even when no earlier in-loop stopping branch had set `converged`.
     converged = converged || grad <= gtol
-    # the joint (Newton-metric) step at the accepted point, reported beside the diagonal certificate
+    # Also report the joint step in posterior standard deviations at the accepted point.
     newton_step, newton_sd = sparse ? (NaN, NaN) : _newton_step_metrics(Jf, rf, gradient_scales)
     verbose && @printf("    GN final  F %.6g  gradient %.3g  Newton step %.3g (%.2f posterior sd)  converged %s\n", F, grad, newton_step, newton_sd, converged)
+    verbose && flush(stdout)
     return (F=F, hist=hist, converged=converged, gradient=grad, newton_step=newton_step, newton_sd=newton_sd)
 end
 

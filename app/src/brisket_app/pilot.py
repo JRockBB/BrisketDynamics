@@ -130,9 +130,12 @@ class Pilot:
             raise RuntimeError("pit returned a non-finite initial timestamp")
         self._last_pit_elapsed = 0.0
         s0 = self._elapsed_status(s0)
+        # the pilot takes over a lit pit with the meat already on (the probe reads its core)
         self.state = mpc.CookState.fresh(
             tpit0=s0.tpit_K,
             t0_meat=s0.tcore_K if s0.tcore_K else 281.15,
+            a0=1.0,
+            t_load=-1.0e9,
         )
         seed = self.cfg.model_t_amb if self.forecast is None else self.forecast(0.0)
         self.kf = mpc.AmbientKF(

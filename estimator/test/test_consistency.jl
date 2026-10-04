@@ -15,7 +15,38 @@ sensors = [SensorSpec(:fast, PitTemperature(), NoiseModel(white_sd=0.2, ar_sd=1.
            SensorSpec(:slow, PitTemperature(), NoiseModel(white_sd=0.3, ar_sd=2.0, tau=4000.0))]
 model = SystemModel(sys, CookLog([0.0, 120.0], [0.5, 0.5]; sensors), blk)
 
+@testset "integration accuracy can change without narrowing process covariance" begin
+    accurate = SystemModel(sys, model.log, blk; abstol=1e-14, reltol=1e-12,
+                           floor_abstol=model.abstol, floor_reltol=model.reltol)
+    coupled = SystemModel(sys, model.log, blk; abstol=1e-14, reltol=1e-12)
+    sm = online_init(accurate)
+    ky = first(sm.nodes)[2]
+    y = variable_value(sm.graph, ky)
+    factor(m) = DynamicsFactor(m, sm.key_z, ky, VarKey(:state, :floor_test, 1), 0.0, 120.0)
+    Q = zeros(model.bl.n, model.bl.n) # isolate the numerical allowance
+    reference = E._process_cov_coord(factor(model), y, Q)
+    @test E._process_cov_coord(factor(accurate), y, Q) == reference
+    @test E._process_cov_coord(factor(coupled), y, Q) ≈ 1e-8 .* reference
+    @test accurate.abstol == 1e-14 && accurate.reltol == 1e-12
+    update_execution!(sm; u=[0.4, 0.4])
+    @test sm.model.floor_abstol == model.abstol && sm.model.floor_reltol == model.reltol
+    @test sm.model.abstol == accurate.abstol && sm.model.reltol == accurate.reltol
+    old_constructor = SystemModel(sys, model.log, blk, model.bl, model.sn, model.abstol, model.reltol, nothing)
+    @test E._process_cov_coord(factor(old_constructor), y, Q) == reference
+    @test_throws ArgumentError SystemModel(sys, model.log, blk; floor_abstol=NaN)
+    @test_throws ArgumentError SystemModel(sys, model.log, blk; floor_reltol=-1.0)
+end
+
 @testset "factor graph consistency regressions" begin
+@testset "batched innovations use chronological conditional variances" begin
+    # The second observation has conditional mean 0.5 times the first
+    # and conditional variance 8. Supply it first to check ordering too.
+    ν = [4.0, 2.0]; S = [9.0 2.0; 2.0 4.0]
+    w = E._whitened_innovations(ν, S, [:late, :early], [20.0, 10.0])
+    @test getproperty.(w, :sensor) == [:early, :late]
+    @test getproperty.(w, :value) ≈ [1.0, 3 / sqrt(8)]
+    @test sum(abs2(r.value) for r in w) ≈ dot(ν, S \ ν)
+end
 @testset "state coordinates preserve the physical interior through repeated handoffs" begin
     for kind in (:positive, :unit, :ignited)
         values = kind === :positive ? [3e-8, 1e-7, 2e-6, 0.002, 1.0, 300.0] :
@@ -56,6 +87,7 @@ end
     nz, ny = length(blk), model.bl.n
     rows = [nz + ip, nz + ny + 1, nz + ny + 2]
     @test pc.nis ≈ 1 / S
+    @test length(pc.white) == 1 && sum(abs2(w.value) for w in pc.white) ≈ pc.nis
     @test abs(correction[3]) > 0.1
     @test ap.K[rows, :] * ap.e ≈ correction rtol=1e-10
     @test haskey(pc.off, sm.disc[:slow][end][2])
@@ -116,6 +148,15 @@ end
     h = 1e-4
     fd = (loss(f, [z, ym + h*v, y1]) - loss(f, [z, ym - h*v, y1])) / (2h)
     @test dot(lin.Js[2]' * lin.r, v) ≈ fd rtol=2e-3
+    # The finite-difference trials moved only the primal cache. Its Jacobian
+    # is still exact at vals and must survive restoration of that accepted mean.
+    sm.graph.values[f.key_y0] .= ym
+    add_variable!(sm.graph, f.key_y1, y1)
+    nj = f.n_jacobians
+    E._ensure_current!(f, sm.graph)
+    restored = factor_linearization(f, vals)
+    @test f.n_jacobians == nj
+    @test restored.Js == lin.Js
 end
 
 @testset "process variance derivatives include events inside the nonlinear coordinate cap" begin

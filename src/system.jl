@@ -39,7 +39,7 @@ piece_parameter_schema(::PieceModel) = (:D_eff, :k_m, :h_c, :L, :k_mult, :k_e, :
 "Indices of that schema which are estimable for this model."
 piece_parameter_indices(pc::PieceModel) = eachindex(piece_parameter_schema(pc))
 "Events a piece model accepts."
-piece_event_kinds(::PieceModel) = (:wrap, :pull, :spritz)
+piece_event_kinds(::PieceModel) = (:load, :wrap, :pull, :spritz)
 "Semantic observables a piece model can compile through the estimator adapter."
 piece_observable_schema(::PieceModel) = (:temperature, :surface_temperature, :mass, :bark)
 "Restart fields owned by a piece model."
@@ -59,7 +59,7 @@ struct Slab1D <: PieceModel
 end
 Slab1D(id::Symbol; cfg::MeatConfig=MeatConfig()) = Slab1D(id, cfg)
 piece_id(pc::PieceModel) = pc.id
-piece_restart_fields(::Slab1D) = (:T0f, :W0f, :C0f, :F0f, :Ssalt0f, :B0, :S0, :R0, :LATCH0)
+piece_restart_fields(::Slab1D) = (:T0f, :W0f, :C0f, :F0f, :Ssalt0f, :B0, :S0, :R0)
 
 """
     BlockLayout(entries)
@@ -96,7 +96,7 @@ expand_kinds(b::BlockLayout) = reduce(vcat, [fill(k, length(r)) for (k, r) in zi
 "The ODE state layout of a piece: what the system integrates for it (the coordinate kinds are the filter's: the ring's depth, under a metre, as a unit fraction)."
 ode_layout(pc::Slab1D) = (nx = pc.cfg.nx;
     BlockLayout([(:T, nx, :positive), (:W, nx, :positive), (:C, nx, :unit), (:F, nx, :positive), (:S, nx, :positive),
-                 (:bark_b, 1, :positive), (:bark_s, 1, :positive), (:ring, 1, :unit), (:latch, 1, :unit)]))
+                 (:bark_b, 1, :positive), (:bark_s, 1, :positive), (:ring, 1, :unit)]))
 
 "The pit's ODE state layout: the monolith's order (chamber temperature, fuel, ignited fraction, pan water, pan temperature, firebox)."
 const PIT_LAYOUT = BlockLayout([(:T_pit, 1, :positive), (:m_fuel, 1, :positive), (:ignited, 1, :unit),
@@ -177,9 +177,10 @@ end
 """
     CookEvent(kind, target, t; params...)
 
-An event of the cook: `kind` one of `:wrap`, `:pull`, `:spritz` (on a piece, `params` `dt` and `m`: the
-train's finite positive interval [s] and dose [kg/m²]) and `:add` (on the pit, `params` `dt_add`: the split
-interval, Inf for one addition). `t` [s] is absolute cook time. Events are validated data; both positional
+An event of the cook: `kind` one of `:load` (the piece goes on: before it the pit preheats without it, the piece
+holding its raw state; absent, the piece is in from t = 0), `:wrap`, `:pull`, `:spritz` (on a piece, `params` `dt`
+and `m`: the train's finite positive interval [s] and dose [kg/m²]) and `:add` (on the pit, `params` `dt_add`: the
+split interval, Inf for one addition). `t` [s] is absolute cook time, from lighting. Events are validated data; both positional
 and keyword construction enforce the same contract.
 """
 struct CookEvent
@@ -193,7 +194,7 @@ struct CookEvent
     end
 end
 function _validate_event_fields(kind::Symbol, target::Symbol, t::Real, nt::NamedTuple)
-    kind in (:wrap, :pull, :spritz, :add) || throw(ArgumentError("an event is :wrap, :pull, :spritz or :add, not :$kind"))
+    kind in (:load, :wrap, :pull, :spritz, :add) || throw(ArgumentError("an event is :load, :wrap, :pull, :spritz or :add, not :$kind"))
     kind === :add && target !== :pit && throw(ArgumentError("a fuel addition is the pit's event (target :pit), not $(target)'s"))
     kind !== :add && target === :pit && throw(ArgumentError("a $kind is a piece's event, not the pit's"))
     isfinite(t) && t >= 0 || throw(ArgumentError("an event time must be finite and nonnegative"))
@@ -238,8 +239,10 @@ end
 "The named event parameters of piece `id` from a list of events (`NEVER` where an event is absent)."
 function piece_events(events::AbstractVector{CookEvent}, id::Symbol; cfg::MeatConfig=MeatConfig())
     t_wrap, t_pull, t_spritz, dt_spritz, m_spritz = WRAP_NEVER, PULL_NEVER, SPRITZ_NEVER, 3600.0, cfg.m_spritz
+    t_load = LOAD_AT_START
     for e in events
         e.target === id || continue
+        e.kind === :load && (t_load = e.t)
         e.kind === :wrap && (t_wrap = e.t)
         e.kind === :pull && (t_pull = e.t)
         if e.kind === :spritz
@@ -248,7 +251,7 @@ function piece_events(events::AbstractVector{CookEvent}, id::Symbol; cfg::MeatCo
             m_spritz = Float64(get(e.params, :m, cfg.m_spritz))
         end
     end
-    return (t_wrap=t_wrap, t_pull=t_pull, t_spritz=t_spritz, dt_spritz=dt_spritz, m_spritz=m_spritz)
+    return (t_load=t_load, t_wrap=t_wrap, t_pull=t_pull, t_spritz=t_spritz, dt_spritz=dt_spritz, m_spritz=m_spritz)
 end
 "The pit's event parameters from a list of events."
 function pit_events(events::AbstractVector{CookEvent}; pit::PitConfig=PitConfig())
@@ -266,8 +269,8 @@ end
     ParamLayout(sys, nu)
 
 The named layout of the system's parameter vector `p` for `nu` damper knots: per piece its model-owned θ block
-(`(id, :theta)`), its exposed area `(id, :A_meat)` and its event parameters (`(id, :t_wrap)`,
-`(id, :t_pull)`, `(id, :t_spritz)`, `(id, :dt_spritz)`, `(id, :m_spritz)`, `(id, :T_trig)`); then the
+(`(id, :theta)`), its exposed area `(id, :A_meat)` and its event parameters (`(id, :t_load)`, `(id, :t_wrap)`,
+`(id, :t_pull)`, `(id, :t_spritz)`, `(id, :dt_spritz)`, `(id, :m_spritz)`); then the
 pit's φ block `(:pit, :phi)` (`PIT_NP`), the damper knots `(:pit, :u_knots)`, `(:pit, :t_add)` and
 `(:pit, :dt_add)`. Index by key: `play[(:brisket, :theta)]`.
 """
@@ -276,7 +279,7 @@ struct ParamLayout
     ranges::Dict{Tuple{Symbol,Symbol},UnitRange{Int}}
     n::Int
 end
-const PIECE_PARAM_SCALARS = (:A_meat, :t_wrap, :t_pull, :t_spritz, :dt_spritz, :m_spritz, :T_trig)
+const PIECE_PARAM_SCALARS = (:A_meat, :t_load, :t_wrap, :t_pull, :t_spritz, :dt_spritz, :m_spritz)
 function ParamLayout(sys::CookSystem, nu::Int)
     keys = Tuple{Symbol,Symbol}[]; ranges = Dict{Tuple{Symbol,Symbol},UnitRange{Int}}()
     o = 0
@@ -304,12 +307,12 @@ n_params(pl::ParamLayout) = pl.n
 struct _SysIndex
     θ::Vector{UnitRange{Int}}
     A::Vector{Int}
+    t_load::Vector{Int}
     t_wrap::Vector{Int}
     t_pull::Vector{Int}
     t_spritz::Vector{Int}
     dt_spritz::Vector{Int}
     m_spritz::Vector{Int}
-    T_trig::Vector{Int}
     x::Vector{UnitRange{Int}}
     φ::UnitRange{Int}
     u::UnitRange{Int}
@@ -319,21 +322,20 @@ struct _SysIndex
 end
 function _SysIndex(sys::CookSystem, play::ParamLayout)
     f(s) = [first(play[(pc.id, s)]) for pc in sys.pieces]
-    return _SysIndex([play[(pc.id, :theta)] for pc in sys.pieces], f(:A_meat), f(:t_wrap), f(:t_pull), f(:t_spritz),
-                     f(:dt_spritz), f(:m_spritz), f(:T_trig), [sys.layout.piece_range[pc.id] for pc in sys.pieces],
+    return _SysIndex([play[(pc.id, :theta)] for pc in sys.pieces], f(:A_meat), f(:t_load), f(:t_wrap), f(:t_pull), f(:t_spritz),
+                     f(:dt_spritz), f(:m_spritz), [sys.layout.piece_range[pc.id] for pc in sys.pieces],
                      play[(:pit, :phi)], play[(:pit, :u_knots)], first(play[(:pit, :t_add)]), first(play[(:pit, :dt_add)]),
                      sys.layout.pit_range)
 end
 
 """
-    pack_params(sys, θs, As, φ, u_knots; events=CookEvent[], T_trig=Inf, t_add=NaN, dt_add=NaN) -> (p, play)
+    pack_params(sys, θs, As, φ, u_knots; events=CookEvent[], t_add=NaN, dt_add=NaN) -> (p, play)
 
 The system's parameter vector from per-piece θ vectors and exposed areas, the pit's φ, the damper knots and
-the events (each piece reads its own; `T_trig` the wrap trigger temperature per piece or one for all;
-`t_add`/`dt_add` override the events' fuel addition when given). Duals pass through.
+the events (each piece reads its own; `t_add`/`dt_add` override the events' fuel addition when given). Duals pass through.
 """
 function pack_params(sys::CookSystem, θs::AbstractVector, As::AbstractVector, φ::AbstractVector, u_knots::AbstractVector;
-                     events::AbstractVector{CookEvent}=CookEvent[], T_trig=Inf, t_add::Real=NaN, dt_add::Real=NaN)
+                     events::AbstractVector{CookEvent}=CookEvent[], t_add::Real=NaN, dt_add::Real=NaN)
     np = n_pieces(sys)
     length(θs) == np || throw(ArgumentError("one θ per piece ($(length(θs)) for $np pieces)"))
     length(As) == np || throw(ArgumentError("one exposed area per piece ($(length(As)) for $np pieces)"))
@@ -343,21 +345,19 @@ function pack_params(sys::CookSystem, θs::AbstractVector, As::AbstractVector, �
         length(θ) == nθ || throw(ArgumentError("piece $(pc.id)'s θ must follow $(piece_parameter_schema(pc)) (got $(length(θ)) values)"))
     end
     validate_events(sys, events)
-    trig = T_trig isa AbstractVector ? T_trig : fill(T_trig, np)
-    length(trig) == np || throw(ArgumentError("one wrap trigger per piece"))
     play = ParamLayout(sys, length(u_knots))
-    Tel = promote_type(eltype(reduce(vcat, θs)), eltype(As), eltype(φ), eltype(u_knots), eltype(trig), Float64)
+    Tel = promote_type(eltype(reduce(vcat, θs)), eltype(As), eltype(φ), eltype(u_knots), Float64)
     p = zeros(Tel, play.n)
     for (i, pc) in enumerate(sys.pieces)
         ev = piece_events(events, pc.id; cfg=pc.cfg)
         p[play[(pc.id, :theta)]] = θs[i]
         p[first(play[(pc.id, :A_meat)])] = As[i]
+        p[first(play[(pc.id, :t_load)])] = ev.t_load
         p[first(play[(pc.id, :t_wrap)])] = ev.t_wrap
         p[first(play[(pc.id, :t_pull)])] = ev.t_pull
         p[first(play[(pc.id, :t_spritz)])] = ev.t_spritz
         p[first(play[(pc.id, :dt_spritz)])] = ev.dt_spritz
         p[first(play[(pc.id, :m_spritz)])] = ev.m_spritz
-        p[first(play[(pc.id, :T_trig)])] = trig[i]
     end
     pe = pit_events(events; pit=sys.pit)
     p[play[(:pit, :phi)]] = φ
@@ -387,8 +387,8 @@ end
 The slab's exchange port at one instant: its surface conductance times its exposed area and multiplicity
 (`cond = A n α a`, with a = k/(R_v T_s) under the wrap's and the skin's throttling), that conductance times
 its equilibrium vapor pressure (`num = cond · f_aw a_w p_sat(T_s)`; a piece with many exposed faces sums
-both over them), the exposed-area factor, the wrap blend (time trigger OR latch), the time-only wrap blend
-the lid term reads, and the pull blend. The same expressions `meat_rhs_core!` and `surface_fluxes_blended`
+both over them), the exposed-area factor, the wrap blend (the planner's time blend, which the lid gate
+also reads) and the pull blend. The same expressions `meat_rhs_core!` and `surface_fluxes_blended`
 use, so the closure and the RHS agree.
 """
 function _piece_exchange(pc::Slab1D, u, t, θ, airflow, t_wrap, t_pull, A_meat, hoisted)
@@ -403,23 +403,21 @@ function _piece_exchange(pc::Slab1D, u, t, θ, airflow, t_wrap, t_pull, A_meat, 
     end
     a_area = (vsum / (nx - 1) / v0)^n_a
     Ts, Ws = u[nx], u[2nx]
-    latch = clamp(u[5nx + 4], zero(u[5nx + 4]), one(u[5nx + 4]))
-    s_time = wrap_blend(t, t_wrap, cfg)
-    s = 1 - (1 - s_time) * (1 - latch)
+    s = wrap_blend(t, t_wrap, cfg)
     pl = pull_blend(t, t_pull, cfg)
     f_aw = 1 / (1 + cfg.k_aw * max(u[5nx], zero(u[5nx])))
     k_eff = isinf(cfg.k_skin) ? k_m : 1 / (1 / k_m + 1 / cfg.k_skin)
     a = (1 - cfg.η_evap * s) * k_eff / (R_V * Ts)
     e = f_aw * a_w_oswin(Ws, cfg) * p_sat(Ts)
     cond = A_meat * cfg.n_meat * a_area * a
-    return cond, cond * e, a_area, s, s_time, pl
+    return cond, cond * e, a_area, s, pl
 end
 
 "The piece's right-hand side under the resolved chamber vapor pressure `pv_star` (the mixing term is then zero: the closure already holds the piece's own vapor); returns the heat drawn from the pit [W]. Every piece model implements it."
-function _piece_rhs!(pc::Slab1D, du, u, t, θ, Tp, ṁ, pv_star, airflow, t_wrap, t_pull, t_spritz, dt_spritz, m_spritz, T_trig, hoisted, A_meat)
+function _piece_rhs!(pc::Slab1D, du, u, t, θ, Tp, ṁ, pv_star, airflow, t_wrap, t_pull, t_spritz, dt_spritz, m_spritz, hoisted, A_meat)
     n_s, n_a, v0, wb = hoisted
     return meat_rhs_core!(du, u, t, θ, Tp, ṁ, pv_star, zero(pv_star), airflow, t_wrap, t_pull, t_spritz, dt_spritz, m_spritz,
-                          pc.cfg, n_s, n_a, v0, wb, T_trig; A_meat=A_meat)
+                          pc.cfg, n_s, n_a, v0, wb; A_meat=A_meat)
 end
 _piece_hoisted(pc::Slab1D) = (shrink_exponents(pc.cfg)..., bone_weights(pc.cfg))
 
@@ -457,15 +455,15 @@ function _system_instant(sys::CookSystem, x, p, t, ud, ix::_SysIndex, hoisted; p
     Tel = promote_type(eltype(x), eltype(p), typeof(float(t)))
     np = length(sys.pieces)
     cond = Vector{Tel}(undef, np); nums = Vector{Tel}(undef, np); area = Vector{Tel}(undef, np)
-    s = Vector{Tel}(undef, np); s_time = Vector{Tel}(undef, np); pl = Vector{Tel}(undef, np)
+    s = Vector{Tel}(undef, np); pl = Vector{Tel}(undef, np)
     num = zero(Tel); den = zero(Tel)
     for i in 1:np
         pc = sys.pieces[i]
         θ = Tuple(p[ix.θ[i]])
-        c_i, n_i, a_i, s_i, st_i, pl_i = _piece_exchange(pc, view(x, ix.x[i]), t, θ, airflow, p[ix.t_wrap[i]], p[ix.t_pull[i]],
+        c_i, n_i, a_i, s_i, pl_i = _piece_exchange(pc, view(x, ix.x[i]), t, θ, airflow, p[ix.t_wrap[i]], p[ix.t_pull[i]],
                                                          p[ix.A[i]], hoisted[i])
-        cond[i] = c_i; nums[i] = n_i; area[i] = a_i; s[i] = s_i; s_time[i] = st_i; pl[i] = pl_i
-        gate = 1 - pl_i
+        cond[i] = c_i; nums[i] = n_i; area[i] = a_i; s[i] = s_i; pl[i] = pl_i
+        gate = (1 - pl_i) * load_blend(t, p[ix.t_load[i]], pc.cfg)     # in the pit: loaded and not pulled
         num += gate * n_i
         den += gate * c_i
     end
@@ -475,7 +473,7 @@ function _system_instant(sys::CookSystem, x, p, t, ud, ix::_SysIndex, hoisted; p
     # closed balance, rather than shifting the pressure only after the pieces have used it.
     vapor_correction = -pv_bias * (1 + K * den) / K
     return (airflow=airflow, mdot=ṁ, mair=mair, K=K, q_pan=q_pan, mdot_pan=ṁ_pan, pv_base=pv_base, pv_star=pv_star,
-            pv_uncorrected, vapor_correction, cond=cond, num=nums, area=area, s=s, s_time=s_time, pl=pl,
+            pv_uncorrected, vapor_correction, cond=cond, num=nums, area=area, s=s, pl=pl,
             Tp=Tp, m=m, a=a, mp=mp, Tpan=Tpan, Tfb=Tfb)
 end
 
@@ -484,9 +482,10 @@ end
 
 The in-place coupled RHS over the system state (`sys.layout`) with the parameter vector laid out by
 `ParamLayout(sys, nu)`; the damper schedule is interpolated from `nu` knots on the uniform grid
-`u_t0 + (i − 1) u_dt`.
+`u_t0 + (i − 1) u_dt`. `freeze` holds the chamber's resolved vapor pressure and each grid piece's exposed-area
+factor at their values (no derivatives through them): the right-hand side the sparse Jacobian is taken of.
 """
-function make_system_rhs(sys::CookSystem, u_t0::Real, u_dt::Real, nu::Int; correction=nothing)
+function make_system_rhs(sys::CookSystem, u_t0::Real, u_dt::Real, nu::Int; correction=nothing, freeze::Bool=false)
     pit = sys.pit
     play = ParamLayout(sys, nu)
     ix = _SysIndex(sys, play)
@@ -506,23 +505,34 @@ function make_system_rhs(sys::CookSystem, u_t0::Real, u_dt::Real, nu::Int; corre
             inst = _system_instant(sys, x, p, t, ud, ix, hoisted; pv_bias=corr.pv)
         end
         Tp, m, a, mp, Tpan, Tfb = inst.Tp, inst.m, inst.a, inst.mp, inst.Tpan, inst.Tfb
-        pv_piece = inst.pv_star
+        pv_piece = freeze ? _primal(inst.pv_star) : inst.pv_star
         q_meat = zero(inst.pv_star)
         for i in 1:np
             θ = Tuple(p[ix.θ[i]])
-            q_meat += _piece_rhs!(sys.pieces[i], view(dx, ix.x[i]), view(x, ix.x[i]), t, θ, Tp, inst.mdot, pv_piece, inst.airflow,
-                                  p[ix.t_wrap[i]], p[ix.t_pull[i]], p[ix.t_spritz[i]], p[ix.dt_spritz[i]], p[ix.m_spritz[i]],
-                                  p[ix.T_trig[i]], hoisted[i], p[ix.A[i]])
+            args = (sys.pieces[i], view(dx, ix.x[i]), view(x, ix.x[i]), t, θ, Tp, inst.mdot, pv_piece, inst.airflow,
+                    p[ix.t_wrap[i]], p[ix.t_pull[i]], p[ix.t_spritz[i]], p[ix.dt_spritz[i]], p[ix.m_spritz[i]],
+                    hoisted[i], p[ix.A[i]])
+            qi = freeze ? _piece_rhs!(args...; freeze=true) : _piece_rhs!(args...)
+            # before its load the piece is not in the pit: it holds its raw state and draws nothing
+            ld = load_blend(t, p[ix.t_load[i]], sys.pieces[i].cfg)
+            dxi = view(dx, ix.x[i])
+            @inbounds for k in eachindex(dxi)
+                dxi[k] *= ld
+            end
+            q_meat += ld * qi
         end
         q_meat -= corr.q
         # The lid is one physical opening. Shared trains and coincident/overlapping pulses therefore take the
         # widest opening rather than adding several copies of the same heat-loss path.
         t_add = p[ix.t_add]; dt_add = p[ix.dt_add]
         lid = lid_open(t, t_add, pit.τ_open_add)
+        for i in 1:np                                                  # the door open while a piece goes on
+            lid = max(lid, lid_open(t, p[ix.t_load[i]], pit.τ_open_load))
+        end
         for g in _spritz_groups(p, ix)
             gate = zero(Tp)
             for i in g
-                gate = max(gate, (1 - inst.s_time[i]) * (1 - inst.pl[i]))
+                gate = max(gate, (1 - inst.s[i]) * (1 - inst.pl[i]))
             end
             lid = max(lid, lid_open(t, spritz_pulse_time(t, p[ix.t_spritz[g[1]]], p[ix.dt_spritz[g[1]]]), pit.τ_open_spritz) * gate)
         end
@@ -556,8 +566,8 @@ _pan_lambda(sys::CookSystem) = sys.pit.λ_pan
     initial_state(pc::Slab1D, θ; ics=(;), t_salt=NaN) -> Vector
 
 The piece's initial ODE state: uniform fields at the config's raw state, the brine profile from `θ[4]` (L)
-over `t_salt` (NaN: the config's), the bark, ring and latch at zero; the keywords of `ics` (`T0f`, `W0f`,
-`C0f`, `F0f`, `Ssalt0f`, `B0`, `S0`, `R0`, `LATCH0`, the hand-off contract) replace them for a restart.
+over `t_salt` (NaN: the config's), the bark and ring at zero; the keywords of `ics` (`T0f`, `W0f`,
+`C0f`, `F0f`, `Ssalt0f`, `B0`, `S0`, `R0`, the hand-off contract) replace them for a restart.
 """
 function initial_state(pc::Slab1D, θ; ics::NamedTuple=(;), t_salt::Real=NaN)
     cfg = pc.cfg
@@ -565,7 +575,7 @@ function initial_state(pc::Slab1D, θ; ics::NamedTuple=(;), t_salt::Real=NaN)
         throw(ArgumentError("unsupported restart field for $(pc.id); expected $(piece_restart_fields(pc))"))
     g(k, default) = haskey(ics, k) ? getfield(ics, k) : default
     u0 = _meat_u0(cfg, g(:T0f, Float64[]), g(:W0f, Float64[]), g(:C0f, Float64[]);
-                  F0f=g(:F0f, Float64[]), B0=g(:B0, NaN), S0=g(:S0, NaN), R0=g(:R0, NaN), LATCH0=g(:LATCH0, NaN),
+                  F0f=g(:F0f, Float64[]), B0=g(:B0, NaN), S0=g(:S0, NaN), R0=g(:R0, NaN),
                   Ssalt0f=g(:Ssalt0f, Float64[]), s0=salt_profile(θ[4], cfg, isnan(_primal(t_salt)) ? cfg.t_salt : t_salt))
     all(v -> isfinite(_primal(v)), u0) || throw(ArgumentError("restart state for $(pc.id) must be finite"))
     return u0
@@ -610,26 +620,39 @@ function _uniform_control_grid(u_tknots::AbstractVector)
 end
 
 """
-    system_solve_raw(sys, p, x0, u_tknots, tsave; abstol=1e-6, reltol=1e-6) -> A
+    system_solve_raw(sys, p, x0, u_tknots, tsave; abstol=1e-6, reltol=1e-6, jacobian=:auto) -> A
 
 The system integrated from `x0` under the parameter vector `p` (`ParamLayout(sys, length(u_tknots))`):
-the state at every save time, `n × nt`. Fails loudly on an unsuccessful solve.
+the state at every save time, `n × nt`. Fails loudly on an unsuccessful solve. `jacobian`: `:dense` (automatic
+differentiation of the whole right-hand side), `:sparse` (grid pieces only: `make_sparse_jacobian`), `:auto` the
+sparse one for a Float64 solve of grid pieces past 800 nodes.
 """
 function system_solve_raw(sys::CookSystem, p::AbstractVector, x0::AbstractVector, u_tknots::AbstractVector, tsave::AbstractVector;
-                          correction=nothing, abstol=1e-6, reltol=1e-6)
+                          correction=nothing, abstol=1e-6, reltol=1e-6, jacobian::Symbol=:auto)
     nu = length(u_tknots)
     u_t0, u_dt = _uniform_control_grid(u_tknots)
     rhs!, play = make_system_rhs(sys, u_t0, u_dt, nu; correction)
     length(p) == play.n || throw(ArgumentError("the parameter vector has $(length(p)) entries; the system with $nu knots takes $(play.n)"))
     length(x0) == sys.layout.n || throw(ArgumentError("the state has $(length(x0)) entries; the system $(sys.layout.n)"))
     Tel = promote_type(eltype(p), eltype(x0), Float64)
-    prob = ODEProblem{true,SciMLBase.FullSpecialize}(rhs!, Tel.(x0), (float(tsave[1]), float(tsave[end])), p)
+    prob = if _use_sparse(sys, Tel, jacobian)
+        proto, jac!, _ = make_sparse_jacobian(sys, u_t0, u_dt, nu; correction)
+        f = SciMLBase.ODEFunction{true,SciMLBase.FullSpecialize}(rhs!; jac=jac!, jac_prototype=proto)
+        ODEProblem{true,SciMLBase.FullSpecialize}(f, Tel.(x0), (float(tsave[1]), float(tsave[end])), p)
+    else
+        ODEProblem{true,SciMLBase.FullSpecialize}(rhs!, Tel.(x0), (float(tsave[1]), float(tsave[end])), p)
+    end
     # FBDF preserves the monolith's numerical parity and is normally faster, but can hit a
     # tolerance-dependent dt-epsilon failure when several moisture nodes cross a constitutive kink
     # together. QNDF is the same implicit BDF family and crosses that case robustly. Retry only an
     # unsuccessful/truncated solve so ordinary and differentiated trajectories keep the established
     # algorithm whenever it is valid.
-    solve_kw = (; saveat=tsave, abstol, reltol, isoutofdomain=_system_pan_oob(sys))
+    # Use the monolith's load-transition stops for every piece. The estimator
+    # restarts on short slices; its trajectory must resolve the same smooth
+    # loading interval as a full cook, including during an otherwise idle preheat.
+    load_stops = sort!(unique!(reduce(vcat,
+        [_load_tstops(p[first(play[(pc.id, :t_load)])], float(tsave[1]), float(tsave[end]), pc.cfg) for pc in sys.pieces])))
+    solve_kw = (; saveat=tsave, abstol, reltol, tstops=load_stops, isoutofdomain=_system_pan_oob(sys))
     sol = solve(prob, FBDF(); solve_kw...)
     if !(SciMLBase.successful_retcode(sol) && length(sol.u) == length(tsave))
         sol = solve(prob, QNDF(); solve_kw...)
@@ -656,8 +679,7 @@ state, columns the save times), under the pit series `ps` (`airflow`, `mdot`, `s
 function piece_outputs(pc::Slab1D, Ap::AbstractMatrix, θ, A_m, ps::NamedTuple, tsave, ev::NamedTuple)
     cfg = pc.cfg; nx = cfg.nx; nt = length(tsave)
     Tsurf = Ap[nx, :]; Wsurf = Ap[2nx, :]
-    latch_ts = clamp.(Ap[5nx + 4, :], 0.0, 1.0)
-    s_ts = 1 .- (1 .- wrap_blend.(tsave, ev.t_wrap, Ref(cfg))) .* (1 .- latch_ts)
+    s_ts = wrap_blend.(tsave, ev.t_wrap, Ref(cfg))
     pl_ts = pull_blend.(tsave, ev.t_pull, Ref(cfg))
     n_s, n_a, v0 = shrink_exponents(cfg)
     wfv = fv_weights(nx)
@@ -669,12 +691,13 @@ function piece_outputs(pc::Slab1D, Ap::AbstractMatrix, θ, A_m, ps::NamedTuple, 
     f_aw_ts = 1 ./ (1 .+ cfg.k_aw .* max.(Ap[5nx, :], 0.0))
     # the fluxes under the resolved chamber vapor pressure: the mixing term is inside pv_star already
     fluxes = surface_fluxes_blended.(Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, ps.pv_star, 0.0, Ref(cfg), f_aw_ts)
-    j_evap = getproperty.(fluxes, :j)
-    j_pit = getproperty.(fluxes, :j_pit)
-    q_meat = A_m * cfg.n_meat .* a_ts .* surface_q_pit_blended.(ps.Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
+    ld_ts = load_blend.(tsave, get(ev, :t_load, LOAD_AT_START), Ref(cfg))   # nothing crosses before the load
+    j_evap = getproperty.(fluxes, :j) .* ld_ts
+    j_pit = getproperty.(fluxes, :j_pit) .* ld_ts
+    q_meat = A_m * cfg.n_meat .* a_ts .* ld_ts .* surface_q_pit_blended.(ps.Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
     bark_b = Ap[5nx + 1, :]; bark_s = Ap[5nx + 2, :]; ring = Ap[5nx + 3, :]
     dep_dirty = cfg.k_dep .* wet_blend.(a_w_oswin.(Wsurf, Ref(cfg)), Ref(cfg)) .* max.(ps.mdot, 0.0) .* (1 .- ps.smoke_clean) .*
-                (1 .- s_ts) .* (1 .- pl_ts) .* (1 .- bark_s)
+                (1 .- s_ts) .* (1 .- pl_ts) .* (1 .- bark_s) .* ld_ts
     w_retained = fv_mean(Ap[(nx + 1):2nx, end]) / cfg.W0
     F_mean = fv_mean(Ap[(3nx + 1):4nx, end])
     R_ret = (1 - cfg.η_drain) * (cfg.F0 - F_mean)
@@ -683,7 +706,7 @@ function piece_outputs(pc::Slab1D, Ap::AbstractMatrix, θ, A_m, ps::NamedTuple, 
     cumtrap(v) = vcat(zero(eltype(v)), cumsum((v[1:(end - 1)] .+ v[2:end]) ./ 2 .* dts))
     evap_w_cum = cumtrap(ja) ./ (RHO_DRY * θ[4])
     bitterness_cum = cumtrap(dep_dirty)
-    jsp = spritz_rate.(tsave, ev.t_spritz, ev.dt_spritz, ev.m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts
+    jsp = spritz_rate.(tsave, ev.t_spritz, ev.dt_spritz, ev.m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts .* ld_ts
     spritz_w_cum = cfg.f_abs .* cumtrap(jsp) ./ (RHO_DRY * θ[4])
     evap_w, spritz_w, bitterness = evap_w_cum[end], spritz_w_cum[end], bitterness_cum[end]
     mass = [meat_mass_slab(dot(wfv, view(Ap, (nx + 1):2nx, k)) / (nx - 1), dot(wfv, view(Ap, (3nx + 1):4nx, k)) / (nx - 1), A_m, θ[4], cfg)
@@ -695,7 +718,7 @@ function piece_outputs(pc::Slab1D, Ap::AbstractMatrix, θ, A_m, ps::NamedTuple, 
             drip_w=(cfg.W0 - w_retained * cfg.W0) + spritz_w - evap_w, drip_f=cfg.η_drain * (cfg.F0 - F_mean),
             evap_w_cum, spritz_w_cum, bitterness_cum,
             l_thick, T_field=Ap[1:nx, :], W_field=Ap[(nx + 1):2nx, :], C_field=Ap[(2nx + 1):3nx, :],
-            F_field=Ap[(3nx + 1):4nx, :], salt_field=Ap[(4nx + 1):5nx, :], wrap_latch=latch_ts, wrap_effective=s_ts,
+            F_field=Ap[(3nx + 1):4nx, :], salt_field=Ap[(4nx + 1):5nx, :], wrap_effective=s_ts,
             bitterness, mass)
 end
 
@@ -734,7 +757,8 @@ function system_outputs(sys::CookSystem, A::AbstractMatrix, p::AbstractVector, u
     length(histories) == length(sys.pieces) || throw(ArgumentError("one cumulative-history offset is required per piece"))
     raw_pieces = map(enumerate(sys.pieces)) do (i, pc)
         θ = p[ix.θ[i]]
-        ev = (t_wrap=p[ix.t_wrap[i]], t_pull=p[ix.t_pull[i]], t_spritz=p[ix.t_spritz[i]], dt_spritz=p[ix.dt_spritz[i]], m_spritz=p[ix.m_spritz[i]])
+        ev = (t_load=p[ix.t_load[i]], t_wrap=p[ix.t_wrap[i]], t_pull=p[ix.t_pull[i]], t_spritz=p[ix.t_spritz[i]],
+              dt_spritz=p[ix.dt_spritz[i]], m_spritz=p[ix.m_spritz[i]])
         po = piece_outputs(pc, view(A, ix.x[i], :), θ, p[ix.A[i]], ps, tsave, ev)
         h = histories[i]
         ew = get(h, :evap_w, 0.0); sw = get(h, :spritz_w, 0.0); bt = get(h, :bitterness, 0.0)
@@ -773,7 +797,7 @@ function system_outputs(sys::CookSystem, A::AbstractMatrix, p::AbstractVector, u
 end
 
 """
-    system_solve(sys, θs, As, φ, u_knots, u_tknots, tsave; events, T_trig, t_add, dt_add, ics, pit_ics, t_salt, abstol, reltol)
+    system_solve(sys, θs, As, φ, u_knots, u_tknots, tsave; events, t_add, dt_add, ics, pit_ics, t_salt, abstol, reltol)
 
 The coupled cook of a system: every piece's θ and exposed area, the pit's φ, the damper schedule, the events
 (`CookEvent`s; a piece reads its own, the pit its fuel addition), and the restart keywords (`ics` one
@@ -785,21 +809,21 @@ NamedTuple per piece in `handoff`'s contract, `pit_ics` the pit's, `ignited` in 
 The same from the flat parameter vector (`pack_params`) and, optionally, a full initial state `x0`.
 """
 function system_solve(sys::CookSystem, θs::AbstractVector, As::AbstractVector, φ::AbstractVector, u_knots::AbstractVector,
-                      u_tknots::AbstractVector, tsave::AbstractVector; events::AbstractVector{CookEvent}=CookEvent[], T_trig=Inf,
+                      u_tknots::AbstractVector, tsave::AbstractVector; events::AbstractVector{CookEvent}=CookEvent[],
                       t_add::Real=NaN, dt_add::Real=NaN, ics::AbstractVector=[(;) for _ in sys.pieces], pit_ics::NamedTuple=(;),
-                      history=nothing, correction=nothing, t_salt=NaN, abstol=1e-6, reltol=1e-6)
+                      history=nothing, correction=nothing, t_salt=NaN, abstol=1e-6, reltol=1e-6, jacobian::Symbol=:auto)
     length(u_knots) == length(u_tknots) || throw(ArgumentError("u_knots length $(length(u_knots)) != u_tknots length $(length(u_tknots))"))
-    p, play = pack_params(sys, θs, As, φ, u_knots; events, T_trig, t_add, dt_add)
+    p, play = pack_params(sys, θs, As, φ, u_knots; events, t_add, dt_add)
     x0 = initial_state(sys, p, play; ics, pit_ics, t_salt)
-    A = system_solve_raw(sys, p, x0, u_tknots, tsave; correction, abstol, reltol)
+    A = system_solve_raw(sys, p, x0, u_tknots, tsave; correction, abstol, reltol, jacobian)
     return system_outputs(sys, A, p, u_tknots, tsave; history, correction)
 end
 function system_solve(sys::CookSystem, p::AbstractVector, u_tknots::AbstractVector, tsave::AbstractVector; x0=nothing,
                       ics::AbstractVector=[(;) for _ in sys.pieces], pit_ics::NamedTuple=(;), history=nothing,
-                      correction=nothing, t_salt=NaN, abstol=1e-6, reltol=1e-6)
+                      correction=nothing, t_salt=NaN, abstol=1e-6, reltol=1e-6, jacobian::Symbol=:auto)
     play = ParamLayout(sys, length(u_tknots))
     x0v = x0 === nothing ? initial_state(sys, p, play; ics, pit_ics, t_salt) : x0
-    A = system_solve_raw(sys, p, x0v, u_tknots, tsave; correction, abstol, reltol)
+    A = system_solve_raw(sys, p, x0v, u_tknots, tsave; correction, abstol, reltol, jacobian)
     return system_outputs(sys, A, p, u_tknots, tsave; history, correction)
 end
 
@@ -807,15 +831,16 @@ end
     system_handoff(o, k) -> (pieces, pit, ignited, x)
 
 The system's state at save index `k` of an output `o` as restart keywords: one NamedTuple per piece
-(`handoff`'s meat contract with the latch, `LATCH0`), the pit's (`Tpit0`, `mfuel0`, `mpan0`, `Tpan0`, `Tfb0`),
+(`handoff`'s meat contract), the pit's (`Tpit0`, `mfuel0`, `mpan0`, `Tpan0`, `Tfb0`),
 the ignited fraction and the raw state vector.
 """
 function system_handoff(o, k::Int)
     pieces = map(o.pieces) do po
         haskey(po, :bark_dist) && return (T0f=po.T_field[:, k], W0f=po.W_field[:, k], C0f=po.C_field[:, k], F0f=po.F_field[:, k],
-                                          B0f=po.bark_dist[:, k], S0f=po.smoke_dist[:, k])                      # a grid piece: its bark per exposed node
+                                          Ssalt0f=po.salt_field[:, k], B0f=po.bark_dist[:, k], S0f=po.smoke_dist[:, k],
+                                          R0f=po.ring_dist[:, k])                                              # a grid piece: its surface states per exposed node
         (T0f=po.T_field[:, k], W0f=po.W_field[:, k], C0f=po.C_field[:, k], F0f=po.F_field[:, k], Ssalt0f=po.salt_field[:, k],
-         B0=po.bark_b[k], S0=po.bark_s[k], R0=po.ring[k], LATCH0=po.wrap_latch[k])
+         B0=po.bark_b[k], S0=po.bark_s[k], R0=po.ring[k])
     end
     pit = (Tpit0=o.Tpit[k], mfuel0=o.m_fuel[k], mpan0=o.m_pan[k], Tpan0=o.T_pan[k], Tfb0=o.T_firebox[k])
     history = [(evap_w=po.evap_w_cum[k], spritz_w=po.spritz_w_cum[k], bitterness=po.bitterness_cum[k]) for po in o.pieces]

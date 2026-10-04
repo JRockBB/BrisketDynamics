@@ -13,6 +13,39 @@ guarantee.
 
 ## Calibration & data goals
 
+- **C0 — The from-lighting posterior beyond Laplace, the pooled logs' preheats,
+  and the load band.** The real cook is fitted from lighting and the planners
+  draw from its Laplace posterior (`docs/results.md`, the preheat entry).
+  Remaining:
+  - **The rest of the posterior path, moved to the from-lighting layout**
+    (`monolith.sites_for`: $k_{\mathrm{spr}}$ and $u_{\mathrm{pre}}$,
+    $a_0$ fixed) before any of it is rerun:
+    - `run_tmb_ignition.py`, whose marginalized block is still
+      $(a_0, k_{\mathrm{spr}})$; the come-up's block is now
+      $(k_{\mathrm{spr}}, u_{\mathrm{pre}})$
+    - `approx.py`'s `IGNITION_NAMES`
+    - `run_psis_laplace.py`, `run_nuts_mono.py`, `merge_nuts_mono.py` and
+      `compare_approx.py`
+
+    Then a PSIS check of the Laplace draws, which put about a quarter of
+    their mass on fires that cannot bring the empty pit to 200 °F under a
+    slow preheat (a ridge a Gaussian may overstate), and the NUTS chain
+    (~9 h) on a go.
+  - **The pooled logs** (`run_pool_real.py`, the CLI) keep the start-of-log
+    layout until each log's preheat is documented (`cooklog` spec
+    `preheat_min`).
+  - **The load band:** every plan loads at its 200 °F lower bound, so the
+    bound, not the physics, sets the load. Widen it or justify it with a cook.
+  - **The serve-time policy:** the from-lighting scan chooses 16 h by its
+    existing 2% plateau rule. The objective does not charge for elapsed time,
+    so extra preheat and rest can improve its score. A time cost or a limit
+    on either phase is a separate objective decision, not an MPC speed fix.
+  - The factor-graph estimator's from-lighting integration and consistency
+    work resumed on 2026-10-04 with overnight validation authorized. See
+    `estimator-preheat-consistency.md` for the fixes, validation design and
+    measured outcome. The production prior is not replaced by the bench's
+    independent-marginal lighting design.
+
 - **C1 — Fly the pilot on a real pit.** The pilot is built and validated
   against the mock HeaterMeter, with a live forecast feedforward
   (`docs/results.md`); what remains needs an actual cook: shadow mode
@@ -320,8 +353,10 @@ frontend beyond the CLI; the bark write-up rides on C6.
 
 A 2-D axisymmetric surrogate at highest fidelity (a point-over-flat
 stack is available, inert by default), not a true packer geometry: the
-slab2d Tesseract shadow-scores plans to serve (true cold spot, come-up
-time, bark distribution, a doubled-grid check — `docs/results.md`) while
+slab2d Tesseract shadow-scores plans to serve with the full 1-D physics
+(true cold spot, come-up time, bark and smoke distributions, ring depth,
+fat and juiciness, a doubled-grid check — `docs/results.md`), and a 3-D
+trimmed flat (tapered, with its fat cap) does the same with its ends and edges (`scripts/run_shadow3d.py`) while
 the planners optimize on the 1-D monolith; no animal-to-animal pH, aging or
 water-holding capacity (C3); wind and weather on `UA(t)` beyond the
 pilot's forecast feedforward + ambient filter (C1); rub chemistry beyond

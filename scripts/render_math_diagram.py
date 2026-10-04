@@ -147,7 +147,7 @@ box(
     6.65,
     MEAT_FC,
     MEAT_EC,
-    "MEAT — 1-D PDE + kinetics ($x\\in[0,L]$, $5n_x + 4 = 204$ ODEs after MOL)",
+    "MEAT — 1-D PDE + kinetics ($x\\in[0,L]$, $5n_x + 3 = 203$ ODEs after MOL)",
     [],
 )
 # interior transport

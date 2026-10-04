@@ -19,18 +19,24 @@
 # and the PULL blend on every exposed face (rest environment after
 # t_pull, as in 1-D — the shadow of a plan ends at SERVE, not at the
 # horizon), dry-brine salt from every rubbed face, spritz on the faces,
-# grain anisotropy, a point-over-flat stack, Maillard bark on the faces.
-# Not here: bone, smoke deposition / ring (no 2-D smoke field), fuel
-# additions and lid lifts in the pit-coupled loop. Nothing here is
-# calibrated beyond what the 1-D constants carry; the bark DISTRIBUTION
-# waits on thermal-camera surface fields (roadmap C2).
+# grain anisotropy, a point-over-flat stack, Maillard bark on the faces,
+# smoke deposition and the smoke-ring front on every exposed face cell
+# (the 1-D surface states per cell, driven by the burn rate). The
+# pit-coupled loop carries the monolith's fuel additions (one chimney or a
+# split train) and lid lifts (the addition and every spritz pulse). The
+# 1-D physics the layers do not switch: fat renders per node (its own
+# field, feeding the properties and the shrink), a bone at the core
+# (cfg.bone_frac, on the depth below the nearest exposed face), and the
+# draft scaling of h_c and k_m (θ2[7] = m_conv). Nothing here is calibrated beyond what the 1-D constants carry; the bark and
+# smoke DISTRIBUTIONS wait on thermal-camera surface fields (roadmap C2).
 
 """
     meat_solve_2d(θ2, Tpit_knots, tknots, tsave; R, Hz, nr, nz, cfg, h)
 
 Axisymmetric finite-cylinder cook: radius `R`, full height `Hz`,
 `nr × nz` nodes (i = 1 on the axis; j = 1 and j = nz are the exposed end
-faces). `θ2 = [D_eff, k_m, h_c, k_mult, k_e, a_myosin]`. Fixed step `h`
+faces). `θ2 = [D_eff, k_m, h_c, k_mult, k_e, a_myosin, m_conv]` (the 1-D θ
+without L; `h_c`, `k_m` scale with the draft as `(g/g_ref)^m_conv`). Fixed step `h`
 [s]; the pit forcing interpolates from `Tpit_knots` on `tknots`; save
 times `tsave` must start at the cook start.
 
@@ -43,7 +49,12 @@ solve runs to SERVE with carryover and the hold's collagen conversion;
 in-plane (along-fiber) conduction and moisture diffusion — the z
 (through-thickness) direction keeps the 1-D-calibrated values;
 `F_top` + `z_split` stack a second muscle of fat fraction `F_top` above
-`z_split`·Hz (the point over the flat, a smooth step).
+`z_split`·Hz (the point over the flat, a smooth step); `smoke_knots`
+is the burn-rate forcing [kg/s] on `tknots` (the 1-D `meat_solve`
+input; empty = no fire, so no smoke deposition and no ring);
+`airflow_knots` the normalized draft on `tknots` (empty = `cfg.g_ref`, no
+scaling). Fat renders per node from the initial point-over-flat profile,
+and `cfg.bone_frac` places a bone at the core (both as in 1-D).
 
 Returns `(t, Tcore, T_field, W_field, w_retained, C_field, C_core,
 C_min, Tcold, bark_rim, bark_ends, bark_mean, bark_std)` — Tcore at the
@@ -52,7 +63,14 @@ retained-water fraction, collagen conversion per cell (`C_min` = the
 last-done spot at serve), `Tcold` the true cold-spot trace (grid
 minimum — the safety margin no symmetric 1-D core can show), and the
 Maillard bark DISTRIBUTION over the exposed faces (area-weighted mean
-and spread — burnt-ends live in the tail).
+and spread — burnt-ends live in the tail) — plus the smoke on the faces:
+`smoke_rim, smoke_ends, smoke_mean, smoke_std` (deposition), `ring_rim,
+ring_ends, ring_mean, ring_min` (ring depth [m], material coordinate),
+`F_field`, `F_mean`, `fat_rendered`, `juiciness`, `drip_f` (the 1-D fat
+scores), `l_star_mean` (the 1-D L* map at the face means), `bitterness` (the
+area-mean dirty-smoke integral; zero without a cleanliness signal) and
+the per-save face series `smoke_rim_t, smoke_ends_t, ring_rim_t,
+ring_ends_t`.
 """
 # The transport engine shared by the prescribed-forcing solve and the
 # pit-coupled solve: builds the grid state and returns a `step!` closure
@@ -63,17 +81,33 @@ function _slab2d_engine(
     θ2, R, Hz, nr, nz, cfg, h, t_wrap, t_pull, k_grain, D_grain, F_top, z_split,
     Tv, t_salt, t_spritz, dt_spritz, m_spritz
 )
-    D_eff, k_m, h_c, k_mult, k_e, a_myosin = θ2
+    length(θ2) == 7 || throw(ArgumentError(
+        "θ2 must be [D_eff, k_m, h_c, k_mult, k_e, a_myosin, m_conv]; got $(length(θ2)) entries"))
+    D_eff, k_m, h_c, k_mult, k_e, a_myosin, m_conv = θ2
     Δr = R / (nr - 1)
     Δz = Hz / (nz - 1)
 
-    # point-vs-flat as stacked muscles: fat fraction F(z) steps smoothly
-    # from cfg.F0 (flat) to F_top (point) at z_split·Hz (NaN F_top or
-    # z_split >= 1 leaves the uniform cut exactly)
+    # point-vs-flat as stacked muscles: the initial fat fraction F(z)
+    # steps smoothly from cfg.F0 (flat) to F_top (point) at z_split·Hz (NaN
+    # F_top or z_split >= 1 leaves the uniform cut exactly); the fat then
+    # renders per node at the 1-D rate (its own state, feeding conductivity,
+    # capacity and the shrink through the composition)
     Ftop = isnan(F_top) ? Tv(cfg.F0) : Tv(F_top)
     δ_split = Hz / 12
     Fz = [Tv(cfg.F0) + (Ftop - Tv(cfg.F0)) *
           logistic(((j - 1) * Δz - z_split * Hz) / δ_split) for j in 1:nz]
+    Fmat = [Fz[j] for i in 1:nr, j in 1:nz]
+    # bone: the 1-D blend weight logistic((bone_frac − ξ̂)/δ_bone_frac) on
+    # the normalized depth ξ̂ = 1 − d/d_max, d the distance to the nearest
+    # exposed face (rim or either end); the core region keeps the cut's
+    # shape, and both 1-D limits recover the slab's ξ̂ exactly. Static,
+    # exactly zero for the boneless default
+    wbone = zeros(Float64, nr, nz)
+    if cfg.bone_frac > 0
+        dface = [min(R - (i - 1) * Δr, (j - 1) * Δz, Hz - (j - 1) * Δz) for i in 1:nr, j in 1:nz]
+        dmax = maximum(dface)
+        wbone .= logistic.((cfg.bone_frac .- (1 .- dface ./ dmax)) ./ cfg.δ_bone_frac)
+    end
 
     T = fill(Tv(cfg.T0), nr, nz)
     W = fill(Tv(cfg.W0), nr, nz)
@@ -100,6 +134,16 @@ function _slab2d_engine(
     Cmat = zeros(Tv, nr, nz)
     B_rim = zeros(Tv, nz)
     B_end = zeros(Tv, nr, 2)
+    # smoke on the faces: the 1-D surface states per exposed face cell —
+    # deposition D (saturating, darkens L*) and the smoke-ring front depth
+    # Rg (material coordinate, along the face's inward normal); `dirty`
+    # integrates the area-weighted deposition of an unclean burn (the 1-D
+    # bitterness integrand)
+    D_rim = zeros(Tv, nz)
+    D_end = zeros(Tv, nr, 2)
+    Rg_rim = zeros(Tv, nz)
+    Rg_end = zeros(Tv, nr, 2)
+    dirty = zeros(Tv, 1)
     kmat = zeros(Tv, nr, nz)
     ρcmat = zeros(Tv, nr, nz)
     # shrink metrics, mirroring the 1-D material coordinate per
@@ -126,50 +170,69 @@ function _slab2d_engine(
     jr_face = zeros(Tv, nz)
     jz_face = zeros(Tv, nr, 2)
     zw = [j == 1 || j == nz ? Tv(0.5) : Tv(1.0) for j in 1:nz]
+    # exposed-area weights of the face cells (2π dropped, it cancels in
+    # every face mean): rim strips R·Δz (half at the corners), end annuli rV
+    w_rim = [R * Δz * zw[j] for j in 1:nz]
+    aw_sum = sum(w_rim) + 2 * sum(rV)
 
-    function step!(t_now, Tpit, pv)
+    # `smoke` is the burn rate [kg/s] (the 1-D smoke forcing) and `clean`
+    # the burn cleanliness ∈ (0, 1]; both default to no fire
+    function step!(t_now, Tpit, pv, smoke=zero(Tv), clean=one(Tv), airflow=cfg.g_ref)
+        # draft convection, the 1-D law: h_c and k_m are quoted at g_ref and
+        # scale with the airflow as (g/g_ref)^m_conv (one exponent for heat
+        # and mass, Chilton–Colburn)
+        g_fac = (airflow / cfg.g_ref)^m_conv
+        hcg = h_c * g_fac
+        kmg = k_m * g_fac
         # the wrap is the same smooth time blend as the 1-D model: it
         # damps face evaporation by (1 - η_evap·s), convection by
         # (1 - η_h·s) and blends the emissivity toward ε_wrap
         sw = wrap_blend(t_now, t_wrap, cfg)
-        km_w = (1 - cfg.η_evap * sw) * k_m
-        hc_w = h_c * (1 - cfg.η_h * sw)
+        km_w = (1 - cfg.η_evap * sw) * kmg
+        hc_w = hcg * (1 - cfg.η_h * sw)
         # the pull is the 1-D pull blend on every face: after t_pull the
         # face sees the rest environment (the cfg rest constants) instead
         # of the pit — convection h_rest at T_rest, emissivity ε_rest, the
         # mostly blocked rest evaporation into room air with the
-        # heat–mass-analogy coefficient k_m·h_rest/h_c — and the pit stops
+        # heat–mass-analogy coefficient kmg·h_rest/hcg — and the pit stops
         # seeing the meat. Every rest term enters as pl·(rest − pit), so
         # pl = 0 (never pulled) is bitwise the pit-only arithmetic.
         pl = pull_blend(t_now, t_pull, cfg)
-        km_r = k_m * cfg.h_rest / h_c
+        km_r = kmg * cfg.h_rest / hcg
         # spritz: water lands on every exposed face while unwrapped and in
         # the pit, a fraction f_abs soaks in, the rest flashes off with its
         # latent heat (the 1-D q_net terms, mirrored per face)
         j_sp = spritz_rate(t_now, t_spritz, dt_spritz, msp, cfg) * (1 - sw) * (1 - pl)
-        # pre-step surface heat uptake — what the pit loses to this
-        # brisket this step (rim strips + both end annuli, real areas):
-        # the pit share only
-        q_up = zero(Tv)
-        for j in 1:nz
-            q_up += 2π * R * Δz * zw[j] * (1 - pl) *
-                    surface_heat_in_wrapped(Tpit, T[nr, j], h_c, sw, cfg)
-        end
-        for i in 1:nr, jz in (1, nz)
-            q_up += 2π * rV[i] * (1 - pl) *
-                    surface_heat_in_wrapped(Tpit, T[i, jz], h_c, sw, cfg)
-        end
+        # node properties from the local composition (water, rendering fat)
+        # and temperature, blended to bone where the bone sits (the 1-D
+        # kmix/ρcmix: k_mult multiplies the blend)
         vbar = zero(Tv)
         wsum = zero(Tv)
         for j in 1:nz, i in 1:nr
-            v = specific_volume(W[i, j], Fz[j], cfg)
-            kmat[i, j] = k_mult * conductivity_mix(W[i, j], Fz[j], T[i, j], v, cfg)
-            ρcmat[i, j] = heat_capacity_dry(W[i, j], Fz[j], T[i, j], cfg) / v
+            v = specific_volume(W[i, j], Fmat[i, j], cfg)
+            wb = wbone[i, j]
+            kmat[i, j] = k_mult * ((1 - wb) * conductivity_mix(W[i, j], Fmat[i, j], T[i, j], v, cfg) +
+                                   wb * cfg.k_bone)
+            ρcmat[i, j] = (1 - wb) * heat_capacity_dry(W[i, j], Fmat[i, j], T[i, j], cfg) / v +
+                          wb * cfg.ρc_bone
             stmat[i, j] = (v / v0s)^n_s
             vbar += rV[i] * zw[j] * v
             wsum += rV[i] * zw[j]
         end
         a_area = (vbar / (wsum * v0s))^n_a
+        # pre-step surface heat uptake — what the pit loses to this
+        # brisket this step (rim strips + both end annuli, raw areas times
+        # the exposed-area factor, as the 1-D pit sees A·a_area·q): the
+        # pit share only
+        q_up = zero(Tv)
+        for j in 1:nz
+            q_up += 2π * R * Δz * zw[j] * a_area * (1 - pl) *
+                    surface_heat_in_wrapped(Tpit, T[nr, j], hcg, sw, cfg)
+        end
+        for i in 1:nr, jz in (1, nz)
+            q_up += 2π * rV[i] * a_area * (1 - pl) *
+                    surface_heat_in_wrapped(Tpit, T[i, jz], hcg, sw, cfg)
+        end
 
         # explicit: purge everywhere, evaporative WATER loss on the
         # exposed faces (mild rates); the surface HEAT flux is handled
@@ -181,6 +244,7 @@ function _slab2d_engine(
             W[i, j] -= h * expulsion_rate_salted(W[i, j], T[i, j], S[i, j],
                                                  k_e, a_myosin, cfg)
             Cmat[i, j] += h * collagen_rate(T[i, j], cfg) * (1 - Cmat[i, j])
+            Fmat[i, j] -= h * fat_rate(T[i, j], cfg) * Fmat[i, j]
         end
         for j in 1:nz
             B_rim[j] += h * bark_rate(T[nr, j], a_w_oswin(W[nr, j], cfg), cfg) *
@@ -190,6 +254,37 @@ function _slab2d_engine(
             B_end[i, kz] += h *
                             bark_rate(T[i, jz], a_w_oswin(W[i, jz], cfg), cfg) *
                             (1 - B_end[i, kz])
+        end
+        # smoke on every exposed face cell, the 1-D surface terms per cell:
+        # deposition needs a tacky face (wet blend), the burn, no foil and
+        # the pit; the ring front advances by diffusion r·dr = D·Θ·dt only
+        # while the meat at the front is below myoglobin denaturation. No
+        # burn (smoke = 0) is exactly inert
+        sm = max(smoke, zero(smoke))
+        fire = sm / (sm + cfg.mdot_ring)
+        gate = (1 - sw) * (1 - pl)
+        for j in 1:nz
+            wbl = wet_blend(a_w_oswin(W[nr, j], cfg), cfg)
+            dep = cfg.k_dep * wbl * sm * gate * (1 - D_rim[j])
+            dirty[1] += h * w_rim[j] * dep * (1 - clean)
+            D_rim[j] += h * dep
+            k, f = _depth_kf(Rg_rim[j], Δr, nr)
+            Tf = (1 - f) * T[nr - k, j] + f * T[nr - k - 1, j]
+            Rg_rim[j] += h * cfg.D_ring * wbl * fire * gate *
+                         logistic((cfg.T_ring - Tf) / cfg.δ_ring) /
+                         (Rg_rim[j] + cfg.r_ring0)
+        end
+        for i in 1:nr, (kz, jz) in enumerate((1, nz))
+            wbl = wet_blend(a_w_oswin(W[i, jz], cfg), cfg)
+            dep = cfg.k_dep * wbl * sm * gate * (1 - D_end[i, kz])
+            dirty[1] += h * rV[i] * dep * (1 - clean)
+            D_end[i, kz] += h * dep
+            k, f = _depth_kf(Rg_end[i, kz], Δz, nz)
+            s_in = kz == 1 ? 1 : -1        # inward along z from this end
+            Tf = (1 - f) * T[i, jz + s_in * k] + f * T[i, jz + s_in * (k + 1)]
+            Rg_end[i, kz] += h * cfg.D_ring * wbl * fire * gate *
+                             logistic((cfg.T_ring - Tf) / cfg.δ_ring) /
+                             (Rg_end[i, kz] + cfg.r_ring0)
         end
         # face evaporation is linearized-implicit: an explicit update
         # overshoots the a_w equilibrium once the face dries out, the
@@ -216,7 +311,7 @@ function _slab2d_engine(
             den = 1 + h * a_area * max(s, zero(Tv)) / C
             jr_face[j] = j0 / den
             W[nr, j] += h * a_area * (cfg.f_abs * j_sp - jr_face[j]) / C
-            j_up += 2π * R * Δz * zw[j] * ((1 - pl) * jp0 / den)
+            j_up += 2π * R * Δz * zw[j] * a_area * ((1 - pl) * jp0 / den)
         end
         for i in 1:nr, (kz, jz) in enumerate((1, nz))
             C = RHO_DRY * Δz / 2
@@ -231,7 +326,7 @@ function _slab2d_engine(
             den = 1 + h * a_area * max(s, zero(Tv)) / C
             jz_face[i, kz] = j0 / den
             W[i, jz] += h * a_area * (cfg.f_abs * j_sp - jz_face[i, kz]) / C
-            j_up += 2π * rV[i] * ((1 - pl) * jp0 / den)
+            j_up += 2π * rV[i] * a_area * ((1 - pl) * jp0 / den)
         end
 
         # implicit radial sweeps (each z-row): T with k/ρc, W with D_eff
@@ -256,7 +351,7 @@ function _slab2d_engine(
             # radiation (pit or rest), the latent and spritz sinks lagged
             cap = ρcmat[nr, j] * stmat[nr, j] * Δr / 2
             βr = hc_w / cap
-            q_lag = surface_heat_in_wrapped(Tpit, T[nr, j], h_c, sw, cfg) -
+            q_lag = surface_heat_in_wrapped(Tpit, T[nr, j], hcg, sw, cfg) -
                     hc_w * (Tpit - T[nr, j])
             q_lag_r = cfg.ε_rest * σ_SB * (cfg.T_rest^4 - T[nr, j]^4)
             qx = (q_lag + pl * (q_lag_r - q_lag) -
@@ -314,7 +409,7 @@ function _slab2d_engine(
             for (kz, jz) in enumerate((1, nz))
                 cap = ρcmat[i, jz] * stmat[i, jz] * Δz / 2
                 βz = hc_w / cap
-                q_lag = surface_heat_in_wrapped(Tpit, T[i, jz], h_c, sw, cfg) -
+                q_lag = surface_heat_in_wrapped(Tpit, T[i, jz], hcg, sw, cfg) -
                         hc_w * (Tpit - T[i, jz])
                 q_lag_r = cfg.ε_rest * σ_SB * (cfg.T_rest^4 - T[i, jz]^4)
                 qx = (q_lag + pl * (q_lag_r - q_lag) -
@@ -361,8 +456,17 @@ function _slab2d_engine(
     dims() = (Δr * sum((i == 1 || i == nr ? 0.5 : 1.0) * stmat[i, div(nz, 2) + 1]
                        for i in 1:nr),
               Δz * sum(zw[j] * stmat[1, j] for j in 1:nz))
-    return (; step!, T, W, Cmat, B_rim, B_end, rV, zw, Δr, Δz, Tv, stmat, S,
-            dims)
+    return (; step!, T, W, Cmat, Fmat, Fz, B_rim, B_end, D_rim, D_end, Rg_rim, Rg_end,
+            dirty, w_rim, aw_sum, rV, zw, Δr, Δz, Tv, stmat, S, dims)
+end
+
+# node offset k and fraction f of a depth d below a face on a line of n
+# nodes spaced Δ (the 1-D `temperature_at_depth` arithmetic, clamped to
+# the line); the floor is taken on the primal so Duals pass through f
+function _depth_kf(d, Δ, n)
+    η = clamp(d / Δ, zero(d / Δ), (n - 1) * one(d / Δ))
+    k = min(floor(Int, _primal(η)), n - 2)
+    return k, η - k
 end
 
 function meat_solve_2d(
@@ -386,10 +490,17 @@ function meat_solve_2d(
     t_spritz::Real=SPRITZ_NEVER,
     dt_spritz::Real=3600.0,
     m_spritz::Real=NaN,
+    smoke_knots::AbstractVector=Float64[],
+    airflow_knots::AbstractVector=Float64[],
 )
-    Tv = promote_type(eltype(θ2), eltype(Tpit_knots), typeof(float(t_wrap)),
-                      typeof(float(t_pull)), typeof(float(t_salt)),
-                      typeof(float(t_spritz)), typeof(float(dt_spritz)), Float64)
+    Tv = promote_type(eltype(θ2), eltype(Tpit_knots), eltype(smoke_knots), eltype(airflow_knots),
+                      typeof(float(t_wrap)), typeof(float(t_pull)),
+                      typeof(float(t_salt)), typeof(float(t_spritz)),
+                      typeof(float(dt_spritz)), Float64)
+    isempty(smoke_knots) || length(smoke_knots) == length(tknots) ||
+        throw(ArgumentError("smoke_knots must be empty or match tknots"))
+    isempty(airflow_knots) || length(airflow_knots) == length(tknots) ||
+        throw(ArgumentError("airflow_knots must be empty or match tknots"))
     eng = _slab2d_engine(θ2, R, Hz, nr, nz, cfg, h, t_wrap, t_pull, k_grain,
                          D_grain, F_top, z_split, Tv, t_salt, t_spritz,
                          dt_spritz, m_spritz)
@@ -414,7 +525,11 @@ function meat_solve_2d(
     for n in 1:nt_steps
         t_now = t0 + (n - 1) * h
         Tpit = lininterp(t_now, tk0, tkdt, Tpit_knots)
-        eng.step!(t_now, Tpit, cfg.p_v_pit)
+        smoke = isempty(smoke_knots) ? zero(Tv) :
+                lininterp(t_now, tk0, tkdt, smoke_knots)
+        airflow = isempty(airflow_knots) ? Tv(cfg.g_ref) :
+                  lininterp(t_now, tk0, tkdt, airflow_knots)
+        eng.step!(t_now, Tpit, cfg.p_v_pit, smoke, one(Tv), airflow)
         while isave <= length(save_at) && save_at[isave] <= n
             Tout[:, :, isave] .= eng.T
             Wout[:, :, isave] .= eng.W
@@ -436,12 +551,22 @@ function _slab2d_series(eng, nt)
     nr, nz = size(eng.T)
     return (; bark_rim_t=zeros(eng.Tv, nz, nt),
             bark_ends_t=zeros(eng.Tv, nr, 2, nt),
+            smoke_rim_t=zeros(eng.Tv, nz, nt),
+            smoke_ends_t=zeros(eng.Tv, nr, 2, nt),
+            ring_rim_t=zeros(eng.Tv, nz, nt),
+            ring_ends_t=zeros(eng.Tv, nr, 2, nt),
+            F_field=zeros(eng.Tv, nr, nz, nt),
             R_eff_t=zeros(eng.Tv, nt), Hz_eff_t=zeros(eng.Tv, nt))
 end
 
 function _slab2d_save!(sv, eng, isave, R, Hz)
     sv.bark_rim_t[:, isave] .= eng.B_rim
     sv.bark_ends_t[:, :, isave] .= eng.B_end
+    sv.smoke_rim_t[:, isave] .= eng.D_rim
+    sv.smoke_ends_t[:, :, isave] .= eng.D_end
+    sv.ring_rim_t[:, isave] .= eng.Rg_rim
+    sv.ring_ends_t[:, :, isave] .= eng.Rg_end
+    sv.F_field[:, :, isave] .= eng.Fmat
     re, he = eng.dims()
     sv.R_eff_t[isave] = re
     sv.Hz_eff_t[isave] = he
@@ -461,12 +586,24 @@ exchanging the area-integrated surface heat uptake and evaporation of
 lagged. Wrap, pull, salt and spritz are carried; after `t_pull` the
 meat's heat and vapor exchange go to zero through the pull blend and
 the pit runs on alone while the meat rests to the horizon (serve).
-Not in this loop: fuel additions and lid lifts. `Tpit_steps` returns
-the per-step forcing so a prescribed-forcing replay reproduces the meat
-fields exactly.
+Time runs from lighting: before `t_load` the pit preheats empty (the meat
+is not stepped and holds its raw state), and the lid lifts while the meat
+goes on; `LOAD_AT_START` (the default) has it in from t = 0.
+The burn rate is the meat's smoke forcing (deposition and the ring on
+every face) and the burn cleanliness scores its dirty share.
+
+Pit events, the monolith's expressions term for term: `t_add` dumps one
+chimney `pit.m_chimney` (a finite `dt_add` [s] makes it a split train;
+NaN reads `pit.dt_add`), feeding the fuel and lighting the unlit share
+of the bed; the lid lifts for the addition and for every spritz pulse
+(while unwrapped and in the pit), one opening taking the wider of
+overlapping gates, at `pit.UA_open`. `t_add = ADD_NEVER` and no spritz
+are exactly inert. `Tpit_steps` and `airflow_steps` return the per-step
+forcing so a prescribed-forcing replay reproduces the meat fields exactly.
 
 Returns the [`meat_solve_2d`](@ref) outputs merged with the pit series
-`(Tpit, m_fuel, pv_pit, q_meat, j_evap, Tpit_steps)`.
+`(Tpit, m_fuel, ignited, mdot, smoke_clean, lid, pv_pit, q_meat, j_evap,
+Tpit_steps, airflow_steps)`.
 """
 function coupled_solve_2d(
     θ2::AbstractVector,
@@ -493,6 +630,9 @@ function coupled_solve_2d(
     t_spritz::Real=SPRITZ_NEVER,
     dt_spritz::Real=3600.0,
     m_spritz::Real=NaN,
+    t_add::Real=ADD_NEVER,
+    dt_add::Real=NaN,
+    t_load::Real=LOAD_AT_START,
 )
     length(φ) == PIT_NP ||
         throw(ArgumentError("φ must have length $PIT_NP; got $(length(φ))"))
@@ -500,7 +640,10 @@ function coupled_solve_2d(
     Tv = promote_type(eltype(θ2), eltype(φ), eltype(u_knots),
                       typeof(float(t_wrap)), typeof(float(t_pull)),
                       typeof(float(t_salt)), typeof(float(t_spritz)),
-                      typeof(float(dt_spritz)), Float64)
+                      typeof(float(dt_spritz)), typeof(float(t_add)),
+                      typeof(float(dt_add)), Float64)
+    # the split interval: NaN reads the config (Inf = one chimney)
+    dta = isnan(_primal(dt_add)) ? pit.dt_add : dt_add
     eng = _slab2d_engine(θ2, R, Hz, nr, nz, cfg, h, t_wrap, t_pull, k_grain,
                          D_grain, F_top, z_split, Tv, t_salt, t_spritz,
                          dt_spritz, m_spritz)
@@ -509,6 +652,12 @@ function coupled_solve_2d(
     nt_steps = round(Int, (float(tsave[end]) - t0) / h)
     save_at = [round(Int, (float(ts) - t0) / h) for ts in tsave]
     nsv = length(tsave)
+    # the lid as ONE physical opening (the monolith's gate): the fuel
+    # addition, and each spritz pulse while unwrapped and in the pit
+    lid_at(t) = max(lid_open(t, t_add, pit.τ_open_add), lid_open(t, t_load, pit.τ_open_load),
+                    lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz),
+                             pit.τ_open_spritz) *
+                    (1 - wrap_blend(t, t_wrap, cfg)) * (1 - pull_blend(t, t_pull, cfg)))
     Tout = zeros(Tv, size(eng.T)..., nsv)
     Wout = zeros(Tv, size(eng.T)..., nsv)
     Cout = zeros(Tv, size(eng.T)..., nsv)
@@ -519,7 +668,12 @@ function coupled_solve_2d(
     pv_s = fill(Tv(cfg.p_v_pit), nsv)
     q_s = zeros(Tv, nsv)
     jv_s = zeros(Tv, nsv)
+    a_s = fill(Tv(a0), nsv)
+    mdot_s = zeros(Tv, nsv)
+    clean_s = ones(Tv, nsv)
+    lid_s = zeros(Tv, nsv)
     Tpit_steps = zeros(Tv, nt_steps + 1)
+    airflow_steps = zeros(Tv, nt_steps + 1)
     sv = _slab2d_series(eng, nsv)
 
     Tp = Tv(pit.Tpit0)
@@ -537,6 +691,11 @@ function coupled_solve_2d(
         Wout[:, :, isave] .= eng.W
         Sout[:, :, isave] .= eng.S
         _slab2d_save!(sv, eng, isave, R, Hz)
+        ud0 = clamp(lininterp(t0, u_t0, u_dt, u_knots), 0, 1)
+        af0, ṁ0, _, _ = _pit_algebra(ud0, m, a, r_max, u_leak, pit, hum)
+        mdot_s[isave] = ṁ0
+        clean_s[isave] = burn_cleanliness(af0, a, m, pit)
+        lid_s[isave] = lid_at(t0)
         isave += 1
     end
     for n in 1:nt_steps
@@ -547,7 +706,19 @@ function coupled_solve_2d(
         q_pan, ṁ_pan, pv_base = _pan_algebra(Tp, mp, Tpan, mair, pv_nopan, pit, hum)
         pv = pv_base + (hum.p_atm / EPS_W) * n_meat * j_meat / mair
         Tpit_steps[n] = Tp
-        q_meat, j_meat = eng.step!(t_now, Tp, pv)
+        airflow_steps[n] = airflow
+        # the burn is the meat's smoke; its cleanliness scores the dirty share
+        clean = burn_cleanliness(airflow, a, m, pit)
+        # the meat is stepped from its load on: before it the pit preheats empty and the meat holds its raw state
+        # (a step boundary, so the 2-D path takes t_load as data, not as a differentiable input)
+        if t_now + h / 2 >= _primal(t_load)
+            q_meat, j_meat = eng.step!(t_now, Tp, pv, ṁ, clean, airflow)
+        else
+            q_meat, j_meat = zero(Tv), zero(Tv)
+        end
+        ṁ_add = fuel_add_rate(t_now, t_add, dta, pit)
+        lid = lid_at(t_now)
+        q_lid = pit.UA_open * (Tp - pit.T_amb) * lid
         if pit.c_duct > 0
             q_duct = pit.c_duct * airflow * (Tfb - Tp)
             q_burn = q_duct
@@ -557,10 +728,13 @@ function coupled_solve_2d(
             q_burn = ΔH_eff * ṁ
         end
         Tp += h * (q_burn + pit.p_heater * ud - UA * (Tp - pit.T_amb) -
-                   n_meat * q_meat - q_pan) / C_th
-        m = max(m - h * ṁ, zero(Tv))
+                   n_meat * q_meat - q_pan - q_lid) / C_th
+        # a chimney feeds the fuel and lights the unlit share of the bed
+        # (the monolith's ignition source, read at the pre-step fuel mass)
         a_c = clamp(a, zero(a), one(a))
-        a += h * k_spread * a_c * (1 - a_c) * airflow
+        a += h * k_spread * a_c * (1 - a_c) * airflow +
+             h * (1 - a_c) * ṁ_add / max(m, pit.m_taper)
+        m = max(m + h * (ṁ_add - ṁ), zero(Tv))
         if pit.m_pan0 > 0
             Tpan += h * (q_pan - pit.λ_pan * ṁ_pan) /
                     (CP_WATER * max(mp, zero(Tv)) + pit.C_pan_dry)
@@ -578,36 +752,47 @@ function coupled_solve_2d(
             pv_s[isave] = pv
             q_s[isave] = n_meat * q_meat
             jv_s[isave] = n_meat * j_meat
+            a_s[isave] = a
+            mdot_s[isave] = ṁ
+            clean_s[isave] = clean
+            lid_s[isave] = lid
             isave += 1
         end
     end
     Tpit_steps[end] = Tp
+    airflow_steps[end] = airflow_steps[max(nt_steps, 1)]
     out = _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Sout, Tcold, tsave)
-    return merge(out, sv, (; Tpit=Tpit_s, m_fuel=mfuel_s, pv_pit=pv_s,
-                           q_meat=q_s, j_evap=jv_s, Tpit_steps))
+    return merge(out, sv, (; Tpit=Tpit_s, m_fuel=mfuel_s, ignited=a_s,
+                           mdot=mdot_s, smoke_clean=clean_s, lid=lid_s,
+                           pv_pit=pv_s, q_meat=q_s, j_evap=jv_s, Tpit_steps, airflow_steps))
 end
 
 function _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Sout, Tcold, tsave)
-    (; T, W, Cmat, B_rim, B_end, rV, zw, Δz, Tv, stmat, S) = eng
+    (; T, W, Cmat, Fmat, Fz, B_rim, B_end, D_rim, D_end, Rg_rim, Rg_end, rV, zw, Δz, Tv,
+       stmat, S, aw_sum) = eng
     nr, nz = size(T)
     vol = rV * zw'  # (nr, nz) volume weights (z ends are half cells)
     wret = sum(vol .* W) / (sum(vol) * cfg.W0)
+    # fat: the volume means of the initial (per-row) and the rendered field;
+    # juiciness is the 1-D score, retained water plus the retained rendered fat
+    F_init = sum(vol .* (ones(nr) * Fz')) / sum(vol)
+    F_mean = sum(vol .* Fmat) / sum(vol)
+    R_ret = (1 - cfg.η_drain) * (F_init - F_mean)
     jm = div(nz, 2) + 1
-    # exposed-area weights for the bark distribution: rim strips R·Δz
-    # (half at the corners), end annuli rV
-    w_rim = [R * Δz * zw[j] for j in 1:nz]
-    aw_sum = sum(w_rim) + 2 * sum(rV)
-    b_sum = sum(w_rim .* B_rim) + sum(rV .* B_end[:, 1]) + sum(rV .* B_end[:, 2])
-    b2_sum = sum(w_rim .* B_rim .^ 2) + sum(rV .* B_end[:, 1] .^ 2) +
-             sum(rV .* B_end[:, 2] .^ 2)
-    b_mean = b_sum / aw_sum
-    b_var = max(b2_sum / aw_sum - b_mean^2, zero(Tv))
+    # the face distributions over the exposed area (bark, smoke, ring)
+    b_mean, b_std = _face_stats(eng, B_rim, B_end)
+    d_mean, d_std = _face_stats(eng, D_rim, D_end)
+    r_mean, _ = _face_stats(eng, Rg_rim, Rg_end)
     return (
         t=collect(float.(tsave)),
         Tcore=Tout[1, jm, :],
         T_field=Tout,
         W_field=Wout,
         w_retained=wret,
+        F_mean=F_mean,
+        fat_rendered=(F_init - F_mean) / F_init,
+        juiciness=wret + cfg.β_fat * R_ret / cfg.W0,
+        drip_f=cfg.η_drain * (F_init - F_mean),
         C_field=Cout,
         C_core=Cout[1, jm, :],
         C_min=minimum(Cmat),
@@ -615,13 +800,36 @@ function _slab2d_outputs(eng, R, cfg, Tout, Wout, Cout, Sout, Tcold, tsave)
         bark_rim=B_rim,
         bark_ends=B_end,
         bark_mean=b_mean,
-        bark_std=sqrt(b_var),
+        bark_std=b_std,
+        smoke_rim=D_rim,
+        smoke_ends=D_end,
+        smoke_mean=d_mean,
+        smoke_std=d_std,
+        ring_rim=Rg_rim,
+        ring_ends=Rg_end,
+        ring_mean=r_mean,
+        ring_min=min(minimum(Rg_rim), minimum(Rg_end)),
+        l_star_mean=l_star_bark(b_mean, d_mean, cfg),
+        bitterness=eng.dirty[1] / aw_sum,
         salt_field=Sout,
         salt_mean=sum(vol .* S) / sum(vol),
         R_eff=eng.Δr * sum((i == 1 || i == nr ? 0.5 : 1.0) * stmat[i, div(nz, 2) + 1]
                            for i in 1:nr),
         Hz_eff=Δz * sum(zw[j] * stmat[1, j] for j in 1:nz),
     )
+end
+
+# area-weighted mean and spread of a per-face-cell quantity over the
+# exposed faces (rim strips, both end annuli); a zero spread returns an
+# exact zero (sqrt has no derivative there — a uniform face must not put
+# NaN partials into a Dual solve)
+function _face_stats(eng, Xr, Xe)
+    (; w_rim, rV, aw_sum) = eng
+    s1 = sum(w_rim .* Xr) + sum(rV .* Xe[:, 1]) + sum(rV .* Xe[:, 2])
+    s2 = sum(w_rim .* Xr .^ 2) + sum(rV .* Xe[:, 1] .^ 2) + sum(rV .* Xe[:, 2] .^ 2)
+    μ = s1 / aw_sum
+    v = s2 / aw_sum - μ^2
+    return μ, _primal(v) > 0 ? sqrt(v) : zero(v)
 end
 
 function _thomas_row!(X, aa, bb, cc, dd, n, j)
@@ -658,28 +866,35 @@ end
 
 The differentiable outputs of [`coupled_solve_2d`](@ref) as one vector:
 `Tpit, Tcore, Tcold, m_fuel` (each nt) then the scalars `w_retained,
-C_min, bark_mean, bark_std, salt_mean, R_eff, Hz_eff`.
+C_min, bark_mean, bark_std, salt_mean, R_eff, Hz_eff, smoke_mean,
+ring_mean, l_star_mean, bitterness, fat_rendered, juiciness` (later
+additions appended last, so every earlier offset is unchanged).
 """
 function slab2d_stack(o)
     return vcat(o.Tpit, o.Tcore, o.Tcold, o.m_fuel,
                 [o.w_retained, o.C_min, o.bark_mean, o.bark_std, o.salt_mean,
-                 o.R_eff, o.Hz_eff])
+                 o.R_eff, o.Hz_eff, o.smoke_mean, o.ring_mean, o.l_star_mean,
+                 o.bitterness, o.fat_rendered, o.juiciness])
 end
 
+# v = [θ2; φ; u_knots; t_wrap; t_salt; t_spritz; dt_spritz; t_pull; t_add;
+# dt_add] — the pit events appended last (NaN dt_add reads the config)
 function _slab2d_stack_fn(
     θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt, t_spritz, dt_spritz, t_pull;
-    kw...
+    t_add::Real=ADD_NEVER, dt_add::Real=NaN, kw...
 )
     nθ, nφ, nu = length(θ2), length(φ), length(u_knots)
     v0 = vcat(
         float.(θ2), float.(φ), float.(u_knots), float(t_wrap), float(t_salt),
-        float(t_spritz), float(dt_spritz), float(t_pull),
+        float(t_spritz), float(dt_spritz), float(t_pull), float(t_add),
+        float(dt_add),
     )
     g(v) = slab2d_stack(
         coupled_solve_2d(
             v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)],
-            u_tknots, tsave; t_wrap=v[end - 4], t_salt=v[end - 3],
-            t_spritz=v[end - 2], dt_spritz=v[end - 1], t_pull=v[end], kw...,
+            u_tknots, tsave; t_wrap=v[end - 6], t_salt=v[end - 5],
+            t_spritz=v[end - 4], dt_spritz=v[end - 3], t_pull=v[end - 2],
+            t_add=v[end - 1], dt_add=v[end], kw...,
         ),
     )
     return g, v0
@@ -691,7 +906,9 @@ end
 
 Forward-mode Jacobian of [`slab2d_stack`](@ref) w.r.t. the entries `sel`
 (1-based indices into `[θ2; φ; u_knots; t_wrap; t_salt; t_spritz;
-dt_spritz; t_pull]`); keyword arguments go to [`coupled_solve_2d`](@ref).
+dt_spritz; t_pull; t_add; dt_add]`, the last two from the `t_add` /
+`dt_add` keywords); other keyword arguments go to
+[`coupled_solve_2d`](@ref).
 """
 function slab2d_stack_jacobian(
     θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt, t_spritz, dt_spritz, t_pull,
@@ -714,8 +931,9 @@ end
     slab2d_stack_jvp(θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt,
                      t_spritz, dt_spritz, t_pull, dv; kw...)
 
-Directional derivative of [`slab2d_stack`](@ref) along the full-length
-tangent `dv` — one Dual solve.
+Directional derivative of [`slab2d_stack`](@ref) along the tangent `dv`
+(the `slab2d_stack_jacobian` input order; a shorter tangent is
+zero-extended) — one Dual solve.
 """
 function slab2d_stack_jvp(
     θ2, φ, u_knots, u_tknots, tsave, t_wrap, t_salt, t_spritz, dt_spritz, t_pull,

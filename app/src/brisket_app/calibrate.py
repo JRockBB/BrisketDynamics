@@ -36,7 +36,7 @@ from numpyro.infer.autoguide import (
 )
 from numpyro.infer.util import initialize_model
 
-from .coupled import CookGrids, coupled_cook
+from .coupled import A_LIGHT, CookGrids, coupled_cook
 
 # (name, prior, index) for the two parameter vectors; order must match the
 # Julia solvers' expectations.
@@ -73,6 +73,30 @@ PHI_SITES_IGNITION = [
     ("a0", dist.Beta(2.0, 4.0)),
 ]
 PHI_IGNITION_INERT = np.array([3e-4, 1.0])  # k_spread (inert at a0=1), a0
+# A real cook with a documented preheat is fitted from lighting: a0 fixed at the chimney start's A_LIGHT (no longer a
+# latent), the unlogged preheat damper one vague latent held over the preheat
+PREHEAT_SITES = [("u_pre", dist.Beta(2.0, 2.0))]
+SITES_LIT = THETA_SITES + PHI_SITES + PHI_SITES_IGNITION[:1] + PREHEAT_SITES  # ..., k_spread, u_pre
+
+
+def from_lighting(log: dict) -> bool:
+    """Whether the log documents its preheat (fitted from lighting)."""
+    return float(log["meta"].get("preheat_s", 0.0)) > 0.0
+
+
+def lighting_grids(log: dict) -> tuple[CookGrids, int]:
+    """Return the grid of a cook from lighting on the log's spacing, and the preheat's points before meat-on.
+
+    Shared by the NumPyro model and the Gauss-Newton fit so both solve on
+    bit-identical knots. Without a documented preheat: the log's own grid, 0.
+    """
+    t = np.asarray(log["t"], dtype=float)
+    dt = float(t[1] - t[0])
+    t_pre = float(log["meta"].get("preheat_s", 0.0))
+    n = round(t_pre / dt)
+    if abs(n * dt - t_pre) > 1e-6:
+        raise ValueError("the preheat must be a whole number of log steps")
+    return CookGrids(t_end=t_pre + float(t[-1] - t[0]), dt_exchange=dt, n_u=n + len(t)), n
 # Real-cook residual AR(1) on the 10-min grid. ρ is bounded at RHO_MAX
 # (correlation time ≤ ~3 h): near a unit root the discrepancy process
 # becomes a free offset and a smooth 15 K miss costs less than a fit.
@@ -266,16 +290,28 @@ def ar1_observe(name, y, mu, sigma, rho):
     )
 
 
-def _real_latents():
-    """Sample the real-cook latents: (theta, phi, sigma_pit, sigma_core, rho_pit, rho_core)."""
+def _real_latents(lit: bool = False):
+    """Sample the real-cook latents: (theta, phi, u_pre, sigma_pit, sigma_core, rho_pit, rho_core).
+
+    From lighting (``lit``) a0 is A_LIGHT and the preheat damper u_pre is
+    sampled; otherwise the ignition pair is sampled and u_pre is None.
+    """
     theta = jnp.stack([numpyro.sample(n, d) for n, d in THETA_SITES])
-    # real cooks start Minion-style: sample the ignition dynamics too
-    phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES + PHI_SITES_IGNITION])
+    if lit:
+        phi = jnp.concatenate([
+            jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES + PHI_SITES_IGNITION[:1]]),
+            jnp.asarray([A_LIGHT]),
+        ])
+        u_pre = numpyro.sample(*PREHEAT_SITES[0])
+    else:
+        # the log starts with the pit going (Minion-style): sample the ignition dynamics
+        phi = jnp.stack([numpyro.sample(n, d) for n, d in PHI_SITES + PHI_SITES_IGNITION])
+        u_pre = None
     sigma_pit = SIGMA_FLOOR_K + numpyro.sample("sigma_pit", dist.HalfNormal(3.0))
     sigma_core = SIGMA_FLOOR_K + numpyro.sample("sigma_core", dist.HalfNormal(2.0))
     rho_pit = numpyro.sample("rho_pit", RHO_SITES[0][1])
     rho_core = numpyro.sample("rho_core", RHO_SITES[1][1])
-    return theta, phi, sigma_pit, sigma_core, rho_pit, rho_core
+    return theta, phi, u_pre, sigma_pit, sigma_core, rho_pit, rho_core
 
 
 def _observe_real(obs_pit, obs_core, pit_runs, core_runs, tpit, tcore, noise):
@@ -299,23 +335,31 @@ def model_real(
     tx,
     grids,
     tols,
+    n_pre: int = 0,
 ):
     """Calibration model for the real cook log.
 
     Masked AR(1) Gaussian (lid events and probe-settling break the chain)
-    with the digitization noise floor added to both *marginal* scales,
-    initial conditions fixed from the log, and the ignition dynamics
-    sampled (real cooks start Minion-style). Synthetic calibration stays
-    iid: that data is generated iid.
+    with the digitization noise floor added to both *marginal* scales.
+    With a documented preheat (``n_pre`` grid points before meat-on) the
+    cook runs from lighting: the pit at ambient, a0 = A_LIGHT, the preheat
+    damper the latent u_pre, the meat loaded at the end of the preheat
+    (``grids`` and ``ics`` from :func:`bound_model_real`); otherwise the
+    initial conditions come from the log and the ignition dynamics are
+    sampled. Synthetic calibration stays iid: that data is generated iid.
     """
-    theta, phi, *noise = _real_latents()
-    sim = coupled_cook(theta, phi, jnp.asarray(u_knots), tx, grids, ics=ics, **tols)
+    theta, phi, u_pre, *noise = _real_latents(lit=n_pre > 0)
+    u = jnp.asarray(u_knots)
+    if n_pre > 0:
+        u = jnp.concatenate([jnp.full(n_pre, u_pre), u])
+    sim = coupled_cook(theta, phi, u, tx, grids, ics=ics, **tols, **(
+        {"t_load": float(grids.tknots[n_pre])} if n_pre > 0 else {}))
     _observe_real(
-        obs_pit, obs_core, pit_runs, core_runs, sim["tpit"], sim["tcore"], noise
+        obs_pit, obs_core, pit_runs, core_runs, sim["tpit"][n_pre:], sim["tcore"][n_pre:], noise
     )
 
 
-def model_real_linear(obs_pit, obs_core, pit_runs, core_runs, mu0, jac, x0):
+def model_real_linear(obs_pit, obs_core, pit_runs, core_runs, mu0, jac, x0, lit: bool = False):
     """`model_real` with the solve replaced by its tangent model at x₀.
 
     μ̂(x) = μ₀ + J (x − x₀) over the 15 physics latents x = (theta, phi),
@@ -325,24 +369,31 @@ def model_real_linear(obs_pit, obs_core, pit_runs, core_runs, mu0, jac, x0):
     solve's second derivatives, the noise and cross blocks are exact, and
     numpyro applies the constrained→unconstrained chain rule.
     """
-    theta, phi, *noise = _real_latents()
+    theta, phi, u_pre, *noise = _real_latents(lit=lit)
+    x = jnp.concatenate([theta, phi[:-1], jnp.atleast_1d(u_pre)]) if lit else jnp.concatenate([theta, phi])
     mu = jnp.asarray(mu0) + jnp.asarray(jac) @ (
-        jnp.concatenate([theta, phi]) - jnp.asarray(x0)
+        x - jnp.asarray(x0)
     )
     nt = mu.shape[0] // 2
     _observe_real(obs_pit, obs_core, pit_runs, core_runs, mu[:nt], mu[nt:], noise)
 
 
 def bound_model_real(log: dict, tx, tols: dict | None = None):
-    """Bind model_real to a loaded cook log (see cooklog.load)."""
-    grids = CookGrids(
-        t_end=float(log["t"][-1]),
-        dt_exchange=float(log["t"][1] - log["t"][0]),
-        n_u=len(log["t"]),
-    )
+    """Bind model_real to a loaded cook log (see cooklog.load); from lighting when it documents its preheat."""
+    lit = from_lighting(log)
+    if lit:
+        grids, n_pre = lighting_grids(log)
+    else:
+        n_pre = 0
+        grids = CookGrids(
+            t_end=float(log["t"][-1]),
+            dt_exchange=float(log["t"][1] - log["t"][0]),
+            n_u=len(log["t"]),
+        )
+    t_amb = float(log["meta"].get("t_amb_K", 300.0))
     ics = {
-        "tpit0": log["meta"]["tpit0_K"],
-        "t_amb": float(log["meta"].get("t_amb_K", 300.0)),
+        "tpit0": t_amb if lit else log["meta"]["tpit0_K"],
+        "t_amb": t_amb,
         "t0_meat": log["meta"]["tcore0_K"],
     }
     tols = tols or {"abstol": 1e-6, "reltol": 1e-6}
@@ -357,6 +408,7 @@ def bound_model_real(log: dict, tx, tols: dict | None = None):
         tx,
         grids,
         tols,
+        n_pre,
     )
 
 
@@ -371,6 +423,7 @@ def bound_model_real_linear(log: dict, mu0, jac, x0):
         np.asarray(mu0, dtype=float),
         np.asarray(jac, dtype=float),
         np.asarray(x0, dtype=float),
+        from_lighting(log),
     )
 
 
@@ -394,21 +447,21 @@ def time_gradient(data, tx, **kw) -> float:
     return (time.perf_counter() - t0) / n
 
 
-def real_latent_names() -> list[str]:
-    """Constrained site names sampled by `model_real` (not the observations)."""
+def real_latent_names(log: dict | None = None) -> list[str]:
+    """Constrained site names sampled by `model_real` (not the observations); the log's layout when given."""
+    phys = SITES_LIT if log is not None and from_lighting(log) else THETA_SITES + PHI_SITES + PHI_SITES_IGNITION
     return (
-        [n for n, _ in THETA_SITES]
-        + [n for n, _ in PHI_SITES]
-        + [n for n, _ in PHI_SITES_IGNITION]
+        [n for n, _ in phys]
         + ["sigma_pit", "sigma_core"]
         + [n for n, _ in RHO_SITES]
     )
 
 
-def real_inv_transforms() -> dict:
-    """Constrained←unconstrained maps for `model_real` sites (no model trace)."""
+def real_inv_transforms(log: dict | None = None) -> dict:
+    """Constrained←unconstrained maps for `model_real` sites (no model trace); the log's layout when given."""
+    phys = SITES_LIT if log is not None and from_lighting(log) else THETA_SITES + PHI_SITES + PHI_SITES_IGNITION
     out = {}
-    for n, d in THETA_SITES + PHI_SITES + PHI_SITES_IGNITION + RHO_SITES:
+    for n, d in phys + RHO_SITES:
         out[n] = biject_to(d.support)
     out["sigma_pit"] = biject_to(dist.HalfNormal(3.0).support)
     out["sigma_core"] = biject_to(dist.HalfNormal(2.0).support)

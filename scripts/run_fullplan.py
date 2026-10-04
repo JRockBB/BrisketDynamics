@@ -33,7 +33,8 @@ REPO = Path(__file__).resolve().parents[1]
 # CLI: run_fullplan.py [hours...] [--params FILE] [--tag SUFFIX] [--replot].
 # The objective is the default ControlConfig (KCBS-weighted quality +
 # safety); override weights there.
-ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
+# the cook from lighting: the pit at ambient, the meat from the fridge (on at the plan's load)
+ICS = {"tpit0": 300.0, "t_amb": 300.0, "t0_meat": 281.15}
 CC = ControlConfig(opt_wrap=True)
 
 
@@ -72,6 +73,7 @@ def records_from_json(d: dict) -> tuple[list, dict]:
         "u_opt": np.asarray(d["best_u"]),
         "grids": _grids_for(d["best_t_f_h"] * HR),
         "rest": None,
+        "T_load": d.get("best_T_load", 0.0),
     }
     return records, best
 
@@ -134,7 +136,7 @@ def main():
         default=12.0,
         help="dry-brine hours before the cook (overnight rub; 0 = unsalted)",
     )
-    ap.add_argument("--tpit0-K", type=float, default=ICS["tpit0"], help="pit temperature at the start [K]")
+    ap.add_argument("--tpit0-K", type=float, default=ICS["tpit0"], help="pit temperature at lighting [K]")
     ap.add_argument("--t0-meat-K", type=float, default=ICS["t0_meat"], help="meat temperature at the start [K]")
     args = ap.parse_args()
     ICS.update(tpit0=args.tpit0_K, t0_meat=args.t0_meat_K)
@@ -191,6 +193,12 @@ def main():
                     if best["t_spritz_h"]
                     else None,
                     "best_u": best["u_opt"].tolist(),
+                    "T_load": [r["T_load"] for r in records],
+                    "t_load_h": [r["t_load_h"] for r in records],
+                    "load_reached": [r["load_reached"] for r in records],
+                    "best_T_load": best["T_load"],
+                    "best_t_load_h": best["t_load_h"],
+                    "best_cook_from_load_h": best["cook_from_load_h"],
                 },
                 indent=2,
             )
@@ -211,8 +219,10 @@ def main():
         t_pull=best["t_pull"],
         rest=best.get("rest"),
         t_salt=args.t_salt_h * HR,
+        T_load=best.get("T_load", 0.0),
     )
     sim = {k: np.asarray(v) for k, v in sim.items()}
+    t_load_h = float(sim["t_load_used"]) / HR
     doneness = float(sim["c_field_final"][0])
     juiciness = float(sim["juiciness"])
     l_end = float(sim["l_star"][-1])
@@ -223,6 +233,11 @@ def main():
     adds = best.get("t_add_h") is not None and best["t_add_h"] < t_pull_h
     spritzes = best.get("t_spritz_h") is not None and best["t_spritz_h"] < min(
         t_wrap_h, t_pull_h
+    )
+    print(
+        f"THE PREHEAT: lit at 0 h, the meat on at {t_load_h:.2f} h at a pit of "
+        f"{best.get('T_load', 0.0) - 273.15:.0f} C ({(best.get('T_load', 0.0) - 273.15) * 1.8 + 32:.0f} F); "
+        f"{cook_h - t_load_h:.2f} h meat-on to serve"
     )
     print(
         f"THE COOK: {cook_h:.0f} h — wrap at {t_wrap_h:.2f} h, pull at "
@@ -245,7 +260,9 @@ def main():
             else "no spritz"
         )
     )
-    sr = safety_report(sim["tsurf"], sim["tcore"], best["grids"].tknots, CC)
+    sr = safety_report(
+        sim["tsurf"], sim["tcore"], best["grids"].tknots, CC, t_load=t_load_h * HR
+    )
     print(
         f"safety (soft penalties, not a certification): surface F={sr['F_s']:.3g}s "
         f"come-up={sr['cut_h']:.2f}h; core F={sr['F_core']:.3g}s "
@@ -293,7 +310,7 @@ def main():
         ha="right",
     )
     ax.set(
-        xlabel="cook length, start to serve [h]",
+        xlabel="cook length, lighting to serve [h]",
         ylabel="quality objective J",
         ylim=ylim,
         title="cook length, wrap and pull chosen together\n"
@@ -304,6 +321,14 @@ def main():
     ax.plot(th, sim["tcore"] - 273.15, "-", color=BLUE, lw=2, label="core")
     ax.plot(
         th, sim["tsurf"] - 273.15, "-", color=BLUE, lw=1, alpha=0.5, label="surface"
+    )
+    ax.axvline(t_load_h, color=MUTED, lw=1.2, ls="-.")
+    ax.annotate(
+        f"on at {t_load_h:.1f} h",
+        (t_load_h + 0.15, 82),
+        color=MUTED,
+        fontsize=10,
+        ha="left",
     )
     ax.axvline(t_wrap_h, color=ORANGE, lw=1.5, ls=":")
     ax.annotate(
@@ -318,11 +343,11 @@ def main():
         # (carryover, then the slow cambro decline) to serve
         ax.axvline(t_pull_h, color=MUTED, lw=1.2, ls="--")
         ax.annotate(
-            f"pull at {t_pull_h:.1f} h → rest",
-            (t_pull_h - 0.15, 45),
+            f"pull at {t_pull_h:.1f} h\n→ rest",
+            (t_pull_h + 0.15, 45),
             color=MUTED,
             fontsize=10,
-            ha="right",
+            ha="left",
         )
     add_note = " · no chimney"
     if adds:
@@ -357,7 +382,7 @@ def main():
             f"{best['spritz_dose_gm2']:.0f} g/m²"
         )
     ax.set(
-        xlabel="time [h]",
+        xlabel="time from lighting [h]",
         ylabel="temperature [°C]",
         xlim=(0, cook_h),
         title=f"the {cook_h:.0f} h cook: wrap {t_wrap_h:.1f} h · pull {t_pull_h:.1f} h "
@@ -366,7 +391,7 @@ def main():
         + add_note
         + spritz_note,
     )
-    ax.legend(fontsize=9, loc="upper left")
+    ax.legend(fontsize=9, loc="lower right")
 
     fig.suptitle(
         "The perfect brisket picks its own length, wrap and pull "

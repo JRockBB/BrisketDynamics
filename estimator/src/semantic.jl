@@ -192,9 +192,9 @@ end
 """
     damper_knots(log, t0, t1) -> (u_tknots, u_knots)
 
-The damper over `[t0, t1]` on a uniform knot grid no coarser than the log's, aligned to `t0`: the log's own
-points when `t0` and `t1` are on its grid, the log's damper interpolated onto the slice's grid otherwise
-(a piecewise-linear damper resampled between its knots moves by less than the pit can answer in a step).
+The log's original uniform control knots covering `[t0, t1]`. The integration interval may start or end
+between knots. Retaining the covering knots preserves every change in slope; resampling onto a grid aligned
+to an asynchronous reading would change the executed control and make propagation depend on slice boundaries.
 """
 function damper_knots(log::CookLog, t0::Real, t1::Real)
     t1 > t0 || throw(ArgumentError("a slice needs t1 > t0 (got $t0, $t1)"))
@@ -205,10 +205,7 @@ function damper_knots(log::CookLog, t0::Real, t1::Real)
     i1 = clamp(ceil(Int, (t1 - tg[1]) / dt - 1e-9) + 1, i0 + 1, n)
     useg = log.u[i0:i1]
     any(isnan, useg) && throw(ArgumentError("the damper is not set on the whole slice [$t0, $t1] (NaN in the log there)"))
-    nk = max(2, Int(ceil((t1 - t0) / dt - 1e-9)) + 1)
-    tk = collect(range(Float64(t0), Float64(t1); length=nk))
-    uk = [lininterp(τ, tg[i0], dt, useg) for τ in tk]
-    return tk, uk
+    return collect(tg[i0:i1]), collect(useg)
 end
 
 # --- the latents of a system ---------------------------------------------------------------------------------

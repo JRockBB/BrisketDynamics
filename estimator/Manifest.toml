@@ -2,7 +2,7 @@
 
 julia_version = "1.11.9"
 manifest_format = "2.0"
-project_hash = "c7d4cfd4ce0bc7481dc58ae6afbd85069dd10dfa"
+project_hash = "fae8ac157d3f5be39184f209bb608381f3f6ad37"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -190,7 +190,7 @@ version = "1.12.6"
     ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 
 [[deps.BrisketDynamics]]
-deps = ["ForwardDiff", "LinearAlgebra", "OrdinaryDiffEqBDF", "OrdinaryDiffEqTsit5", "PythonCall", "SciMLBase", "Statistics"]
+deps = ["ForwardDiff", "LinearAlgebra", "OpenSSL_jll", "OrdinaryDiffEqBDF", "OrdinaryDiffEqTsit5", "PythonCall", "SciMLBase", "SparseArrays", "Statistics"]
 path = ".."
 uuid = "0b554440-95f8-4cc8-a6a9-fc8d24c79110"
 version = "1.0.0-DEV"
@@ -1262,9 +1262,9 @@ version = "1.6.1"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "7787087cbc5ec110986e94d9aa1f17639a79c5de"
+git-tree-sha1 = "3f09d0ca967ca3fa3cd3ce2416894b33732b3af2"
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
-version = "3.5.8+0"
+version = "3.0.20+0"
 
 [[deps.OpenSpecFun_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]

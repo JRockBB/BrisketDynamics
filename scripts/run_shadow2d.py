@@ -3,8 +3,8 @@
 Loads the calibrated MAP and a plan (default: the robust schedule), runs
 the SAME schedule through the 2-D axisymmetric solve, and reports what
 only the grid can see: the true cold-spot lethality (vs the symmetric
-slab's core-node proxy), the bark distribution, and the shrunk
-dimensions.
+slab's core-node proxy), the bark and smoke distributions, and the
+shrunk dimensions. The plan's fuel addition is replayed with its lid lift.
 
 Usage:
     python scripts/run_shadow2d.py
@@ -58,6 +58,8 @@ def main() -> None:
     tsp = plan.get("t_spritz_robust_h", plan.get("t_spritz_plan_h"))
     dts = plan.get("dt_spritz_robust_min", plan.get("dt_spritz_plan_min"))
     tp = plan.get("t_pull_robust_h", plan.get("t_pull_plan_h"))
+    ta = plan.get("t_add_robust_h", plan.get("t_add_plan_h"))
+    T_load = plan.get("T_load_robust", plan.get("T_load_plan"))
 
     rep = shadow_report(
         theta, phi, u, grids,
@@ -66,9 +68,13 @@ def main() -> None:
         t_spritz=(tsp * HR if tsp is not None else 1.0e9),
         dt_spritz=(dts * 60.0 if dts is not None else 3600.0),
         t_pull=(tp * HR if tp is not None else 1.0e9),
+        t_add=(ta * HR if ta is not None else 1.0e9),
+        T_load=float(T_load) if T_load else 0.0,
         rest=plan.get("rest"),
         radius=args.radius, nr=args.nr, nz=args.nz,
         refine=not args.no_refine,
+        # the cook from lighting, under the planners' conditions
+        tpit0=300.0, t_amb=300.0,
     )
     print("2-D shadow report for", args.plan)
     for k, v in rep.items():

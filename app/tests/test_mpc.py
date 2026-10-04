@@ -3,8 +3,10 @@
 Covers: cumulative safety banking (lethality + come-up time), configured
 (non-default) safety constants reaching the banking, wrap-blend continuity
 across segment boundaries, and horizons not divisible by the replan
-interval. Open-loop mode throughout (no optimization) so each test is a
-handful of short coupled solves.
+interval, and the preheat-then-load. Open-loop mode throughout (no
+optimization) so each test is a handful of short coupled solves; the
+mechanism tests keep the old start (OLD_START: a lit pit, the meat on),
+the load test preheats the empty pit first.
 """
 
 import numpy as np
@@ -15,6 +17,9 @@ from brisket_app.control import ControlConfig
 from brisket_app.coupled import HR, CookGrids, coupled_cook
 
 T_AMB = 300.0
+# the mechanism tests are not about the preheat: their cook starts as all cooks did before it, the bed fully lit
+# in a 293 K pit with the meat already on
+OLD_START = {"t_load_init_abs": -1.0e9, "a0": 1.0, "tpit0": 293.15}
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +51,7 @@ def _openloop(theta, phi, t_f, cc=None, t_wrap=None, n_u=4):
         model_t_amb=T_AMB,
         t_wrap_init_abs=t_wrap,
         log=lambda *_: None,
+        **OLD_START,
     )
 
 
@@ -155,14 +161,13 @@ def test_wrap_continuity_across_segments(clients, theta_phi):
 
 
 def test_complete_nondefault_state_handoff(clients, theta_phi):
-    """Pan, firebox, and trigger-latch states survive every segment restart."""
+    """Pan and firebox states survive every segment restart."""
     theta, phi = theta_phi
     initial = mpc.CookState.fresh(
         tpit0=300.0,
         mpan0=1.5,
         tpan0=290.0,
         tfb0=450.0,
-        wrap_latch0=0.6,
         c_duct=60.0,
     )
     u = np.full(2, 0.5)
@@ -172,11 +177,9 @@ def test_complete_nondefault_state_handoff(clients, theta_phi):
 
     assert middle.mpan0 < initial.mpan0
     assert middle.tfb0 != initial.tfb0
-    assert middle.wrap_latch0 == pytest.approx(initial.wrap_latch0, abs=1e-9)
     assert split.mpan0 == pytest.approx(whole.mpan0, rel=2e-3, abs=2e-4)
     assert split.tpan0 == pytest.approx(whole.tpan0, abs=0.2)
     assert split.tfb0 == pytest.approx(whole.tfb0, abs=0.2)
-    assert split.wrap_latch0 == pytest.approx(whole.wrap_latch0, abs=1e-8)
 
 
 def test_horizon_not_divisible_by_replan(clients, theta_phi):
@@ -284,6 +287,7 @@ def test_pull_rests_to_serve(clients, theta_phi):
         model_t_amb=T_AMB,
         t_pull_init_abs=t_pull,
         log=lambda *_: None,
+        **OLD_START,
     )
     t, ts, u = (np.asarray(out[k]) for k in ("t", "tsurf", "u"))
     assert out["pulled"] and out["t_pull_exec_abs"] == pytest.approx(t_pull, abs=1.0)
@@ -300,9 +304,17 @@ def test_pull_rests_to_serve(clients, theta_phi):
     assert float(np.asarray(ref["tsurf"])[-1]) > ts[-1]
 
 
-def test_plan_optimizes_pull(clients, theta_phi):
+def test_plan_optimizes_pull(clients, theta_phi, monkeypatch):
     """A replan with cc.opt_pull returns a pull inside the remaining horizon."""
     theta, phi = theta_phi
+    from brisket_app import control
+
+    def redundant_cook(*args, **kwargs):
+        raise AssertionError(
+            "The optimizer should reuse the best evaluation's load time"
+        )
+
+    monkeypatch.setattr(control, "planned_load", redundant_cook)
     state = mpc.CookState.fresh()
     _u, grids, hist = mpc.plan(
         theta,
@@ -316,6 +328,55 @@ def test_plan_optimizes_pull(clients, theta_phi):
     )
     assert grids.t_end == pytest.approx(2 * HR)
     assert 0.0 < hist["t_pull"] < 2 * HR
+
+
+def test_weather_changes_at_exact_time_inside_plant_interval(clients, theta_phi):
+    theta, phi = theta_phi
+    start = mpc.CookState.fresh(tpit0=350.0, a0=0.85, t_load=-1e9)
+    front = 0.35 * HR
+    ambient = lambda t: 300.0 if t < front else 285.0
+    actual, trace = mpc.advance_plant(
+        start,
+        np.full(7, 0.4),
+        HR,
+        theta,
+        phi,
+        285.0,
+        ambient_fn=ambient,
+        ambient_tstops=(front,),
+    )
+    warm, _ = mpc.advance_plant(start, np.full(2, 0.4), front, theta, phi, 300.0)
+    expected, _ = mpc.advance_plant(
+        warm, np.full(2, 0.4), HR - front, theta, phi, 285.0
+    )
+    premature, _ = mpc.advance_plant(start, np.full(7, 0.4), HR, theta, phi, 285.0)
+    assert actual.t == pytest.approx(HR)
+    assert len(trace["tpit"]) == 7
+    assert actual.tpit0 == pytest.approx(expected.tpit0, abs=0.02)
+    np.testing.assert_allclose(actual.t_field0, expected.t_field0, atol=0.02, rtol=0)
+    assert abs(actual.tpit0 - premature.tpit0) > 0.1
+
+
+def test_decision_gradients_match_full_gradient(clients, theta_phi):
+    import jax
+    import jax.numpy as jnp
+    from brisket_app.control import objective
+
+    theta, phi = map(jnp.asarray, theta_phi)
+    grids = CookGrids(t_end=3 * HR, n_u=4, dt_exchange=600.0)
+    cc = ControlConfig(opt_load=False, opt_wrap=True, opt_pull=False)
+
+    def score(z, zw, th, ph):
+        return objective(
+            z, zw, th, ph, clients, grids, cc, {"abstol": 1e-7, "reltol": 1e-7}
+        )
+
+    args = (jnp.zeros(4), jnp.asarray(0.5), theta, phi)
+    vf, gf = jax.jit(jax.value_and_grad(score, argnums=(0, 1, 2, 3)))(*args)
+    vd, gd = jax.jit(jax.value_and_grad(score, argnums=(0, 1)))(*args)
+    assert float(vd) == pytest.approx(float(vf), rel=1e-12)
+    for actual, expected in zip(gd, gf[:2], strict=True):
+        np.testing.assert_allclose(actual, expected, rtol=2e-4, atol=1e-6)
 
 
 def test_fuel_add_executes_and_is_priced(clients, theta_phi):
@@ -333,6 +394,7 @@ def test_fuel_add_executes_and_is_priced(clients, theta_phi):
         "u_openloop_grids": grids,
         "model_t_amb": T_AMB,
         "log": lambda *_: None,
+        **OLD_START,
     }
     ref = mpc.run_cook(theta, phi, lambda t: T_AMB, **kw)
     fed = mpc.run_cook(theta, phi, lambda t: T_AMB, t_add_init_abs=1.5 * HR, **kw)
@@ -359,6 +421,7 @@ def test_spritz_policy_executes(clients, theta_phi):
         "u_openloop_grids": grids,
         "model_t_amb": T_AMB,
         "log": lambda *_: None,
+        **OLD_START,
     }
     ref = mpc.run_cook(theta, phi, lambda t: T_AMB, **kw)
     sp = mpc.run_cook(
@@ -388,3 +451,45 @@ def test_plan_optimizes_add_and_spritz(clients, theta_phi):
     assert 0.0 < hist["t_spritz"] < 2 * HR
     assert cc.dt_spritz_min <= hist["dt_spritz"] <= cc.dt_spritz_max
     assert cc.m_spritz_min <= hist["spritz_dose"] <= cc.m_spritz_max
+
+
+def test_preheat_then_load(clients, theta_phi):
+    """From lighting the empty pit comes up and the meat goes on when the plant's pit first reaches T_load: before
+    it the meat holds its raw state and banks no safety time; the load is carried across segments."""
+    theta, phi = theta_phi
+    t_f = 3 * HR
+    grids = CookGrids(t_end=t_f, dt_exchange=600.0, n_u=4)
+    T_load = 320.0  # within reach of the cold-lit pit inside the first two segments
+    out = mpc.run_cook(
+        theta,
+        phi,
+        lambda t: T_AMB,
+        t_f=t_f,
+        dt_replan=1 * HR,
+        cc=ControlConfig(),
+        mode="openloop",
+        u_openloop=np.full(4, 0.5),
+        u_openloop_grids=grids,
+        model_t_amb=T_AMB,
+        log=lambda *_: None,
+        T_load_init=T_load,
+    )
+    t, tp, tc = (np.asarray(out[k]) for k in ("t", "tpit", "tcore"))
+    t_on = out["t_load_exec_abs"]
+    assert t_on is not None and 0.0 < t_on < 2 * HR
+    assert out["final_state"].loaded and out["final_state"].t_load == pytest.approx(
+        t_on
+    )
+    assert tp[0] == pytest.approx(T_AMB, abs=0.5)  # lit at ambient
+    assert np.all(tp[t < t_on] < T_load)  # the first crossing: below it until the load
+    assert np.max(tp[t < t_on]) > T_load - 5.0  # and coming up to it
+    # the door opens and the cold meat goes on: the pit dips right after the load
+    i_on = int(np.searchsorted(t, t_on))
+    assert np.min(tp[i_on : i_on + 2]) < T_load - 2.0
+    pre = t < t_on - 1200.0
+    assert np.allclose(tc[pre], 281.15, atol=1e-3)  # the raw meat waits out the preheat
+    assert tc[-1] > 281.15 + 5.0  # and cooks after it
+    # the safety clocks start at meat-on: the banked integrals equal the load-weighted whole-cook ones
+    cc = ControlConfig()
+    F_ref, _ = mpc.lethality_cut(np.asarray(out["tsurf"]), t, cc, t_load=t_on)
+    assert out["final_state"].leth_f == pytest.approx(float(F_ref), rel=0.02)

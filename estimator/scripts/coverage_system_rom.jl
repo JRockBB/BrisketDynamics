@@ -46,7 +46,7 @@ rom = load_rom(isabspath(rom_file) ? rom_file : joinpath(REPO, "data", "calibrat
 L_fom = from_z(z_moments(prior_phys[4])[1], prior_phys[4])
 Ly, Lz = 0.30, 0.40
 NX = Int(rom.rom["nx"])
-cfg = MeatConfig(; nx=NX, n_shrink=0.0, T0=Float64(meta["tcore0_K"]), A_meat=Ly * Lz)
+cfg = MeatConfig(; nx=NX, T0=Float64(meta["tcore0_K"]), A_meat=Ly * Lz)               # the shipped physics, as train_rom_bench.jl
 dims = Int.(rom.fom["dims"])
 fom = Brick3D(:b; Lx=L_fom, Ly, Lz, nx=dims[1], ny=dims[2], nz=dims[3], exposed=(false, true, true, true, true, true), cfg)
 rom_piece = Slab1D(:b; cfg)
@@ -81,7 +81,10 @@ fingerprint = backend_fingerprint()
 bl = model0.bl
 group_names = [E._als_group_name(bl, g) for (g, _) in bl.groups]
 group_ranges = [rg for (_, rg) in bl.groups]
-is_field(g) = occursin('.', g) && !endswith(g, ".bark")
+# a group is the pit's by its name (one piece's groups carry the filter's bare names, `T`, `bark`, ...), else the meat's
+is_pit(g) = g in E.PIT_GROUP_NAMES
+field_name(g) = String(last(rsplit(g, '.'; limit=2)))
+is_field(g) = !is_pit(g) && field_name(g) != "bark"
 group_dof = Dict{String,Int}(g => (is_field(g) && length(rg) > 1 ? 1 : length(rg)) for (g, rg) in zip(group_names, group_ranges))
 ip = first(E.belief_index(bl, :pit, :T_pit)); rT = E.belief_index(bl, :b, :T); ic, is = first(rT), last(rT)
 ia0 = idx["a0"]; keep16 = [i for i in 1:length(allnames) if i != ia0]
@@ -120,8 +123,8 @@ function group_nees(r, o, k)
     x_fom = o.X[:, k]
     out = Dict{String,Float64}()
     for (g, rg) in zip(group_names, group_ranges)
-        if occursin('.', g)
-            f = String(last(rsplit(g, '.'; limit=2)))
+        if !is_pit(g)
+            f = field_name(g)
             if haskey(field_of, f)
                 line = project_to_line(rom, fom, x_fom[state_index(sys_fom.layout, :b, field_of[f])])
                 kind = bl.kinds[first(rg)]

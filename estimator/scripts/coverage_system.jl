@@ -126,7 +126,7 @@ flush(stdout)
 "The plant's state at grid point `k` of the segments output as the belief's physical state and coordinates."
 function truth_belief(o, k)
     ics, a = handoff(o, k)
-    pf = Tuple(f for f in keys(ics) if !(f in PIT_ICS_FIELDS))                             # the piece's restart fields (the latch is not carried: the wrap is a time)
+    pf = Tuple(f for f in keys(ics) if !(f in PIT_ICS_FIELDS))                             # the piece's restart fields
     piece_ics = NamedTuple{pf}(Tuple(getfield(ics, f) for f in pf))
     pit_ics = (Tpit0=ics.Tpit0, mfuel0=ics.mfuel0, mpan0=ics.mpan0, Tpan0=ics.Tpan0, Tfb0=ics.Tfb0, ignited=clamp(a, 1e-6, 1 - 1e-6))
     x_sys = initial_state(sys, p_pack, play_pack; ics=[piece_ics], pit_ics)

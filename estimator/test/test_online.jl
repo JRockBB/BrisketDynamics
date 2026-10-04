@@ -90,7 +90,7 @@ run_set("layout") && @testset "the belief layout of one slab is the filter's; th
     @test maximum(abs.(system_from_belief(xb, bl)[bl.sys_index] .- xs[bl.sys_index])[big]) < 1e-9
     @test maximum(abs.(belief_encode(xb, bl) .- y_sys)) < 1e-9                             # a fixed point: the floors hold
     h = belief_handoff(xb, bl)
-    @test h.pieces[1].T0f ≈ ics.T0f && h.pit.Tpit0 ≈ ics.Tpit0 && h.pieces[1].LATCH0 == 0.0
+    @test h.pieces[1].T0f ≈ ics.T0f && h.pit.Tpit0 ≈ ics.Tpit0
     @test isapprox(h.ignited, a; atol=2e-6)
     # the latent block: the physics sites, the area, the depth, in latent_block's order
     @test length(blk) == 17 && blk.names == blk_old.names && AREA == 16 && DEPTH == 17
@@ -231,7 +231,8 @@ run_set("observables") && @testset "the dynamics factor propagates as the monoli
     tk, uk = damper_knots(clog, t[2], t[5])
     @test tk == t[2:5] && uk == u[2:5]
     tk2, uk2 = damper_knots(clog, 100.0, 250.0)
-    @test tk2[1] == 100.0 && tk2[end] == 250.0 && length(tk2) == 3 && abs(uk2[1] - lininterp(100.0, t[1], dt, u[1:3])) < 1e-12
+    @test tk2[1] <= 100.0 && tk2[end] >= 250.0
+    @test all(lininterp(τ, tk2[1], tk2[2] - tk2[1], uk2) ≈ lininterp(τ, t[1], dt, u) for τ in 100.0:5.0:250.0)
 end
 
 run_set("transactions") && @testset "failed assimilation rolls back; checkpoints and diagnostics are bounded" begin

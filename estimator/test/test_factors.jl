@@ -49,6 +49,21 @@ E.residual(f::ResolutionProbe, vals) = [vals[1][1] - f.target]
 E.jacobians(::ResolutionProbe, vals) = [fill(1.0, 1, 1)]
 E.loss(f::ResolutionProbe, vals) = round(0.5 * (vals[1][1] - f.target)^2; digits=6)
 
+mutable struct CachedCurvatureProbe <: Factor
+    key::VarKey
+    at::Float64
+    slope::Float64
+end
+E.vars(f::CachedCurvatureProbe) = [f.key]
+E.ndim(::CachedCurvatureProbe) = 1
+E.residual(::CachedCurvatureProbe, vals) = [vals[1][1]^2 + 1]
+E.jacobians(f::CachedCurvatureProbe, vals) = [fill(f.slope, 1, 1)]
+function E._ensure_current!(f::CachedCurvatureProbe, g::FactorGraph)
+    x = variable_value(g, f.key)[1]
+    f.at = x; f.slope = 2x
+    return nothing
+end
+
 # --- the linear-Gaussian oracle: Kalman filter and RTS smoother ---------------------------------------------------
 function kalman_rts(F, Q, H, R, m0, P0, ys)
     n = length(ys)
@@ -323,6 +338,28 @@ end
     rl = gauss_newton!(gl; iters=1, λ0=1e12, tol=1e-3, gtol=1e-10, soc=0)
     @test !rl.converged && rl.gradient > 0.9
     @test E._scaled_gradient(fill(1e6, 1, 1), [-1.0]) ≈ 1e-6   # a unit residual needs only a 1e-6 local coordinate move
+    # Opposing high-curvature columns hide a large joint move from a diagonal gradient check.
+    # The old certificate was 2e-12 at zero, two posterior standard deviations from the exact mean.
+    Jcorr = [1e6 -1e6; 1.0 1.0]
+    rcorr = [0.0, -2.0]
+    @test E._scaled_gradient(Jcorr, rcorr) ≈ 1.0
+    @test E._scaled_gradient(1e-3 .* Jcorr, 1e-3 .* rcorr) ≈ 1.0
+    @test E._scaled_gradient(E.SparseArrays.sparse(Jcorr), rcorr) ≈ 1.0
+    kc = VarKey(:state, :correlated, 1)
+    gc = FactorGraph(); add_variable!(gc, kc, zeros(2))
+    add_factor!(gc, LinearFactor([kc], [Jcorr], -rcorr))
+    resultc = gauss_newton!(gc; iters=5, gtol=1e-4, soc=0)
+    @test resultc.converged && variable_value(gc, kc) ≈ ones(2)
+    @test resultc.newton_sd < 1e-4 && objective(gc) < 1e-12
+    # A cached slope can point uphill after a successful step. A rejected line
+    # search must refresh it, not spend the entire budget damping the same slope.
+    kcache = VarKey(:state, :cached_curvature, 1)
+    gcache = FactorGraph(); add_variable!(gcache, kcache, [1.0])
+    add_factor!(gcache, CachedCurvatureProbe(kcache, 1.0, 2.0))
+    add_factor!(gcache, GaussianPrior(kcache, [0.0], fill(0.1, 1, 1)))
+    rcache = gauss_newton!(gcache; iters=10, gtol=1e-6, soc=0)
+    @test rcache.converged && abs(variable_value(gcache, kcache)[1]) < 1e-12
+    @test length(rcache.hist) <= 3 && objective(gcache) ≈ 0.5
     # Stationarity is relative to a coordinate's declared units. A 0.005 Pa discrepancy move is below
     # 1e-4 of a 100 Pa AR width, while the same absolute move in an order-one latent is not stationary.
     kscl = VarKey(:disc, :scaled, 1)
@@ -359,6 +396,16 @@ end
     rtoo3 = gauss_newton!(gtoo3; iters=3, gtol=1e-4, resolution_gtol=5e-4, soc=0, newton_tol=1e-4)
     @test !rtoo3.converged && rtoo3.newton_sd ≈ 6e-4
     @test_throws ArgumentError gauss_newton!(gtoo3; newton_tol=-1.0)
+    # A near-stationary numerical stall may request a fresh attempt without
+    # being accepted. The same posterior-width bound limits this shortcut.
+    grestart = FactorGraph(); add_variable!(grestart, ktoo, [0.0])
+    add_factor!(grestart, ResolutionProbe(ktoo, 6e-4))
+    rrestart = gauss_newton!(grestart; iters=10, gtol=1e-4, resolution_gtol=5e-4, soc=0, restart_newton_tol=1e-2)
+    @test !rrestart.converged && length(rrestart.hist) == 3 && get(rrestart.hist[end], :restart_requested, false)
+    @test variable_value(grestart, ktoo) == [0.0] && rrestart.newton_sd ≈ 6e-4
+    rkeep = gauss_newton!(grestart; iters=4, gtol=1e-4, resolution_gtol=5e-4, soc=0, restart_newton_tol=1e-4)
+    @test !rkeep.converged && length(rkeep.hist) == 4 && !get(rkeep.hist[end], :restart_requested, false)
+    @test_throws ArgumentError gauss_newton!(grestart; restart_newton_tol=-1.0)
     kf = VarKey(:state, :final_iteration, 1)
     gf = FactorGraph(); add_variable!(gf, kf, [0.0])
     add_factor!(gf, LinearFactor([kf], [fill(1.0, 1, 1)], [1.0]))

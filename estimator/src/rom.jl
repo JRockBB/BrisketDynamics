@@ -14,25 +14,42 @@
 # the parameter draws; `validate_rom` scores held-out draws by the fraction of their errors inside the model's
 # bands. Included by BrisketEstimator after plan_system.jl.
 
-export ReducedOrderModel, ROMError, train_rom, validate_rom, rom_error, save_rom, load_rom, rom_fingerprint, rom_observables,
+export ReducedOrderModel, ROMError, train_rom, validate_rom, rom_error, save_rom, load_rom, rom_fingerprint, rom_observables, covering_design, site_quantile,
        project_to_line, reconstruct_from_line, ROM_OBSERVABLES
 
 "The observables a reduction-error model carries: the core and surface temperatures, the mass on a scale, the chamber vapor pressure and the heat load."
 const ROM_OBSERVABLES = (:Tcore, :Tsurf, :mass, :pv_pit, :q_meat)
 const ROM_ARTIFACT_SCHEMA = "BrisketDynamics.ReducedOrderModel"
-const ROM_ARTIFACT_VERSION = 2
+const ROM_ARTIFACT_VERSION = 3
+const ROM_ARTIFACT_VERSIONS_READ = (2, 3)   # version 2: the time-only error model (no latent regression)
 
 function _meat_config_fingerprint(cfg::MeatConfig)
     record = join((string(nm, "=", repr(getfield(cfg, nm))) for nm in fieldnames(MeatConfig)), "\n")
     return bytes2hex(SHA.sha1(codeunits(record)))[1:16]
 end
 
-"The bias and spread of `ROM − FOM` for one observable on a time grid (linear between its points, held beyond)."
+"""
+    ROMError
+
+The reduction error `ROM − FOM` of one observable on a time grid (linear between its points, held beyond): its
+bias at the design's centre and its spread, and the bias's dependence on the latents, a ridge regression per
+time point on the latents standardized by the design (`names`, `center`, `scale`; `coef` one row per time point,
+one column per latent; `lambda` the ridge weight the cross-validation chose). A time-only model has no names and
+an empty `coef`; so does a fit whose cross-validation preferred no latent dependence (`lambda = Inf`). The spread
+is the cross-validated residual's, so it is the out-of-sample error of the bias it comes with.
+"""
 struct ROMError
     t::Vector{Float64}
     bias::Vector{Float64}
     sd::Vector{Float64}
+    names::Vector{String}
+    center::Vector{Float64}
+    scale::Vector{Float64}
+    coef::Matrix{Float64}
+    lambda::Float64
 end
+ROMError(t::AbstractVector, bias::AbstractVector, sd::AbstractVector) =
+    ROMError(collect(float.(t)), collect(float.(bias)), collect(float.(sd)), String[], Float64[], Float64[], zeros(length(t), 0), Inf)
 function _interp(t::AbstractVector, v::AbstractVector, tq::Real)
     tq <= t[1] && return v[1]
     tq >= t[end] && return v[end]
@@ -40,8 +57,23 @@ function _interp(t::AbstractVector, v::AbstractVector, tq::Real)
     w = (tq - t[k]) / (t[k + 1] - t[k])
     return (1 - w) * v[k] + w * v[k + 1]
 end
-"The bias and sd of the reduction error at time `t`."
+"The bias and sd of the reduction error at time `t` (the bias at the design's centre)."
 rom_error(e::ROMError, t::Real) = (bias=_interp(e.t, e.bias, t), sd=_interp(e.t, e.sd, t))
+"""
+    rom_error(e::ROMError, t, zr) -> (bias, sd)
+
+The bias at the latents `zr` (in `e.names` order; Duals pass through): the centre's bias plus the regression's
+dependence, `bias(t) + Σ_i coef_i(t) (zr_i − center_i) / scale_i`.
+"""
+function rom_error(e::ROMError, t::Real, zr::AbstractVector)
+    b = _interp(e.t, e.bias, t)
+    isempty(e.names) && return (bias=b, sd=_interp(e.t, e.sd, t))
+    length(zr) == length(e.names) || throw(ArgumentError("the ROM error regresses on $(length(e.names)) latents, not $(length(zr))"))
+    for i in eachindex(e.names)
+        b += _interp(e.t, view(e.coef, :, i), t) * (zr[i] - e.center[i]) / e.scale[i]
+    end
+    return (bias=b, sd=_interp(e.t, e.sd, t))
+end
 
 """
     ReducedOrderModel
@@ -66,6 +98,19 @@ end
 rom_observables(r::ReducedOrderModel) = collect(keys(r.errors))
 "The bias and sd of the artifact's error on `obs` at `t` (zero bias, zero sd for an observable it does not carry)."
 rom_error(r::ReducedOrderModel, obs::Symbol, t::Real) = haskey(r.errors, obs) ? rom_error(r.errors[obs], t) : (bias=0.0, sd=0.0)
+"""
+    rom_error(r, obs, t, z, blk, name_map=identity) -> (bias, sd)
+
+The artifact's error on `obs` at `t` at the attached block's latents `z`: each regressed latent read from the
+block by its name through `name_map` (a piece's prefix in a multi-piece registry).
+"""
+function rom_error(r::ReducedOrderModel, obs::Symbol, t::Real, z::AbstractVector, blk::LatentBlock, name_map::Function=identity)
+    haskey(r.errors, obs) || return (bias=zero(eltype(z)), sd=0.0)
+    e = r.errors[obs]
+    isempty(e.names) && return rom_error(e, t)
+    zr = [z[latent_index(blk, name_map(nm))] for nm in e.names]
+    return rom_error(e, t, zr)
+end
 
 function _validate_rom_contents(r::ReducedOrderModel)
     isempty(r.archetype) && throw(ArgumentError("a ROM artifact needs a nonempty archetype"))
@@ -104,12 +149,17 @@ function _validate_rom_contents(r::ReducedOrderModel)
         all(isfinite, e.t) && all(diff(e.t) .> 0) && all(isfinite, e.bias) &&
             all(s -> isfinite(s) && s >= 0, e.sd) ||
             throw(ArgumentError("the ROM error series for $obs is invalid"))
+        np = length(e.names)
+        length(e.center) == length(e.scale) == np && size(e.coef) == (length(e.t), np) &&
+            all(isfinite, e.center) && all(sc -> isfinite(sc) && sc > 0, e.scale) && all(isfinite, e.coef) &&
+            all(nm -> haskey(r.envelope, nm), e.names) ||
+            throw(ArgumentError("the ROM error regression for $obs is inconsistent with its time grid or envelope"))
     end
     first_error = r.errors[first(ROM_OBSERVABLES)]
     all(r.errors[obs].t == first_error.t for obs in ROM_OBSERVABLES) ||
         throw(ArgumentError("the ROM observables must share one error-model time grid"))
     String(get(r.training, "artifact_schema", "")) == ROM_ARTIFACT_SCHEMA &&
-        Int(get(r.training, "artifact_version", 0)) == ROM_ARTIFACT_VERSION ||
+        Int(get(r.training, "artifact_version", 0)) in ROM_ARTIFACT_VERSIONS_READ ||
         throw(ArgumentError("the ROM artifact has an unsupported in-memory schema or version"))
     schema = get(r.training, "latent_schema", nothing)
     schema isa AbstractDict && Set(String.(keys(schema))) == Set(keys(r.envelope)) ||
@@ -228,6 +278,13 @@ function _rom_dynamics_correction(r::ReducedOrderModel, t)
     return (pv=pv, q=q)
 end
 
+"The pit-side corrections (chamber vapor, heat load) at the attached block's latents `z`."
+function _rom_dynamics_correction(r::ReducedOrderModel, t, z, blk::LatentBlock, name_map::Function=identity)
+    pv = rom_error(r, :pv_pit, t, z, blk, name_map).bias
+    q = rom_error(r, :q_meat, t, z, blk, name_map).bias
+    return (pv=pv, q=q)
+end
+
 function _validate_rom_attachment(rs::AbstractDict{Symbol,<:ReducedOrderModel}, sys::CookSystem, blk::LatentBlock)
     piece_ids = Set(pc.id for pc in sys.pieces)
     artifact_ids = Set(keys(rs))
@@ -270,6 +327,12 @@ function _rom_dynamics_correction(rs::AbstractDict{Symbol,<:ReducedOrderModel}, 
     return (pv=sum(es[id].pv for id in ids; init=0.0),
             q=sum(q_piece[id] for id in ids; init=0.0), q_piece)
 end
+function _rom_dynamics_correction(rs::AbstractDict{Symbol,<:ReducedOrderModel}, t, z, blk::LatentBlock)
+    ids = sort!(collect(keys(rs)); by=string)
+    es = Dict(id => _rom_dynamics_correction(rs[id], t, z, blk, name -> haskey(blk.index, name) ? name : "$id.$name") for id in ids)
+    q_piece = Dict(id => e.q for (id, e) in es)
+    return (pv=sum(es[id].pv for id in ids), q=sum(q_piece[id] for id in ids), q_piece)
+end
 _observable_piece(obs::TemperatureAt) = obs.piece
 _observable_piece(obs::SurfaceTemperature) = obs.piece
 _observable_piece(obs::PieceMass) = obs.piece
@@ -279,6 +342,22 @@ _rom_piece_error(r::ReducedOrderModel, piece::Symbol, key::Symbol, t) = rom_erro
 function _rom_piece_error(rs::AbstractDict{Symbol,<:ReducedOrderModel}, piece::Symbol, key::Symbol, t)
     haskey(rs, piece) || throw(ArgumentError("the ROM registry has no artifact for piece $piece"))
     return rom_error(rs[piece], key, t)
+end
+_rom_piece_error(r::ReducedOrderModel, piece::Symbol, key::Symbol, t, z, blk::LatentBlock) = rom_error(r, key, t, z, blk)
+function _rom_piece_error(rs::AbstractDict{Symbol,<:ReducedOrderModel}, piece::Symbol, key::Symbol, t, z, blk::LatentBlock)
+    haskey(rs, piece) || throw(ArgumentError("the ROM registry has no artifact for piece $piece"))
+    return rom_error(rs[piece], key, t, z, blk, name -> haskey(blk.index, name) ? name : "$piece.$name")
+end
+"The reduction-error bias of an observable at the attached block's latents (the prediction's correction)."
+_rom_observation_bias(r::ReducedOrderModel, obs, key, t, z, blk::LatentBlock) = rom_error(r, key, t, z, blk).bias
+function _rom_observation_bias(rs::AbstractDict{Symbol,<:ReducedOrderModel}, obs, key, t, z, blk::LatentBlock)
+    id = _observable_piece(obs)
+    nm(i) = name -> haskey(blk.index, name) ? name : "$i.$name"
+    if id !== nothing
+        haskey(rs, id) || return zero(eltype(z))
+        return rom_error(rs[id], key, t, z, blk, nm(id)).bias
+    end
+    return sum(rom_error(rs[i], key, t, z, blk, nm(i)).bias for i in sort!(collect(keys(rs)); by=string))
 end
 function _rom_observation_error(rs::AbstractDict{Symbol,<:ReducedOrderModel}, obs, key, t)
     id = _observable_piece(obs)
@@ -381,6 +460,34 @@ function _rom_scenarios(u_knots, u_tknots, tsave, events, scenarios)
     end
 end
 
+"The latent coordinate of a site at its prior quantile `q`: the normal quantile for Gaussian-coordinate and score sites, the Beta's inverse CDF in the logit for the other bounded sites."
+function site_quantile(p::PriorSite, q::Real)
+    0 < q < 1 || throw(ArgumentError("a prior quantile lies strictly inside (0, 1), not $q"))
+    zq = -sqrt(2.0) * erfcinv(2q)
+    _betalike(p) || return p.p1 + p.p2 * zq
+    isscore(p) && return zq
+    f = first(beta_inc_inv(p.p1, p.p2, q))
+    return log(f / (1 - f))
+end
+
+"""
+    covering_design(sites, n; rng, coverage=0.999) -> Vector{Vector{Float64}}
+
+A Latin hypercube over the sites' prior quantiles: per site, `n` levels evenly spaced from the `1 − coverage`
+quantile to the `coverage` quantile (both ends included), independently permuted across the design points. Every
+site's design range is then exactly its central `2·coverage − 1` prior mass (±3.1 sd at the default), so the
+artifact's envelope covers the prior rather than the extremes a few random draws happened to reach, and the
+interior is filled evenly in every margin.
+"""
+function covering_design(sites::AbstractVector{PriorSite}, n::Int; rng::AbstractRNG=Random.default_rng(), coverage::Real=0.999)
+    n >= 2 || throw(ArgumentError("a covering design needs at least two points"))
+    0.5 < coverage < 1 || throw(ArgumentError("the coverage is a quantile in (0.5, 1), not $coverage"))
+    lo = 1 - coverage
+    levels = [lo + (coverage - lo) * (k - 1) / (n - 1) for k in 1:n]
+    cols = [site_quantile.(Ref(p), levels[randperm(rng, n)]) for p in sites]
+    return [[cols[i][k] for i in eachindex(sites)] for k in 1:n]
+end
+
 """
     train_rom(archetype, sys_fom, sys_rom, blk, design, u_knots, u_tknots, tsave;
               t_grid, events, scenarios, state_noise, kw...) -> ReducedOrderModel
@@ -397,7 +504,8 @@ grid piece, `sys_rom` one slab.
 function train_rom(archetype::AbstractString, sys_fom::CookSystem, sys_rom::CookSystem, blk::LatentBlock, design::AbstractVector,
                    u_knots::AbstractVector, u_tknots::AbstractVector, tsave::AbstractVector; t_grid::AbstractVector=tsave,
                    events::AbstractVector{CookEvent}=CookEvent[], scenarios=nothing,
-                   state_noise::StateNoise=StateNoise(), abstol=1e-8, reltol=1e-8)
+                   state_noise::StateNoise=StateNoise(), error_model::Symbol=:latent, abstol=1e-8, reltol=1e-8)
+    error_model in (:latent, :time) || throw(ArgumentError("the ROM error model is :latent or :time, not :$error_model"))
     (n_pieces(sys_fom) == 1 && sys_fom.pieces[1] isa GridPiece) || throw(ArgumentError("the full-order system must hold one grid piece"))
     (n_pieces(sys_rom) == 1 && sys_rom.pieces[1] isa Slab1D) || throw(ArgumentError("the reduced-order system must hold one slab"))
     isempty(design) && throw(ArgumentError("a training design needs at least one draw"))
@@ -427,13 +535,13 @@ function train_rom(archetype::AbstractString, sys_fom::CookSystem, sys_rom::Cook
             diffs[obs][:, col] = [_interp(sc.tsave, d, tq) for tq in t_grid]
         end
     end
+    Z = reduce(vcat, [permutedims(collect(Float64, z)) for z in design for _ in scens])   # one row per run
+    groups = [d for d in eachindex(design) for _ in scens]                                    # a run's design draw
     errors = Dict{Symbol,ROMError}()
     for obs in ROM_OBSERVABLES
-        D = diffs[obs]
-        bias = vec(sum(D; dims=2) ./ size(D, 2))
-        sd = size(D, 2) > 1 ? vec(sqrt.(sum((D .- bias) .^ 2; dims=2) ./ (size(D, 2) - 1))) : zeros(length(bias))
-        floor = 0.1 * maximum(abs.(bias); init=0.0)
-        errors[obs] = ROMError(collect(float.(t_grid)), bias, max.(sd, floor))
+        errors[obs] = error_model === :latent && length(design) >= 3 ?
+                      _fit_rom_error(collect(float.(t_grid)), diffs[obs], Z, groups, collect(blk.names)) :
+                      _time_rom_error(collect(float.(t_grid)), diffs[obs])
     end
     pf = sys_fom.pieces[1]; pr = sys_rom.pieces[1]
     fom = Dict{String,Any}("kind" => string(pf.kind), "dims" => collect(pf.mesh.dims), "N" => pf.mesh.N, "area" => pf.mesh.area,
@@ -450,6 +558,55 @@ function train_rom(archetype::AbstractString, sys_fom::CookSystem, sys_rom::Cook
                                               "artifact_version" => ROM_ARTIFACT_VERSION))
 end
 Dates_now() = Base.Libc.strftime("%Y-%m-%dT%H:%M:%S", time())
+
+# the time-only error model: the mean over the runs and their spread (a tenth of the largest bias as a floor, so a
+# design of one draw still leaves a width)
+function _time_rom_error(t, D)
+    bias = vec(sum(D; dims=2) ./ size(D, 2))
+    sd = size(D, 2) > 1 ? vec(sqrt.(sum((D .- bias) .^ 2; dims=2) ./ (size(D, 2) - 1))) : zeros(length(bias))
+    return ROMError(t, bias, max.(sd, 0.1 * maximum(abs.(bias); init=0.0)))
+end
+
+const ROM_RIDGE_GRID = vcat(10.0 .^ range(-3, 4; length=15), Inf)
+
+# the ridge coefficients of centred differences Dc (time × runs) on centred standardized latents X (runs × latents),
+# every time point at once: (XᵀX + λI)⁻¹ Xᵀ Dcᵀ, latents × time; an infinite weight is no latent dependence
+function _ridge_coef(X, Dc, λ)
+    isinf(λ) && return zeros(size(X, 2), size(Dc, 1))
+    return (X' * X + λ * I) \ (X' * Dc')
+end
+
+# the latent-regression error model: the ridge weight by leave-one-design-draw-out cross-validation over the grid
+# (the infinite weight among the candidates, so the time-only model is nested), the centre's bias the runs' mean
+# (the latents centred on the design), the spread the cross-validated residual's at the chosen weight (out of
+# sample by construction) with the time-only floor
+function _fit_rom_error(t, D, Z, groups, names)
+    nrun = size(D, 2)
+    center = vec(sum(Z; dims=1) ./ nrun)
+    scale = vec(sqrt.(sum((Z .- center') .^ 2; dims=1) ./ max(nrun - 1, 1)))
+    scale = [sc > 1e-12 ? sc : 1.0 for sc in scale]
+    X = (Z .- center') ./ scale'
+    folds = unique(groups)
+    function cv_resid(λ)
+        R = similar(D)
+        for g in folds
+            tr = groups .!= g; te = .!tr
+            μ = vec(sum(D[:, tr]; dims=2) ./ count(tr))
+            xc = vec(sum(X[tr, :]; dims=1) ./ count(tr))
+            B = _ridge_coef(X[tr, :] .- xc', D[:, tr] .- μ, λ)
+            R[:, te] = D[:, te] .- (μ .+ permutedims((X[te, :] .- xc') * B))
+        end
+        return R
+    end
+    scores = [sum(abs2, cv_resid(λ)) for λ in ROM_RIDGE_GRID]
+    λ = ROM_RIDGE_GRID[argmin(scores)]
+    μ = vec(sum(D; dims=2) ./ nrun)
+    R = cv_resid(λ)
+    sd = max.(vec(sqrt.(sum(R .^ 2; dims=2) ./ nrun)), 0.1 * maximum(abs.(μ); init=0.0))
+    isinf(λ) && return ROMError(t, μ, sd)
+    B = _ridge_coef(X, D .- μ, λ)                       # latents × time
+    return ROMError(t, μ, sd, collect(String, names), center, scale, Matrix(permutedims(B)), λ)
+end
 function _rom_solve(sys::CookSystem, blk::LatentBlock, z, u_knots, u_tknots, tsave; events, abstol, reltol)
     θs = [zeros(length(piece_parameter_schema(pc))) for pc in sys.pieces]; As = [pc.cfg.A_meat for pc in sys.pieces]
     p0, play = pack_params(sys, θs, As, vcat(zeros(6), 0.5), u_knots; events)
@@ -487,7 +644,7 @@ function validate_rom(rom::ReducedOrderModel, sys_fom::CookSystem, sys_rom::Cook
         orr = _rom_solve(sys_rom, blk, z, sc.u_knots, sc.u_tknots, sc.tsave; events=sc.events, abstol, reltol)
         sf, sr = _rom_series(of), _rom_series(orr)
         for obs in ROM_OBSERVABLES, (k, tq) in enumerate(sc.tsave)
-            e = rom_error(rom, obs, tq)
+            e = rom_error(rom, obs, tq, z, blk)
             raw = sr[obs][k] - sf[obs][k]
             d = raw - e.bias
             push!(raw_errs[obs], raw)
@@ -510,7 +667,9 @@ function save_rom(path::AbstractString, r::ReducedOrderModel)
     d = Dict("schema" => ROM_ARTIFACT_SCHEMA, "version" => ROM_ARTIFACT_VERSION,
              "archetype" => r.archetype, "fom" => r.fom, "rom" => r.rom, "line" => r.line,
              "envelope" => Dict(k => [v[1], v[2]] for (k, v) in r.envelope),
-             "errors" => Dict(string(k) => Dict("t" => e.t, "bias" => e.bias, "sd" => e.sd) for (k, e) in r.errors),
+             "errors" => Dict(string(k) => Dict("t" => e.t, "bias" => e.bias, "sd" => e.sd, "names" => e.names, "center" => e.center,
+                                                "scale" => e.scale, "coef" => [e.coef[:, i] for i in axes(e.coef, 2)],
+                                                "lambda" => isinf(e.lambda) ? "Inf" : e.lambda) for (k, e) in r.errors),
              "state_noise" => r.state_noise, "fingerprint" => r.fingerprint, "training" => r.training)
     open(path, "w") do io
         JSON.print(io, d)
@@ -531,17 +690,25 @@ function load_rom(path::AbstractString; strict::Bool=true)
         throw(ArgumentError("the reduced-order artifact in $path has missing or unknown top-level fields"))
     String(d["schema"]) == ROM_ARTIFACT_SCHEMA ||
         throw(ArgumentError("the reduced-order artifact in $path has unsupported schema $(d["schema"])"))
-    d["version"] isa Integer && Int(d["version"]) == ROM_ARTIFACT_VERSION ||
+    d["version"] isa Integer && Int(d["version"]) in ROM_ARTIFACT_VERSIONS_READ ||
         throw(ArgumentError("the reduced-order artifact in $path has unsupported version $(d["version"])"))
     fp = string(d["fingerprint"]); here = rom_fingerprint()
     fp == here || (strict ? error("the reduced-order model in $path was trained under physics $fp; the tree's is $here: retrain it (strict=false to read it anyway)") :
                             @warn "the reduced-order model in $path was trained under physics $fp; the tree's is $here")
-    errors = Dict{Symbol,ROMError}(Symbol(k) => ROMError(Float64.(v["t"]), Float64.(v["bias"]), Float64.(v["sd"])) for (k, v) in d["errors"])
+    errors = Dict{Symbol,ROMError}(Symbol(k) => _read_rom_error(v) for (k, v) in d["errors"])
     env = Dict{String,Tuple{Float64,Float64}}(String(k) => (Float64(v[1]), Float64(v[2])) for (k, v) in d["envelope"])
     r = ReducedOrderModel(String(d["archetype"]), Dict{String,Any}(d["fom"]), Dict{String,Any}(d["rom"]), Int.(d["line"]), env, errors,
                           Dict{String,Any}(d["state_noise"]), fp, Dict{String,Any}(d["training"]))
     _validate_rom_contents(r)
     return r
+end
+
+function _read_rom_error(v)
+    t, bias, sd = Float64.(v["t"]), Float64.(v["bias"]), Float64.(v["sd"])
+    names = String.(get(v, "names", String[]))
+    isempty(names) && return ROMError(t, bias, sd)
+    λ = v["lambda"] == "Inf" ? Inf : Float64(v["lambda"])
+    return ROMError(t, bias, sd, names, Float64.(v["center"]), Float64.(v["scale"]), reduce(hcat, [Float64.(c) for c in v["coef"]]), λ)
 end
 
 # the reduction-error key of a semantic observable (nothing for one the artifact does not carry)

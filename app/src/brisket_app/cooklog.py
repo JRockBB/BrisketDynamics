@@ -29,6 +29,8 @@ LOGS = {
         "t_end_min": 1140.0,
         "t_amb_K": 300.0,
         "start_at_core_K": None,
+        # PROVENANCE.md: ~90 min empty warm-up from lighting before meat-on (t = 0 of the CSV)
+        "preheat_min": 90.0,
     },
     "phillip_2018": {
         "csv": _REPO / "tools" / "loghunt" / "logs" / "phillip_2018"
@@ -178,6 +180,8 @@ def load(
             "tcore0_K": tcore0,
             "t_amb_K": float(spec["t_amb_K"]),
             "t_wrap_min": spec.get("t_wrap_min"),
+            # the documented preheat [s] before t = 0 (meat-on); 0 = the log starts with the pit already going
+            "preheat_s": 60.0 * float(spec.get("preheat_min") or 0.0),
             "t_end_h": float((tg[-1] - tg[0]) / 60.0),
             "n_obs_pit": int(mask_pit.sum()),
             "n_obs_core": int(mask_core.sum()),

@@ -13,10 +13,13 @@ for f in FILES
 end
 failed = String[]
 for f in FILES
-    println("== ", f)
+    println("== ", f, " (", Threads.nthreads(), " Julia threads)"); flush(stdout)
     t0 = time()
-    ok = success(run(ignorestatus(`$(Base.julia_cmd()) --project=$(joinpath(HERE, "..")) $(joinpath(HERE, f))`)))
+    # julia_cmd preserves compiler options, but not --threads. Forward the
+    # requested pool explicitly so expensive derivative tests use that pool.
+    ok = success(run(ignorestatus(`$(Base.julia_cmd()) --threads=$(Threads.nthreads()) --project=$(joinpath(HERE, "..")) $(joinpath(HERE, f))`)))
     println("== ", f, ": ", ok ? "passed" : "FAILED", " in ", round(Int, time() - t0), " s")
+    flush(stdout)
     ok || push!(failed, f)
 end
 if isempty(failed)

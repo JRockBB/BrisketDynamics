@@ -57,7 +57,9 @@ def plan_duration(
     fractional cook progress, the wrap time by horizon fraction (z_w
     carries over directly since t_wrap = t_end * sigmoid(z_w)).
 
-    Each duration is the cook length, start to serve: with cc.opt_pull the
+    Each duration is the cook length, lighting to serve (the pit preheats
+    empty and the meat goes on at the optimized load temperature, warm-started
+    duration to duration): with cc.opt_pull the
     pull is optimized inside it and the meat rests under the ``rest``
     environment (None = faux-cambro defaults) to serve, where the quality
     terms are scored.
@@ -65,7 +67,7 @@ def plan_duration(
     cc = cc or ControlConfig(n_iter=inner_iters)
     records = []
     u_prev, grids_prev, zw_prev, zp_prev = None, None, 0.0, None
-    za_prev = zs_prev = zd_prev = zm_prev = None
+    za_prev = zs_prev = zd_prev = zm_prev = zl_prev = None
     if seed is not None:  # warm-start the FIRST duration from a prior scan
         u_prev = np.asarray(seed["u"])
         grids_prev = _grids_for(seed["t_f_h"] * HR)
@@ -116,8 +118,14 @@ def plan_duration(
             z_d_init=zd_prev,
             z_m_init=zm_prev,
             t_salt=t_salt,
+            z_l_init=zl_prev,
         )
         u_prev, grids_prev = u_opt, grids
+        T_load = float(hist["T_load"]) if cc.opt_load else 0.0
+        if cc.opt_load:
+            fl = (T_load - cc.T_load_min) / (cc.T_load_max - cc.T_load_min)
+            fl = min(max(fl, 1e-4), 1 - 1e-4)
+            zl_prev = float(np.log(fl / (1 - fl)))
         t_wrap = hist.get("t_wrap", 1.0e9)
         if cc.opt_wrap:
             frac = min(max(t_wrap / t_f, 1e-4), 1 - 1e-4)
@@ -157,12 +165,17 @@ def plan_duration(
             dt_spritz=dt_spritz,
             spritz_dose=spritz_dose,
             t_salt=t_salt,
+            T_load=T_load,
         )
+        t_load = float(np.asarray(sim["t_load_used"]))
+        load_ok = bool(float(np.asarray(sim["load_reached"])) > 0.5)
         c_end = float(np.asarray(sim["c_field_final"])[0])
         w_ret = float(np.asarray(sim["w_retained"]))
         juicy = float(np.asarray(sim["juiciness"]))
         l_end = float(np.asarray(sim["l_star"])[-1])
-        safety = safety_report(sim["tsurf"], sim["tcore"], grids.tknots, cc)
+        safety = safety_report(
+            sim["tsurf"], sim["tcore"], grids.tknots, cc, t_load=t_load
+        )
         # smoke ring in physical millimetres: material depth × final stretch
         ring_mm = 1e3 * float(sim["ring"]) * float(sim["l_thick"][-1]) / float(theta[3])
         # the optimizer parks an unused event beyond the horizon: a chimney
@@ -197,10 +210,16 @@ def plan_duration(
                 "safety_ok": safety["ok"],
                 "F_core": safety["F_core"],
                 "cut_h_core": safety["cut_h_core"],
+                "T_load": T_load,
+                "t_load": t_load,
+                "t_load_h": t_load / HR,
+                "load_reached": load_ok,
+                "cook_from_load_h": float(th_f) - t_load / HR,
             }
         )
         log(
-            f"  cook {th_f:4.1f} h  "
+            f"  lit to serve {th_f:4.1f} h  on at {t_load / HR:.2f} h "
+            f"(pit {T_load - 273.15:.0f} C{'' if load_ok else ', NOT REACHED'})  "
             f"J={records[-1]['j_quality']:7.3f}  "
             f"doneness={c_end:.3f}  juiciness={juicy:.3f}  "
             f"(water {w_ret:.3f})  L*={l_end:.1f}  ring={ring_mm:.1f}mm"

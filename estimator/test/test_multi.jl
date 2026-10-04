@@ -216,7 +216,10 @@ run_set("whole") && @testset "whole multi-piece cook with distinct events assimi
 end
 
 run_set("offline") && @testset "the offline problem names both pieces' unobserved quality states" begin
-    m = SystemModel(sys, CookLog(t, u; sensors, measurements=[r for r in recs if r.t <= t[4]]), blk; sn=StateNoise())
+    # Resolve the strict offline stopping gate without changing the state-noise
+    # model. The online fixtures above retain their production default accuracy.
+    m = SystemModel(sys, CookLog(t, u; sensors, measurements=[r for r in recs if r.t <= t[4]]), blk; sn=StateNoise(),
+                    abstol=1e-12, reltol=1e-10, floor_abstol=1e-10, floor_reltol=1e-8)
     prob = offline_problem([m]; ids=[:two], iters=15, tol=1e-4, ftol=1e-3)
     r = solve!(prob; sparse=true)
     @test r.converged

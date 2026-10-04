@@ -46,7 +46,10 @@ function cook_log(zc, seed)
 end
 truths = [(zc = copy(z_pop); zc[I_HC] += off; zc) for off in offsets]
 logs = [cook_log(truths[i], 100 + i) for i in 1:2]
-models = [SystemModel(sys, logs[i][1], blk; sn=StateNoise()) for i in 1:2]
+# The 1e-5 coordinate stopping gate resolves below the default ODE's numerical
+# floor. Improve the solve accuracy while retaining the original noise weights.
+const OFFLINE_ACCURACY = (; abstol=1e-14, reltol=1e-12, floor_abstol=1e-10, floor_reltol=1e-8)
+models = [SystemModel(sys, logs[i][1], blk; sn=StateNoise(), OFFLINE_ACCURACY...) for i in 1:2]
 const ONLY = filter(!isempty, split(get(ENV, "TEST_OFFLINE_ONLY", ""), ","))
 run_set(name) = isempty(ONLY) || name in ONLY
 
@@ -101,7 +104,12 @@ run_set("semantic") && @testset "semantic multilevel hierarchy supports heteroge
     core_sensor = only(filter(s -> s.id === :core, sensors))
     core_records = filter(r -> r.sensor === :core, collect(logs[2][1].measurements))
     log_b = CookLog(t, u; sensors=[core_sensor], measurements=core_records)
-    hetero_models = [models[1], SystemModel(sys, log_b, blk_b; sn=StateNoise())]
+    # This heterogeneous layout needs finer integration to resolve the coupled
+    # stopping gate. Keep the same covariance allowance and iteration budget;
+    # the expensive accuracy setting is confined to this offline regression.
+    semantic_accuracy = merge(OFFLINE_ACCURACY, (; abstol=1e-15, reltol=1e-13))
+    hetero_models = [SystemModel(sys, logs[1][1], blk; sn=StateNoise(), semantic_accuracy...),
+                     SystemModel(sys, log_b, blk_b; sn=StateNoise(), semantic_accuracy...)]
     child_a = latent_key(blk, I_HC)
     child_b = latent_key(blk_b, latent_index(blk_b, "h_c"))
     family = LatentKey(:family, :brisket, :h_c)

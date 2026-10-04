@@ -2,9 +2,10 @@
 
 The planners stay on the 1-D monolith; this module re-simulates a planned
 cook on the 2-D axisymmetric Tesseract (shrink, salt, spritz, wrap, PULL
-and rest, grain, point-over-flat) and reports what only the grid can see —
-the TRUE cold spot (the grid minimum, not the symmetric slab's center
-node), the bark distribution over the exposed faces, and the current
+and rest, grain, point-over-flat, smoke and ring on every face, the fuel
+addition and its lid lifts) and reports what only the grid can see — the
+TRUE cold spot (the grid minimum, not the symmetric slab's center node),
+the bark and smoke distributions over the exposed faces, and the current
 (shrunk) dimensions — at SERVE, the same moment the 1-D plan is scored:
 after the planned pull the surrogate rests in the plan's rest environment
 while the pit runs on, instead of cooking to the horizon.
@@ -24,9 +25,10 @@ import numpy as np
 from .clients import slab2d_client
 from .control import ControlConfig, lethality_cut
 
-# theta -> theta2: [D_eff, k_m, h_c, k_mult, k_e, a_myosin] (geometry is
-# radius/height; m_conv acts through the schedule the plan already fixed)
-THETA2_IDX = (0, 1, 2, 4, 5, 6)
+# theta -> theta2: [D_eff, k_m, h_c, k_mult, k_e, a_myosin, m_conv] (the
+# 1-D theta without L; geometry is radius/height, and m_conv scales h_c and
+# k_m with the pit's draft as in 1-D)
+THETA2_IDX = (0, 1, 2, 4, 5, 6, 7)
 # MeatConfig.A_meat: one cut's exposed area in the 1-D pit coupling [m²]
 A_MEAT_DEFAULT = 0.12
 
@@ -68,6 +70,10 @@ def shadow_report(
     t_spritz: float = 1.0e9,
     dt_spritz: float = 3600.0,
     t_pull: float = 1.0e9,
+    t_add: float = 1.0e9,
+    dt_add: float = 0.0,
+    T_load: float = 0.0,
+    t_load: float = -1.0e9,
     rest: dict | None = None,
     cc: ControlConfig | None = None,
     radius: float | None = None,
@@ -92,6 +98,14 @@ def shadow_report(
     t_wrap, t_salt, t_spritz, dt_spritz, t_pull : float
         The planned decisions [s]; 1e9 = never, t_salt 0 = unsalted. After
         ``t_pull`` the cut rests to serve (the 1-D pull blend on every face).
+    t_add, dt_add : float
+        The planned fuel addition [s] (1e9 = none) and split interval [s]
+        (0 = one chimney); the addition and every spritz lift the lid.
+    T_load, t_load : float
+        The load: time runs from lighting and the pit preheats empty; the
+        meat goes on when this pit first reaches ``T_load`` [K] (> 0), else
+        at ``t_load`` [s] (default in from the start). The safety clocks
+        start at meat-on.
     rest : dict, optional
         The plan's rest environment (``rest_t``, ``rest_h``, ``rest_eps``,
         ``rest_eta``), the same keys the monolith takes; default cambro.
@@ -114,7 +128,8 @@ def shadow_report(
     dict
         Cold-spot and core lethality / come-up time (raw + pass/fail at the
         cc thresholds), serve temperatures and the cold-spot peak,
-        retention, C_min, bark mean/spread, shrunk dimensions, the geometry
+        retention, C_min, bark mean/spread, smoke deposition, ring depth,
+        L* and bitterness at the face means, shrunk dimensions, the geometry
         used and, with ``refine``, the grid-doubling deltas.
     """
     theta = np.asarray(theta, dtype=float)
@@ -126,15 +141,17 @@ def shadow_report(
         radius, radius_source = float(radius), "given"
     decisions = {
         "t_wrap": t_wrap, "t_salt": t_salt, "t_spritz": t_spritz,
-        "dt_spritz": dt_spritz, "t_pull": t_pull,
+        "dt_spritz": dt_spritz, "t_pull": t_pull, "t_add": t_add,
+        "dt_add": dt_add, "T_load": T_load, "t_load": t_load,
     }
     out = _apply(tx, theta, phi, u_knots, grids, decisions, radius, nr, nz,
                  h_step, n_meat, rest, extra)
     t = np.asarray(grids.tknots, dtype=float)
     tcold = np.asarray(out["tcold"], dtype=float)
     tcore = np.asarray(out["tcore"], dtype=float)
-    F_cold, cut_cold = lethality_cut(tcold, t, cc)
-    F_core, cut_core = lethality_cut(tcore, t, cc)
+    t_on = float(np.asarray(out["t_load_used"]))
+    F_cold, cut_cold = lethality_cut(tcold, t, cc, t_load=t_on)
+    F_core, cut_core = lethality_cut(tcore, t, cc, t_load=t_on)
     cut_binding = bool(cc.cut_critical)
     rep = {
         "F_cold": float(F_cold),
@@ -146,6 +163,8 @@ def shadow_report(
             F_cold >= cc.leth_f_req and (cut_cold <= cc.cut_cap_h or not cut_binding)
         ),
         "t_pull_h": (float(t_pull) / 3600.0) if float(t_pull) < 1.0e8 else None,
+        "t_load_h": t_on / 3600.0 if t_on > -1.0e8 else None,
+        "T_load": float(T_load) if T_load > 0 else None,
         "tcold_final_C": float(tcold[-1] - 273.15),
         "tcold_peak_C": float(np.max(tcold) - 273.15),
         "tcore_final_C": float(tcore[-1] - 273.15),
@@ -155,6 +174,13 @@ def shadow_report(
         "bark_mean": float(out["bark_mean"]),
         "bark_std": float(out["bark_std"]),
         "salt_mean": float(out["salt_mean"]),
+        "smoke_mean": float(out["smoke_mean"]),
+        "ring_mean_mm": float(out["ring_mean"]) * 1000.0,
+        "l_star_mean": float(out["l_star_mean"]),
+        "bitterness": float(out["bitterness"]),
+        "fat_rendered": float(out["fat_rendered"]),
+        "juiciness": float(out["juiciness"]),
+        "t_add_h": (float(t_add) / 3600.0) if float(t_add) < 1.0e8 else None,
         "r_eff_cm": float(out["r_eff"]) * 100.0,
         "hz_eff_cm": float(out["hz_eff"]) * 100.0,
         "radius_m": float(radius),
@@ -178,7 +204,7 @@ def shadow_report(
     rep["assumption"] = (
         "axisymmetric surrogate (height = 2L; radius " + radius_source + "), "
         "rested to serve after the planned pull; 1-D-calibrated constants, "
-        "bark distribution uncalibrated (C2); come-up time reported, "
+        "bark and smoke distributions uncalibrated (C2); come-up time reported, "
         + ("binding" if cut_binding else "not binding for brisket (FSIS Gap 6)")
         + "; Appendix A humidity not modelled"
     )

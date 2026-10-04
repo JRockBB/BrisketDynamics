@@ -36,32 +36,53 @@ PRIOR_RELIN = length(A_) >= 14 ? parse(Float64, A_[14]) : Inf  # rebuild the mar
 JITTER = 0.25                                                    # each interval drawn in step × (1 ± 0.25)
 
 REPO = normpath(joinpath(@__DIR__, "..", ".."))
-m = JSON.parsefile(joinpath(REPO, "data", "mock", "mock_realcook.json"))
-t = Float64.(m["t"]); u = Float64.(m["u"]); meta = m["meta"]
-pit = PitConfig(; T_amb=Float64(meta["t_amb_K"]), Tpit0=Float64(meta["tpit0_K"]), m0=Float64(meta["m0_kg"]))
-cfg = MeatConfig(; T0=Float64(meta["tcore0_K"]))
-blk_old = latent_block(joinpath(REPO, "data", "calibration", "prior_next_cook.json"), cfg)
+include(joinpath(@__DIR__, "stream_fixture.jl"))
+START_MODE = Symbol(get(ENV, "STREAM_START", "legacy"))
+NOISE_MODE = Symbol(get(ENV, "STREAM_NOISE", START_MODE === :lighting ? "matched" : "stress"))
+NOISE_MODE in (:matched, :stress) || throw(ArgumentError("STREAM_NOISE is matched or stress"))
+INITIAL_MODE = Symbol(get(ENV, "STREAM_INITIAL", START_MODE === :lighting ? "prior" : "fixed"))
+INITIAL_MODE in (:prior, :fixed) || throw(ArgumentError("STREAM_INITIAL is prior or fixed"))
+fixture = stream_fixture(REPO; start=START_MODE)
+t, u, pit, cfg = fixture.t, fixture.u, fixture.pit, fixture.cfg
 PIECE = :brisket
 sys = CookSystem(Slab1D(PIECE; cfg); pit)
-blk = system_latents(sys, blk_old.prior_phys, blk_old.phys_names; probes=[PIECE])
+blk = system_latents(sys, fixture.sites, fixture.names; probes=[PIECE])
 sites, allnames = blk.sites, blk.names
+function draw_stream_truth(rng)
+    START_MODE === :legacy && return draw_truth(rng, sites)
+    # The lighting design's score coordinates are exactly standard normal;
+    # draw there directly instead of reusing a discretized beta sampler.
+    return [isscore(s) ? randn(rng) : s.p1 + s.p2 * randn(rng) for s in sites]
+end
 idx = Dict(nm => i for (i, nm) in enumerate(allnames))
 AREA, DEPTH = latent_index(blk, "A_meat"), latent_index(blk, "core_depth_fraction")
-ev = m["events"]
-events = (t_wrap=Float64(ev["t_wrap"]), t_pull=Float64(ev["t_pull"]), t_add=Float64(ev["t_add"]), t_spritz=Float64(ev["t_spritz"]), dt_spritz=Float64(ev["dt_spritz"]), m_spritz=Float64(ev["m_spritz"]))
+events = fixture.events
 cook_events = [CookEvent(:wrap, PIECE, events.t_wrap), CookEvent(:pull, PIECE, events.t_pull), CookEvent(:add, :pit, events.t_add),
                CookEvent(:spritz, PIECE, events.t_spritz; dt=events.dt_spritz, m=events.m_spritz)]
+START_MODE === :lighting && push!(cook_events, CookEvent(:load, PIECE, events.t_load))
 t_end = 3600.0 * hours
 edges = unique(vcat(3600.0 .* collect(2:2:floor(Int, hours)), [t_end]))
-nc = RealCookNoise()
+nc = RealCookNoise(; pit_add_bump=NOISE_MODE === :matched ? 0.0 : 2.0)
 WHITE = Dict(:pit => 0.1, :core => 0.1, :humidity => 10.0, :mass => 0.005)
 OU = Dict(:pit => (nc.pit_sd, nc.pit_tau), :core => (nc.core_sd, nc.core_tau), :humidity => (nc.hum_sd, nc.hum_tau), :mass => (nc.mass_sd, nc.mass_tau))
 SENSOR_IDS = (:pit, :core, :humidity, :mass)
 observable_of = Dict(:pit => PitTemperature(), :core => TemperatureAt(PIECE; depth_latent=:core_depth_fraction), :humidity => ChamberVapor(), :mass => TotalMass())
 sensors = [SensorSpec(id, observable_of[id], NoiseModel(; white_sd=WHITE[id], ar_sd=OU[id][1], tau=OU[id][2], cap=(id === :humidity ? nc.hum_cap : Inf))) for id in SENSOR_IDS]
 # STREAM_SN_SCALE scales every process-noise RATE (not the initial widths, not the events' disturbances): the bench's plant
-# has no process noise of its own, so 0.001 is the matched model
+# has no process noise of its own. A small value tests numerical model error;
+# it does not make the stochastic state model generatively matched.
 const SN_SCALE = parse(Float64, get(ENV, "STREAM_SN_SCALE", "1.0"))
+const BENCH_ABSTOL = parse(Float64, get(ENV, "STREAM_ABSTOL", "1e-10"))
+const BENCH_RELTOL = parse(Float64, get(ENV, "STREAM_RELTOL", "1e-8"))
+const BENCH_FLOOR_ABSTOL = parse(Float64, get(ENV, "STREAM_FLOOR_ABSTOL", string(BENCH_ABSTOL)))
+const BENCH_FLOOR_RELTOL = parse(Float64, get(ENV, "STREAM_FLOOR_RELTOL", string(BENCH_RELTOL)))
+all(x -> isfinite(x) && x > 0, (SN_SCALE, BENCH_ABSTOL, BENCH_RELTOL, BENCH_FLOOR_ABSTOL, BENCH_FLOOR_RELTOL)) ||
+    throw(ArgumentError("process-rate scale and integration tolerances must be positive and finite"))
+const BATCH_S = parse(Float64, get(ENV, "STREAM_BATCH_S", "3600.0"))
+const MAX_SLICE_S = parse(Float64, get(ENV, "STREAM_MAX_SLICE_S", "Inf"))
+const FAIL_FAST = parse(Bool, get(ENV, "STREAM_FAIL_FAST", START_MODE === :lighting ? "true" : "false"))
+const VERBOSE_UPDATE = parse(Int, get(ENV, "STREAM_VERBOSE_UPDATE", "0")) # negative: every update
+isfinite(BATCH_S) && BATCH_S > 0 || throw(ArgumentError("STREAM_BATCH_S must be positive and finite"))
 sn = let d = StateNoise()
     rates = (:T, :W, :C, :F, :S, :bark, :T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
     StateNoise(; (f => (f in rates ? SN_SCALE * getfield(d, f) : getfield(d, f)) for f in fieldnames(StateNoise))...)
@@ -79,25 +100,29 @@ function schedules(rng)
     Dict(id => begin
         ts = Float64[]; τ = round(rand(rng) * STEP[id])
         while τ <= t_end
-            τ > 0 && !lid_open_at(τ, events, nc) && push!(ts, τ)
+            meat_present = !(id in (:core, :mass)) || τ >= events.t_load
+            loading = events.t_load <= τ < events.t_load + pit.τ_open_load
+            τ > 0 && meat_present && !loading && !lid_open_at(τ, events, nc) && push!(ts, τ)
             τ += round(STEP[id] * (1 + JITTER * (2rand(rng) - 1)))
         end
         ts
     end for id in SENSOR_IDS)
 end
 "The plant in segments saving at every time in `tsave` (the damper on its own grid): the monolith's outputs at those times."
-function plant(xs, seg_edges, tsave, A)
+function plant(xs, seg_edges, tsave, A; initial_ics=(;))
     bounds = vcat(1, collect(Int, seg_edges), length(t))
-    outs = NamedTuple[]; ics = (;)
+    outs = NamedTuple[]; ics = initial_ics
     for i in 1:(length(bounds) - 1)
         ia, ib = bounds[i], bounds[i + 1]
         tt = t[ia:ib]; uu = u[ia:ib]
-        ts = sort(unique(vcat(tt[1], [τ for τ in tsave if tt[1] < τ < tt[end]], tt[end])))
+        tt[1] >= t_end && break
+        stop = min(tt[end], t_end)
+        ts = sort(unique(vcat(tt[1], [τ for τ in tsave if tt[1] < τ < stop], stop)))
         φ = xs[i][9:15]
         if i > 1
             ics, a0 = handoff(outs[end], size(outs[end].T_field, 2)); φ = vcat(φ[1:6], a0)
         end
-        push!(outs, monolith_solve(xs[i][1:8], φ, uu, tt, ts; pit, cfg, A_meat=A, events..., ics...))
+        push!(outs, monolith_solve(xs[i][1:8], φ, uu, tt, ts; pit, cfg, A_meat=A, events..., ics..., abstol=BENCH_ABSTOL, reltol=BENCH_RELTOL))
     end
     names = keys(outs[1])
     vals = map(names) do nm
@@ -112,10 +137,30 @@ function truth_belief(o, k)
     ics, a = handoff(o, k)
     pf = Tuple(f for f in keys(ics) if !(f in PIT_ICS_FIELDS))
     piece_ics = NamedTuple{pf}(Tuple(getfield(ics, f) for f in pf))
-    pit_ics = (Tpit0=ics.Tpit0, mfuel0=ics.mfuel0, mpan0=ics.mpan0, Tpan0=ics.Tpan0, Tfb0=ics.Tfb0, ignited=clamp(a, 1e-6, 1 - 1e-6))
+    pit_ics = (Tpit0=ics.Tpit0, mfuel0=ics.mfuel0, mpan0=ics.mpan0, Tpan0=ics.Tpan0, Tfb0=ics.Tfb0, ignited=a)
     x_sys = initial_state(sys, p_pack, play_pack; ics=[piece_ics], pit_ics)
     xb = belief_from_system(x_sys, bl)
     return xb, belief_encode(xb, bl)
+end
+"The selected instrument model, shared by the bench and its truth diagnostics."
+function stream_clean_at(o, k; A, L, depth, cfg=cfg)
+    clean = clean_at(o, k; A, L, depth, cfg)
+    NOISE_MODE === :matched || return clean
+    return merge(clean, (core=E._slab_temperature_at(view(o.T_field, :, k), 1 - depth / L),))
+end
+"Draw the recipe's initial-state uncertainty from the same coordinate prior as the estimator."
+function draw_initial_ics(rng)
+    INITIAL_MODE === :fixed && return (;)
+    model = SystemModel(sys, CookLog(t, u; events=cook_events, sensors), blk; sn)
+    z = [z_moments(s)[1] for s in sites]
+    p, play, _ = E._point_params(model, z, 0.0)
+    y = belief_encode(belief_from_system(initial_state(sys, p, play), bl), bl)
+    Q = belief_cov_to_coord(belief_init_cov(bl, sn), y, bl)
+    yt = y + cholesky(Symmetric(E._stable_cov(Q))).L * randn(rng, length(y))
+    h = belief_handoff(belief_decode(yt, bl), bl)
+    # Ignition comes from the independently drawn a0 latent on the first
+    # propagation, exactly as first_slice does in the estimator.
+    return merge(h.pieces[1], h.pit)
 end
 nees(e, C) = (F = cholesky(Matrix(Symmetric(C)); check=false); issuccess(F) ? dot(e, F \ e) : NaN)
 function nees_corr(e, C)
@@ -133,13 +178,23 @@ function group_nees(ey, Cy)
     end for (g, rg) in zip(group_names, group_ranges))
 end
 
-cooks = Any[]; skipped = Int[]
+cooks = Any[]; skipped = Int[]; failures = Any[]
+active_cook = Ref{Any}(nothing)
+const BENCH_BACKEND = backend_fingerprint()
+const BENCH_SOURCE = bytes2hex(E.SHA.sha1(vcat(read(@__FILE__), read(joinpath(@__DIR__, "stream_fixture.jl")))))
 dst = joinpath(REPO, "data", "mock", out_name)
 save() = open(dst, "w") do io
     write(io, json_document(Dict("plant" => "monolith (1-D, 40 nodes) in segments, constant parameters; streaming real-cook instruments",
         "backend" => "system", "estimator" => "the fixed-lag smoother, lag $LAG (to $LAG_MAX while the latents move), attach $ATTACH, node_ratio $NODE_RATIO",
         "names" => allnames, "edges_h" => edges ./ 3600, "cooks" => cooks, "skipped_seeds" => skipped, "steps_s" => Dict(string(k) => v for (k, v) in STEP),
-        "jitter" => JITTER, "pace" => PACE, "groups" => group_names, "lag" => LAG, "backend_fingerprint" => backend_fingerprint())))
+        "jitter" => JITTER, "pace" => PACE, "groups" => group_names, "lag" => LAG, "backend_fingerprint" => BENCH_BACKEND,
+        "bench_fingerprint" => BENCH_SOURCE, "start_mode" => string(START_MODE), "noise_mode" => string(NOISE_MODE),
+        "initial_mode" => string(INITIAL_MODE), "batch_s" => BATCH_S, "max_slice_s" => MAX_SLICE_S, "lag_max" => LAG_MAX, "prior_relin" => PRIOR_RELIN,
+        "abstol" => BENCH_ABSTOL, "reltol" => BENCH_RELTOL,
+        "floor_abstol" => BENCH_FLOOR_ABSTOL, "floor_reltol" => BENCH_FLOOR_RELTOL,
+        "process_rate_scale" => SN_SCALE, "node_ratio" => NODE_RATIO, "load_h" => events.t_load / 3600, "fail_fast" => FAIL_FAST,
+        "failures" => failures, "active_cook" => active_cook[],
+        "prior" => [Dict("name" => nm, "family" => s.family, "p1" => s.p1, "p2" => s.p2, "p3" => s.p3, "p4" => s.p4, "coord" => string(s.coord)) for (nm, s) in zip(allnames, sites)])))
 end
 println("stream bench: ", n_cooks, " cooks from seed ", seed0, ", ", hours, " h, lag ", LAG, ", attach ", ATTACH, ", pace ", PACE,
         ", steps ", join(["$k $(v) s" for (k, v) in STEP], ", "), ", node_ratio ", NODE_RATIO); flush(stdout)
@@ -147,7 +202,7 @@ println("stream bench: ", n_cooks, " cooks from seed ", seed0, ", ", hours, " h,
 for c in 1:n_cooks
     seed = seed0 + c - 1
     rng = MersenneTwister(2000 + seed)
-    z0 = draw_truth(rng, sites)
+    z0 = draw_stream_truth(rng)
     dd0 = DriftDraw(rng, idx; sites)
     dd = DriftDraw(Dict(k => zero(v) for (k, v) in dd0.inc), Dict(k => 0.0 for (k, v) in dd0.jump))
     seg_edges, blocks = drift_segments(t, z0, dd, events.t_add)
@@ -158,10 +213,12 @@ for c in 1:n_cooks
     alltimes = sort(unique(vcat(values(sched)...)))
     t0w = time()
     o = try
-        plant(xs, seg_edges, alltimes, Am)
+        plant(xs, seg_edges, alltimes, Am; initial_ics=draw_initial_ics(MersenneTwister(19000 + seed)))
     catch err
         err isa InterruptException && rethrow()
-        @printf("cook %d (seed %d): the plant failed; skipped\n", c, seed); push!(skipped, seed); save(); continue
+        @printf("cook %d (seed %d): the plant failed: %s\n", c, seed, sprint(showerror, err))
+        push!(failures, Dict("seed" => seed, "stage" => "plant", "error" => sprint(showerror, err)))
+        push!(skipped, seed); save(); continue
     end
     kof = Dict(τ => k for (k, τ) in enumerate(o.t))
     # the readings: the clean value at the reading's time, the channel's OU advanced exactly between its own times, the white floor
@@ -172,7 +229,7 @@ for c in 1:n_cooks
         for τ in sched[id]
             ρ = isfinite(tp) ? exp(-(τ - tp) / τc) : 0.0
             d = ρ * d + sqrt(1 - ρ^2) * randn(rs); tp = τ
-            cl = clean_at(o, kof[τ]; A=Am, L=xs[1][4], depth, cfg)
+            cl = stream_clean_at(o, kof[τ]; A=Am, L=xs[1][4], depth, cfg)
             sd = id === :pit ? pit_sd_at(nc, τ, events.t_add) : sd0
             v = getfield(cl, id) + sd * d + WHITE[id] * randn(rs)
             id === :humidity && (v = min(v, nc.hum_cap))
@@ -181,9 +238,12 @@ for c in 1:n_cooks
     end
     sort!(recs; by=r -> r.t)
     clog = CookLog(t, u; events=cook_events, sensors, measurements=recs)
-    model = SystemModel(sys, clog, blk; sn)
-    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN)
+    model = SystemModel(sys, clog, blk; sn, abstol=BENCH_ABSTOL, reltol=BENCH_RELTOL,
+                        floor_abstol=BENCH_FLOOR_ABSTOL, floor_reltol=BENCH_FLOOR_RELTOL)
+    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN, max_slice_s=MAX_SLICE_S)
     temps = Any[]; out = NamedTuple[]; failed = nothing
+    active_cook[] = Dict("seed" => seed, "temps" => temps, "n_readings" => length(recs), "n_updates" => 0)
+    save()
     i = 1; clock = 0.0
     while i <= length(recs)
         # the batch: this reading, and under compute pacing every reading that arrived while the last update ran
@@ -191,7 +251,9 @@ for c in 1:n_cooks
         if PACE < 0
             # a node's worth: the readings up to the next node the estimator will make (its own chunking of what waits)
             k = i
-            while k < length(recs) && recs[k + 1].t <= recs[i].t + 3600.0; k += 1; end
+            next_edge = edges[something(findfirst(>=(recs[i].t), edges), length(edges))]
+            horizon = min(recs[i].t + BATCH_S, next_edge)
+            while k < length(recs) && recs[k + 1].t <= horizon; k += 1; end
             j = i + length(first(E._slice_chunks(sm, recs[i:k]))) - 1
         else
             horizon = PACE > 0 ? max(recs[i].t, clock) : recs[i].t
@@ -200,7 +262,7 @@ for c in 1:n_cooks
         batch = recs[i:j]
         empty!(E.SLICE_TIMERS); nodes_before = sm.node_count
         r = try
-            assimilate!(sm, batch; verbose=(length(out) + 1 == parse(Int, get(ENV, "STREAM_VERBOSE_UPDATE", "0"))))
+            assimilate!(sm, batch; verbose=(VERBOSE_UPDATE < 0 || length(out) + 1 == VERBOSE_UPDATE))
         catch err
             err isa InterruptException && rethrow(); failed = err; break
         end
@@ -210,29 +272,49 @@ for c in 1:n_cooks
         _, y_true = truth_belief(o, k)
         eT = [r.T_pit[1] - o.Tpit[k], r.pieces[PIECE].T_centre[1] - o.Tcore[k], r.pieces[PIECE].T_surface[1] - o.Tsurf[k]]
         push!(temps, Dict("t_h" => r.t / 3600, "k" => k, "n_readings" => length(batch), "committed" => r.committed, "updated" => r.committed,
+            "n_censored" => count(rec -> E.censored_at(sensor(model.log, rec.sensor), rec), batch),
+            "z" => copy(r.z), "z_sd" => sqrt.(max.(diag(r.z_cov), 0.0)), "z_true" => zt,
             "nees_g" => group_nees(r.y .- y_true, r.y_cov),
             "pit" => [r.T_pit[1], r.T_pit[2], o.Tpit[k]], "centre" => [r.pieces[PIECE].T_centre[1], r.pieces[PIECE].T_centre[2], o.Tcore[k]],
             "surface" => [r.pieces[PIECE].T_surface[1], r.pieces[PIECE].T_surface[2], o.Tsurf[k]],
             "nis" => r.nis, "dof" => r.dof, "innov" => Dict(string(findfirst(==(id), SENSOR_IDS)) => [v] for (id, v) in r.innov_std),
+            "innovation_whitened" => [Dict("t" => w.t, "sensor" => string(w.sensor), "value" => w.value) for w in r.innovation_whitened],
             "nees_z" => nees(ez, r.z_cov), "nees_z16" => nees(ez[keep16], r.z_cov[keep16, keep16]), "nees_T" => nees(eT, r.x_cov[[ip, ic, is], [ip, ic, is]]),
-            "wall_s" => r.wall, "iters" => r.iters, "converged" => r.converged, "n_nodes" => r.n_nodes))
+            "wall_s" => r.wall, "iters" => r.iters, "attempts" => r.attempts, "gradient" => r.gradient,
+            "newton_sd" => r.newton_sd, "converged" => r.converged, "n_nodes" => r.n_nodes))
         push!(out, (t=r.t, z=copy(r.z), z_cov=copy(r.z_cov), committed=r.committed))
+        active_cook[]["n_updates"] = length(out)
+        active_cook[]["wall_filter_s"] = time() - t0w
+        active_cook[]["last_z_error_sd"] = ez ./ sqrt.(max.(diag(r.z_cov), 1e-300))
+        save()
         if true
             zs_ = ez ./ sqrt.(max.(diag(r.z_cov), 1e-300)); iw = argmax(abs.(zs_))
-            @printf("  seed %d t %.2f h: %d updates, %d nodes in window (+%d), last update %.1f s (%d readings, %d iters, %d attempts), NIS/dof %.2f, worst latent %s %+.2f sd, k_spread %+.2f, a0 %+.2f, prior rebuilt %d | %s\n",
-                    seed, r.t / 3600, length(out), r.n_nodes, sm.node_count - nodes_before, r.wall, length(batch), r.iters, get(r, :attempts, 0), r.nis / max(r.dof, 1),
+            @printf("  seed %d t %.2f h: %d updates, %d nodes in window (+%d), last update %.1f s (%d readings, %d iters, %d attempts, committed %s), NIS/dof %.2f, worst latent %s %+.2f sd, k_spread %+.2f, a0 %+.2f, prior rebuilt %d | %s\n",
+                    seed, r.t / 3600, length(out), r.n_nodes, sm.node_count - nodes_before, r.wall, length(batch), r.iters, get(r, :attempts, 0), string(r.committed), r.nis / max(r.dof, 1),
                     allnames[iw], zs_[iw], zs_[idx["k_spread"]], zs_[ia0], sm.n_prior_relin,
                     join(["$k $(round(v; digits=1))" for (k, v) in sort(collect(E.SLICE_TIMERS); by=last, rev=true)], ", ")); flush(stdout)
+        end
+        if FAIL_FAST && !r.committed
+            # A discarded arrival already fails the complete-cook gate. Keep its
+            # diagnostics instead of spending hours continuing an invalid run.
+            failed = ErrorException("uncommitted update at $(r.t / 3600) h: gradient=$(r.gradient), newton_sd=$(r.newton_sd)")
+            break
         end
         i = j + 1
     end
     if failed !== nothing
         @printf("cook %d (seed %d): the estimator failed at %.2f h (%s); skipped\n", c, seed, isempty(out) ? 0.0 : out[end].t / 3600, sprint(showerror, failed)[1:min(end, 160)])
-        push!(skipped, seed); save(); continue
+        push!(failures, Dict("seed" => seed, "stage" => "estimator", "error" => sprint(showerror, failed), "temps" => temps))
+        push!(skipped, seed); active_cook[] = nothing; save(); continue
     end
-    at_edge(te) = out[argmin(abs.([x.t for x in out] .- te))]
-    batches = [(x = at_edge(te); zt = truth_at(z0, dd, te, events.t_add); sd = sqrt.(diag(x.z_cov));
-                Dict("t_h" => te / 3600, "z" => x.z, "sd" => sd, "err_sd" => (x.z .- zt) ./ sd, "z_true" => zt,
+    # Score the newest committed-time estimate available by the edge, never a
+    # future update selected just because it happens to be nearer to that edge.
+    at_edge(te) = something(findlast(x -> x.t <= te, out), 1)
+    batches = [(j = at_edge(te); x = out[j]; row = temps[j]; zt = truth_at(z0, dd, x.t, events.t_add); sd = sqrt.(diag(x.z_cov));
+                Dict("t_h" => te / 3600, "state_t_h" => x.t / 3600,
+                     "nees_z" => row["nees_z"], "nees_z16" => row["nees_z16"], "nees_T" => row["nees_T"], "nees_g" => row["nees_g"],
+                     "pit" => row["pit"], "centre" => row["centre"], "surface" => row["surface"],
+                     "z" => x.z, "sd" => sd, "err_sd" => (x.z .- zt) ./ sd, "z_true" => zt,
                      "err_sd_graphfilter" => (x.z .- zt) ./ sd, "err_sd_system" => (x.z .- zt) ./ sd)) for te in edges]
     push!(cooks, Dict("seed" => seed, "batches" => batches, "temps" => temps, "wall_filter_s" => time() - t0w, "n_updates" => length(out),
                       "n_readings" => length(recs), "n_uncommitted" => count(x -> !x.committed, out)))
@@ -245,6 +327,10 @@ for c in 1:n_cooks
     gm(g) = (v = [x["nees_g"][g] for x in temps if isfinite(x["nees_g"][g])]; isempty(v) ? NaN : sum(v) / length(v))
     println("    the state by group, NEES/dof mean: ", join([@sprintf("%s %.2f", g, gm(g)) for g in group_names], ", "))
     println("    the latents at the edges, err/sd: ", join([@sprintf("%.0fh max %.2f (%s)", b["t_h"], maximum(abs.(b["err_sd"])), allnames[argmax(abs.(b["err_sd"]))]) for b in batches], "; "))
+    active_cook[] = nothing
     flush(stdout); save()
 end
 println("wrote ", dst, " (", length(cooks), " cooks, ", length(skipped), " skipped)")
+# A complete JSON failure record is useful, but a worker with rejected cooks
+# must not look successful to the round driver or a shell pipeline.
+(isempty(skipped) && all(c -> c["n_uncommitted"] == 0, cooks)) || exit(1)

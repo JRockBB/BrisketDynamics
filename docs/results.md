@@ -4,6 +4,160 @@ Completed roadmap work and the decisions behind it, moved out of
 `docs/roadmap.md` (which holds only what remains). Equations:
 `docs/model.md`. Derivative verification: `docs/verification.md`.
 
+## Preheat before loading, and MPC runtime (2026-10-04)
+
+Time now starts at lighting. The empty pit warms under the planned damper,
+then the meat goes on at the time the empty pit reaches the planner's
+`T_load` (200–300 °F). The meat fields and the food-safety clocks wait for
+the load, and loading opens the lid for three minutes. An executed load
+is carried through subsequent MPC intervals as a fixed time. The bed
+starts from a chimney start, `a_light = 0.15`.
+
+The real cook's documented 90-minute preheat is included in its refit.
+`data/calibration/gn_map_real.json` records F = 124.25, versus 133.18 for
+the old meat-on fit. The unlogged preheat damper is a latent `u_pre`;
+`a0` is fixed. The fitted pit reaches about 120 °C at meat-on without a
+temperature observation there. The new Laplace posterior, fullplan,
+duration, robust and start-time artifacts were regenerated from this fit.
+The estimator retains its separate initialization and was not changed.
+
+The fullplan scan selects 16 hours from lighting to serve: meat-on at
+2.35 h, wrap at 10.81 h, pull at 11.29 h, then 4.71 h of rest. Its score
+is 1.009, doneness 0.940 and juiciness 0.408. The continuous duration
+optimization stays at 15.993 h. Both choose the lower load-temperature
+bound. The robust 16-hour plan loads earlier (0.79 h at the mean draw)
+and pulls later (13.67 h); mean held-out J over 30 Laplace draws falls
+from 10.65 for the nominal plan to 1.89. Neither plan executes a fuel
+addition or spritz. The start-time calculation adds 1.70 h to the nominal
+duration to reach its 90% draw threshold; the robust duration needs no
+additional margin. The objective's free elapsed time and the load bound
+remain explicit policy questions in roadmap C0.
+
+Plan figures: [fullplan](../figures/control/fullplan.png),
+[continuous duration](../figures/control/duration_opt.png),
+[robust schedule](../figures/control/control_robust.png),
+[start-time comparison](../figures/control/start_time_compare.png).
+
+**Measured MPC cost.** `scripts/bench_mpc.py` times the same objective
+inputs on the previous commit (`3ce6f6f`), the inherited preheat code and
+the repaired code. It uses the current fitted parameters and the same
+normalized damper schedule in each comparison, with solver tolerances
+1e-6, Julia 1.11.9 and Python 3.12.10. These are medians of three warm
+value-and-gradient calls; startup and compilation are recorded separately
+in `data/control/mpc_benchmark.json`.
+
+| Objective setup | Previous commit | Inherited preheat code | Repaired code |
+| --- | ---: | ---: | ---: |
+| 11 h, 15 knots, meat loaded at start | 3.33 s | 2.86 s | 1.56 s |
+| 16 h, 21 knots, meat loaded at start | 4.34 s | 3.88 s | 2.50 s |
+| 16 h, 21 knots, load-temperature decision | — | 5.73 s | 2.86 s |
+| 15 h, 20 knots, load-temperature decision | — | 5.20 s | 2.79 s |
+
+There was no measured slowdown on identical inputs with preheat disabled.
+The added preheat solve and the larger planning problem added work. The
+repair integrates only the six evolving pit states with Tsit5, using the
+monolith's burn, humidity, pan and firebox equations. It keeps the
+crossing-time derivative and differentiable miss penalty. Its scalar
+types no longer depend on the number of damper knots. The optimizer
+differentiates its decisions only, removing 15 discarded physics columns,
+and reuses the best evaluation's load result instead of running another
+full cook just to report that time. The horizon, hourly replanning,
+200-iteration cap, convergence rule and quality objective are retained.
+
+The MPC demo's cold front is fixed at the plan's meat-on plus two hours
+(4.35 h from lighting), identically for all comparisons. The plant splits
+its integration at the weather event without shifting the controller's
+hourly replanning clock. Each completed cook is saved independently in
+`scratchpad/regen/mpc_result`; matching code and inputs can resume those
+checkpoints. Replan iteration counts, elapsed time and initial/best J are
+saved in the result JSON. `--replot` continues to render from saved traces.
+
+To repeat the current optimizer benchmark from `app/`:
+`uv run python ../scripts/bench_mpc.py --decisions-only --cases 16:21:on 15:20:on --out ../scratchpad/mpc_bench.json`.
+These timings measure a gradient evaluation, not a complete replan or
+the entire four-cook demonstration.
+
+**Executed MPC comparison.** All four cooks serve at 16 h from lighting;
+the two disturbed cooks share the front at 4.345 h. The final scores in
+`data/control/mpc_result.json` include the executed history, unlike a
+replan's score for its remaining horizon.
+
+| Cook | Meat-on [h] | Pull [h] | Doneness | Juiciness | Executed J |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reference, no front | 2.345 | 11.290 | 0.938 | 0.408 | 1.010 |
+| Open loop, cold front | 2.345 | 11.290 | 0.653 | 0.488 | 9.025 |
+| MPC, no front | 2.345 | 13.080 | 0.950 | 0.380 | 1.047 |
+| MPC, cold front | 2.345 | 12.990 | 0.946 | 0.404 | 1.002 |
+
+The disturbed MPC restores near-reference quality, wrapping at 10.88 h
+and delaying the pull by 1.70 h. No comparison executes a chimney or
+spritz. Nominal MPC slightly worsens the full executed score and
+juiciness relative to the reference; hourly refinement is not an
+automatic quality gain. The [MPC figure](../figures/control/mpc_demo.png)
+shows the load times, the shared front and the executed schedules.
+
+The complete nominal and cold-front MPC cooks took 53.8 and 48.5 minutes,
+respectively; the four-cook script took 103.1 minutes including startup
+and rendering. Seven nominal and eight disturbed replans reached the
+unchanged 200-iteration cap. The repeated remaining-horizon optimizations
+still dominate the end-to-end runtime. Per-replan timings and
+convergence flags are retained in the result JSON.
+
+**Spatial shadows.** The reports replay the robust 16-hour schedule with
+their existing unsalted defaults: load at 1.048 h on the MAP pit and pull
+at 13.674 h. These geometry checks reuse the 1-D-calibrated parameters.
+The 2-D illustrations instead use a 12-hour dry brine, as their titles
+state, and a 24×20 grid; the 2-D report uses 16×14 with a 32×28 check.
+
+| Shadow | Peak cold spot [°C] | Serve cold spot [°C] | Minimum doneness | Water retained | Juiciness |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Axisymmetric 2-D | 97.60 | 60.65 | 0.9938 | 0.171 | 0.247 |
+| Tapered flat, 12×6×8 | 101.23 | 45.97 | 0.9999 | 0.080 | 0.212 |
+| Reconstructed flat, 8 mm cells | 98.73 | 45.79 | 0.9974 | 0.108 | 0.212 |
+| Reconstructed flat, 6 mm cap | 100.55 | 45.19 | 0.9995 | 0.074 | 0.212 |
+| Reconstructed packer, 8 mm cells | 97.63 | 40.88 | 0.9963 | 0.130 | 0.264 |
+
+Doubling the 2-D grid changes the serve cold spot by 0.065 K and minimum
+doneness by 0.00013. The tapered 3-D flat's coarser-grid check changes
+the serve cold spot by 0.144 K and the deepest-point temperature by
+2.53 K. The reconstructed 6 mm cap's coarse check changes those two
+temperatures by 1.56 K and 3.88 K, respectively. These shadows predict
+substantial drying and high doneness under the transferred schedule;
+the geometry-dependent quality gap remains. The packer's corresponding
+coarse-grid temperature shifts are 0.301 K and 0.055 K.
+The pit continues its supplied schedule after pull while the meat rests.
+
+Figures: [2-D plan](../figures/slab2d/slab2d_plan.png),
+[2-D fields](../figures/slab2d/slab2d_fields.png),
+[2-D cook](../figures/slab2d/cook2d.gif),
+[3-D plan](../figures/shadow3d/shadow3d_plan.png),
+[3-D cutaway](../figures/shadow3d/shadow3d_cutaway.png),
+[3-D cook](../figures/shadow3d/shadow3d_cook.gif),
+[6 mm cap](../figures/shadow3d/synthetic_flat_cap6/shape3d_plan.png),
+[packer plan](../figures/shadow3d/synthetic_packer/shape3d_plan.png),
+[packer sections](../figures/shadow3d/synthetic_packer/shape3d_sections.png),
+[packer cook](../figures/shadow3d/synthetic_packer/shape3d_cook.gif).
+
+The remaining regeneration batch (steps 8–21) completed successfully,
+including the [bark comparison](../figures/model/bark_model.png),
+[damper optimization](../figures/control/control_before_after.png) and
+[real-cook replay](../figures/model/cook_animation.gif). The separate
+damper example retains its synthetic `map_result.json` calibration;
+its best J fell from 59.40 to 1.13 and core doneness rose from 0.244 to
+0.930. The replay includes the fitted preheat internally, then displays
+the logged period with time measured from meat-on. All 19 static figures
+from this batch were inspected, as were early, middle and late frames of
+all six animations. Overlapping load annotations and a clipped 3-D
+animation colorbar were corrected and checked again.
+
+Validation: 40/40 preheat tests, including six-state/full-model agreement
+for charcoal, water-pan, two-zone and electric pits and finite-difference
+sensitivity checks. The full app suite passed 96/96; after the final
+preheat-integrator adjustment, all 26 affected MPC, planner and duration
+tests passed again. Tests cover decision-only/full gradient agreement,
+exact weather timing, load-state handoff, safety banking and checkpoint
+round-tripping and invalidation.
+
 ## Grid pieces, reduced-order artifacts, the multi-meat planner, and a two-piece cook assimilated (2026-09-25)
 
 The second day of the plan's build (`docs/multi-meat-inference-plan.md`;
@@ -3651,6 +3805,8 @@ settled.
 
 ## Event sensitivities: the state-triggered wrap latch (2026-09-04)
 
+*Superseded 2026-10-01: the wrap trigger and its latch were removed from every model and the planner; the wrap is the planner's decision at `t_wrap`. The record below is kept as history.*
+
 "Wrap at 165 °F internal" is now differentiable without jump conditions:
 a smooth IRREVERSIBLE latch state l with dl/dt = k_latch·σ((T_core −
 T_trig)/δ_trig)·(1 − l) drives the wrap blend as the smooth OR
@@ -3683,6 +3839,8 @@ pattern as t_f — shared with the wrap trigger T_trig and the wood-split
 interval dt_add.
 
 ## Planner exposure of t_salt / T_trig / dt_add (2026-09-04, M1 complete)
+
+*Superseded 2026-10-01: the wrap trigger and its latch were removed from every model and the planner; the wrap is the planner's decision at `t_wrap`. The record below is kept as history.*
 
 The three decision variables the physics already carried are now
 first-class through the whole chain, the t_f pattern end to end:
@@ -3935,3 +4093,328 @@ differentiates through the decode.
 This coordinate change invalidates the stored state-noise fingerprint.
 Existing consistency and coverage numbers must be treated as stale until the
 held-out state-noise bench is rerun.
+
+## 2-D slab: smoke on the faces, fuel additions and lid lifts (2026-10-01)
+
+The 2-D cook now carries the three 1-D cook terms it lacked, so a planned
+cook replays on the grid with its smoke and its pit events.
+
+- **Smoke on every exposed face cell.** Deposition and the smoke-ring
+  front are the 1-D surface states, one per rim strip and end annulus,
+  driven by the burn rate. The ring front reads the temperature along
+  the face's inward normal. Neither feeds back into the transport: with
+  smoke on, the temperature and moisture fields are bitwise those
+  without it. In the thick-slab limit the end-face centre reproduces the
+  1-D surface to 6e-4 in deposition and 1e-5 m in ring depth over a 6 h
+  cook. The corners dry first and take less smoke and a shallower ring.
+  Outputs: per-face fields and series, area-weighted means, the thinnest
+  ring, L* at the face means, and the dirty-smoke bitterness integral.
+- **Fuel additions and lid lifts in the pit loop.** `coupled_solve_2d`
+  takes `t_add` and `dt_add` with the monolith's expressions: the
+  chimney feeds the fuel and lights the unlit share of the bed, and one
+  lid opening costs `UA_open` for the addition and for each spritz pulse
+  while unwrapped and in the pit. `ADD_NEVER` is bitwise the default run.
+  At the default `UA_open` the addition's lid lift drops the pit about
+  30 K, which `UA_open = 0` removes.
+- **Endpoints.** The stack gains `smoke_mean, ring_mean, l_star_mean,
+  bitterness` after the earlier scalars; `t_add, dt_add` follow the
+  earlier differentiable inputs, so every existing offset is unchanged.
+  d(final fuel)/d(t_add) matches central differences to 2e-5 relative.
+  The slab2d Tesseract and the shadow report take the plan's fuel
+  addition, which `run_shadow2d.py` had been dropping.
+
+## The 2-D and 3-D cuts carry the full 1-D physics; the wrap is a time (2026-10-01)
+
+**The wrap is the planner's decision at `t_wrap`, never a model state.** The
+state-triggered wrap latch is removed everywhere: the 1-D meat state is
+5·n_x + 3 (209 states with the pit at n_x = 40), the monolith's parameter
+vector loses its trigger slot (`dt_add` and `A_meat` move up one), and the
+system's per-piece event scalars are six. The planner's trigger decision,
+the Tesseract's `t_trig` input and every latch hand-off are gone; the
+Python app and Tesseract tests that remained pass.
+
+**The 2-D slab** (`slab2d.jl`) now renders fat per node (its own field,
+feeding conductivity, capacity and the shrink), places a bone at the core
+on the depth below the nearest exposed face, and scales h_c and k_m with
+the draft: θ2 gains m_conv as its seventh entry, the prescribed solve
+takes `airflow_knots`, and the pit loop feeds its own airflow. The pit's
+share of the heat and vapor now carries the exposed-area factor, as the
+1-D pit sees it. In the thick-slab limit the axis fat field matches the
+1-D slab to 2e-3, the bone-in and draft-scaled cores to under 1.5 K, and
+the fat term of the juiciness to 2e-3. The stack appends `fat_rendered`
+and `juiciness`.
+
+**The 3-D grid pieces** (`grid3d.jl`) gain the slab's depth physics on any
+mesh: the per-node shrink stretch on every edge with the exposed-area
+factor on the surface water flux and the pit's share, the dry-brine salt
+field (the union of the erfc profiles from every exposed face, diffusing,
+holding water and throttling the surface vapor pressure), the bone on the
+same depth coordinate, and the smoke-ring front per exposed node along
+its inward line. The state is 5N + 3·n_boundary, and the restart carries
+the salt field and the ring per node. A brick of one transverse node with
+one exposed face is the slab term for term at the default configuration,
+and again with a bone and a twelve-hour brine:
+
+| Quantity | Largest brick vs slab gap over a 4 h cook |
+|---|---|
+| Temperature field | 2.5e-6 K |
+| Water field | 3e-8 |
+| Salt field | 2e-10 |
+| Ring depth | 1e-10 m |
+| Exposed-area factor | 2e-9 |
+
+**What it moves.** Removing the latch moved the calibrated 18 h cook
+through the monolith (MAP latents, the real-cook schedule) by at most
+0.016 K in the pit and 0.004 K at the core at the default tolerance, and
+by 1e-4 K and 2e-5 K at 1e-9: the step control, not the physics, so the
+1-D calibrations, posteriors, planner and pilot records stand. The 2-D
+shadow of the committed robust plan (`data/control/shadow2d.json`, now
+also replaying the plan's fuel addition and reporting the smoke, ring,
+fat and juiciness) moves with the new physics:
+
+| Shadow of the robust plan at serve | 2026-09-07 physics | 2026-10-01 physics |
+|---|---|---|
+| Cold spot (peak) | 68.1 °C (94.1 °C) | 69.0 °C (95.2 °C) |
+| Core | 81.9 °C | 82.6 °C |
+| Cold-spot come-up 10–54 °C | 1.05 h | 1.00 h |
+| C_min | 0.979 | 0.988 |
+| Water retained | 0.277 | 0.245 |
+| Bark mean (spread) | 0.65 (0.27) | 0.72 (0.24) |
+| Shrunk radius / thickness | 11.0 / 3.2 cm | 10.5 / 3.1 cm |
+| Doubled grid: ΔT_cold(serve), ΔC_min | −0.08 K, +0.0005 | −0.07 K, +0.0006 |
+
+New in the report: smoke deposition 0.67, ring 2.8 mm, L* 30.8,
+bitterness 0.016, fat rendered 0.81, juiciness 0.31. The shifts come
+from the draft scaling, the per-node fat rendering and the area factor
+together; they were not separated term by term.
+
+Still not in either: nothing of the 1-D physics. The 2-D and 3-D bark and
+smoke distributions remain uncalibrated (roadmap C2).
+
+## The reduced-order model earns positive held-out skill (2026-10-01)
+
+The slab standing in for a 3-D brick (`estimator/src/rom.jl`, trained by `estimator/scripts/train_rom_bench.jl`)
+had negative held-out skill on the core and the mass: its error model was one bias per time point, averaged over
+the design, while the reduction error moves with the latents. Three changes, each run through the script's gate
+(25 design draws × 2 control regimes, 8 held-out draws × the 2 and a third never trained, 14 h on the real-cook
+mock's damper, the brick's 120 nodes against the slab's 20, both on the shipped physics with shrinkage):
+
+1. **The designed training, not the test's three draws.** The time-only model on 25 random prior draws passes
+   the gate (core +0.18, mass +0.32), but some held-out draws fall outside its envelope, which the online
+   backend enforces at run time: random draws leave the prior's tails uncovered.
+2. **A covering design.** A Latin hypercube over every latent's 0.1 %–99.9 % prior quantiles (`covering_design`)
+   puts every held-out draw inside the envelope; over that wider range the time-only bias fits any one draw
+   worse (core +0.09, mass +0.05).
+3. **A latent-aware error model.** Per time point, a ridge regression of the error on the standardized latents,
+   the weight chosen by leave-one-design-draw-out cross-validation (an infinite weight, the time-only model, is a
+   candidate), the spread the cross-validated residual's. The observation factors, the dynamics correction and
+   the planner read the bias at the current latents (Duals pass through). Artifact version 3; version 2 reads as
+   time-only.
+
+| Held-out skill (1 − corrected/raw RMS) | time-only, random | time-only, covering | latent-aware, covering | the same, untrained regime |
+|---|---|---|---|---|
+| Core temperature | +0.19 | +0.08 | +0.28 | +0.30 |
+| Surface temperature | +0.20 | +0.20 | +0.39 | +0.35 |
+| Mass | +0.32 | +0.05 | +0.78 | +0.77 |
+| Chamber vapor | +0.59 | +0.52 | +0.57 | +0.56 |
+| Heat load | +0.60 | +0.53 | +0.70 | +0.68 |
+
+Coverage within 2 sd is 0.96–1.00 on the core, the mass and the heat load, 0.91–0.92 on the surface and 0.85–0.88
+on the chamber vapor (narrow). The artifact is `data/calibration/rom_halfbrick_flat.json` (fingerprint
+`d30e37fc3dfa`; every output kept a finite ridge weight). `estimator/test/test_rom.jl` passes 57/57; its three-draw
+held-out check went from corrected/raw core RMS 4.1/3.3 K to 0.69/3.3 K. Not done: the bench with the artifact
+attached, which earns the reduced model's own state noise.
+
+## The estimator with the reduced-order model attached: the first bench, out of band (2026-10-02)
+
+`estimator/scripts/bench_system.jl --worker rom` (10 tuning cooks, the identification, 10 fresh cooks on seeds
+11–20; the plant the artifact's 120-node brick, the estimator its 20-node slab with
+`rom_halfbrick_flat.json` attached; lag 0; 14 h on the real-cook mock's schedule). The worker ran for the first
+time after two fixes (the brick and the slab on the shipped physics, as the artifact was trained; one piece's state
+groups classified by name). The calibration it wrote is `data/calibration/state_noise_system_rom.json`; the figures
+`figures/estimator/filter_consistency_drift_system_rom.png` and `coverage_realcook_system_rom.png`.
+
+The fresh round fails its consistency gates:
+
+| Fresh round, 10 cooks, 4090 updates | value | a consistent filter |
+|---|---|---|
+| NIS per dof | 0.37 | 1, inside the band on 95 % of updates (here 19 %) |
+| Latents' NEES per dof | 2.83 | 0.79–1.23 |
+| Temperatures' NEES per dof | 5.23 | 0.56–1.57 |
+| Latents within 2 sd at 14 h | 88 % | 95 % |
+
+Reading it:
+
+- **The ignition latents carry most of the latent failure**, as on the estimator without an artifact
+  (`a0` −6.6 on the mean, `k_spread` spread 5.5, the ignited group's NEES 396); the other thirteen latents are within
+  2 sd in 70–100 % of cooks.
+- **The reduction error is a slow discrepancy, carried as white noise.** The core probe's standardized innovations
+  have a lag-one autocorrelation of 0.85, the scale's 0.73, the humidity's 0.51, while the NIS is a third of its
+  expectation: the artifact's spread, added in quadrature to every reading, is too wide for a single reading and blind
+  to the drift across readings. The fix this points to is carrying the artifact's error as a correlated (OU)
+  discrepancy, not a white widening.
+- **The temperatures' NEES spikes past 25 around 12–13 h**, the fuel addition's disturbance.
+- **The bark group's NEES of 46** scores the slab's one surface against the brick's face-area mean, an unobserved
+  state carrying the raw reduction error.
+
+## The 3-D shadow: the robust plan on a trimmed brisket flat (2026-10-02)
+
+`scripts/run_shadow3d.py` replays a plan to serve on a trimmed brisket flat in the cook system
+(`scripts/shadow3d.jl`, `BrisketFlat3D` in `src/meats/grid3d.jl`). It supersedes the brick of 2026-10-01.
+
+**The cut.** The flat tapers linearly from its thick (point) end to its thin end:
+
+- 33 cm long
+- 23 → 18 cm wide
+- 5.5 → 2.5 cm thick
+- a 6 mm fat cap on top, 2.65 kg raw
+
+These are typical trimmed numbers (`BRISKET_FLAT_TYPICAL`), placeholders until the cut is measured.
+
+**The grid.** A mapped grid: the bottom is flat on the grate and the top slopes. Half the cut is solved, across its
+width; the piece's area multiplier makes the pit see the whole cut.
+
+**The fat cap** is a second material (`FAT_CAP_F0` 0.94, `FAT_CAP_W0` 0.18 kg/kg dry basis). It is resolved by its
+own two node layers along the whole length, with the dual face between the lean and cap layers on the cap's
+underside. An earlier build assigned the cap by node depth; there the cap jumped from one node layer to two where
+the cut thinned past 4.2 cm, a step at 14 cm in every surface state.
+
+**The schedule** is the 2-D shadow's: the damper, the wrap, the pull, the fuel addition and their lid lifts, then
+the rest in the plan's environment.
+
+The report is `data/control/shadow3d.json`; the figures are in `figures/shadow3d/` (`scripts/plot_shadow3d.py`).
+
+The 2-D column below is the cylinder of the 1-D exposed area, not the flat's geometry: it shows what the shape
+changes.
+
+| At serve, the robust plan | 2-D shadow | 3-D flat |
+|---|---|---|
+| Centre (deepest point) | 82.6 °C | 84.6 °C |
+| Cold spot (where) | 69.0 °C (the rim) | 57.2 °C (the thin end's top outer corner) |
+| Cold-spot peak | 95.2 °C | 99.4 °C |
+| Water retained | 0.245 | 0.171 |
+| C_min | 0.988 | 0.999 |
+| Bark mean (spread) | 0.72 (0.24) | 0.92 (0.15) |
+
+**The thin end leads and the thick end lags.**
+
+- At the wrap the thin end is past 130 °C while the thick end's middle is under 100 °C.
+- At serve the thin end's corner is the cold spot. It heated first, so it cools first in the cambro: 27 K below the
+  deepest point.
+- The lethality and the come-up time pass on the cold spot, as on the deepest point: F 1.9e10 against 720 required,
+  come-up 1.29 h.
+- The thin flat dries harder than the cylinder: it retains 0.17 of its water against 0.25, and goes from 2.65 kg
+  raw to 1.06 kg at serve.
+- The fat renders to 0.81.
+
+**On the cap's top face:**
+
+- bark is 0.99 everywhere
+- smoke deposition runs from 0.04 at the edges to 0.12 in the middle
+- the ring runs from 0.6 mm at the edges to 1.4 mm in the middle
+
+Under the grate side the ring is 2.7 mm.
+
+**Grid check and cost.** The default 12 × 6 × 8 grid against 8 × 4 × 5:
+
+| Quantity | Change |
+|---|---|
+| Cold spot at serve | −1.07 K |
+| Cold-spot peak | +0.65 K |
+| Deepest point | −1.29 K |
+| C_min | +0.0005 |
+| Water retained | −0.011 |
+
+A solve takes about a minute.
+
+**The 3-D views** come from `scripts/render_shadow3d.py`. The half cut is rebuilt whole by its symmetry plane, the
+height drawn twice its scale.
+
+- `figures/shadow3d/shadow3d_cutaway.png` cuts the flat lengthwise through its centre and colours every visible face
+  by temperature and by moisture at 2 h, at the wrap and at serve. The cold spot is marked at serve.
+- `shadow3d_brisket.png` is the flat at serve, whole and cut lengthwise. The surface is coloured by the model's L*,
+  with the fat cap and the smoke ring at its modelled depth.
+- `shadow3d_cook.gif` runs the temperature cutaway through the cook.
+
+## The cut from photos, cooked on its own shape (2026-10-02)
+
+A cut's shape now comes from photos instead of six fitted dimensions. It has to serve four meats (brisket, pork
+butt, ribs and chuck), and a tapered slab can't describe them.
+
+**How the reconstruction works** (`tools/cutvision`, a Julia subproject; the protocol is `docs/measure_cut.md`):
+
+1. Six printed AprilTags on the board calibrate about 23 photos in one Levenberg–Marquardt fit: the tag map, every
+   camera and the focal length. Detections that bend a photo's pose are dropped one at a time.
+2. The meat's silhouettes carve a 2 mm visual hull. Inside a tag card, each pixel is checked against the tag's own
+   pattern, so a card neither carves nor keeps the meat.
+3. Plane-sweep stereo on the meat's texture lowers the hull's top. A hull can't see a flat top come down.
+4. Each surface cell's fat/lean vote is averaged over the photos that see it squarely.
+5. The cap's depth is read on the trimmed sides, from the photos, below the cells' resolution. A measurement on the
+   cut (`cap_mm`) overrides it.
+6. The interior is fat within that depth of a fat surface. Bone comes from the meat's template.
+
+**Accuracy on synthetic photos** (`tools/cutvision/test/runtests.jl`; ray-cast scenes of known cuts with marbled
+texture):
+
+| | Flat | Pork butt | Ribs |
+|---|---|---|---|
+| Volume error | +2.3 % | +1.2 % | +1.8 % |
+| IoU | 0.976 | 0.985 | 0.976 |
+| Mean surface error | 0.83 mm | 0.69 mm | 0.83 mm |
+| Interior fat/lean right | 95.5 % | 98.9 % | 98.3 % |
+
+Calibration: tags within 0.2 mm, the focal length within 0.1 %, reprojection 0.2 px.
+
+Two findings shaped the protocol:
+- **Low views are required.** Views at 42° alone leave a slab's top 30 % too thick; a ring of photos near board
+  level and the stereo step fix it.
+- **The cap is the weak part.** Read from the photos it is within a millimetre on rounded edges (butt 7.2 mm
+  against 8, ribs 2.7 against 3) but about 2 mm thin on a sharp trimmed edge (flat 3.8 against 6). Hence the
+  override.
+
+The hull can't see a hollow under the meat (a rack arched off the board).
+
+**The voxel piece.** `VoxelPiece` turns the labels into a grid piece of the cook system:
+- the reconstruction's cells coarsened, with partial volumes kept
+- each exposed face's area is the smooth surface's through the fine cells: a voxelised sphere's area is within 3 %
+  of 4πR², its volume within 1 %
+- bone is thermal-only, as the slab's bone is
+- a new `chuck()` preset
+
+A voxelised box converges toward `Brick3D` as the cells shrink: the end-of-cook error falls from 1.37 to 1.14 K at
+the core and from 1.97 to 1.34 K in the mean.
+
+**The sparse Jacobian.** Systems of grid pieces past 800 nodes take a sparse Jacobian. It is taken of the
+right-hand side with two global couplings frozen: the chamber vapor pressure and the area factor. The colouring is
+greedy distance-2 and the evaluation is chunked forward-mode.
+- On the flat it agrees with the dense Jacobian to 3e-5 K at the default tolerance (1.5e-6 K at 1e-9) and is
+  4.8× faster.
+- An 11 h cook of the reconstructed flat takes 94 s at 8 mm cells (5,570 nodes) and 403 s at 6 mm (13,000 nodes).
+
+**End to end:** synthetic photos of the typical flat → reconstruction with the 6 mm cap given → the robust plan's
+shadow on the voxel cut (`scripts/run_shadow3d.py --shape synthetic_flat_cap6`):
+
+| At serve | `BrisketFlat3D` | Voxel, 8 mm | Voxel, 6 mm |
+|---|---|---|---|
+| Cold spot | 57.2 °C | 56.3 °C | 57.9 °C |
+| Deepest point | 84.6 °C | 82.6 °C | 83.5 °C |
+| Cold-spot peak | 99.4 °C | 96.6 °C | 97.9 °C |
+| Mass raw / served | 2.65 / 1.06 kg | 2.68 / 1.07 kg | 2.65 / 1.04 kg |
+
+The voxel cut closes on the flat model as its cells shrink. At 6 mm it is within 1.5 K and 2 %, inside the flat
+model's own grid error (1–2 K). With the cap read from the photos instead (3.8 mm), the cut is 7 % heavier: the cap
+is the input that matters most.
+
+Figures: `figures/shadow3d/synthetic_flat_cap6/` (`scripts/plot_shape3d.py`). `shape3d_smooth.png` draws the cooked
+states on the smooth surface the exposed areas come from, the section interpolated within the reconstruction's own
+outline; `shape3d_cut.png` shows the simulation's 8 mm cells as they are.
+
+A packer brisket from synthetic photos (`brisket_shape` in `tools/cutvision/test/synth.jl`; an irregular rounded outline
+about 40 × 27 cm, edges that round off, the flat thinning from 45 to 22 mm, the point mounded 38 mm over the thick end,
+a 7 mm cap): reconstructed at volume +0.9 % (3.87 L against 3.84), IoU 0.987, mean surface error 0.77 mm, interior
+fat and lean 98 % right, the cap read at 5.75 mm against 7. Cooked on the robust plan at 8 mm cells (7,600 nodes): the deepest point (under the
+point) 88.8 °C at serve, the cold spot 53.2 °C (the thin flat's edge, cooling first in the rest), 3.72 kg raw to 1.61 kg
+served (`figures/shadow3d/synthetic_packer/`, `data/control/shadow3d_synthetic_packer.json`). `shape3d_smooth.png` draws the
+cooked states on the smooth surface; its colour blends the faces over 1.5 cells because on a dome the cells' terraces
+leave a cell with two exposed faces at each terrace edge, which browns a little faster (a staircase artefact of the
+cells that a one-face colouring prints as rings).

@@ -2,9 +2,11 @@
 # humidity balance as ONE stiff system. The pit sees the meat's instantaneous
 # heat load and the meat sees the instantaneous pit temperature, burn rate
 # and vapor pressure — one solve, one derivative. States x = [T(nx) | W(nx)
-# | C(nx) | F(nx) | B | S | R | T_pit | m_fuel | ignited]; parameters
+# | C(nx) | F(nx) | S_salt(nx) | B | S | R | T_pit | m_fuel | ignited | m_pan | T_pan | T_fb];
+# parameters
 # p = [θ(8) | φ(7) | u_knots(nu) | t_wrap | t_pull | t_add | t_spritz |
-# dt_spritz | m_spritz].
+# dt_spritz | m_spritz | dt_add | t_load | (A_meat)]. Time runs from lighting: before `t_load` the pit
+# preheats empty and the meat holds its raw state.
 #
 # Differentiation: forward mode. The parameter count is small (14 physics
 # latents, a few dozen control knots) and the forward solve is ~100x cheaper
@@ -97,14 +99,14 @@ below zero (the taper is then zero both ways, and condensation cannot refill it)
 step and retries it shorter. The bound sits a millionth of the taper scale below zero: as the pan dries the state
 converges onto zero itself, and a trial a rounding error below it is not an overshoot.
 """
-_pan_out_of_domain(cfg::MeatConfig, pit::PitConfig) = (x, p, t) -> _primal(x[5 * cfg.nx + 8]) < -1e-6 * pit.m_pan_taper
+_pan_out_of_domain(cfg::MeatConfig, pit::PitConfig) = (x, p, t) -> _primal(x[5 * cfg.nx + 7]) < -1e-6 * pit.m_pan_taper
 
 """
     make_monolith_rhs(cfg, pit, hum, u_t0, u_dt, nu)
 
-Build the in-place coupled RHS over `x = [meat(5·nx + 4) | T_pit, m_fuel,
+Build the in-place coupled RHS over `x = [meat(5·nx + 3) | T_pit, m_fuel,
 ignited, m_pan, T_pan, T_firebox]` with `p = [θ | φ | u_knots(nu) | t_wrap | t_pull |
-t_add | t_spritz | dt_spritz | m_spritz | T_trig | dt_add | (A_meat)]` — the
+t_add | t_spritz | dt_spritz | m_spritz | dt_add | t_load | (A_meat)]` — the
 last entry optional: the exposed area as a runtime parameter (the
 estimator's latent), `cfg.A_meat` when absent; the damper schedule is
 interpolated from `nu` knots on the uniform grid `u_t0 + (i-1)·u_dt`.
@@ -112,7 +114,7 @@ interpolated from `nu` knots on the uniform grid `u_t0 + (i-1)·u_dt`.
 function make_monolith_rhs(
     cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_t0::Real, u_dt::Real, nu::Int
 )
-    nm = 5 * cfg.nx + 4  # + the wrap-latch scalar
+    nm = 5 * cfg.nx + 3  # the fields, then bark, smoke, ring
     n_s, n_a, v0 = shrink_exponents(cfg)
     wb = bone_weights(cfg)
     return function mono_rhs!(dx, x, p, t)
@@ -125,8 +127,8 @@ function make_monolith_rhs(
         t_spritz = p[MONO_NP + nu + 4]
         dt_spritz = p[MONO_NP + nu + 5]
         m_spritz = p[MONO_NP + nu + 6]
-        T_trig = p[MONO_NP + nu + 7]
-        dt_add = p[MONO_NP + nu + 8]
+        dt_add = p[MONO_NP + nu + 7]
+        t_load = p[MONO_NP + nu + 8]
         # the exposed area: a runtime parameter when p carries it (dual-capable)
         A_m = length(p) > MONO_NP + nu + 8 ? p[MONO_NP + nu + 9] : oftype(p[1], cfg.A_meat)
 
@@ -140,15 +142,21 @@ function make_monolith_rhs(
 
         um = @view x[1:nm]
         dum = @view dx[1:nm]
+        ld = load_blend(t, t_load, cfg)
         q_meat = meat_rhs_core!(
-            dum, um, t, θ, Tp, ṁ, pv_base, 1 / mair, airflow, t_wrap, t_pull, t_spritz,
-            dt_spritz, m_spritz, cfg, n_s, n_a, v0, wb, T_trig; A_meat=A_m,
+            dum, um, t, θ, Tp, ṁ, pv_base, ld / mair, airflow, t_wrap, t_pull, t_spritz,
+            dt_spritz, m_spritz, cfg, n_s, n_a, v0, wb; A_meat=A_m,
         )
+        # before the load the meat is not in the pit: its fields hold their raw state and it draws no heat
+        @inbounds for i in eachindex(dum)
+            dum[i] *= ld
+        end
+        q_meat *= ld
         a_c = clamp(a, zero(a), one(a))
         ṁ_add = fuel_add_rate(t, t_add, dt_add, pit)
         # One physical lid comes off to dump the chimney or spritz while the policy runs
         # (in the pit, unwrapped); overlapping openings take the wider gate, not their sum.
-        lid = max(lid_open(t, t_add, pit.τ_open_add),
+        lid = max(lid_open(t, t_add, pit.τ_open_add), lid_open(t, t_load, pit.τ_open_load),
                   lid_open(t, spritz_pulse_time(t, t_spritz, dt_spritz), pit.τ_open_spritz) *
                   (1 - wrap_blend(t, t_wrap, cfg)) * (1 - pull_blend(t, t_pull, cfg)))
         q_lid = pit.UA_open * (Tp - pit.T_amb) * lid
@@ -181,6 +189,18 @@ function make_monolith_rhs(
     end
 end
 
+"""
+    _load_tstops(t_load, t0, t1, cfg) -> Vector{Float64}
+
+The steps the solver must land on around the load: 5·δ_load before it, at it and after it (those inside (t0, t1)).
+After a long hold the stiff solver's steps are long; without them one strides into the 2-min blend and evaluates the
+meat at a trial state outside physics.
+"""
+function _load_tstops(t_load, t0, t1, cfg::MeatConfig)
+    tl = _primal(t_load)
+    return [x for x in (tl - 5cfg.δ_load, tl, tl + 5cfg.δ_load) if t0 < x < t1]
+end
+
 function _monolith_solve_arr(
     p,
     cfg::MeatConfig,
@@ -198,7 +218,6 @@ function _monolith_solve_arr(
     B0=NaN,
     S0=NaN,
     R0=NaN,
-    LATCH0=NaN,
     t_salt=NaN,
     Ssalt0f=Float64[],
     Tpit0=NaN,
@@ -214,7 +233,7 @@ function _monolith_solve_arr(
     # (and so does a Dual t_salt, through the analytic brine profile); a
     # handed-off salt field (Ssalt0f) takes precedence inside _meat_u0
     x0 = vcat(
-        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, LATCH0, Ssalt0f,
+        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
                      s0=salt_profile(p[4], cfg,
                                      isnan(t_salt) ? cfg.t_salt : t_salt))),
         [Tp(isnan(Tpit0) ? pit.Tpit0 : Tpit0), Tp(isnan(mfuel0) ? pit.m0 : mfuel0), p[MEAT_NP + PIT_NP],
@@ -224,7 +243,9 @@ function _monolith_solve_arr(
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(
         rhs!, x0, (float(tsave[1]), float(tsave[end])), p
     )
-    sol = solve(prob, FBDF(); saveat=tsave, abstol=abstol, reltol=reltol, isoutofdomain=_pan_out_of_domain(cfg, pit))
+    tst = _load_tstops(p[MONO_NP + nu + 8], float(tsave[1]), float(tsave[end]), cfg)
+    sol = solve(prob, FBDF(); saveat=tsave, abstol=abstol, reltol=reltol, isoutofdomain=_pan_out_of_domain(cfg, pit),
+                tstops=tst)
     A = Array(sol)
     (SciMLBase.successful_retcode(sol) && size(A, 2) == length(tsave)) || throw(
         ErrorException(
@@ -239,7 +260,7 @@ function _monolith_outputs(
     A, p, cfg::MeatConfig, pit::PitConfig, hum::Humidity, u_tknots, tsave, nu::Int
 )
     nx = cfg.nx
-    nm = 5nx + 4  # + the wrap-latch scalar
+    nm = 5nx + 3  # the fields, then bark, smoke, ring
     nt = length(tsave)
     θ = p[1:MEAT_NP]
     r_max, u_leak = p[MEAT_NP + 3], p[MEAT_NP + 5]
@@ -248,6 +269,7 @@ function _monolith_outputs(
     t_wrap, t_pull = p[MONO_NP + nu + 1], p[MONO_NP + nu + 2]
     t_spritz, dt_spritz = p[MONO_NP + nu + 4], p[MONO_NP + nu + 5]
     m_spritz = p[MONO_NP + nu + 6]
+    t_load = p[MONO_NP + nu + 8]
 
     Tpit = A[nm + 1, :]
     m_fuel = A[nm + 2, :]
@@ -272,8 +294,7 @@ function _monolith_outputs(
 
     Tsurf = A[nx, :]
     Wsurf = A[2nx, :]
-    latch_ts = clamp.(A[5nx + 4, :], 0.0, 1.0)
-    s_ts = 1 .- (1 .- wrap_blend.(tsave, t_wrap, Ref(cfg))) .* (1 .- latch_ts)
+    s_ts = wrap_blend.(tsave, t_wrap, Ref(cfg))
     pl_ts = pull_blend.(tsave, t_pull, Ref(cfg))
     n_s, n_a, v0 = shrink_exponents(cfg)
     wfv = fv_weights(nx)
@@ -281,15 +302,18 @@ function _monolith_outputs(
     l_thick = (θ[4] / (nx - 1)) .* vec(wfv' * ((Vmat ./ v0) .^ n_s))
     a_ts = (vec(wfv' * Vmat) ./ ((nx - 1) * v0)) .^ n_a
     A_m = length(p) > MONO_NP + nu + 8 ? p[MONO_NP + nu + 9] : oftype(p[1], cfg.A_meat)
-    c_ts = mixing_coefficient.(a_ts, imair_ts, Ref(cfg), A_m)
+    ld_ts = load_blend.(tsave, t_load, Ref(cfg))                   # the meat in the pit
+    # The chamber receives vapor only from the loaded fraction. This gate is
+    # inside the humidity closure as well as on the meat's final flux below.
+    c_ts = ld_ts .* mixing_coefficient.(a_ts, imair_ts, Ref(cfg), A_m)
     f_aw_ts = 1 ./ (1 .+ cfg.k_aw .* max.(A[5nx, :], 0.0))
     fluxes = surface_fluxes_blended.(
         Tsurf, Wsurf, h_ts, km_ts, s_ts, pl_ts, pv_base_ts, c_ts, Ref(cfg), f_aw_ts
     )
-    j_evap = getproperty.(fluxes, :j)
+    j_evap = getproperty.(fluxes, :j) .* ld_ts
     pv_pit = getproperty.(fluxes, :pv_pit)
     q_meat =
-        A_m * cfg.n_meat .* a_ts .*
+        A_m * cfg.n_meat .* a_ts .* ld_ts .*
         surface_q_pit_blended.(Tpit, Tsurf, h_ts, s_ts, pl_ts, Ref(cfg))
     bark_b = A[5nx + 1, :]
     bark_s = A[5nx + 2, :]
@@ -308,8 +332,9 @@ function _monolith_outputs(
     dts = diff(collect(float.(tsave)))
     ja = j_evap .* a_ts
     evap_w = sum((ja[1:(end - 1)] .+ ja[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
+    dep_dirty = dep_dirty .* ld_ts                                 # no smoke before the load
     bitterness = sum((dep_dirty[1:(end - 1)] .+ dep_dirty[2:end]) ./ 2 .* dts)
-    jsp = spritz_rate.(tsave, t_spritz, dt_spritz, m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts
+    jsp = spritz_rate.(tsave, t_spritz, dt_spritz, m_spritz, Ref(cfg)) .* (1 .- s_ts) .* (1 .- pl_ts) .* a_ts .* ld_ts
     spritz_w = cfg.f_abs * sum((jsp[1:(end - 1)] .+ jsp[2:end]) ./ 2 .* dts) / (RHO_DRY * θ[4])
     return (;
         Tpit,
@@ -340,7 +365,6 @@ function _monolith_outputs(
         C_field=A[(2nx + 1):3nx, :],
         F_field=A[(3nx + 1):4nx, :],
         salt_field=A[(4nx + 1):5nx, :],
-        wrap_latch=latch_ts,
         wrap_effective=s_ts,
         smoke_clean,
         bitterness,
@@ -371,12 +395,17 @@ and `pv_base`; accepts ForwardDiff-dual `θ`/`φ`/`u_knots`.
 # Keyword Arguments
 - `cfg::MeatConfig`, `pit::PitConfig`, `hum::Humidity`: Configurations.
 - `t_wrap, t_pull::Real`: Wrap and pull times [s]. [Default=never]
+- `t_load::Real`: When the meat goes on [s after lighting]; before it the pit preheats empty and the meat holds its
+  raw state. [Default=`LOAD_AT_START`, in from t = 0]
+- `T_load::Real`: The pit temperature the meat goes in at [K]: when given, `t_load` is when the empty pit first
+  reaches it ([`preheat_time`](@ref), differentiable). The outputs carry the `t_load` used and `load_reached`.
+  [Default=NaN, `t_load` as given]
 - `t_add::Real`: Mid-cook fuel addition (one chimney) [s]. [Default=never]
 - `t_spritz, dt_spritz::Real`: Spritz policy — first spritz and interval [s].
   [Default=never, 3600]
 - `m_spritz::Real`: Spritz dose [kg/m²]; NaN ⇒ `cfg.m_spritz`. [Default=NaN]
-- `T0f, W0f, C0f, F0f, B0, S0, R0, LATCH0`: Meat field, bark, ring, and
-  trigger-wrap latch ICs for a state handoff
+- `T0f, W0f, C0f, F0f, B0, S0, R0`: Meat field, bark and ring ICs for a
+  state handoff
   (see [`meat_solve`](@ref)). [Default=uniform]
 - `Tpit0, mfuel0, mpan0, Tpan0, Tfb0::Real`: The pit's state (chamber temperature, fuel
   mass, pan water, pan temperature, firebox temperature) for a state handoff; NaN ⇒ the
@@ -409,11 +438,12 @@ function monolith_solve(
     B0::Real=NaN,
     S0::Real=NaN,
     R0::Real=NaN,
-    LATCH0::Real=NaN,
     t_salt::Real=NaN,
     Ssalt0f::AbstractVector=Float64[],
-    T_wrap_trigger::Real=Inf,
     dt_add::Real=NaN,
+    t_load::Real=LOAD_AT_START,
+    T_load::Real=NaN,
+    t_load_max::Real=PREHEAT_MAX,
     abstol=1e-6,
     reltol=1e-6,
     A_meat::Real=NaN,
@@ -434,14 +464,19 @@ function monolith_solve(
     )
     msp = isnan(m_spritz) ? cfg.m_spritz : float(m_spritz)
     dta = isnan(dt_add) ? pit.dt_add : float(dt_add)
+    reached = true; shortfall = 0.0
+    if !isnan(_primal(T_load))                                         # the load temperature → its time
+        t_load, reached, shortfall = preheat_time(T_load, φ, u_knots, u_tknots; cfg, pit, hum, t_max=t_load_max,
+                                       Tpit0, mfuel0, mpan0, Tpan0, Tfb0)
+    end
     p = vcat(
         θ, φ, u_knots, float(t_wrap), float(t_pull), float(t_add), float(t_spritz),
-        float(dt_spritz), msp, float(T_wrap_trigger), dta,
+        float(dt_spritz), msp, dta, float(t_load),
     )
     any(isnan, p) && throw(
         ArgumentError(
             "monolith solve got NaN inputs at indices $(findall(isnan, p)) of p " *
-            "(θ|φ|u|t_wrap|t_pull|t_add|t_spritz|dt_spritz|m_spritz|T_trig|dt_add)",
+            "(θ|φ|u|t_wrap|t_pull|t_add|t_spritz|dt_spritz|m_spritz|dt_add|t_load)",
         ),
     )
     # the exposed area as a runtime parameter (NaN = the config's constant):
@@ -450,9 +485,10 @@ function monolith_solve(
     nu = length(u_knots)
     A = _monolith_solve_arr(
         p, cfg, pit, hum, u_tknots, tsave, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0, S0,
-        R0, LATCH0, t_salt, Ssalt0f, Tpit0, mfuel0, mpan0, Tpan0, Tfb0,
+        R0, t_salt, Ssalt0f, Tpit0, mfuel0, mpan0, Tpan0, Tfb0,
     )
-    return _monolith_outputs(A, p, cfg, pit, hum, u_tknots, tsave, nu)
+    return merge(_monolith_outputs(A, p, cfg, pit, hum, u_tknots, tsave, nu),
+                 (; t_load, load_reached=reached, load_shortfall=shortfall))
 end
 
 """
@@ -490,6 +526,8 @@ function monolith_stack(o)
     return vcat(
         o.Tpit, o.Tcore, o.Tsurf, o.m_fuel, o.j_evap, o.q_meat, o.bark_b, o.bark_s,
         o.l_star, o.l_thick, o.C_field_final, [o.w_retained, o.juiciness, o.fat_rendered],
+        # the preheat's miss (0 when the load temperature is reached or not used)
+        [hasproperty(o, :load_shortfall) ? o.load_shortfall : zero(o.juiciness)],
     )
 end
 
@@ -499,26 +537,27 @@ end
 
 `(g, v0)`: the stacked outputs as a function of the full input vector
 `v = [θ; φ; u_knots; t_wrap; t_pull; t_add; t_spritz; dt_spritz; m_spritz;
-t_salt; T_wrap_trigger; dt_add]`, and the vector's value. The last three
-ride as keyword arguments (NaN t_salt / dt_add fall back to the configs;
-Inf trigger and interval are exactly inert).
+t_salt; dt_add; t_load; T_load]`, and the vector's value. The last four ride as keyword
+arguments (NaN t_salt / dt_add fall back to the configs; an Inf interval
+is exactly inert; `t_load` defaults to `LOAD_AT_START`; a T_load, when not NaN, sets the load time through
+the preheat, its partials included).
 """
 function _mono_stack_fn(
     θ, φ, u_knots, u_tknots, tsave, t_wrap, t_pull, t_add, t_spritz, dt_spritz, m_spritz;
-    t_salt::Real=NaN, T_wrap_trigger::Real=Inf, dt_add::Real=NaN, kw...,
+    t_salt::Real=NaN, dt_add::Real=NaN, t_load::Real=LOAD_AT_START, T_load::Real=NaN, kw...,
 )
     nθ, nφ, nu = length(θ), length(φ), length(u_knots)
     v0 = vcat(
         float.(θ), float.(φ), float.(u_knots), float(t_wrap), float(t_pull), float(t_add),
         float(t_spritz), float(dt_spritz), float(m_spritz), float(t_salt),
-        float(T_wrap_trigger), float(dt_add),
+        float(dt_add), float(t_load), float(T_load),
     )
     g(v) = monolith_stack(
         monolith_solve(
             v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)], u_tknots,
-            tsave; t_wrap=v[end - 8], t_pull=v[end - 7], t_add=v[end - 6],
-            t_spritz=v[end - 5], dt_spritz=v[end - 4], m_spritz=v[end - 3],
-            t_salt=v[end - 2], T_wrap_trigger=v[end - 1], dt_add=v[end], kw...,
+            tsave; t_wrap=v[end - 9], t_pull=v[end - 8], t_add=v[end - 7],
+            t_spritz=v[end - 6], dt_spritz=v[end - 5], m_spritz=v[end - 4],
+            t_salt=v[end - 3], dt_add=v[end - 2], t_load=v[end - 1], T_load=v[end], kw...,
         ),
     )
     return g, v0
@@ -529,7 +568,7 @@ end
                             t_spritz, dt_spritz, m_spritz, sel; kw...)
 
 Forward-mode Jacobian of [`monolith_stack`](@ref) w.r.t. the entries `sel`
-(1-based indices into `[θ; φ; u_knots; t_wrap; …; dt_add]` — the
+(1-based indices into `[θ; φ; u_knots; t_wrap; …; dt_add; t_load; T_load]` — the
 `_mono_stack_fn` layout): one chunked
 ForwardDiff pass per ~12 selected inputs. Keyword arguments go to
 [`monolith_solve`](@ref).
@@ -595,7 +634,6 @@ function _monolith_solve_arr_s(
     B0=NaN,
     S0=NaN,
     R0=NaN,
-    LATCH0=NaN,
     t_salt=NaN,
     Ssalt0f=Float64[],
     Tpit0=NaN,
@@ -619,7 +657,7 @@ function _monolith_solve_arr_s(
     end
     Tp = promote_type(eltype(p), typeof(float(t_f)), typeof(float(t_salt)), Float64)
     x0 = vcat(
-        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, LATCH0, Ssalt0f,
+        Tp.(_meat_u0(cfg, T0f, W0f, C0f; F0f, B0, S0, R0, Ssalt0f,
                      s0=salt_profile(p[4], cfg,
                                      isnan(t_salt) ? cfg.t_salt : t_salt))),
         [Tp(isnan(Tpit0) ? pit.Tpit0 : Tpit0), Tp(isnan(mfuel0) ? pit.m0 : mfuel0), p[MEAT_NP + PIT_NP],
@@ -628,7 +666,9 @@ function _monolith_solve_arr_s(
     )
     s_grid = collect(Float64, s_save)
     prob = ODEProblem{true,SciMLBase.FullSpecialize}(rhs_s!, x0, (0.0, 1.0), p)
-    sol = solve(prob, FBDF(); saveat=s_grid, abstol=abstol, reltol=reltol, isoutofdomain=_pan_out_of_domain(cfg, pit))
+    tst = _load_tstops(p[MONO_NP + nu + 8], 0.0, _primal(t_f), cfg) ./ _primal(t_f)       # in s = t/t_f
+    sol = solve(prob, FBDF(); saveat=s_grid, abstol=abstol, reltol=reltol, isoutofdomain=_pan_out_of_domain(cfg, pit),
+                tstops=tst)
     A = Array(sol)
     (SciMLBase.successful_retcode(sol) && size(A, 2) == length(s_grid)) || throw(
         ErrorException(
@@ -647,7 +687,8 @@ end
 input** (roadmap: differentiable duration via s = t/t_f). The schedule
 shape is fixed in fractional time: damper knots sit on `s_u ⊂ [0, 1]`,
 outputs on `s_save ⊂ [0, 1]`, and every event is a fraction of the cook
-(`t_wrap = frac_wrap·t_f`, …; `frac ≥ FRAC_NEVER` never happens). The
+(`t_wrap = frac_wrap·t_f`, …; `frac ≥ FRAC_NEVER` never happens; `frac_load`, when the meat goes on, defaults
+to `−FRAC_NEVER`, in from the start). The
 integration runs over s ∈ [0, 1] with the RHS scaled by `t_f`, so
 `d(outputs)/d(t_f)` — including the quality integrals' stretching terms —
 is one ForwardDiff direction like any other parameter.
@@ -680,11 +721,12 @@ function monolith_solve_tf(
     B0::Real=NaN,
     S0::Real=NaN,
     R0::Real=NaN,
-    LATCH0::Real=NaN,
     t_salt::Real=NaN,
     Ssalt0f::AbstractVector=Float64[],
-    T_wrap_trigger::Real=Inf,
     frac_dt_add::Real=NaN,
+    frac_load::Real=-FRAC_NEVER,
+    T_load::Real=NaN,
+    t_load_max::Real=PREHEAT_MAX,
     A_meat::Real=NaN,
     Tpit0::Real=NaN,
     mfuel0::Real=NaN,
@@ -711,10 +753,16 @@ function monolith_solve_tf(
     dta = isnan(value_of(frac_dt_add)) ? oftype(float(t_f), pit.dt_add) :
           (isfinite(value_of(frac_dt_add)) ? frac_dt_add * t_f :
            oftype(float(t_f), Inf))
+    reached = true; shortfall = 0.0
+    t_ld = frac_load * t_f
+    if !isnan(value_of(T_load))                                        # the load temperature → its time (seconds)
+        t_ld, reached, shortfall = preheat_time(T_load, φ, u_knots, float.(s_u) .* t_f; cfg, pit, hum, t_max=t_load_max,
+                                     Tpit0, mfuel0, mpan0, Tpan0, Tfb0)
+    end
     p = vcat(
         float.(θ), float.(φ), float.(u_knots), frac_wrap * t_f, frac_pull * t_f,
         frac_add * t_f, frac_spritz * t_f, frac_dt_spritz * t_f, float(msp),
-        float(T_wrap_trigger), dta,
+        dta, t_ld,
     )
     any(x -> isnan(value_of(x)), p) && throw(
         ArgumentError("monolith_solve_tf got NaN inputs in p"),
@@ -725,9 +773,10 @@ function monolith_solve_tf(
     tsave = float.(s_save) .* t_f
     A = _monolith_solve_arr_s(
         p, cfg, pit, hum, u_tk, s_save, t_f, nu; abstol, reltol, T0f, W0f, C0f, F0f, B0,
-        S0, R0, LATCH0, t_salt, Ssalt0f, Tpit0, mfuel0, mpan0, Tpan0, Tfb0,
+        S0, R0, t_salt, Ssalt0f, Tpit0, mfuel0, mpan0, Tpan0, Tfb0,
     )
-    return _monolith_outputs(A, p, cfg, pit, hum, u_tk, tsave, nu)
+    return merge(_monolith_outputs(A, p, cfg, pit, hum, u_tk, tsave, nu),
+                 (; t_load=t_ld, load_reached=reached, load_shortfall=shortfall))
 end
 
 """
@@ -736,27 +785,27 @@ end
 
 `(g, v0)`: the stacked outputs as a function of
 `v = [θ; φ; u_knots; t_f; frac_wrap; frac_pull; frac_add; frac_spritz;
-frac_dt_spritz; m_spritz; t_salt; T_wrap_trigger; frac_dt_add]`, and that
+frac_dt_spritz; m_spritz; t_salt; frac_dt_add; frac_load; T_load]`, and that
 vector's value.
 """
 function _mono_stack_fn_tf(
     θ, φ, u_knots, t_f, s_u, s_save, frac_wrap, frac_pull, frac_add, frac_spritz,
     frac_dt_spritz, m_spritz;
-    t_salt::Real=NaN, T_wrap_trigger::Real=Inf, frac_dt_add::Real=NaN, kw...,
+    t_salt::Real=NaN, frac_dt_add::Real=NaN, frac_load::Real=-FRAC_NEVER, T_load::Real=NaN, kw...,
 )
     nθ, nφ, nu = length(θ), length(φ), length(u_knots)
     v0 = vcat(
         float.(θ), float.(φ), float.(u_knots), float(t_f), float(frac_wrap),
         float(frac_pull), float(frac_add), float(frac_spritz), float(frac_dt_spritz),
-        float(m_spritz), float(t_salt), float(T_wrap_trigger), float(frac_dt_add),
+        float(m_spritz), float(t_salt), float(frac_dt_add), float(frac_load), float(T_load),
     )
     g(v) = monolith_stack(
         monolith_solve_tf(
             v[1:nθ], v[(nθ + 1):(nθ + nφ)], v[(nθ + nφ + 1):(nθ + nφ + nu)],
-            v[end - 9], s_u, s_save; frac_wrap=v[end - 8], frac_pull=v[end - 7],
-            frac_add=v[end - 6], frac_spritz=v[end - 5], frac_dt_spritz=v[end - 4],
-            m_spritz=v[end - 3], t_salt=v[end - 2], T_wrap_trigger=v[end - 1],
-            frac_dt_add=v[end], kw...,
+            v[end - 10], s_u, s_save; frac_wrap=v[end - 9], frac_pull=v[end - 8],
+            frac_add=v[end - 7], frac_spritz=v[end - 6], frac_dt_spritz=v[end - 5],
+            m_spritz=v[end - 4], t_salt=v[end - 3], frac_dt_add=v[end - 2], frac_load=v[end - 1],
+            T_load=v[end], kw...,
         ),
     )
     return g, v0

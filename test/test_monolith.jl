@@ -60,7 +60,7 @@ end
     utk_half = collect(range(0.0, half; length=length(u_half)))
     utk_full = collect(range(0.0, 2half; length=length(u_full)))
     pit = PitConfig(; T_amb=300.0, m_pan0=1.5, c_duct=60.0)
-    ic = (; Tpit0=300.0, mpan0=1.5, Tpan0=290.0, Tfb0=450.0, LATCH0=0.6)
+    ic = (; Tpit0=300.0, mpan0=1.5, Tpan0=290.0, Tfb0=450.0)
 
     whole = monolith_solve(θ, φ, u_full, utk_full, ts_full; pit, ic...)
     first = monolith_solve(θ, φ, u_half, utk_half, ts_half; pit, ic...)
@@ -71,21 +71,18 @@ end
         T0f=first.T_field[:, end], W0f=first.W_field[:, end],
         C0f=first.C_field[:, end], F0f=first.F_field[:, end],
         Ssalt0f=first.salt_field[:, end], B0=first.bark_b[end],
-        S0=first.bark_s[end], R0=first.ring[end],
-        LATCH0=first.wrap_latch[end], Tpit0=first.Tpit[end],
+        S0=first.bark_s[end], R0=first.ring[end], Tpit0=first.Tpit[end],
         mfuel0=first.m_fuel[end], mpan0=first.m_pan[end],
         Tpan0=first.T_pan[end], Tfb0=first.T_firebox[end],
     )
 
     @test first.m_pan[end] < ic.mpan0
     @test first.T_firebox[end] != ic.Tfb0
-    @test first.wrap_latch[end] ≈ ic.LATCH0 atol=1e-10
     @test second.Tcore[end] ≈ whole.Tcore[end] atol=0.3
     @test second.Tpit[end] ≈ whole.Tpit[end] atol=0.3
     @test second.m_pan[end] ≈ whole.m_pan[end] rtol=2e-3 atol=2e-4
     @test second.T_pan[end] ≈ whole.T_pan[end] atol=0.2
     @test second.T_firebox[end] ≈ whole.T_firebox[end] atol=0.2
-    @test second.wrap_latch[end] ≈ whole.wrap_latch[end] atol=1e-8
 end
 
 @testset "monolith: forward-mode Jacobian vs finite differences" begin
@@ -137,24 +134,24 @@ end
     @test abs(J[end - 1, 5]) > 0  # juiciness at serve moves with the pull
 end
 
-@testset "monolith: planner-exposed decisions (t_salt, wrap trigger, split interval)" begin
+@testset "monolith: planner-exposed decisions (t_salt, split interval)" begin
     using BrisketDynamics: monolith_stack, monolith_stack_jacobian
     θ, φ = MEAT_θ_DEFAULT, PIT_φ_GRAD
     hr = 3600.0
     base = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT)
-    # defaults exactly inert: Inf trigger / config dt_add / zero salt
+    # defaults exactly inert: config dt_add / zero salt
     same = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
-                          T_wrap_trigger=Inf, dt_add=Inf, t_salt=0.0)
+                          dt_add=Inf, t_salt=0.0)
     @test same.Tcore == base.Tcore && same.w_retained == base.w_retained
 
-    # the trigger fires the latch in the MONOLITH: wrap engages near the
-    # crossing and the surface stops drying against the never-wrapped run
+    # a wrap at the planner's time: the surface stops drying against the
+    # never-wrapped run, and the reported fluxes after the wrap are the
+    # surface expressions at the reported state
     trig = monolith_solve(θ, φ, MONO_U, MONO_UTK, MONO_TSAVE; pit=MONO_PIT,
-                          T_wrap_trigger=330.0)
+                          t_wrap=3hr)
     @test trig.w_retained > base.w_retained + 0.005
-    k_latched = findfirst(>(0.9), trig.wrap_latch)
-    @test k_latched !== nothing
-    k = something(k_latched)
+    k = findfirst(>(0.9), trig.wrap_effective)
+    @test k !== nothing
     cfg = MeatConfig()
     alg = BrisketDynamics._pit_algebra(
         MONO_U[1], trig.m_fuel[k], trig.ignited[k], φ[3], φ[5], MONO_PIT, Humidity()
@@ -193,28 +190,26 @@ end
                             t_salt=12hr)
     @test salted.w_retained > base.w_retained
 
-    # the three new stack columns agree with finite differences
+    # the two new stack columns agree with finite differences
     nu = length(MONO_U)
     b = 15 + nu
-    sel = [b + 7, b + 8, b + 9]  # t_salt, T_wrap_trigger, dt_add
+    sel = [b + 7, b + 8]  # t_salt, dt_add
     kw = (; pit=MONO_PIT)
     args = (θ, φ, MONO_U, MONO_UTK, MONO_TSAVE, 1.0e9, 1.0e9, 2hr, 1.0e9, 1800.0, 0.05)
     J = monolith_stack_jacobian(args..., sel;
-                                t_salt=12hr, T_wrap_trigger=330.0, dt_add=1.5hr, kw...)
+                                t_salt=12hr, dt_add=1.5hr, kw...)
     @test all(isfinite, J)
     # t_salt's temperature derivative is ~1e-15 K/s (noise floor for a
     # central difference through the adaptive solver) — its live signal
     # is water retention, so that column is checked on w_retained only
     nrow = 0
     for (k, name, hstep, tol) in
-        ((1, :t_salt, 1800.0, 0.05), (2, :T_wrap_trigger, 0.25, 0.10),
-         (3, :dt_add, 60.0, 0.10))
+        ((1, :t_salt, 1800.0, 0.05), (2, :dt_add, 60.0, 0.10))
         f = x -> monolith_stack(monolith_solve(args[1:5]...; t_add=2hr,
                                                dt_spritz=1800.0, m_spritz=0.05,
                                                t_salt=(name == :t_salt ? x : 12hr),
-                                               T_wrap_trigger=(name == :T_wrap_trigger ? x : 330.0),
                                                dt_add=(name == :dt_add ? x : 1.5hr), kw...))
-        x0 = name == :t_salt ? 12hr : (name == :T_wrap_trigger ? 330.0 : 1.5hr)
+        x0 = name == :t_salt ? 12hr : 1.5hr
         fd = (f(x0 + hstep) .- f(x0 - hstep)) ./ (2hstep)
         nrow = length(fd)
         rows = name == :t_salt ? [nrow - 2] : collect(1:nrow)  # w_retained
@@ -227,7 +222,7 @@ end
     # columns (the eps-aware Dual comparison once sent t_salt = 0 into
     # the sqrt(t) brine singularity and killed the whole Dual solve)
     J0 = monolith_stack_jacobian(args..., sel;
-                                 t_salt=0.0, T_wrap_trigger=Inf, dt_add=Inf, kw...)
+                                 t_salt=0.0, dt_add=Inf, kw...)
     @test all(iszero, J0)
 end
 

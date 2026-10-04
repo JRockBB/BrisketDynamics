@@ -187,6 +187,16 @@ function _slice_eval!(f::SliceObservationFactor, z, y0; jac::Bool)
 end
 _slice_col(f::SliceObservationFactor, t) = t <= f.t0 + 1e-9 ? 0 : findfirst(τ -> abs(τ - t) < 1e-9, f.times)
 
+"A slice reading uses the same latent-dependent ROM correction as a node observation."
+function _slice_observation(model::SystemModel, r::SliceReading, y, z)
+    _validate_rom_use(model.rom, model.blk, z, r.t, r.t)
+    p, _, tk = _point_params(model, z, r.t)
+    pred = r.h(system_from_belief(belief_decode(y, model.bl), model.bl), z, p, tk, r.t)
+    key = model.rom === nothing ? nothing : _rom_key(r.spec.observable)
+    bias = key === nothing ? r.bias : _rom_observation_bias(model.rom, r.spec.observable, key, r.t, z, model.blk)
+    return pred - bias
+end
+
 "The readings' predictions μ and, with `jac`, their Jacobian per variable (a matrix per key in `vars` order)."
 function _slice_predict(f::SliceObservationFactor, vals; jac::Bool=false)
     z, y0, y1, d = _slice_unpack(f, vals)
@@ -202,16 +212,14 @@ function _slice_predict(f::SliceObservationFactor, vals; jac::Bool=false)
         j = _slice_col(f, r.t)
         Φ = j == 0 ? y0 : c.S[:, j]
         y = closed ? Φ .+ f.a[i] .* (y1 .- Φend) : Φ
-        p, _, tk = _point_params(f.model, z, r.t)
-        μ[i] = r.h(system_from_belief(belief_decode(y, bl), bl), z, p, tk, r.t) - r.bias
+        μ[i] = _slice_observation(f.model, r, y, z)
         f.kd0[i] === nothing || (μ[i] += f.αd[i] * d[f.kd0[i]][1])
         f.kd1[i] === nothing || (μ[i] += f.βd[i] * d[f.kd1[i]][1])
         jac || continue
         # ∂h at (y, z): the direct dependence on the latents (p) and on the state
         hw = function (w)
             zz = w[1:nz]; yy = w[(nz + 1):end]
-            pp, _, tkk = _point_params(f.model, zz, r.t)
-            return r.h(system_from_belief(belief_decode(yy, bl), bl), zz, pp, tkk, r.t)
+            return _slice_observation(f.model, r, yy, zz)
         end
         gw = ForwardDiff.gradient(hw, vcat(z, y))
         gz = gw[1:nz]; gy = gw[(nz + 1):end]
@@ -239,7 +247,7 @@ function _ensure_current!(f::SliceObservationFactor, g::FactorGraph)
     c = f.cache
     c === nothing && return nothing
     z, y0, _, _ = _slice_unpack(f, [g.values[k] for k in f.keys])
-    if c.Jy === nothing || c.z != z || c.y0 != y0 || c.jz != z || c.jy0 != y0
+    if c.Jy === nothing || c.jz != z || c.jy0 != y0
         f.cache = (z=c.z, y0=c.y0, S=c.S, jz=nothing, jy0=nothing, Jy=nothing, Jz=nothing)
     end
     return nothing

@@ -1,0 +1,26 @@
+name = "CutVision"
+uuid = "fffa1e8c-680a-4bfe-977f-fc08232af84e"
+authors = ["JRock95"]
+version = "0.1.0"
+
+[deps]
+AprilTags = "f0fec3d5-a81e-5a6a-8c28-d2b34f3659de"
+Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+ImageCore = "a09fc81d-aa75-5fe9-8630-4744c3626534"
+ImageIO = "82e4d734-157c-48bb-816b-45c225c6df19"
+ImageMorphology = "787d08f9-d448-5407-9aad-5290dd7ab264"
+ImageTransformations = "02fcd773-0e25-5acc-982a-7f6622650795"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+ForwardDiff = "1.4.6"
+ImageCore = "0.10.5"
+Random = "1.11.0"

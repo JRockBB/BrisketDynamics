@@ -34,7 +34,8 @@ REPO = Path(__file__).resolve().parents[1]
 N_OPT = 8  # posterior draws in the optimization objective
 N_EVAL = 30  # held-out draws for evaluating both schedules
 # the same cook conditions fullplan plans under
-ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
+# the cook from lighting: the pit at ambient, the meat from the fridge (on at the plan's load)
+ICS = {"tpit0": 300.0, "t_amb": 300.0, "t0_meat": 281.15}
 TOLS = {"abstol": 1e-6, "reltol": 1e-6}
 
 
@@ -156,6 +157,13 @@ def main():
     # decision variables too — does parameter uncertainty hedge them
     # earlier or later than the point-estimate plan's choices?
     cc = ControlConfig(n_iter=args.iters, opt_wrap=True)
+    # the plan's load temperature (each draw's pit reaches it at its own time)
+    T_load_map = float(
+        best.get("best_T_load") or best.get("T_load") or 0.5 * (cc.T_load_min + cc.T_load_max)
+    )
+
+    def z_load(T):
+        return float(logit(np.clip((T - cc.T_load_min) / (cc.T_load_max - cc.T_load_min), 1e-3, 1 - 1e-3)))
 
     print(f"optimizing E[J] over {N_OPT} posterior draws, warm start from plan")
     t_salt = args.t_salt_h * HR
@@ -193,8 +201,10 @@ def main():
             )
         ),
         ics=ICS,
+        z_l_init=z_load(T_load_map),
         callback=lambda i, l, u: print(f"  iter {i:4d}  E[J]={l:9.4f}", flush=True),
     )
+    T_load_rob = float(hist["T_load"])
     t_wrap_rob = hist["t_wrap"]
     t_pull_rob = hist["t_pull"]
     t_add_rob, t_spritz_rob, dt_spritz_rob = (
@@ -206,14 +216,15 @@ def main():
     print(
         f"wrap: plan {t_wrap_map / HR:.2f} h -> "
         f"posterior-expected {t_wrap_rob / HR:.2f} h;  "
-        f"pull: plan {t_pull_map / HR:.2f} h -> {t_pull_rob / HR:.2f} h"
+        f"pull: plan {t_pull_map / HR:.2f} h -> {t_pull_rob / HR:.2f} h;  "
+        f"load at: plan {T_load_map - 273.15:.0f} C -> {T_load_rob - 273.15:.0f} C"
     )
     print(
         f"E[J] {hist['losses'][0]:.3f} -> {hist['losses'][-1]:.3f} "
         f"in {hist['wall_s']:.0f} s"
     )
 
-    def metrics(u, tw, tp, ta, ts, td, tm, th, ph):
+    def metrics(u, tw, tp, ta, ts, td, tm, tl, th, ph):
         # the objective fullplan optimizes, at serve, under the same cook
         # conditions, plus the doneness / juiciness behind it
         j = float(
@@ -233,6 +244,7 @@ def main():
                 dt_spritz=td,
                 spritz_dose=tm,
                 t_salt=t_salt,
+                z_l=jnp.asarray(z_load(tl)),
             )
         )
         out = coupled_cook(
@@ -249,6 +261,7 @@ def main():
             dt_spritz=td,
             spritz_dose=tm,
             t_salt=t_salt,
+            T_load=tl,
         )
         return j, float(out["c_field_final"][0]), float(out["juiciness"])
 
@@ -262,6 +275,7 @@ def main():
             t_spritz_map,
             dt_spritz_map,
             spritz_dose_map,
+            T_load_map,
             th_ev[i],
             ph_ev[i],
         )
@@ -276,6 +290,7 @@ def main():
             t_spritz_rob,
             dt_spritz_rob,
             spritz_dose_rob,
+            T_load_rob,
             th_ev[i],
             ph_ev[i],
         )
@@ -318,6 +333,9 @@ def main():
                 "spritz_dose_plan_gm2": 1e3 * spritz_dose_map,
                 "spritz_dose_robust_gm2": 1e3 * spritz_dose_rob,
                 "cook_h": t_f / HR,
+                "T_load_plan": T_load_map,
+                "T_load_robust": T_load_rob,
+                "t_load_robust_h": float(hist["t_load"]) / HR,
                 "doneness_map_eval": d_map.tolist(),
                 "doneness_robust_eval": d_rob.tolist(),
                 "juiciness_map_eval": j_map.tolist(),
@@ -353,7 +371,7 @@ def main():
         label=f"robust (E[J]={J_rob.mean():.3f}, sd={J_rob.std():.3f})",
     )
     axes[0].set(
-        xlabel=f"quality objective J at serve ({t_f / HR:.0f} h)",
+        xlabel=f"quality objective J at serve ({t_f / HR:.0f} h from lighting)",
         ylabel="posterior draws",
         title=f"the planning objective under parameter uncertainty ({N_EVAL} draws)",
     )
@@ -363,7 +381,7 @@ def main():
         grids.u_tknots / HR, u_rob, where="mid", label="robust (E over posterior)"
     )
     axes[1].set(
-        xlabel="time [h]", ylabel="damper fraction", ylim=(0, 1), title="schedules"
+        xlabel="time from lighting [h]", ylabel="damper fraction", ylim=(0, 1), title="schedules"
     )
     axes[1].legend(fontsize=8)
     fig.tight_layout()

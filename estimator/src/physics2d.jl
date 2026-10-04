@@ -115,7 +115,7 @@ end
 
 # --- the 2-D stack ---------------------------------------------------------------
 
-const THETA2_INDEX = [1, 2, 3, 5, 6, 7]     # θ2 = θ without L (4) and m_conv (8)
+const THETA2_INDEX = [1, 2, 3, 5, 6, 7, 8]  # θ2 = θ without L (4); Hz = 2L
 
 # the axis line of a (nr, nz, nt) field at nx uniform depths from the top
 # face (index nx, depth 0) to the mid-plane (index 1, depth L = Hz/2),
@@ -153,8 +153,8 @@ function _stack_2d(o, R, Hz, nx, cfg)
     Tline = _axis_line(o.T_field, Hz, nx)
     Wline = _axis_line(o.W_field, Hz, nx)
     Tv = eltype(Tline)
-    Fline = fill(Tv(cfg.F0), nx, nt)
-    mass = [RHO_DRY_EST * sum(vol .* meat_mass_factor.(view(o.W_field, :, :, k), cfg.F0, Ref(cfg))) for k in 1:nt]
+    Fline = _axis_line(o.F_field, Hz, nx)
+    mass = [RHO_DRY_EST * sum(vol .* meat_mass_factor.(view(o.W_field, :, :, k), view(o.F_field, :, :, k), Ref(cfg))) for k in 1:nt]
     Tsurf = o.T_field[1, nz, :]
     return vcat(o.Tpit, Tsurf, vec(Tline), vec(Wline), vec(Fline), o.pv_pit, o.m_fuel,
                 zeros(Tv, nt), mass)

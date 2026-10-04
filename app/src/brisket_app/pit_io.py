@@ -182,7 +182,7 @@ class SimPit:
         self.theta = np.asarray(theta, dtype=float)
         self.phi = np.asarray(phi, dtype=float)
         self.t_amb_fn = t_amb_fn
-        self.state = CookState.fresh(t0_meat=t0_meat_K)
+        self.state = CookState.fresh(t0_meat=t0_meat_K, tpit0=293.15, a0=1.0, t_load=-1.0e9)
         self.setpoint_K = float(setpoint_K)
         self.dt_step = float(dt_step)
         self.clock_scale = float(clock_scale)

@@ -18,6 +18,10 @@ The physics itself: the model diagrams, the bark model's forward validation, a f
 
 The real-cook calibration and its posterior: the MAP fit, the NUTS and Laplace corners and predictives, the width comparison, the pooled cooks, the wrap step response, the water budget.
 
+The MAP and Laplace figures include the documented preheat and start from
+lighting. The NUTS, TMB and width-comparison figures retain the earlier
+meat-on fit; their from-lighting port is tracked in `docs/roadmap.md` C0.
+
 | figure | written by | discussed in |
 |---|---|---|
 | `cooklog_fit_map.png` | `scripts/run_gn_map.py` | `README.md`, `docs/writeup.md`, `docs/submission.md` |
@@ -98,3 +102,31 @@ The 2-D axisymmetric line: the planned cook re-simulated in 2-D, its fields, sal
 | `slab2d_plan.png` | `scripts/plot_slab2d.py` | `README.md`, `docs/review.md` |
 | `slab2d_fields.png`, `slab2d_salt_bark.png` | `scripts/plot_slab2d.py` | the 2-D figure set's own output |
 | `cook2d.gif`, `salt2d.gif` | `scripts/plot_slab2d.py` | the 2-D figure set's own output |
+
+## shadow3d/
+
+The 3-D line: the planned cook re-simulated to serve on a trimmed brisket flat (`BrisketFlat3D`, typical trimmed
+dimensions, tapering from the thick end to the thin end with a fat cap on top, half the cut solved across its width),
+its lengthwise centre section and the bark, smoke and ring over the top face.
+
+| figure | written by | discussed in |
+|---|---|---|
+| `shadow3d_plan.png` | `scripts/plot_shadow3d.py` | `README.md`, `docs/results.md` |
+| `shadow3d_fields.png`, `shadow3d_surface.png` | `scripts/plot_shadow3d.py` | `docs/results.md` |
+| `shadow3d_cutaway.png` | `scripts/render_shadow3d.py` (the flat in 3-D cut lengthwise through its centre: temperature and moisture at 2 h, the wrap and serve, the cold spot marked) | `README.md`, `docs/results.md` |
+| `shadow3d_brisket.png` | `scripts/render_shadow3d.py` (the flat at serve, whole and cut lengthwise: the surface by the model's L*, the fat cap, the smoke ring at its modelled depth) | `README.md`, `docs/results.md` |
+| `shadow3d_cook.gif` | `scripts/render_shadow3d.py` (the temperature cutaway through the cook, the camera turning) | `README.md` |
+
+A reconstructed cut's figures go to `shadow3d/<name>/` (`scripts/plot_shape3d.py --shape <name>`). Two are here, both
+reconstructed from synthetic photos (`tools/cutvision/test/synth.jl`): `synthetic_flat_cap6`, the typical trimmed flat
+with its 6 mm cap given (the end-to-end check against `BrisketFlat3D`), and `synthetic_packer`, a packer brisket
+(irregular outline, rounded edges, the point mounded on the flat). Each has the figures below; the packer also has the two animations.
+
+| figure | written by | discussed in |
+|---|---|---|
+| `synthetic_flat_cap6/shape3d_plan.png` | `scripts/plot_shape3d.py` (the pit, the deepest point and the cold spot; bark and smoke; mass) | `docs/results.md` |
+| `synthetic_flat_cap6/shape3d_sections.png` | `scripts/plot_shape3d.py` (temperature and moisture on the two sections through the deepest point at 2 h, the wrap and serve) | `docs/results.md` |
+| `synthetic_flat_cap6/shape3d_cut.png` | `scripts/plot_shape3d.py` (the cut at serve in 3-D on the simulation's cells: its surface by L*, and cut through the deepest point by temperature) | `docs/results.md` |
+| `synthetic_flat_cap6/shape3d_smooth.png` | `scripts/plot_shape3d.py` (the same drawn on the smooth surface the exposed areas come from, the section's temperature interpolated within the reconstruction's outline) | `README.md`, `docs/results.md` |
+| `synthetic_packer/shape3d_cook.gif` | `scripts/plot_shape3d.py` (the cook in 3-D: the packer halved through its deepest point, surface and section by temperature on one scale, the camera turning) | `README.md` |
+| `synthetic_packer/shape3d_slice.gif` | `scripts/plot_shape3d.py` (the slice down the middle through the cook: temperature and moisture, the cook's temperatures below with the time marked) | `README.md` |

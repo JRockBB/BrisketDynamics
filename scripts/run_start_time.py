@@ -34,12 +34,13 @@ from brisket_app.coupled import HR, coupled_cook_tf
 
 REPO = Path(__file__).resolve().parents[1]
 # the same cook conditions fullplan and the robust hedge plan under
-ICS = {"tpit0": 293.15, "t_amb": 300.0, "t0_meat": 281.15}
+# the cook from lighting: the pit at ambient, the meat from the fridge (on at the plan's load)
+ICS = {"tpit0": 300.0, "t_amb": 300.0, "t0_meat": 281.15}
 
 
-def _draws(cal: Path, n: int, seed: int):
-    """N posterior (theta, phi) draws from the supported chain's samples."""
-    s = dict(np.load(cal / "tmb_ignition_samples_real.npz"))
+def _draws(cal: Path, n: int, seed: int, samples: str = "laplace_samples_real.npz"):
+    """N posterior (theta, phi) draws from a sample file under data/calibration."""
+    s = dict(np.load(cal / samples))
     n_total = len(np.asarray(s["a0"]).reshape(-1))
     rng = np.random.default_rng(seed)
     idx = rng.choice(n_total, size=min(n, n_total), replace=False)
@@ -57,6 +58,11 @@ def main():
     ap.add_argument("--draws", type=int, default=30)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--p-target", type=float, default=0.9)
+    ap.add_argument(
+        "--samples",
+        default="laplace_samples_real.npz",
+        help="posterior sample file under data/calibration (the real cook from lighting)",
+    )
     ap.add_argument(
         "--c-serveable",
         type=float,
@@ -95,19 +101,22 @@ def main():
         fp = float(rb["t_pull_robust_h"]) / t_star
         u = jnp.asarray(rb["u_robust"])
         s_u = np.linspace(0.0, 1.0, len(rb["u_robust"]))
+        T_load = float(rb["T_load_robust"])
     else:
         plan = json.loads((ctl / "duration_opt.json").read_text())
         t_star = plan["t_f_h"]
         fw, fp = plan["frac_wrap"], plan["frac_pull"]
         u = jnp.asarray(plan["u"])
         s_u = np.asarray(plan["s_u"])
+        T_load = float(plan["T_load"])
     s_save = np.linspace(0.0, 1.0, 67)
-    thetas, phis = _draws(cal, args.draws, args.seed)
+    thetas, phis = _draws(cal, args.draws, args.seed, args.samples)
     tx = monolith_client()
     print(
-        f"{args.plan} plan: t*={t_star:.2f} h, wrap {fw:.3f}, pull {fp:.3f} "
+        f"{args.plan} plan: t*={t_star:.2f} h from lighting, meat on at a pit of "
+        f"{T_load - 273.15:.0f} C, wrap {fw:.3f}, pull {fp:.3f} "
         f"(fractions held while extending); {len(thetas)} posterior draws "
-        f"(TMB chain), done = C_core >= {args.c_serveable}, "
+        f"({args.samples}), done = C_core >= {args.c_serveable}, "
         f"target P >= {args.p_target}",
         flush=True,
     )
@@ -119,29 +128,29 @@ def main():
         if key in cache:
             return cache[key]
         t0 = time.perf_counter()
-        c = np.array(
-            [
-                float(
-                    np.asarray(
-                        coupled_cook_tf(
-                            jnp.asarray(th),
-                            jnp.asarray(ph),
-                            u,
-                            t_h * HR,
-                            tx,
-                            s_u,
-                            s_save,
-                            frac_wrap=fw,
-                            frac_pull=fp,
-                            ics=ICS,
-                        )["c_field_final"]
-                    )[0]
-                )
-                for th, ph in zip(thetas, phis, strict=True)
-            ]
-        )
+        sims = [
+            coupled_cook_tf(
+                jnp.asarray(th),
+                jnp.asarray(ph),
+                u,
+                t_h * HR,
+                tx,
+                s_u,
+                s_save,
+                frac_wrap=fw,
+                frac_pull=fp,
+                ics=ICS,
+                T_load=T_load,
+            )
+            for th, ph in zip(thetas, phis, strict=True)
+        ]
+        c = np.array([float(np.asarray(sm["c_field_final"])[0]) for sm in sims])
+        t_on = np.array([float(sm["t_load_used"]) / HR for sm in sims])
         rec = {
             "t_h": t_h,
+            "t_load_med_h": float(np.median(t_on)),
+            "t_load_p5_h": float(np.percentile(t_on, 5)),
+            "t_load_p95_h": float(np.percentile(t_on, 95)),
             "p": float(np.mean(c >= args.c_serveable)),
             "c_p5": float(np.percentile(c, 5)),
             "c_med": float(np.median(c)),
@@ -195,7 +204,14 @@ def main():
             serve += timedelta(days=1)
         start = serve - timedelta(hours=t_plan)
         serve_at, start_at = serve.isoformat(" ")[:16], start.isoformat(" ")[:16]
-        print(f"serve at {serve_at} -> light the fire at {start_at}", flush=True)
+        on = cache[round(t_plan, 3)]
+        meat_at = (start + timedelta(hours=on["t_load_med_h"])).isoformat(" ")[:16]
+        print(
+            f"serve at {serve_at} -> light the fire at {start_at}; the meat goes on when "
+            f"the pit reaches {T_load - 273.15:.0f} C (median {meat_at}, "
+            f"{on['t_load_p5_h']:.2f}-{on['t_load_p95_h']:.2f} h after lighting)",
+            flush=True,
+        )
 
     records = sorted(cache.values(), key=lambda r: r["t_h"])
     out = {
@@ -206,11 +222,12 @@ def main():
         "p_target": args.p_target,
         "c_serveable": args.c_serveable,
         "n_draws": len(thetas),
-        "draw_source": "tmb_ignition_samples_real.npz",
+        "draw_source": args.samples,
         "frac_wrap": fw,
         "frac_pull": fp,
         "serve_at": serve_at,
         "light_fire_at": start_at,
+        "T_load": T_load,
         "records": records,
     }
     tag = "" if args.plan == "nominal" else f"_{args.plan}"
@@ -239,34 +256,50 @@ def _figure(out: dict, repo: Path, tag: str = ""):
     ax.plot(th, [x["p"] for x in r], "o-", color="tab:blue", ms=4)
     ax.axhline(out["p_target"], color="tab:red", lw=1.0, ls="--")
     ax.text(
-        th[-1], out["p_target"] + 0.015, f"target {out['p_target']:.2f}",
-        ha="right", fontsize=8, color="tab:red",
+        0.25, out["p_target"] - 0.008, f"target {out['p_target']:.2f}",
+        transform=ax.get_yaxis_transform(), ha="center", va="top", fontsize=8, color="tab:red",
     )
     ax.set_ylabel(f"P(C_core ≥ {out['c_serveable']:.2f} at serve)")
-    ax2.fill_between(
-        th, [x["c_p5"] for x in r], [x["c_p95"] for x in r],
-        alpha=0.25, color="tab:blue", label="doneness p5–p95",
-    )
-    ax2.plot(th, [x["c_med"] for x in r], "-", color="tab:blue", label="median")
+    ps = [x["p"] for x in r]
+    ax.set_ylim(min(min(ps), out["p_target"]) - 0.05, min(1.02, max(max(ps), out["p_target"]) + 0.03))
+    if len(r) > 1:
+        ax2.fill_between(
+            th, [x["c_p5"] for x in r], [x["c_p95"] for x in r],
+            alpha=0.25, color="tab:blue", label="doneness p5–p95",
+        )
+        ax2.plot(th, [x["c_med"] for x in r], "-", color="tab:blue", label="median")
+    else:  # the plan needs no margin: one duration, its spread as an error bar
+        x0 = r[0]
+        ax2.errorbar(th, [x0["c_med"]], yerr=[[x0["c_med"] - x0["c_p5"]], [x0["c_p95"] - x0["c_med"]]],
+                     fmt="o", color="tab:blue", capsize=4, label="median, p5–p95")
+        ax2.set_xlim(th[0] - 0.5, th[0] + 0.5)
+        lo = min(x0["c_p5"], out["c_serveable"])
+        ax2.set_ylim(lo - 0.03, 1.02)
     ax2.axhline(out["c_serveable"], color="tab:red", lw=1.0, ls="--")
-    ax2.set(xlabel="cook duration, fractions held [h]", ylabel="doneness C_core")
+    ax2.set(xlabel="lighting to serve, fractions held [h]", ylabel="doneness C_core")
     ax2.legend(fontsize=8, loc="lower right")
     for a in (ax, ax2):
         a.axvline(out["t_star_h"], color="0.5", lw=1.0)
         a.axvline(out["t_plan_h"], color="tab:orange", lw=1.4)
         a.grid(alpha=0.3)
-    ax.text(out["t_star_h"], 0.02, " t* (quality)", fontsize=8, color="0.4",
-            transform=ax.get_xaxis_transform())
-    ax.text(out["t_plan_h"], 0.02, " planned", fontsize=8, color="tab:orange",
-            transform=ax.get_xaxis_transform())
+    if out["margin_h"] > 1e-9:
+        ax.text(out["t_star_h"], 0.92, " t* (quality)", fontsize=8, color="0.4",
+                transform=ax.get_xaxis_transform())
+        ax.text(out["t_plan_h"], 0.02, " planned", fontsize=8, color="tab:orange",
+                transform=ax.get_xaxis_transform())
+    else:
+        ax.text(out["t_plan_h"], 0.02, "   t* = planned (no margin needed)", fontsize=8, color="tab:orange",
+                transform=ax.get_xaxis_transform())
     ax.set_title(
         f"One-sided margin: planned {out['t_plan_h']:.2f} h = "
         f"t* {out['t_star_h']:.2f} h + {out['margin_h']:.2f} h",
         fontsize=11,
     )
+    one = len(r) == 1  # one duration: the plan's line sits mid-axis, the note goes top left
     ax.text(
-        0.985, 0.06, f"{out['n_draws']} posterior draws (TMB chain)",
-        transform=ax.transAxes, ha="right", fontsize=8, color="0.4",
+        0.02 if one else 0.62, 0.92 if one else 0.06,
+        f"{out['n_draws']} posterior draws ({out.get('draw_source', 'posterior')})",
+        transform=ax.transAxes, ha="left" if one else "right", fontsize=8, color="0.4",
     )
     fig.tight_layout()
     fig.savefig(repo / "figures" / "control" / f"start_time{tag}.png", dpi=140)
@@ -298,11 +331,11 @@ def _compare_figure(nominal: dict, robust: dict, repo: Path):
         ax.axvline(out["t_plan_h"], color=color, lw=1.1, alpha=0.5)
     ax.axhline(nominal["p_target"], color="tab:red", lw=1.0, ls="--")
     ax.text(
-        0.985, nominal["p_target"] + 0.012, f"target {nominal['p_target']:.2f}",
-        transform=ax.get_yaxis_transform(), ha="right", fontsize=8, color="tab:red",
+        0.5, nominal["p_target"] - 0.008, f"target {nominal['p_target']:.2f}",
+        transform=ax.get_yaxis_transform(), ha="center", va="top", fontsize=8, color="tab:red",
     )
     ax.set(
-        xlabel="cook duration, fractions held [h]",
+        xlabel="lighting to serve, fractions held [h]",
         ylabel=f"P(C_core ≥ {nominal['c_serveable']:.2f} at serve)",
         title="Buying assurance: stretch the nominal plan, or hedge the schedule",
     )

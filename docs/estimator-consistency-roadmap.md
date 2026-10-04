@@ -131,10 +131,15 @@ step, manifest and statistic is Julia. The Python plot scripts remain figure ren
 - The scripts: `estimator/scripts/train_rom_bench.jl` (the artifact on prior draws over the mock's schedule in two
   regimes, held-out draws in those and a third, raw against corrected, the gate printed) and
   `estimator/scripts/coverage_system_rom.jl` (the bench worker under the artifact, `bench_system.jl --worker rom`).
-- Keep the current ROM out of production: core and mass correction have negative held-out skill.
-- Expand the latent, control and event design, use a regime-aware or cross-validated error model, enforce runtime
-  regime envelopes, and earn ROM-specific `StateNoise` on the same bench with the artifact attached (the plant the
-  full-order piece, the estimator the slab with the artifact).
+- Done 2026-10-01: the covering design (a Latin hypercube over every latent's 0.1 %–99.9 % prior quantiles, so the
+  runtime envelope is the prior's bulk), the cross-validated error model (a ridge regression of the reduction error
+  on the latents per time point, its weight by leave-one-design-draw-out cross-validation, its spread the
+  cross-validated residual's; read at the current latents by the observation factors, the dynamics correction
+  and the planner), positive held-out skill on every output in both trained regimes and the untrained one
+  (`data/calibration/rom_halfbrick_flat.json`; `docs/results.md`).
+- Still to do: earn ROM-specific `StateNoise` on the same bench with the artifact attached (the plant the
+  full-order piece, the estimator the slab with the artifact); the chamber vapor's spread is narrow (85–88 %
+  within 2 sd against 95 %).
 - Require corrected held-out RMSE to beat the raw ROM error on the safety and quality outputs, calibrated spread,
   and artifact-backed assimilation and planning that pass the same gates as section 3.
 
