@@ -1105,16 +1105,18 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         end
         function try_step(α)
             base = α .* δ
-            xn = x .+ base
+            # This must be local to the trial: a rejected expansion must not
+            # overwrite the outer solver's accepted xn through a closure.
+            trial_x = x .+ base
             if curved
-                xn = try _retract_dynamics(xn, offsets, transport) catch err
+                trial_x = try _retract_dynamics(trial_x, offsets, transport) catch err
                     err isa InterruptException && rethrow()
                     return Inf
                 end
                 fraction = min(α, 1.0)
-                _within_step_bounds(xn .- x, offsets, fraction * max_step, Dict(k => fraction * b for (k,b) in step_bounds); origin=x) || return Inf
+                _within_step_bounds(trial_x .- x, offsets, fraction * max_step, Dict(k => fraction * b for (k,b) in step_bounds); origin=x) || return Inf
             end
-            best = (F=try_point(xn), x=xn, soc=0, bounded=bounded)
+            best = (F=try_point(trial_x), x=trial_x, soc=0, bounded=bounded)
             disp = base
             # The correction is a new COMPLETE damped displacement, not an increment with its own
             # damping penalty. At a trial displacement d with residual r(d), the fixed-J model referred
