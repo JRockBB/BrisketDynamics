@@ -78,10 +78,10 @@ const ONLINE_ODE_RESOLUTION_GTOL = 5e-4
 # complete line searches could not leave, whose undamped step at an exact relinearization is under this many posterior sds,
 # is accepted (2026-09-26: the smoother lost one arrival in thirty at a diagonal read of 5e-4 with the joint step at 1e-4 sd)
 const ONLINE_NEWTON_TOL = 1e-2
-# A fresh joint posterior-distance certificate avoids polishing adaptive-ODE
-# noise after the estimate is already accurate. This target is ten times
-# tighter than the existing marginal-SD exception, and includes correlations.
-const ONLINE_JOINT_TOL = 1e-3
+# The fresh joint certificate uses the caller's same posterior-accuracy budget.
+# A hidden 1e-3 cap spent 18 iterations approaching the integration noise floor
+# despite the declared 1e-2 budget. The joint norm includes correlations and
+# bounds every linear contrast's local displacement in its posterior SD.
 # the doublings an accepted full step may take when it beat the model (gauss_newton!'s `expand`): the two-probe control's
 # seed 3012 (2026-09-30) crawled its 80 iterations at gain 2 along the probe depths' valley and was refused
 const ONLINE_EXPAND = Ref(4)
@@ -951,7 +951,7 @@ function solve_window!(sm::FixedLagSmoother; verbose::Bool=false, newton_tol::Fl
                            resolution_gtol, newton_tol=attempt == sm.restarts + 1 ? posterior_resolution : 0.0,
                            restart_newton_tol=attempt < sm.restarts + 1 ? posterior_resolution : 0.0,
                            step_bounds=bounds, stationarity_scales, expand=ONLINE_EXPAND[], retract_dynamics=true,
-                           joint_tol=min(posterior_resolution, ONLINE_JOINT_TOL))
+                           joint_tol=posterior_resolution)
         append!(all_hist, (merge(h, (attempt=attempt,)) for h in rc.hist))
         r = rc
         rc.converged && break
@@ -1244,7 +1244,7 @@ Readings into the window, the window solved, the old nodes marginalized: one arr
 own committed step; the record returned is the last one's, with the batch's readings, its summed NIS and degrees of
 freedom, its standardized innovations and its whole wall time. A chunk that does not commit ends the batch there (the
 earlier chunks stay committed) and its record is returned.
-A fresh joint Gauss--Newton posterior distance below `min(newton_tol, 0.001)`
+A fresh joint Gauss--Newton posterior distance below `newton_tol`
 also establishes numerical convergence. This accounts for correlations across
 all graph coordinates. `newton_tol` additionally bounds the largest marginal-SD
 step when three stalled trials invoke the numerical-resolution exception.

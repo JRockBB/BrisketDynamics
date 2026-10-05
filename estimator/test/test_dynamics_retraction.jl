@@ -58,6 +58,25 @@ end
     @test strict.model === model
     @test strict.model.floor_abstol == model.floor_abstol && strict.model.floor_reltol == model.floor_reltol
     @test E._online_resolution_gtol(strict) ≈ 0.01 * E._online_resolution_gtol(sm)
+    # The online API honors the caller's accuracy budget, including disabling
+    # it and requesting a tighter bound. No hidden stricter cap adds work.
+    @test solve_window!(sm).joint_tol == E.ONLINE_NEWTON_TOL
+    for budget in (0., 1e-4, 1e-2, 2e-2)
+        @test solve_window!(sm;newton_tol=budget).joint_tol == budget
+    end
+    # A linear pit reading requests exactly 0.005 joint posterior SD of motion.
+    # The default budget may retain the mean; a strict caller must update it.
+    probe=deepcopy(sm)
+    pit_mean,pit_sd=belief_at(probe).T_pit
+    target_shift=0.005sqrt((pit_sd^2+1)/pit_sd^2)
+    add_measurement!(probe,MeasurementRecord(:pit,0.,pit_mean+target_shift))
+    loose,tight=deepcopy(probe),deepcopy(probe)
+    loose_result=solve_window!(loose)
+    tight_result=solve_window!(tight;newton_tol=1e-4)
+    @test loose_result.converged && loose_result.gradient > loose.tol
+    @test loose_result.newton_joint_sd ≈ 0.005 atol=1e-7
+    @test loose.graph.values == probe.graph.values
+    @test tight_result.converged && abs(belief_at(tight).T_pit[1]-pit_mean)>1e-6
     E._node_at!(sm, 90.); E._node_at!(sm, 180.)
     g=sm.graph
     E._ensure_current_dynamics!(g)
