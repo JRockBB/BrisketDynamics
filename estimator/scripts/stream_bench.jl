@@ -286,22 +286,33 @@ for c in 1:n_cooks
         assimilation_wall = time() - assimilation_start
         processing_finish = processing_start + (PACE > 0 ? PACE * assimilation_wall : 0.0)
         PACE > 0 && (clock = processing_finish)
-        k = kof[r.t]
-        zt = truth_at(z0, dd, r.t, events.t_add); ez = r.z .- zt
+        # Score the belief at ITS OWN time: `t_belief` is the record's propagation target (the arrival in an
+        # open slice, the newest node otherwise — on an uncommitted update the pre-arrival node). Scoring at
+        # the arrival time mislabelled delayed and uncommitted updates by up to a slice. An event node's time
+        # is not a reading time; it takes the nearest truth sample.
+        tb = get(r, :t_belief, r.t)
+        k = haskey(kof, tb) ? kof[tb] : argmin(abs.(o.t .- tb))
+        zt = truth_at(z0, dd, tb, events.t_add); ez = r.z .- zt
+        # every reading's standardized innovation per sensor (the full batch, not the last per sensor)
+        innov_lists = Dict{String,Vector{Float64}}()
+        for rr in get(r, :innov_rows, NamedTuple[])
+            push!(get!(innov_lists, string(findfirst(==(rr.sensor), SENSOR_IDS)), Float64[]), rr.std)
+        end
         _, y_true = truth_belief(o, k)
         eT = [r.T_pit[1] - o.Tpit[k], r.pieces[PIECE].T_centre[1] - o.Tcore[k], r.pieces[PIECE].T_surface[1] - o.Tsurf[k]]
-        push!(temps, Dict("t_h" => r.t / 3600, "k" => k, "n_readings" => length(batch), "committed" => r.committed, "updated" => r.committed,
+        push!(temps, Dict("t_h" => r.t / 3600, "t_belief_h" => tb / 3600, "k" => k, "n_readings" => length(batch), "committed" => r.committed, "updated" => r.committed,
             "arrivals" => [Dict("sensor" => string(rec.sensor), "t_s" => rec.t) for rec in batch],
             "processing_start_s" => processing_start, "processing_finish_s" => processing_finish,
             "oldest_reading_latency_s" => processing_finish - first(batch).t,
             "newest_reading_latency_s" => processing_finish - last(batch).t,
             "nodes_added" => sm.node_count - nodes_before,
             "n_censored" => count(rec -> E.censored_at(sensor(model.log, rec.sensor), rec), batch),
+            "n_retry_queued" => length(sm.retry), "n_dropped_total" => sm.n_dropped,
             "z" => copy(r.z), "z_sd" => sqrt.(max.(diag(r.z_cov), 0.0)), "z_true" => zt,
             "nees_g" => group_nees(r.y .- y_true, r.y_cov),
             "pit" => [r.T_pit[1], r.T_pit[2], o.Tpit[k]], "centre" => [r.pieces[PIECE].T_centre[1], r.pieces[PIECE].T_centre[2], o.Tcore[k]],
             "surface" => [r.pieces[PIECE].T_surface[1], r.pieces[PIECE].T_surface[2], o.Tsurf[k]],
-            "nis" => r.nis, "dof" => r.dof, "innov" => Dict(string(findfirst(==(id), SENSOR_IDS)) => [v] for (id, v) in r.innov_std),
+            "nis" => r.nis, "dof" => r.dof, "innov" => innov_lists,
             "innovation_whitened" => [Dict("t" => w.t, "sensor" => string(w.sensor), "value" => w.value) for w in r.innovation_whitened],
             "nees_z" => nees(ez, r.z_cov), "nees_z16" => nees(ez[keep16], r.z_cov[keep16, keep16]), "nees_T" => nees(eT, r.x_cov[[ip, ic, is], [ip, ic, is]]),
             "wall_s" => assimilation_wall, "iters" => r.iters, "attempts" => r.attempts, "gradient" => r.gradient,

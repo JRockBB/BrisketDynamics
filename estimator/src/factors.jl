@@ -909,6 +909,8 @@ function _geodesic_search_data(g, x, d, J, r, offsets, transport)
         all(isfinite, a) && isfinite(ratio) || return fallback
         return a, ratio
     catch err
+        # Any probe error falls back to the plain step: the fallback skips acceleration and cannot
+        # change the problem (test_geodesic_search pins this), unlike a swallowed line-search trial.
         err isa InterruptException && rethrow()
         return fallback
     end
@@ -1104,6 +1106,17 @@ only prompt the check; acceptance always uses fresh derivatives. The returned
 component displacement divided by its marginal SD. This is a local Gaussian
 accuracy criterion; the original nonlinear objective still governs the search.
 """
+# A trial point may fail legitimately only through what it evaluates: a trajectory the integrator cannot
+# carry (the system solve's own failure), a coordinate boundary (DomainError), or the factorization of a
+# trial-dependent matrix (Singular/PosDef). Those score Inf and the line search moves on. Anything else is
+# a defect in the code, not in the trial, and must surface instead of masquerading as a failed step that
+# escalates damping. Threaded jacobian chunks arrive wrapped; classify what they carry.
+function _trial_failure(err)
+    err isa CompositeException && return !isempty(err.exceptions) && all(_trial_failure, err.exceptions)
+    err isa TaskFailedException && return _trial_failure(err.task.exception)
+    return (err isa ErrorException && startswith(err.msg, "system solve failed")) ||
+           err isa DomainError || err isa SingularException || err isa PosDefException
+end
 function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::Float64=1e-8, gtol::Float64=tol,
                        resolution_gtol::Float64=2gtol, newton_tol::Float64=0.0, restart_newton_tol::Float64=0.0,
                        joint_tol::Float64=0.0,
@@ -1164,7 +1177,7 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         cand = Ref((F=Inf, x=x, soc=0, bounded=bounded))
         function try_point(xn)
             for k in order; g.values[k] .= xn[offsets[k]]; end
-            return try _objective_at(g, xn, offsets) catch err; err isa InterruptException ? rethrow() : Inf end
+            return try _objective_at(g, xn, offsets) catch err; _trial_failure(err) || rethrow(); Inf end
         end
         function try_step(α)
             α * curvature_ratio <= 0.75 || return Inf
@@ -1174,7 +1187,7 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             trial_x = x .+ base
             if curved
                 trial_x = try _retract_dynamics(trial_x, offsets, transport) catch err
-                    err isa InterruptException && rethrow()
+                    _trial_failure(err) || rethrow()
                     return Inf
                 end
                 # These are bounds on the actual endpoint. Multiplying them
@@ -1193,7 +1206,7 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             trial_bounds = Dict(k => α * b for (k, b) in step_bounds)
             for sc in 1:(curved ? 0 : soc)
                 isfinite(best.F) || break
-                rn = try _residuals_at(g, best.x, offsets) catch err; err isa InterruptException ? rethrow() : nothing end
+                rn = try _residuals_at(g, best.x, offsets) catch err; _trial_failure(err) || rethrow(); nothing end
                 rn === nothing && break
                 dtry = _ls_step(J, rn .- J * disp, λ)
                 corrected_bounded = _limit_step!(dtry, offsets, trial_max_step, trial_bounds)

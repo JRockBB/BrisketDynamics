@@ -159,6 +159,9 @@ mutable struct FixedLagSmoother
     hist_vals::Dict{VarKey,Vector{Float64}}                 # the marginalized variables' values when they left
     z_prior_lin::Vector{Float64}                            # the latents (the graph's static block) the marginal prior was last built at
     n_prior_relin::Int                                      # how many times the prior was rebuilt
+    seen::Dict{Tuple{Symbol,Float64},Float64}               # committed readings (sensor, time) -> value: the duplicate policy's memory, pruned as the window moves
+    retry::Vector{Tuple{MeasurementRecord,Int}}             # readings whose solve did not commit, with the attempts spent: re-attempted on the next arrival
+    n_dropped::Int                                          # readings given up on: a conflicting duplicate, retries exhausted, or fallen behind the window
 end
 key_params(sm::FixedLagSmoother) = sm.key_z
 key_node(sm::FixedLagSmoother, k::Int) = VarKey(:state, sm.cook, k)
@@ -307,7 +310,8 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                             attach, Dict{VarKey,SliceObservationFactor}(), Dict{VarKey,Vector{MeasurementRecord}}(),
                             Dict{Tuple{Symbol,Float64},Vector{Float64}}(), node_ratio, max_slice_s, Dict{Tuple{Symbol,Float64},SliceReading}(),
                             max(lag_max, lag), settle_tol, Float64[], Dict{VarKey,Vector{Float64}}(),
-                            prior_relin, Factor[], Dict{VarKey,Vector{Float64}}(), Float64[], 0)
+                            prior_relin, Factor[], Dict{VarKey,Vector{Float64}}(), Float64[], 0,
+                            Dict{Tuple{Symbol,Float64},Float64}(), Tuple{MeasurementRecord,Int}[], 0)
 end
 
 "Append one diagnostic to the bounded in-memory ring."
@@ -821,7 +825,7 @@ function _predicted_consistency_slice(sm::FixedLagSmoother, added::Vector{Tuple{
     S = Matrix(Symmetric(H * C * H' + Rn))
     sdev = sqrt.(max.(diag(S), 1e-300))
     white = _whitened_innovations(ν, S, ids, times)
-    return (nis=isempty(ν) ? NaN : sum(abs2(r.value) for r in white), dof=length(ν), nu=ν, sdev=sdev, ids=ids, white=white)
+    return (nis=isempty(ν) ? NaN : sum(abs2(r.value) for r in white), dof=length(ν), nu=ν, sdev=sdev, ids=ids, times=times, white=white)
 end
 
 """
@@ -856,8 +860,11 @@ function belief_now(sm::FixedLagSmoother, t::Float64)
         Jy = J[:, 1:ny]; Jz = J[:, (ny + 1):end]
     end
     Q1 = belief_process_cov(bl, sm.model.sn, 1.0)
-    D = inv.(max.(belief_decode_jacobian(Φ, bl), eps(Float64)))              # physical to coordinates at Φ
     τt = (t - tn) / 3600
+    # the filter's own coordinate map (`belief_cov_to_coord`'s capped factors): the raw decode Jacobian
+    # inverts to ~1e8 next to a physical boundary (ignited ≈ 1, an empty pan), and an uncapped D·Q1·D'
+    # swamped the reported covariance there (group NEES near zero)
+    D = belief_coord_factors(Q1 .* max(τt, 0.0), Φ, bl)
     kτ = [min(τt, (r.t - tn) / 3600) for r in f.readings]
     Cwε = (D .* (Q1 * f.G')) .* kτ'                                          # Cov(w_t in coordinates, ε)
     K = Cwε / Symmetric(f.Σ)
@@ -1241,9 +1248,15 @@ end
 
 Readings into the window, the window solved, the old nodes marginalized: one arrival step (`_assimilate_one!`). Under
 `attach = :slice` a batch that crosses several nodes is taken a node's worth at a time (`_slice_chunks`): each chunk its
-own committed step; the record returned is the last one's, with the batch's readings, its summed NIS and degrees of
-freedom, its standardized innovations and its whole wall time. A chunk that does not commit ends the batch there (the
-earlier chunks stay committed) and its record is returned.
+own committed step. Every chunk is attempted: one that does not commit leaves no trace in the graph and its readings
+join the retry queue, re-attempted on the next arrival up to `RETRY_MAX` times before they are given up on
+(`sm.n_dropped`); the ALS accumulator requires strictly increasing arrivals, so under ALS they are dropped and counted
+instead. The record returned is the last chunk's, with the batch's readings, its summed NIS and degrees of freedom,
+every reading's standardized innovation (`innov_rows`), the per-sensor dicts (the last per sensor), its whole wall time
+and `committed` true only when every chunk committed. A duplicate of an assimilated reading with the same value is
+ignored; one at the same (sensor, time) with a different value is dropped with a warning — the first reading stays. A
+batch of nothing but repeats raises an `ArgumentError`. On a thrown exception the current chunk rolls back and the
+batch's remaining readings are not queued.
 A fresh joint Gauss--Newton posterior distance below `newton_tol`
 also establishes numerical convergence. This accounts for correlations across
 all graph coordinates. `newton_tol` additionally bounds the largest marginal-SD
@@ -1253,27 +1266,110 @@ These bounds are independent of coordinate `tol`. Both use fresh derivatives.
 """
 function assimilate!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; verbose::Bool=false, newton_tol::Float64=ONLINE_NEWTON_TOL)
     isfinite(newton_tol) && newton_tol >= 0 || throw(ArgumentError("newton_tol must be finite and non-negative"))
-    sm.attach === :slice || return _assimilate_one!(sm, recs; verbose, newton_tol)
     isempty(recs) && throw(ArgumentError("nothing to assimilate"))
-    chunks = _slice_chunks(sm, recs)
-    length(chunks) == 1 && return _assimilate_one!(sm, recs; verbose, newton_tol)
-    t0 = time(); nis = 0.0; dof = 0; innov_std = Dict{Symbol,Float64}(); white = NamedTuple[]; last = nothing
+    batch = _apply_duplicate_policy!(sm, recs)
+    pending = _drain_retries!(sm, batch)
+    isempty(batch) && throw(ArgumentError("nothing to assimilate: the batch repeats readings already assimilated"))
+    chunks = sm.attach === :slice ? _slice_chunks(sm, batch) : [batch]
+    t0 = time()
+    nis = 0.0; dof = 0; innov = Dict{Symbol,Float64}(); innov_std = Dict{Symbol,Float64}()
+    rows = NamedTuple[]; white = NamedTuple[]; last = nothing; all_committed = true
     for ch in chunks
         r = _assimilate_one!(sm, ch; verbose, newton_tol)
         isfinite(r.nis) && (nis += r.nis; dof += r.dof)
-        merge!(innov_std, r.innov_std); append!(white, r.innovation_whitened); last = r
-        r.committed || return merge(r, (nis=dof > 0 ? nis : NaN, dof=dof, innov_std=innov_std,
-            innovation_whitened=white, wall=time() - t0, chunks=length(chunks)))
+        merge!(innov, r.innovation); merge!(innov_std, r.innov_std)
+        append!(rows, r.innov_rows); append!(white, r.innovation_whitened)
+        if r.committed
+            for rec in ch; sm.seen[(rec.sensor, rec.t)] = rec.value; end
+        else
+            all_committed = false
+            _queue_retries!(sm, ch, pending)
+        end
+        last = r
     end
-    return merge(last, (sensors=[x.sensor for x in recs], nis=dof > 0 ? nis : NaN, dof=dof, innov_std=innov_std,
+    _prune_seen!(sm)
+    return merge(last, (sensors=[x.sensor for x in batch], committed=all_committed, nis=dof > 0 ? nis : NaN, dof=dof,
+                        innovation=innov, innov_std=innov_std, innov_rows=rows,
                         innovation_whitened=white, wall=time() - t0, chunks=length(chunks)))
+end
+
+"An uncommitted solve's readings may be re-attempted this many times before they are given up on."
+const RETRY_MAX = 2
+
+# The duplicate policy: a reading already assimilated (or earlier in this batch) with the same value is an
+# exact repeat and is ignored; one at the same (sensor, time) with a DIFFERENT value conflicts and is dropped
+# with a warning — the first reading stays. Returns the readings to attempt.
+function _apply_duplicate_policy!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord})
+    batch = MeasurementRecord[]
+    inbatch = Dict{Tuple{Symbol,Float64},Float64}()
+    for rec in recs
+        key = (rec.sensor, rec.t)
+        prev = haskey(sm.seen, key) ? sm.seen[key] : get(inbatch, key, nothing)
+        if prev === nothing
+            inbatch[key] = rec.value
+            push!(batch, rec)
+        elseif prev != rec.value
+            sm.n_dropped += 1
+            @warn "a conflicting duplicate reading was dropped (the first reading stays)" sensor = rec.sensor t = rec.t kept = prev dropped = rec.value
+        end
+    end
+    return batch
+end
+
+# Readings queued by earlier uncommitted solves join the batch (re-sorted by time); one that fell behind the
+# window, or that this batch already carries, leaves the queue. Returns each queued reading's attempts so far.
+function _drain_retries!(sm::FixedLagSmoother, batch::Vector{MeasurementRecord})
+    pending = Dict{Tuple{Symbol,Float64},Int}()
+    isempty(sm.retry) && return pending
+    t_old = sm.nodes[1][1]
+    for (rec, n) in sm.retry
+        key = (rec.sensor, rec.t)
+        if rec.t < t_old - 1e-9
+            sm.n_dropped += 1
+            @warn "a queued reading fell behind the window and was dropped" sensor = rec.sensor t = rec.t
+        elseif haskey(sm.seen, key) || any(r -> r.sensor === rec.sensor && r.t == rec.t, batch)
+            # assimilated meanwhile, or this batch already carries it
+        else
+            pending[key] = n
+            push!(batch, rec)
+        end
+    end
+    empty!(sm.retry)
+    sort!(batch; by=r -> r.t)
+    return pending
+end
+
+# An uncommitted chunk's readings are queued for the next arrival, each up to `RETRY_MAX` re-attempts. The
+# ALS accumulator requires strictly increasing arrivals, so under ALS they are dropped and counted instead.
+function _queue_retries!(sm::FixedLagSmoother, ch::AbstractVector{MeasurementRecord}, pending::Dict{Tuple{Symbol,Float64},Int})
+    for rec in ch
+        n = get(pending, (rec.sensor, rec.t), 0) + 1
+        if sm.als !== nothing || n > RETRY_MAX
+            sm.n_dropped += 1
+        else
+            push!(sm.retry, (rec, n))
+        end
+    end
+    return nothing
+end
+
+"The duplicate policy's memory shrinks with the window: a reading older than the oldest node cannot arrive as valid input."
+function _prune_seen!(sm::FixedLagSmoother)
+    t_old = sm.nodes[1][1]
+    for k in collect(keys(sm.seen))
+        k[2] < t_old - 1e-9 && delete!(sm.seen, k)
+    end
+    return nothing
 end
 
 """
     _assimilate_one!(sm, recs; verbose=false) -> record
 
 Readings into the window, the window solved, the old nodes marginalized: one arrival step. The record
-carries the time, the sensors, each reading's innovation at the belief before the solve, the normalized
+carries the arrival time `t` and the belief's own time `t_belief` (the propagation target in an open slice,
+the newest node otherwise; on an uncommitted arrival the pre-arrival node), the sensors, each reading's raw
+innovation at the belief before the solve (`innovation`, the last per sensor) and every reading's
+standardized innovation (`innov_rows`: `(t, sensor, std)` per uncensored reading), the normalized
 innovation squared of the uncensored readings against the predicted innovation covariance with its degrees of
 freedom and the standardized innovations per sensor (`_predicted_consistency`), the solve's objective,
 iterations and convergence, the newest node's belief (per piece the centre and surface temperatures with their
@@ -1319,10 +1415,24 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             nis = (pcs === nothing ? 0.0 : pcs.nis) + (pco === nothing ? 0.0 : pco.nis)
             dof = (pcs === nothing ? 0 : pcs.dof) + (pco === nothing ? 0 : pco.dof)
             dof == 0 && (nis = NaN)
-            innov_std = Dict{Symbol,Float64}()
-            pcs === nothing || for (i, id) in enumerate(pcs.ids); innov_std[id] = pcs.nu[i] / pcs.sdev[i]; end
-            pco === nothing || for (i, f) in enumerate(pco.live); innov_std[f.spec.id] = pco.nu[i] / pco.sdev[i]; end
-            innov = Dict{Symbol,Float64}(id => v for (id, v) in innov_std)
+            # one row per uncensored reading, `(t, sensor, std)` with `std` the marginally standardized
+            # innovation: the complete per-reading evidence (the per-sensor dicts keep only the last)
+            rows = NamedTuple[]
+            pcs === nothing || for (i, id) in enumerate(pcs.ids)
+                push!(rows, (t=pcs.times[i], sensor=id, std=pcs.nu[i] / pcs.sdev[i]))
+            end
+            pco === nothing || for (i, f) in enumerate(pco.live)
+                push!(rows, (t=f.t, sensor=f.spec.id, std=pco.nu[i] / pco.sdev[i]))
+            end
+            sort!(rows; by=rr -> (rr.t, string(rr.sensor)))
+            innov_std = Dict{Symbol,Float64}(rr.sensor => rr.std for rr in rows)
+            # `innovation` is RAW (the reading less its prediction, measurement units) in every attach mode:
+            # the slice path's conditioned innovations, a censored/node factor's at the pre-update point
+            innov = Dict{Symbol,Float64}()
+            pcs === nothing || for (i, id) in enumerate(pcs.ids); innov[id] = pcs.nu[i]; end
+            for f in fs
+                innov[f.spec.id] = innovation(f, [variable_value(sm.graph, k) for k in vars(f)])
+            end
             white = vcat(pcs === nothing ? NamedTuple[] : pcs.white, pco === nothing ? NamedTuple[] : pco.white)
             pc = nothing
         else
@@ -1332,6 +1442,8 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             nis = pc === nothing ? NaN : pc.nis
             dof = pc === nothing ? 0 : pc.dof
             innov_std = pc === nothing ? Dict{Symbol,Float64}() : Dict(f.spec.id => pc.nu[i] / pc.sdev[i] for (i, f) in enumerate(pc.live))
+            rows = pc === nothing ? NamedTuple[] :
+                   sort!([(t=f.t, sensor=f.spec.id, std=pc.nu[i] / pc.sdev[i]) for (i, f) in enumerate(pc.live)]; by=rr -> (rr.t, string(rr.sensor)))
             white = pc === nothing ? NamedTuple[] : pc.white
         end
         als = (sm.als !== nothing && pc !== nothing) ? _als_pieces(sm, sm.als, pc, t_arr) : nothing
@@ -1339,8 +1451,8 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
         if !r.converged
             _restore_transaction!(sm, saved)
             sm.n_solves += 1
-            b = belief_at(sm)                                            # the belief as it stands (the previous node's); the record's time is the arrival's
-            rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
+            b = belief_at(sm)                                            # the belief as it stands (the previous node's); `t` is the arrival's, `t_belief` the belief's own
+            rec = merge(b, (t=t_arr, t_belief=b.t, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, innov_rows=rows, F=r.F,
                             iters=length(r.hist), attempts=r.attempts, converged=false, committed=false, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, newton_tol=newton_tol,
                             newton_joint_sd=r.newton_joint_sd, joint_tol=r.joint_tol, wall=time() - t0,
                             n_nodes=length(sm.nodes), innovation_whitened=white, resid=nothing, past=nothing))
@@ -1370,7 +1482,7 @@ function _assimilate_one!(sm::FixedLagSmoother, recs::AbstractVector{Measurement
             sdz = sqrt.(max.(diag(b.z_cov), 0.0))
             sm.z_sd = sm.split === nothing ? sdz : sdz[sm.split.static]
         end
-        rec = merge(b, (t=t_arr, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, F=r.F,
+        rec = merge(b, (t=t_arr, t_belief=b.t, sensors=[x.sensor for x in recs], innovation=innov, nis=nis, dof=dof, innov_std=innov_std, innov_rows=rows, F=r.F,
                         iters=length(r.hist), attempts=r.attempts, converged=true, committed=true, gradient=r.gradient, newton=r.newton_step, newton_sd=r.newton_sd, newton_tol=newton_tol,
                         newton_joint_sd=r.newton_joint_sd, joint_tol=r.joint_tol, wall=time() - t0,
                         n_nodes=length(sm.nodes), innovation_whitened=white, resid=resid, past=past))

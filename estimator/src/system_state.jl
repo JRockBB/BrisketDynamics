@@ -154,12 +154,17 @@ put a kink in the objective wherever a collagen node's width crossed the cap as 
 bench of 2026-09-25). Under an eighth of the cap the two agree to 1e-13.
 """
 function belief_cov_to_coord(Q::AbstractMatrix, y::AbstractVector, bl::BeliefLayout; max_sd::Float64=3.0, damp::Bool=false)
+    e = belief_coord_factors(Q, y, bl; max_sd)
+    damp && (e = e .* _boundary_damping(diag(Q), y, bl))
+    return Matrix(Symmetric((e .* Q) .* e'))
+end
+
+"The per-entry coordinate factors of `belief_cov_to_coord` at `y` for the covariance `Q`: the decode Jacobian's
+inverse under the same smooth `max_sd` cap, for mapping a cross-covariance into the coordinates consistently."
+function belief_coord_factors(Q::AbstractMatrix, y::AbstractVector, bl::BeliefLayout; max_sd::Float64=3.0)
     d = inv.(max.(belief_decode_jacobian(y, bl), eps(Float64)))
     sd = sqrt.(max.(diag(Q) .* d .^ 2, 0.0))
-    scale = (1 .+ (sd ./ max_sd) .^ 8) .^ (-1 / 8)
-    damp && (scale = scale .* _boundary_damping(diag(Q), y, bl))
-    e = scale .* d
-    return Matrix(Symmetric((e .* Q) .* e'))
+    return ((1 .+ (sd ./ max_sd) .^ 8) .^ (-1 / 8)) .* d
 end
 
 # A disturbance cannot carry a state through its physical boundary. Where an entry's physical sd `s` exceeds its
