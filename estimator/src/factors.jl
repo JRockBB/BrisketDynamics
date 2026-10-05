@@ -868,6 +868,52 @@ function _retract_dynamics(xtrial, offsets, data)
     return xn
 end
 
+# Only genuine, fixed-weight least-squares residuals supply directional
+# curvature. Local score/curvature pseudo-residuals (e.g. censored likelihoods
+# and non-Gaussian sites) must not be differentiated as if they were residuals
+# of the original objective. Dynamics defects are affine in the retraction
+# chart, so their curvature is zero without finite-difference cancellation.
+_search_residual_curvature(::Factor) = false
+_search_residual_curvature(::GaussianPrior) = true
+_search_residual_curvature(::LinearFactor) = true
+
+function _geodesic_search_data(g, x, d, J, r, offsets, transport)
+    fallback = (zeros(length(d)), 0.0)
+    isempty(transport) && return fallback
+    any(_search_residual_curvature, g.factors) || return fallback
+    # A substantial directional difference avoids amplifying integration
+    # roundoff. This affects the search only; exact objective and fresh
+    # stationarity checks still decide acceptance and convergence.
+    h = 0.1
+    try
+        xp = _retract_dynamics(x .+ h .* d, offsets, transport)
+        xm = _retract_dynamics(x .- h .* d, offsets, transport)
+        curvature = zeros(length(r)); row = 0
+        for f in g.factors
+            rows = (row + 1):(row + ndim(f))
+            if _search_residual_curvature(f)
+                rp = residual(f, [xp[offsets[k]] for k in vars(f)])
+                rm = residual(f, [xm[offsets[k]] for k in vars(f)])
+                curvature[rows] .= (rp .- 2 .* r[rows] .+ rm) ./ h^2
+            end
+            row += ndim(f)
+        end
+        all(isfinite, curvature) || return fallback
+        q = qr(Matrix(J), ColumnNorm()); n = size(J, 2)
+        a = -0.5 .* (q \ curvature)
+        Ri = UpperTriangular(Matrix(q.R)[1:n, 1:n]) \ Matrix{Float64}(I, n, n)
+        sd = max.(sqrt.(vec(sum(abs2, Ri; dims=2))[invperm(q.p)]), eps())
+        # Express both vectors in marginal posterior SDs to avoid mixing
+        # temperature, humidity, and latent-coordinate units in this guard.
+        ratio = 2norm(a ./ sd) / max(norm(d ./ sd), eps())
+        all(isfinite, a) && isfinite(ratio) || return fallback
+        return a, ratio
+    catch err
+        err isa InterruptException && rethrow()
+        return fallback
+    end
+end
+
 function _within_step_bounds(d, offsets, max_step, step_bounds; origin=zeros(length(d)))
     # Subtracting the accepted point from a trial can lose a few ulps of the
     # point itself, even when the tangent step was exactly on the bound.
@@ -1036,6 +1082,15 @@ nonlinear path and still respects the original bounds.
 The original graph objective, stationarity tests and posterior covariance remain
 authoritative. Graphs without dynamics retain the ordinary search.
 
+`geodesic_search=true` adds a quadratic tangent correction from the directional
+curvature of supported Gaussian residuals along that retraction. It requires
+`retract_dynamics=true` and a dense solve. The correction is bounded relative
+to the first-order displacement, and every candidate must satisfy the original
+objective decrease and actual endpoint bounds. Invalid curvature probes fall
+back to the ordinary retracted direction. After backtracking, up to four
+doublings recover an over-shortened step only while the objective improves.
+It is off by default and never changes the stopping criterion.
+
 `joint_tol` (off by default) additionally accepts a fresh linearization whose
 undamped Gauss--Newton decrement `norm(J * δ)` is below this bound. With local
 covariance `C = inv(J'J)`, this is `sqrt(δ' * inv(C) * δ)`: it accounts for
@@ -1052,7 +1107,10 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
                        λ0::Float64=0.0, sparse::Bool=false,
                        verbose::Bool=false, max_step::Float64=Inf, step_bounds::AbstractDict=Dict{VarKey,Float64}(), soc::Int=10,
                        stationarity_scales::AbstractDict=Dict(),
-                       adaptive_damping::Bool=false, expand::Int=0, retract_dynamics::Bool=false)
+                       adaptive_damping::Bool=false, expand::Int=0, retract_dynamics::Bool=false,
+                       geodesic_search::Bool=false)
+    geodesic_search && (!retract_dynamics || sparse) &&
+        throw(ArgumentError("geodesic search requires dense dynamics retraction"))
     isfinite(resolution_gtol) && resolution_gtol >= gtol ||
         throw(ArgumentError("resolution_gtol must be finite and no smaller than gtol"))
     isfinite(joint_tol) && joint_tol >= 0 || throw(ArgumentError("joint_tol must be finite and non-negative"))
@@ -1098,13 +1156,16 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         d0 = dot(r, J * δ)                                             # the directional derivative of ½‖r‖² along δ
         transport = retract_dynamics ? _dynamics_retraction_data(g) : []
         curved = !isempty(transport)
+        acceleration, curvature_ratio = geodesic_search && curved ?
+            _geodesic_search_data(g, x, δ, J, r, offsets, transport) : (zeros(length(δ)), 0.0)
         cand = Ref((F=Inf, x=x, soc=0, bounded=bounded))
         function try_point(xn)
             for k in order; g.values[k] .= xn[offsets[k]]; end
             return try _objective_at(g, xn, offsets) catch err; err isa InterruptException ? rethrow() : Inf end
         end
         function try_step(α)
-            base = α .* δ
+            α * curvature_ratio <= 0.75 || return Inf
+            base = α .* δ .+ α^2 .* acceleration
             # This must be local to the trial: a rejected expansion must not
             # overwrite the outer solver's accepted xn through a closure.
             trial_x = x .+ base
@@ -1185,13 +1246,22 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             continue
         end
         xn = cand[].x; nsoc = cand[].soc; bounded = cand[].bounded
+        if geodesic_search && curved && α < 1.0
+            for _ in 1:4
+                next_alpha = min(1.0, 2α)
+                next_alpha > α || break
+                next_F = try_step(next_alpha)
+                (isfinite(next_F) && next_F < Fn && next_F <= F + 1e-4 * next_alpha * d0) || break
+                α = next_alpha; Fn = next_F; xn = cand[].x; bounded = cand[].bounded
+            end
+        end
         # Expansion (`expand` > 0 doublings, off by default): a full step whose decrease beat the Gauss-Newton model's
         # prediction by more than EXPAND_GAIN is under-stepping along a curved valley (the two-probe control of
         # 2026-09-30 crawled 80 accepted full steps at gain ≈ 2, each a fiftieth of a posterior sd, and was refused at
         # the iteration cap). The same accepted displacement is doubled while the objective keeps falling, never past
         # the caller's bounds. Only the path changes: convergence is still the stationarity certificate.
         if expand > 0 && α == 1.0
-            d1 = curved ? δ : xn .- x
+            d1 = curved ? δ .+ acceleration : xn .- x
             Jd = J * d1
             pred1 = -(dot(r, Jd) + 0.5 * sum(abs2, Jd))
             if pred1 > 0 && (F - Fn) / pred1 > EXPAND_GAIN
@@ -1220,7 +1290,7 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
         end
         dropped = F - Fn
         stepn = norm(xn .- x); moved = norm(xn .- x, Inf)
-        Jstep = J * (curved ? α .* δ : xn .- x)
+        Jstep = J * (curved ? α .* δ .+ α^2 .* acceleration : xn .- x)
         predicted_drop = -(dot(r, Jstep) + 0.5 * sum(abs2, Jstep))
         gain = predicted_drop > 0 ? dropped / predicted_drop : -Inf
         for k in order; g.values[k] .= xn[offsets[k]]; end

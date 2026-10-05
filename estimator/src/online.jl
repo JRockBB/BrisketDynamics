@@ -950,7 +950,7 @@ function solve_window!(sm::FixedLagSmoother; verbose::Bool=false, newton_tol::Fl
         rc = gauss_newton!(sm.graph; iters=sm.iters, tol=sm.tol, ftol=sm.ftol, verbose,
                            resolution_gtol, newton_tol=attempt == sm.restarts + 1 ? posterior_resolution : 0.0,
                            restart_newton_tol=attempt < sm.restarts + 1 ? posterior_resolution : 0.0,
-                           step_bounds=bounds, stationarity_scales, expand=ONLINE_EXPAND[], retract_dynamics=true,
+                           step_bounds=bounds, stationarity_scales, expand=ONLINE_EXPAND[], retract_dynamics=true, geodesic_search=true,
                            joint_tol=posterior_resolution)
         append!(all_hist, (merge(h, (attempt=attempt,)) for h in rc.hist))
         r = rc

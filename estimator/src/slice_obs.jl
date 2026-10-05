@@ -72,6 +72,7 @@ mutable struct SliceObservationFactor <: Factor
     n_jacobians::Int
 end
 vars(f::SliceObservationFactor) = f.keys
+_search_residual_curvature(::SliceObservationFactor) = true
 ndim(f::SliceObservationFactor) = length(f.readings)
 provenance(f::SliceObservationFactor) = "$(length(f.readings)) readings through the physics from $(f.t0) s" * (f.key_y1 === nothing ? " (open)" : " to $(f.t1) s")
 

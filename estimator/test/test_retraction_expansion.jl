@@ -28,12 +28,12 @@ E.jacobians(::ExpansionRejectionProbe, vals) = [reshape([1.,2vals[1][1]],2,1)]
     E._node_at!(sm,90.)
     @test solve_window!(sm;newton_tol=0.).converged
     key=VarKey(:state,:expansion_probe,1)
-    for (target,accepted) in ((2.,1.),(4.,2.))
+    for geodesic_search in (false, true), (target,accepted) in ((2.,1.),(4.,2.))
         g=deepcopy(sm.graph)
         add_variable!(g,key,[0.])
         add_factor!(g,ExpansionRejectionProbe(key,target))
         before=objective(g)
-        result=gauss_newton!(g;iters=1,tol=1e-6,retract_dynamics=true,expand=4,soc=0)
+        result=gauss_newton!(g;iters=1,tol=1e-6,retract_dynamics=true,geodesic_search,expand=4,soc=0)
         @test variable_value(g,key)[1] ≈ accepted atol=1e-8
         @test result.hist[1].alpha ≈ accepted atol=1e-8
         @test objective(g) ≈ result.hist[1].F atol=1e-7
