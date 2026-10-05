@@ -1079,6 +1079,9 @@ linearization; rejected searches and final certificates refresh stale derivative
 All caller bounds also apply to the transported endpoint. On graphs
 with dynamics this replaces chord corrections; expansion follows the same
 nonlinear path and still respects the original bounds.
+Backtracking reduces the candidate along that path; it does not shrink the
+caller's bound again after transport. Otherwise an outward quadratic correction
+at a saturated tangent bound can make every positive step infeasible.
 The original graph objective, stationarity tests and posterior covariance remain
 authoritative. Graphs without dynamics retain the ordinary search.
 
@@ -1174,8 +1177,10 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
                     err isa InterruptException && rethrow()
                     return Inf
                 end
-                fraction = min(α, 1.0)
-                _within_step_bounds(trial_x .- x, offsets, fraction * max_step, Dict(k => fraction * b for (k,b) in step_bounds); origin=x) || return Inf
+                # These are bounds on the actual endpoint. Multiplying them
+                # by alpha again would make an outward O(alpha^2) correction
+                # infeasible at every alpha when the tangent saturates a bound.
+                _within_step_bounds(trial_x .- x, offsets, max_step, step_bounds; origin=x) || return Inf
             end
             best = (F=try_point(trial_x), x=trial_x, soc=0, bounded=bounded)
             disp = base

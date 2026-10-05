@@ -63,6 +63,21 @@ E.jacobians(::CurvatureProbe, vals) = [[-20vals[1][1] 10.; -1. 0.]]
     @test rb.F ≈ objective(bounded) atol=1e-8
     @test rb.F < objective(graph())
 
+    # At (0.5,0.25), the limited tangent is (0.1,0.1) and the
+    # quadratic correction is (0,0.01). For every alpha > 0 its y
+    # move exceeds alpha*0.1, but alpha=0.5 is well inside the caller's
+    # actual 0.1 bound. Applying alpha to the bound again traps the
+    # search at this point instead of allowing ordinary backtracking.
+    outward = graph()
+    variable_value(outward,key) .= [0.5,0.25]
+    before_outward = objective(outward)
+    ro = gauss_newton!(outward;iters=1,soc=0,retract_dynamics=true,geodesic_search=true,
+        step_bounds=Dict(key=>0.1))
+    @test maximum(abs.(variable_value(outward,key) .- [0.5,0.25])) <= 0.1 + 1e-10
+    @test variable_value(outward,key)[1] > 0.51
+    @test ro.F < before_outward - 0.001
+    @test ro.hist[1].bounded
+
     for mode in (:normal,:nonfinite,:failure,:interrupt)
         g = graph(mode)
         offsets,n = E._offsets(g)
