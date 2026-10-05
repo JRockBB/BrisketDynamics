@@ -19,6 +19,26 @@ The merged estimator has **not established statistical
 consistency**: full-cook held-out validation has not been completed, and tuning
 runs are not held-out evidence.
 
+**Verification 2026-10-05: the bound fix holds through loading.** After the
+arrival-evidence fixes (`07fa00b`, backend `95f5c04f2599`), the causal replay
+`data/mock/stream_lighting_ws1_41002.json` completed its full 3 h horizon:
+470 updates, 657 readings, zero rejected, zero dropped, total wall 6624 s.
+Update wall time: median 9.8 s, p95 39.6 s, max 109.6 s (in the loading
+window, which previously stalled at 165–485 s and ended every replay).
+Reading-to-estimate latency: median 10.9 s, max 178 s. NIS/dof 0.89, latent
+NEES/16 0.93, white innovations. Under the corrected belief-time scoring the
+meat-temperature bias REMAINS: centre/surface standardized error sits at +1.9
+before loading (the prior-drawn initial state, no meat sensors to correct it),
+snaps to zero when the core probe arrives, then climbs to +2.8/+3.2 by 3 h
+(temperature NEES/3 2.93; state groups T 4.42, W 4.39). The latent trace shows
+the structure: `k_m` leaves the band at loading and holds −2.0 to −2.6 for the
+rest; `core_depth_fraction` steps to +1.15 near 2.2 h and freezes;
+`a_myosin` compensates to −1.5. The scoring fix did not explain the bias —
+this is the fixed-lag lock and model-structure question the structure
+diagnosis (truth residuals, per-latent sensitivities, `prior_relin`/`lag_max`)
+must answer before any calibration round. Figures:
+`figures/estimator/stream_lighting_ws1_41002*.png`.
+
 **Decision 2026-10-05: the 120 s update target is dropped.** It was a
 provisional label introduced during this repair (first in `13c3d4e`), never
 derived from a requirement and never enforced in code: the replays recorded as
