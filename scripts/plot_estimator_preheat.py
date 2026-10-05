@@ -42,11 +42,21 @@ def plot_run(path):
     d = json.loads(path.read_text())
     runs = rows_of(d)
     for seed, rows, status in runs:
+        # A stopped run is labelled stopped, nothing more: there is no runtime pass/fail gate. Wall
+        # times and latencies are reported as data in the summary and the timing panels.
+        if status in ("INCOMPLETE", "FAILED") and d.get("termination"):
+            status = "STOPPED early (incomplete)"
         stem = path.stem + (f"_seed{seed}" if len(runs) > 1 else "")
         pace = d.get("pace", 0)
         policy = d.get("update_policy", "node_batches" if pace < 0 else "every_arrival" if pace == 0 else "processing_backlog")
         policy_label = {"node_batches": "NODE-BATCHED diagnostic", "every_arrival": "Every measurement arrival (unpaced)",
                         "processing_backlog": "Causal replay with measured processing backlog"}[policy]
+        timing_context = d.get("timing_context") or {}
+        first_contended = timing_context.get("last_completed_update_before_diagnostic")
+        timing_caveat = (f"\nTiming from update {first_contended + 1} may include concurrent diagnostic work."
+                         if first_contended is not None else "")
+        if timing_context.get("caption"):
+            timing_caveat = "\n" + timing_context["caption"]
         good = [r for r in rows if r.get("committed", False)]
         fail = [r for r in rows if not r.get("committed", False)]
         summary = {
@@ -63,6 +73,7 @@ def plot_run(path):
             "temperature_errors": temperature_errors(good),
             "temperature_errors_by_phase": {},
             "timing_context": d.get("timing_context"),
+            "runtime_validation": d.get("runtime_validation"),
         }
         load_h = d.get("load_h", 1.5)
         for phase, selected in (("before_loading", [r for r in good if r["t_h"] < load_h]),
@@ -118,8 +129,7 @@ def plot_run(path):
         ax.set_ylabel("Temperature error / marginal SD"); ax.legend(fontsize=9)
         ax=axs[1,1]
         tr=np.array([r["t_h"] for r in rows])
-        ax.plot(tr,[r["wall_s"] for r in rows],"o-",color="#176b9a")
-        ax.axhline(120,color="#ad3333",ls="--",label="120 s update target")
+        ax.plot(tr,[r["wall_s"] for r in rows],"o-",color="#176b9a",label="Update wall time")
         ax.set_ylabel("Update wall time (seconds)"); ax.legend(fontsize=9)
         ax=axs[2,1]
         ax.semilogy(tr,[max(float(r["newton_sd"]),1e-12) for r in rows],"o-",color="#176b9a",
@@ -136,12 +146,13 @@ def plot_run(path):
             for r in fail: ax.axvline(r["t_h"],color="#ad3333",ls="--",alpha=.6)
             ax.set_xlim(0, max(r["t_h"] for r in rows)+.1)
             ax.grid(alpha=.15)
-        for ax in axs[-1]: ax.set_xlabel("Hours since lighting (dotted line: meat loading)")
+        for ax in axs[-1]: ax.set_xlabel("Hours since lighting (dotted line: load-transition midpoint)")
         status = "FAILED: rejected arrival" if fail else status
         experimental = "EXPERIMENTAL / " if "EXPERIMENTAL" in d.get("backend_fingerprint", "") else ""
         fig.suptitle(f"{experimental}{status} · seed {seed}\n{policy_label} · {path.name}",fontsize=12)
         fig.supxlabel("One cook is diagnostic evidence, not coverage validation. Failed arrivals excluded from belief panels.\n"
-                       f"{len(good)} accepted / {len(fail)} rejected updates; backend {d.get('backend_fingerprint','unknown')[:16]}.",fontsize=9)
+                       f"{len(good)} accepted / {len(fail)} rejected updates; backend {d.get('backend_fingerprint','unknown')[:16]}."
+                       + timing_caveat, fontsize=9)
         target=OUT/(stem+".png")
         fig.savefig(target,dpi=160); plt.close(fig); print(target)
         if good and all("z" in r for r in good):
@@ -198,18 +209,20 @@ def plot_run(path):
             new_nodes = [r["processing_start_s"]/3600 for r in rows if r["nodes_added"] > 0]
             axs[0].scatter(new_nodes, np.full(len(new_nodes), 5), marker="|", color="black", s=60)
             axs[0].set_yticks(range(6), [*colors, "Processing / available", "Graph node added"])
-            axs[0].set_ylim(-.5,5.5); axs[0].legend(loc="upper left")
+            axs[0].set_ylim(-.5,5.5)
+            axs[0].legend(loc="lower right", bbox_to_anchor=(1, 1.01), frameon=False)
             for key, label in [("oldest_reading_latency_s", "Oldest reading"), ("newest_reading_latency_s", "Newest reading")]:
                 axs[1].plot(finish, [r[key] for r in rows], ".-", label=label)
             axs[1].set_ylabel("Reading to estimate latency (s)"); axs[1].legend()
             axs[2].step(start, [r["n_readings"] for r in rows], where="post", label="Readings per update")
             axs[2].set_ylabel("Readings per update"); axs[2].set_xlabel("Hours since lighting")
             for ax in axs:
-                ax.axvline(d.get("load_h",1.5), color="grey", ls=":", label="Meat loading")
+                ax.axvline(d.get("load_h",1.5), color="grey", ls=":", label="Load-transition midpoint")
                 ax.set_xlim(0, max(finish.max(), tr.max())+.02)
                 ax.grid(alpha=.15)
             fig.suptitle(f"{policy_label} · seed {seed}\n{status}", fontsize=13)
-            fig.supxlabel("Each reading keeps its measurement time. Computation finish determines when an estimate is usable.", fontsize=10)
+            fig.supxlabel("Each reading keeps its measurement time. Computation finish determines when an estimate is usable."
+                           + timing_caveat, fontsize=10)
             target=OUT/(stem+"_timing.png")
             fig.savefig(target,dpi=160);plt.close(fig);print(target)
 

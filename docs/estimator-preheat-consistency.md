@@ -2,14 +2,393 @@
 
 Work started 2026-10-04 on `estimator-consistency` at `96553a3`, merging
 `Photo-segementation` at `7aace2c`. The user authorized estimator changes
-and overnight validation. Model and observation-graph defects were found
-and corrected, but the merged estimator has **not established statistical
-consistency**. Full-cook validation is still blocked by numerical convergence
-and runtime failures. Tuning runs are not held-out evidence.
+and overnight validation. Model, observation-graph and numerical solver defects
+were corrected. The follow-up solver repair is committed as `13c3d4e`, with
+the posterior-accuracy policy refined in `25e7c29`. That revision passed
+446 targeted assertions but failed the causal runtime target. A subsequent
+trial-state closure correction is committed as `d3bedd9`. The curvature-aware
+online search is committed as `f5854ac`, with 493 targeted assertions passing
+and both frozen slow arrivals meeting the unchanged convergence threshold.
+Its separate causal replay is recorded under `stream_lighting_curvature_41002`.
+That replay failed the runtime target and was stopped; the passing numerical
+regressions did not establish acceptable streaming latency.
+The resulting bound-handling correction is committed as `2294f39`. It passes
+497 targeted assertions and four frozen slow-arrival controls. Its independent
+causal verification is saved separately under `stream_lighting_bounds_41002`.
+The merged estimator has **not established statistical
+consistency**: full-cook held-out validation has not been completed, and tuning
+runs are not held-out evidence.
+
+**Decision 2026-10-05: the 120 s update target is dropped.** It was a
+provisional label introduced during this repair (first in `13c3d4e`), never
+derived from a requirement and never enforced in code: the replays recorded as
+failing it were stopped by hand and annotated afterwards. Wall time and
+reading-to-estimate latency remain reported diagnostics; a future runtime
+requirement, if one is needed, must be derived from the planner's
+belief-staleness needs. The narrative below keeps the stops as they happened —
+"exceeded the 120 s update target" describes why a run was stopped at the time,
+not an acceptance criterion.
 
 The requested source exists locally at `7aace2c`. A remote fetch on
 2026-10-04 returned `Repository not found` for the configured GitHub
 remote; this integration therefore uses that local source commit.
+
+## Follow-up repair and estimator figures
+
+The follow-up adds a nonlinear dynamics search path, a roundoff guard at the
+state-coordinate floors, stalled-step bookkeeping, and a fresh joint-posterior
+accuracy certificate. Numerical regressions have passed; the separate causal
+replay measures latency through loading. The result table under "Earlier
+integration checks" describes the earlier revision.
+
+The preceding stopped causal replay's estimator-versus-truth figures are
+[`stream_lighting_budget_41002.png`](../figures/estimator/stream_lighting_budget_41002.png),
+its measurement/processing/node timeline is
+[`stream_lighting_budget_41002_timing.png`](../figures/estimator/stream_lighting_budget_41002_timing.png),
+and its parameter errors are
+[`stream_lighting_budget_41002_parameters.png`](../figures/estimator/stream_lighting_budget_41002_parameters.png).
+They come from `data/mock/stream_lighting_budget_41002.json`, before the closure
+fix; that run was stopped after runtime failures. The figure titles and JSON
+explicitly identify incomplete, failed or completed runs.
+
+The subsequent `f5854ac` run is saved in
+[`stream_lighting_curvature_41002.png`](../figures/estimator/stream_lighting_curvature_41002.png),
+with its
+[arrival/latency timeline](../figures/estimator/stream_lighting_curvature_41002_timing.png)
+and [parameter errors](../figures/estimator/stream_lighting_curvature_41002_parameters.png).
+It was stopped after 242 committed updates and 270 of 657 readings, through
+1.70222 h. The first core reading took 35 iterations and 234.809 s; a subsequent
+arrival took 62 iterations over two attempts and 484.327 s. Both converged under
+the unchanged accuracy threshold, but both exceeded the 120 s update target.
+The next arrival was interrupted. Its prefix scheduling/input audit passed;
+the completed-horizon audit is explicitly false. The first 68 updates may
+include memory pressure from an idle diagnostic worker; that worker was closed
+well before either long stall. No competing Julia diagnostics ran during the
+timed replay. Exact snapshots of both slow arrivals were retained for controlled
+comparison. These figures are evidence of a runtime failure, not a finished fix.
+
+The causal baseline before the joint-posterior stopping change writes estimator-versus-truth figures to
+[`stream_lighting_causal_41002.png`](../figures/estimator/stream_lighting_causal_41002.png),
+measurement/processing/node timestamps to
+[`stream_lighting_causal_41002_timing.png`](../figures/estimator/stream_lighting_causal_41002_timing.png),
+and parameter errors to
+[`stream_lighting_causal_41002_parameters.png`](../figures/estimator/stream_lighting_causal_41002_parameters.png).
+These are generated from the saved input tape and actual estimator records in
+`data/mock/stream_lighting_causal_41002.json`. The figure title and JSON state
+whether the run is incomplete, failed, or completed its requested three hours.
+The timing audit explicitly distinguishes a verified prefix from a completed
+horizon. The loading transition is centred at 1.5 h; three hours do not cover
+wrapping or pulling. Both plant and estimator use the existing logistic
+`load_blend` with `MeatConfig.δ_load = 120 s`. Its nonzero leading tail explains the
+surface-temperature rise before the marked midpoint; this is a model assumption,
+not a timestamp shift or anticipation of future observations. This replay does
+not test a hard, exactly zero-before-loading event.
+
+Earlier saved estimator-versus-truth figures are in
+[`figures/estimator/stream_lighting_guard_41002.png`](../figures/estimator/stream_lighting_guard_41002.png)
+and the companion
+[`stream_lighting_guard_41002_parameters.png`](../figures/estimator/stream_lighting_guard_41002_parameters.png).
+The first includes reported marginal uncertainty, standardized temperature
+errors, update wall times, and the remaining coupled Newton step. The second
+shows every latent's error divided by its reported standard deviation. Each
+figure labels whether its source cook completed, failed, or remains incomplete.
+The JSON source is `data/mock/stream_lighting_guard_41002.json`; regenerate with:
+
+```powershell
+app/.venv/Scripts/python.exe scripts/plot_estimator_preheat.py data/mock/stream_lighting_guard_41002.json
+```
+
+The floor defect was independently reproduced: numerically identical posterior
+means could produce standard deviations differing by 70%, because roundoff at
+an encoded floor switched the derivative between zero and one. A guard only
+around the existing floor makes the derivative stable while preserving the
+interior coordinate transform. The nonlinear regression compares both the
+posterior mode and covariance with the original search, rather than checking
+only that an update reports convergence.
+
+The dynamics search transports state endpoints along their nonlinear
+propagation while retaining the proposed first-order process residuals. It
+does not change the likelihood or process covariance, and the actual endpoint
+must obey the caller's step bounds. The generic solver keeps this option off;
+the online smoother enables it. Final convergence and covariance still use a
+fresh linearization. The established Jacobian cache radii remain in use.
+
+The search refinement in `f5854ac` estimates the directional curvature of supported
+Gaussian residuals along that nonlinear propagation path. It uses two residual
+evaluations at plus/minus 0.1 of the proposed step and a quadratic tangent
+correction, following the geodesic-acceleration construction in
+[Transtrum and Sethna (2012)](https://arxiv.org/abs/1201.5885).
+The correction-size guard uses marginal posterior standard deviations to avoid
+mixing coordinate units. It excludes non-Gaussian score/curvature
+pseudo-residuals and the already affine process defects. Invalid probes revert
+to the ordinary retracted direction; interrupts still propagate. Every accepted
+candidate must decrease the original objective and obey actual endpoint bounds.
+Up to four doubling trials can recover an over-shortened backtrack. Neither
+the model noise nor the convergence threshold changes. The generic solver keeps
+this option off; the online smoother enables it.
+
+`test_geodesic_search.jl` has 30 assertions covering an analytically soluble
+Rosenbrock step attached to a real dynamics graph, endpoint bounds, fresh
+stationarity, invalid-probe fallback and interrupts. The expansion-rejection
+regression now runs with both search options (21 assertions). All 493 targeted
+assertions passed for `f5854ac`; the four new bound assertions bring the corrected
+revision to 497.
+
+The loading stalls exposed an invalid extra restriction in that search:
+after nonlinear transport, it compared the candidate with `alpha * bound`
+instead of the caller's actual bound. A tangent step already on a bound plus
+an outward quadratic correction could then be rejected for every positive
+`alpha`. The analytic counterexample starts at `(0.5, 0.25)` with limited
+tangent `(0.1, 0.1)` and correction `(0, 0.01)`. Its half step satisfies the
+original `0.1` bound, but cannot satisfy the incorrectly scaled `0.05` bound.
+The old solver made no progress and failed exactly two new assertions; the
+corrected solver passes all 30. The
+[failed-before log](estimator-bound-regression-before-fix.txt) preserves that
+counterexample. The fix changes neither the caller's limit nor the objective
+or convergence tolerance.
+
+The exact first-core checkpoint converges in four ordinary-search iterations.
+The defective curvature search rejects six descending proposals, raises damping
+to 100, and takes 35 iterations. Correct endpoint bounds restore four iterations.
+The second slow arrival drops from 62 iterations to four. Their maximum
+all-coordinate mean differences from the old converged solutions are 0.004416
+and 0.001582 posterior SD; maximum relative SD differences are 0.0368% and
+0.2185%. The earlier slow controls retain their 9- and 18-iteration trajectories.
+The [control record](../data/mock/online_bound_controls.json) includes the paired
+coordinate means and SDs as well as summary comparisons. These checks precede
+the separate causal replay; they do not establish that replay's latency.
+
+Microscopic accepted steps no longer indefinitely reset the stalled-search
+counter. Three stalled trials still need the existing fresh coupled
+stationarity certificate. Caller-bounded progress is excluded. Strict online
+optimization requests scale the coordinate-resolution threshold with the requested
+tolerance. The posterior-SD exception is now an explicit `newton_tol` keyword on
+`assimilate!` and `solve_window!`, recorded with each update. Its default remains
+the original 0.01 SD. Path-comparison fixtures request 0.0001 SD, ten times tighter
+than their unchanged 0.001-SD comparison assertions. Inferring posterior units
+linearly from coordinate `tol` had made those fixtures unnecessarily strict;
+driving integration toward machine precision then became slower and still failed.
+Integration accuracy remains explicit in `SystemModel`; the original
+covariance allowance can be preserved when requesting more accurate integration.
+An experimental automatic tolerance rule was removed because a general rule
+was not justified by the controlled measurements.
+
+The follow-up's original hard floor guard had a discontinuity. It now joins the
+constant floor to the interior inverse through a C1 band only 1e-14 wide. Nine
+continuity/derivative checks, 30 restart-roundoff checks, and 32 nonlinear
+search/mean/covariance and public-API checks passed in the warm diagnostic process.
+
+A frozen small version of the original delayed-arrival fixture isolated the
+numerical failure. With the graph, priors, process weights, statistical floor,
+and stopping gates fixed, 1e-12/1e-10 integration rejected after 60 iterations;
+1e-14/1e-12 integration converged in 13. Warm times were 2.07 and 0.83 seconds.
+The complete small replay accepted all 17 updates; delayed versus chronological
+assimilation differed by 4.02e-6 latent posterior SD. At the failed mean, both
+integration settings still saw the unfinished Newton step, so this was an
+optimization stall rather than merely an inaccurate rejection certificate.
+The full 40-node chronological/delayed fixture subsequently accepted all 17
+updates. Final latent means differed by 5.67e-6 posterior SD, pit means by
+4.07e-8 K, and latent SDs by at most 1.24e-6 relative. The largest state-SD
+difference was 0.001295 relative, in collagen; temperature SD differences were
+below 1.77e-7. Replacing only the delayed graph's fixed process whiteners with
+the chronological graph's anchors reduced the maximum state-SD difference to
+2.74e-7. This separates the existing arrival-dependent covariance approximation
+from the optimizer and floor-derivative defects. The raw result is retained in
+`data/mock/online_arrival_order_40.json`; no production weights were rewritten.
+
+The strict node-versus-slice replay accepted every arrival with explicit
+`newton_tol=1e-4` and integration 1e-14/1e-12, preserving the 1e-10/1e-8 noise
+allowance. Mean differences were 5.39e-7 posterior SD, relative latent-SD
+differences 5.37e-9, and the maximum NIS difference 3.49e-7 against its unchanged
+0.001 limit. The fixture now also checks every arrival committed and records
+the requested numerical stopping bound.
+
+The saved three-hour guarded run used **node-sized batches** (`pace=-1`): 657
+readings in 22 accepted updates. Its plots now label that policy explicitly.
+It is numerical diagnostic evidence, not evidence of realistic streaming
+latency. The causal benchmark processes each arrival when idle and only the
+already-arrived backlog when busy. It preserves measurement timestamps,
+records processing start/finish times, and scores only estimates available by
+the scoring time. Eight deterministic checks cover the backlog and availability
+rules. Graph-node placement is independent of this scheduling.
+The multi-cook `stream_round.jl` launcher also no longer hard-codes `pace=-1`.
+Its optional final `PACE` argument defaults to 1, and the manifest records the
+chosen policy. Offline node batching requires explicitly passing -1. Use one
+worker when measuring latency; concurrent cooks compete for the same CPU.
+
+The causal replay uses all 40 spatial nodes, the default process-rate scale
+of 1, lag 3, and a 600-second maximum slice. Actual integration is 1e-12/1e-10;
+the covariance allowance stays 1e-10/1e-8. Sensors have their own jittered
+30/30/120/120-second clocks, with core and mass absent before loading.
+`pace=1` uses the measured wall time of the entire `assimilate!` call to determine
+the next backlog; it includes chunk-placement overhead. Diagnostic serialization,
+truth scoring, and plotting are outside that measured estimator call.
+The replacement replay runs in a separate process, warmed on a saved loading
+arrival, with four Julia threads and one BLAS thread. It measures warm estimator
+latency; a fresh process also pays compilation cost. The record retains its source fingerprint from
+startup. The baseline retains the algorithm loaded before the joint-posterior
+stopping change. The replacement replay loads the changed solver and writes a
+separate record; fingerprints in existing
+records are never rewritten to match later source edits. Both runs use the same
+saved measurement tape, checked by its input fingerprint.
+
+For a backlog crossing several graph nodes, `assimilate!` performs several
+internal chunk solves. The record's wall time covers all of them, while its
+iteration count, attempts, and final stationarity metrics describe the last
+chunk. New records include `chunks` and label that scope explicitly.
+
+```powershell
+$env:STREAM_START='lighting'
+$env:STREAM_NOISE='matched'
+$env:STREAM_INITIAL='prior'
+$env:STREAM_SN_SCALE='1'
+$env:STREAM_ABSTOL='1e-12'
+$env:STREAM_RELTOL='1e-10'
+$env:STREAM_FLOOR_ABSTOL='1e-10'
+$env:STREAM_FLOOR_RELTOL='1e-8'
+$env:STREAM_MAX_SLICE_S='600'
+$env:STREAM_FAIL_FAST='true'
+$env:OPENBLAS_NUM_THREADS='1'
+julia --threads=4 --project=estimator estimator/scripts/stream_bench.jl 1 41002 stream_lighting_reproduction_41002.json 3 3 slice 1 30 30 120 120 1 3 Inf
+app/.venv/Scripts/python.exe scripts/plot_estimator_preheat.py data/mock/stream_lighting_reproduction_41002.json
+app/.venv/Scripts/python.exe scripts/validate_stream_timing.py data/mock/stream_lighting_reproduction_41002.json figures/estimator/stream_lighting_reproduction_41002_timing_audit.json
+```
+
+The standalone command includes any compilation inside assimilation. The saved
+replacement timings used the warmed process described above, so a cold rerun can
+produce different processing times and backlog grouping even with the same tape.
+
+Regressions on `2294f39` passed: joint stationarity 14/14; factor solver
+263/263; floor/retraction/API 71/71; online transactions 47/47; strict node/slice
+agreement 21/21; capped-slice observations 17/17; fixed-lag comparisons against
+the saved full-history references 13/13; rejected curved expansions 21/21;
+curvature search safeguards 30/30 (497 assertions total). The captured
+[regression output](estimator-preheat-regression-output.txt) retains the test
+summaries and the backend fingerprint used to release the replay. The additional
+API test constructs a reading requiring exactly 0.005 joint posterior SD of
+motion: the default budget permits the existing mean, while a strict caller
+gets a refined estimate. Disabling and tightening the budget are also checked.
+
+Before removing the hidden joint cap, the complete lag test passed 10/10 and
+took 29m10s with two Julia threads. Its delayed versus chronological full-history
+means differ by at most 0.0000694 latent posterior SD and 0.00000714 K in the
+pit, below the unchanged 0.001 limits. Preheat 25/25 and causal scheduling 8/8
+also passed before the joint stopping change; those implementations are unchanged.
+These are targeted checks, not a pass of the entire repository suite or a
+statistical consistency certificate.
+
+### Joint posterior accuracy and the loading runtime
+
+The causal baseline accepted its loading arrivals, but exceeded the 120-second
+update target: updates 197 and 198 took 133.9 and 144.4 seconds, with the oldest
+reading waiting 276.6 seconds for an estimate. Those observations precede the
+concurrent diagnostic work. From update 200 onward, baseline timing may include
+contention with a second process investigating frozen arrivals; those later
+times are not isolated latency measurements.
+
+That baseline completed all 657 readings in 242 committed updates, with no
+rejections. Its complete-horizon timing/input audit passed. The median update
+was 20.90 seconds, p95 131.15 seconds, and maximum 608.75 seconds; the largest
+reading-to-estimate latency was 1110.16 seconds. Its raw JSON, summary and plots
+retain the concurrent-diagnostic timing caveat. Those timings do not establish
+an isolated speed ratio against the replacement replay.
+
+A saved loading arrival isolated the cost. After six iterations its mean was
+within 0.000366 posterior SD of the final 28-iteration result, and the maximum
+relative SD difference was 0.0000965. Repeated fresh Jacobians were polishing
+adaptive-integration noise after the posterior was already accurate.
+
+The online solver now also checks the fresh Gauss--Newton decrement
+`norm(J * delta)`, where `delta` is the full undamped coupled step. Under the
+local Gaussian covariance `C = inv(J'J)`, this equals
+`sqrt(delta' * inv(C) * delta)` and bounds the displacement of every linear
+contrast in its own posterior SD. The online target is the caller's
+`newton_tol`, default 0.01. The existing coordinate test and three-stall numerical
+exception remain available; `newton_tol=0` disables both posterior-relative
+checks. The generic solver leaves the new `joint_tol` criterion off by default.
+The nonlinear objective, observations, process weights and integration settings
+are unchanged by this criterion. Records expose both joint and marginal metrics.
+
+| Frozen arrival | Earlier iterations | Declared 0.01 budget | Maximum mean change / SD | Maximum relative SD change |
+|---|---:|---:|---:|---:|
+| Before loading, reported latents | 13 | 3 | 0.000782 | 0.0000163 |
+| Original loading graph, all coordinates | 28 | 4 | 0.003022 | 0.001051 |
+| Follow-on loading graph, all coordinates | 14 | 5 | 0.006417 | 0.002707 |
+
+The preloading pit mean changed by 0.0000221 K. Each loading comparison uses the
+same prepared graph, weights, observations and starting values. These controls
+measure numerical work and posterior agreement; different thread counts and
+concurrent CPU use prevent treating their wall times as an isolated speed ratio.
+Fourteen dedicated tests cover the joint criterion, including a correlated
+direction with tiny marginal errors but a remaining displacement of twenty
+joint SDs. The original factor, slice, transaction and delayed-arrival assertions
+are retained and rerun for this change.
+
+The first joint implementation added an extra 0.001 cap below the caller's
+declared 0.01 budget. It helped the frozen case but failed the causal runtime
+gate: update 256 took 164.7 seconds and 18 iterations. Its following arrival
+took 14 iterations, including a restart and repeated rejected searches at the
+same objective. A frozen replay of that following graph reproduces the result;
+honoring the declared joint budget takes five iterations, with the differences
+in the table above. The original strict node/slice and delayed-history fixtures
+explicitly request 0.0001, so their accuracy target remains unchanged.
+
+`stream_lighting_joint_41002.json` retains that stopped candidate: 260 committed
+updates, 359 of 657 readings, through 1.99389 h. Its prefix timing audit passes,
+but it **did not complete** the requested three hours. Update 256's runtime
+failure preceded concurrent frozen-arrival diagnostics; later timing may be
+contended. The JSON and plots retain both the termination reason and that caveat.
+`stream_lighting_budget_41002.json` is the separate replay of the revised policy,
+started after the controls and regressions passed. The raw controls are
+`online_joint_budget_loading_control.json` and
+`online_joint_budget_additional_controls.json`.
+
+The declared-budget replay also failed the runtime target. Update 269 took
+127.884 seconds and 12 iterations. A second arrival, after 287 committed
+updates, remained in flight for several minutes and the run was stopped.
+The saved prefix contains 373 of 657 readings through 2.04583 h, with no rejected
+completed updates. Its prefix timing/input audit passes, but its complete-horizon
+audit does not. Both exact pre-arrival states were preserved. The first case
+reproduces all 12 iterations; the second still has a meaningful remaining
+posterior step after 40 iterations. These are unresolved runtime failures,
+despite the targeted regression passes. No further accuracy relaxation has been
+applied; the line-search trajectory is under controlled investigation.
+
+That investigation exposed a correctness defect in the new retraction path:
+the nested trial function assigned `xn`, which Julia captured from the outer
+solver. A rejected expanded trial could overwrite the accepted state while
+retaining the previous objective value. The fix uses a separate trial-local
+variable. Two analytic expansion cases reproduce six failures before the fix
+and pass all 11 assertions afterward. Replaying the two real slow arrivals with
+only this fix changes their means by at most 0.002474 and 0.001211 posterior SD,
+and their SDs by at most 0.1154% and 0.0961% relative. They still take 12 and
+44 iterations, so this correctness fix does not by itself solve the runtime
+problem.
+
+The production curvature search subsequently passed both frozen-arrival
+comparisons with the original graph, starting point, noise, and tolerance.
+The controls are saved in
+[`online_curvature_controls.json`](../data/mock/online_curvature_controls.json).
+
+| Frozen arrival | Previous search iterations | Curvature search iterations | Final joint step (SD) | Maximum mean difference (SD) | Maximum relative SD difference |
+|---|---:|---:|---:|---:|---:|
+| First slow arrival | 12 | 9 | 0.004466 | 0.002401 | 0.118% |
+| Second slow arrival | 44 | 18 | 0.0009395 | 0.003960 | 0.315% |
+
+Mean and width comparisons use the saved converged reference on each frozen
+graph. The joint-step threshold remains 0.01. These two-thread diagnostic
+timings overlapped with a separate worker's warmup, so they are not isolated
+arrival latency measurements or a speed ratio. The four-thread causal replay
+begins only after this diagnostic worker is idle. Adaptive damping and repeated
+transported-correction experiments did not pass the bounded controls and were
+not adopted.
+
+The earlier rejected 2.39472-hour arrival now commits in the guarded tuning
+run. This is evidence of a repaired solver failure, not a statistical
+consistency certificate. The plots expose both slow updates and temperature
+errors outside the reported 95% intervals; neither is omitted from the record.
+
+## Earlier integration checks
 
 | Gate | Recorded outcome |
 |---|---|
@@ -242,7 +621,12 @@ their old fingerprints; strict artifact checks remain enabled. The
 lighting fixture's declared validation prior is not a newly calibrated
 production prior.
 
-## Remaining work
+## Earlier failure investigations and remaining validation
+
+The following paragraphs preserve the earlier experiments and their limits.
+Statements that a change was still experimental describe that point in the
+investigation; the follow-up section above records the current implementation
+and validation. The historical runs are not evidence for the current revision.
 
 The updated cache/restart path still needed 50 iterations and 610 s at
 the two-hour loading checkpoint of seed 41002 (the earlier path needed
@@ -355,8 +739,10 @@ changing standardized error. The obsolete, duplicate `test_online.jl` worker
 was stopped after verifying its process ancestry; the replacement runs
 the current solver and forwards the requested Julia thread count.
 
-Remaining acceptance work is realistic streaming latency, the unresolved
-numerical regression failures, and censored predictive calibration. Freeze
+Remaining acceptance work is the unresolved numerical regression failures and
+censored predictive calibration; wall time and reading-to-estimate latency are
+reported alongside the statistical gates, not gated themselves (decision
+2026-10-05 above). Freeze
 a working configuration before running disjoint held-out seeds through
 loading, wrapping, fuel addition, pulling and resting. Statistical claims
 must distinguish independent cooks from correlated arrivals, count every
