@@ -7,7 +7,7 @@
 # standardized errors; the latents at the two-hour edges. The record's schema is coverage_system.jl's.
 #
 # Run: julia --threads=4 --project=estimator estimator/scripts/stream_bench.jl [n_cooks] [seed0] [out.json] [hours] [lag]
-#        [attach slice|node] [pace] [pit_s] [core_s] [hum_s] [mass_s] [node_ratio] [lag_max] [prior_relin]
+#        [attach slice|node] [pace] [pit_s] [core_s] [hum_s] [mass_s] [node_ratio] [lag_max] [prior_relin] [slice_g_refresh]
 #   pace: -1 is an offline node-batched diagnostic; 0 takes each arrival time; k > 0 is compute-paced: an update takes every reading that arrived during the
 #         previous update's measured compute time times k (k = 1 the live machine; k > 1 a slower one, fewer updates,
 #         readings retain their original timestamps). Node placement is independent of update scheduling.
@@ -37,6 +37,7 @@ STEP = Dict(:pit => length(A_) >= 8 ? parse(Float64, A_[8]) : 30.0, :core => len
 NODE_RATIO = length(A_) >= 12 ? parse(Float64, A_[12]) : SHIPPED.node_ratio
 LAG_MAX = length(A_) >= 13 ? parse(Int, A_[13]) : max(LAG, SHIPPED.lag_max)   # the window may grow to this while the latents still move (settle test)
 PRIOR_RELIN = length(A_) >= 14 ? parse(Float64, A_[14]) : SHIPPED.prior_relin # rebuild the marginal prior when the latents moved this many sds (Inf never)
+SLICE_G_REFRESH = length(A_) >= 15 ? parse(Bool, A_[15]) : SHIPPED.slice_g_refresh  # retake slice sensitivities at the relin tolerances (false: frozen at first sight)
 JITTER = 0.25                                                    # each interval drawn in step × (1 ± 0.25)
 
 REPO = normpath(joinpath(@__DIR__, "..", ".."))
@@ -199,6 +200,7 @@ save() = open(dst, "w") do io
         "groups" => group_names, "lag" => LAG, "backend_fingerprint" => BENCH_BACKEND,
         "bench_fingerprint" => BENCH_SOURCE, "start_mode" => string(START_MODE), "noise_mode" => string(NOISE_MODE),
         "initial_mode" => string(INITIAL_MODE), "batch_s" => BATCH_S, "max_slice_s" => MAX_SLICE_S, "lag_max" => LAG_MAX, "prior_relin" => PRIOR_RELIN,
+        "slice_g_refresh" => SLICE_G_REFRESH,
         "abstol" => BENCH_ABSTOL, "reltol" => BENCH_RELTOL,
         "floor_abstol" => BENCH_FLOOR_ABSTOL, "floor_reltol" => BENCH_FLOOR_RELTOL,
         "process_rate_scale" => SN_SCALE, "node_ratio" => NODE_RATIO, "load_h" => events.t_load / 3600, "fail_fast" => FAIL_FAST,
@@ -249,7 +251,8 @@ for c in 1:n_cooks
     clog = CookLog(t, u; events=cook_events, sensors, measurements=recs)
     model = SystemModel(sys, clog, blk; sn, abstol=BENCH_ABSTOL, reltol=BENCH_RELTOL,
                         floor_abstol=BENCH_FLOOR_ABSTOL, floor_reltol=BENCH_FLOOR_RELTOL)
-    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN, max_slice_s=MAX_SLICE_S)
+    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN,
+                     max_slice_s=MAX_SLICE_S, slice_g_refresh=SLICE_G_REFRESH)
     temps = Any[]; out = NamedTuple[]; failed = nothing
     input_records = [Dict("sensor"=>string(r.sensor), "t_s"=>r.t, "value"=>r.value) for r in recs]
     input_fingerprint = bytes2hex(E.SHA.sha1(json_document([(string(r.sensor),r.t,r.value) for r in recs])))

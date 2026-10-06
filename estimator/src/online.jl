@@ -95,7 +95,7 @@ or pilot silently drifts from the benchmarked configuration. When the window-loc
 `lag_max`/`prior_relin` change HERE and every driver follows.
 """
 const SHIPPED_STREAM_CONFIG = (attach=:slice, lag=3, lag_max=3, node_ratio=1.0, max_slice_s=600.0,
-                               prior_relin=Inf,
+                               prior_relin=Inf, slice_g_refresh=true,
                                abstol=1e-12, reltol=1e-10, floor_abstol=1e-10, floor_reltol=1e-8)
 # profiling: seconds accumulated per phase of an update (diagnostic only; reset by the caller)
 const SLICE_TIMERS = Dict{Symbol,Float64}()
