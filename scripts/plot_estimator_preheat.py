@@ -147,7 +147,11 @@ def plot_run(path):
             ax.set_xlim(0, max(r["t_h"] for r in rows)+.1)
             ax.grid(alpha=.15)
         for ax in axs[-1]: ax.set_xlabel("Hours since lighting (dotted line: load-transition midpoint)")
-        status = "FAILED: rejected arrival" if fail else status
+        # A completed run with rejected arrivals is not a failed run: the readings re-enter by the
+        # retry queue (the summary's accepted/rejected counts stay). Only an unfinished run fails.
+        if fail:
+            status = (f"{status}; {len(fail)} rejected arrival(s), retried" if status.startswith("Completed")
+                      else "FAILED: rejected arrival")
         experimental = "EXPERIMENTAL / " if "EXPERIMENTAL" in d.get("backend_fingerprint", "") else ""
         fig.suptitle(f"{experimental}{status} · seed {seed}\n{policy_label} · {path.name}",fontsize=12)
         fig.supxlabel("One cook is diagnostic evidence, not coverage validation. Failed arrivals excluded from belief panels.\n"

@@ -39,6 +39,26 @@ diagnosis (truth residuals, per-latent sensitivities, `prior_relin`/`lag_max`)
 must answer before any calibration round. Figures:
 `figures/estimator/stream_lighting_ws1_41002*.png`.
 
+**Verification 2026-10-06: the first full cook.** The 18 h causal replay
+`data/mock/stream_lighting_ws1_full_41002.json` (same seed and configuration,
+backend `95f5c04f2599`) completed lighting → loading → spritz → wrap → fuel
+addition → pull → rest: 5002 readings in 2753 updates, ONE rejected (a
+3-reading batch at 17.01 h stalled at newton_sd 0.011 against the 0.01
+budget; its readings re-entered by the retry queue and committed — zero
+permanently lost). Wall 58,153 s; update median 20.9 s, p95 39.5 s, max
+160.3 s; reading-to-estimate latency median 31.5 s, max 230.6 s; memory flat
+(4 window nodes throughout). Pooled over the cook: NIS/dof 0.92, latent
+NEES/16 0.72, temperature NEES/3 0.93; post-loading centre/surface RMSE
+1.01/1.07 K with max standardized error 1.70/1.90. The 3 h run's +3σ
+temperature climb is a POST-LOAD TRANSIENT that decays; the legacy
+latent-NEES explosion (31 by 14 h) does not recur — edges stay ≤ 2.1 sd at
+every 2 h checkpoint. What remains is the lock signature on single latents:
+`a_myosin` pinned at −1.9 from ~10 h, `core_depth_fraction` frozen at
++1.3…+1.5 from 2.2 h, and the W state group at NEES 3.53 with several groups
+far too wide (F 0.04, S 0.14, T_pan 0.04, ignited 0.04). One tuning seed:
+diagnostic evidence, not held-out validation. Figures:
+`figures/estimator/stream_lighting_ws1_full_41002*.png`.
+
 **Decision 2026-10-05: the 120 s update target is dropped.** It was a
 provisional label introduced during this repair (first in `13c3d4e`), never
 derived from a requirement and never enforced in code: the replays recorded as
