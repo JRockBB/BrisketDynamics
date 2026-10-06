@@ -21,19 +21,22 @@ using JSON, LinearAlgebra, Random, Printf, Serialization
 const E = BrisketEstimator
 
 A_ = ARGS
+# the defaults are the SHIPPED configuration (BrisketEstimator.SHIPPED_STREAM_CONFIG); arguments and env
+# deviate from it only for explicit experiments, and the manifest records whatever actually ran
+const SHIPPED = E.SHIPPED_STREAM_CONFIG
 n_cooks = length(A_) >= 1 ? parse(Int, A_[1]) : 1
 seed0 = length(A_) >= 2 ? parse(Int, A_[2]) : 1
 out_name = length(A_) >= 3 ? A_[3] : "stream_bench_$(seed0).json"
 hours = length(A_) >= 4 ? parse(Float64, A_[4]) : 14.0
-LAG = length(A_) >= 5 ? parse(Int, A_[5]) : 3
-ATTACH = length(A_) >= 6 ? Symbol(A_[6]) : :slice
+LAG = length(A_) >= 5 ? parse(Int, A_[5]) : SHIPPED.lag
+ATTACH = length(A_) >= 6 ? Symbol(A_[6]) : SHIPPED.attach
 PACE = length(A_) >= 7 ? parse(Float64, A_[7]) : 0.0
 UPDATE_POLICY = PACE < 0 ? "node_batches" : PACE == 0 ? "every_arrival" : "processing_backlog"
 STEP = Dict(:pit => length(A_) >= 8 ? parse(Float64, A_[8]) : 30.0, :core => length(A_) >= 9 ? parse(Float64, A_[9]) : 30.0,
             :humidity => length(A_) >= 10 ? parse(Float64, A_[10]) : 120.0, :mass => length(A_) >= 11 ? parse(Float64, A_[11]) : 120.0)
-NODE_RATIO = length(A_) >= 12 ? parse(Float64, A_[12]) : 1.0
-LAG_MAX = length(A_) >= 13 ? parse(Int, A_[13]) : LAG          # the window may grow to this while the latents still move (settle test)
-PRIOR_RELIN = length(A_) >= 14 ? parse(Float64, A_[14]) : Inf  # rebuild the marginal prior when the latents moved this many sds (Inf never)
+NODE_RATIO = length(A_) >= 12 ? parse(Float64, A_[12]) : SHIPPED.node_ratio
+LAG_MAX = length(A_) >= 13 ? parse(Int, A_[13]) : max(LAG, SHIPPED.lag_max)   # the window may grow to this while the latents still move (settle test)
+PRIOR_RELIN = length(A_) >= 14 ? parse(Float64, A_[14]) : SHIPPED.prior_relin # rebuild the marginal prior when the latents moved this many sds (Inf never)
 JITTER = 0.25                                                    # each interval drawn in step × (1 ± 0.25)
 
 REPO = normpath(joinpath(@__DIR__, "..", ".."))
@@ -74,14 +77,14 @@ sensors = [SensorSpec(id, observable_of[id], NoiseModel(; white_sd=WHITE[id], ar
 # has no process noise of its own. A small value tests numerical model error;
 # it does not make the stochastic state model generatively matched.
 const SN_SCALE = parse(Float64, get(ENV, "STREAM_SN_SCALE", "1.0"))
-const BENCH_ABSTOL = parse(Float64, get(ENV, "STREAM_ABSTOL", "1e-10"))
-const BENCH_RELTOL = parse(Float64, get(ENV, "STREAM_RELTOL", "1e-8"))
-const BENCH_FLOOR_ABSTOL = parse(Float64, get(ENV, "STREAM_FLOOR_ABSTOL", string(BENCH_ABSTOL)))
-const BENCH_FLOOR_RELTOL = parse(Float64, get(ENV, "STREAM_FLOOR_RELTOL", string(BENCH_RELTOL)))
+const BENCH_ABSTOL = parse(Float64, get(ENV, "STREAM_ABSTOL", string(SHIPPED.abstol)))
+const BENCH_RELTOL = parse(Float64, get(ENV, "STREAM_RELTOL", string(SHIPPED.reltol)))
+const BENCH_FLOOR_ABSTOL = parse(Float64, get(ENV, "STREAM_FLOOR_ABSTOL", string(SHIPPED.floor_abstol)))
+const BENCH_FLOOR_RELTOL = parse(Float64, get(ENV, "STREAM_FLOOR_RELTOL", string(SHIPPED.floor_reltol)))
 all(x -> isfinite(x) && x > 0, (SN_SCALE, BENCH_ABSTOL, BENCH_RELTOL, BENCH_FLOOR_ABSTOL, BENCH_FLOOR_RELTOL)) ||
     throw(ArgumentError("process-rate scale and integration tolerances must be positive and finite"))
 const BATCH_S = parse(Float64, get(ENV, "STREAM_BATCH_S", "3600.0"))
-const MAX_SLICE_S = parse(Float64, get(ENV, "STREAM_MAX_SLICE_S", "Inf"))
+const MAX_SLICE_S = parse(Float64, get(ENV, "STREAM_MAX_SLICE_S", string(SHIPPED.max_slice_s)))
 const FAIL_FAST = parse(Bool, get(ENV, "STREAM_FAIL_FAST", START_MODE === :lighting ? "true" : "false"))
 const VERBOSE_UPDATE = parse(Int, get(ENV, "STREAM_VERBOSE_UPDATE", "0")) # negative: every update
 const CHECKPOINT_PATH = get(ENV, "STREAM_CHECKPOINT_PATH", "")

@@ -1301,6 +1301,7 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
                     end
                     (isfinite(Ft) && Ft < Fn) || break
                     scale *= 2; xn = xt; Fn = Ft
+                    curved && (bounded = bounded || cand[].bounded)   # a soc-corrected trial's bound must survive into stall accounting
                 end
                 scale > 1 && (bounded = bounded || 2scale > room)
                 curved && (α = scale)
@@ -1323,13 +1324,15 @@ function gauss_newton!(g::FactorGraph; iters::Int=30, tol::Float64=1e-6, ftol::F
             rejected_at_point = 0
             stall_anchor = copy(x)
         end
+        # α > 1 is an accepted curved doubling: the model under-predicted the drop, the strongest
+        # case for relaxing damping. It must not fall between the escalation and relaxation branches.
         if adaptive_damping
             if α < 0.1 || gain < 0.25
                 λ = λ == 0 ? 1e-3 : 10λ
-            elseif α == 1.0 && gain > 0.75
+            elseif α >= 1.0 && gain > 0.75
                 λ = λ / 3 < 1e-6 ? 0.0 : λ / 3
             end
-        elseif α == 1.0
+        elseif α >= 1.0
             λ = λ / 3 < 1e-6 ? 0.0 : λ / 3
         end
         push!(hist, (it=it, F=F, F_trial=Fn, step=stepn, alpha=α, damping=λ, trials=trials, soc=nsoc,

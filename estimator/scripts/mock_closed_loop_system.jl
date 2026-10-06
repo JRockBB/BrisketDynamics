@@ -96,8 +96,13 @@ sensors = [SensorSpec(:pit, PitTemperature(), NoiseModel(white_sd=0.1, ar_sd=np0
            SensorSpec(:mass, TotalMass(), NoiseModel(white_sd=0.005, ar_sd=np0[4].σ_mean, tau=tau(np0[4])))]
 s = SystemSchedule(GRID, [PIECE]; u0=0.15, t_serve=14 * 3600.0)
 clog = CookLog(GRID, s.u; sensors)                 # the log's damper follows the schedule's executed damper step by step, its events as they commit
-model = SystemModel(sys, clog, blk; sn=StateNoise())    # the StateNoise defaults: the bench has not earned this backend's rates
-sm = online_init(model; lag=LAG, goals)
+# The SHIPPED estimator configuration, passed explicitly (the StateNoise defaults remain: the bench has
+# not earned this backend's rates — the calibration round replaces this with the fingerprinted file).
+SHIPPED = E.SHIPPED_STREAM_CONFIG
+model = SystemModel(sys, clog, blk; sn=StateNoise(), abstol=SHIPPED.abstol, reltol=SHIPPED.reltol,
+                    floor_abstol=SHIPPED.floor_abstol, floor_reltol=SHIPPED.floor_reltol)
+sm = online_init(model; lag=LAG, goals, attach=SHIPPED.attach, node_ratio=SHIPPED.node_ratio,
+                 max_slice_s=SHIPPED.max_slice_s, lag_max=max(LAG, SHIPPED.lag_max), prior_relin=SHIPPED.prior_relin)
 pl = plant_init(s)
 gl = Dict(PIECE => goals)
 

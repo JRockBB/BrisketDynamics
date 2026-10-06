@@ -85,6 +85,18 @@ const ONLINE_NEWTON_TOL = 1e-2
 # the doublings an accepted full step may take when it beat the model (gauss_newton!'s `expand`): the two-probe control's
 # seed 3012 (2026-09-30) crawled its 80 iterations at gain 2 along the probe depths' valley and was refused
 const ONLINE_EXPAND = Ref(4)
+"""
+    SHIPPED_STREAM_CONFIG
+
+The one shipped streaming configuration — the real problem the estimator's evidence is earned on: slice
+attachment at lag 3, variance-ruled node placement with the 600 s age cap, and the replays' integration
+accuracies. Drivers pass these EXPLICITLY (`online_init`'s own defaults stay neutral) so no bench, replay
+or pilot silently drifts from the benchmarked configuration. When the window-lock mitigations are adopted,
+`lag_max`/`prior_relin` change HERE and every driver follows.
+"""
+const SHIPPED_STREAM_CONFIG = (attach=:slice, lag=3, lag_max=3, node_ratio=1.0, max_slice_s=600.0,
+                               prior_relin=Inf,
+                               abstol=1e-12, reltol=1e-10, floor_abstol=1e-10, floor_reltol=1e-8)
 # profiling: seconds accumulated per phase of an update (diagnostic only; reset by the caller)
 const SLICE_TIMERS = Dict{Symbol,Float64}()
 _tick!(k::Symbol, dt) = (SLICE_TIMERS[k] = get(SLICE_TIMERS, k, 0.0) + dt)
@@ -146,7 +158,7 @@ mutable struct FixedLagSmoother
     attach::Symbol                                          # :node (a state node per reading time) or :slice (readings through the physics from their slice's node)
     slices::Dict{VarKey,SliceObservationFactor}             # :slice: per anchor node its readings' factor
     slice_recs::Dict{VarKey,Vector{MeasurementRecord}}      # :slice: per anchor node its uncensored readings
-    slice_G::Dict{Tuple{Symbol,Float64},Vector{Float64}}    # :slice: per reading (sensor, time) its sensitivity, fixed at first sight
+    slice_G::Dict{Tuple{Symbol,Float64},NamedTuple{(:g, :z, :y0),Tuple{Vector{Float64},Vector{Float64},Vector{Float64}}}}   # :slice: per reading (sensor, time) its sensitivity with the (latents, anchor) it was taken at; refreshed at the relin tolerances when `slice_g_refresh`
     node_ratio::Float64                                     # :slice: a new node when the process variance a reading sees exceeds this times its measurement variance
     max_slice_s::Float64                                    # :slice: an optional age cap; Inf preserves variance-only placement
     slice_rd::Dict{Tuple{Symbol,Float64},SliceReading}      # :slice: per reading its compiled form
@@ -162,6 +174,7 @@ mutable struct FixedLagSmoother
     seen::Dict{Tuple{Symbol,Float64},Float64}               # committed readings (sensor, time) -> value: the duplicate policy's memory, pruned as the window moves
     retry::Vector{Tuple{MeasurementRecord,Int}}             # readings whose solve did not commit, with the attempts spent: re-attempted on the next arrival
     n_dropped::Int                                          # readings given up on: a conflicting duplicate, retries exhausted, or fallen behind the window
+    slice_g_refresh::Bool                                   # recompute a slice reading's sensitivity (and so its slice's Σ) when the belief left its reference by the relin tolerances
 end
 key_params(sm::FixedLagSmoother) = sm.key_z
 key_node(sm::FixedLagSmoother, k::Int) = VarKey(:state, sm.cook, k)
@@ -231,7 +244,8 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                      ftol::Float64=1e-2, latent_step::Float64=0.25, goals::PlanGoals=PlanGoals(), graph::FactorGraph=FactorGraph(),
                      cook::Symbol=:cook, hierarchy=nothing, record_limit::Int=256, als::Union{Nothing,ALSFeed}=nothing,
                      relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol, drift=nothing, attach::Symbol=:node, node_ratio::Float64=1.0,
-                     lag_max::Int=lag, settle_tol::Float64=0.1, prior_relin::Float64=Inf, max_slice_s::Float64=Inf)
+                     lag_max::Int=lag, settle_tol::Float64=0.1, prior_relin::Float64=Inf, max_slice_s::Float64=Inf,
+                     slice_g_refresh::Bool=true)
     attach in (:node, :slice) || throw(ArgumentError("attach must be :node or :slice, not $attach"))
     attach === :slice && als !== nothing && throw(ArgumentError("the ALS accumulator reads one node per arrival; it is not built for :slice"))
     lag >= 0 || throw(ArgumentError("the lag counts nodes kept behind the newest; it cannot be negative"))
@@ -308,10 +322,11 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                             ObservationFactor[], lag, iters, restarts, tol, ftol, latent_step, relin_tol, relin_tol_state, goals, past, Float64(t0), NamedTuple[],
                             record_limit, 0, 0, als, split, drift_q, drift_jumps, Dict{Tuple{VarKey,VarKey},HierarchyFactor}(),
                             attach, Dict{VarKey,SliceObservationFactor}(), Dict{VarKey,Vector{MeasurementRecord}}(),
-                            Dict{Tuple{Symbol,Float64},Vector{Float64}}(), node_ratio, max_slice_s, Dict{Tuple{Symbol,Float64},SliceReading}(),
+                            Dict{Tuple{Symbol,Float64},NamedTuple{(:g, :z, :y0),Tuple{Vector{Float64},Vector{Float64},Vector{Float64}}}}(),
+                            node_ratio, max_slice_s, Dict{Tuple{Symbol,Float64},SliceReading}(),
                             max(lag_max, lag), settle_tol, Float64[], Dict{VarKey,Vector{Float64}}(),
                             prior_relin, Factor[], Dict{VarKey,Vector{Float64}}(), Float64[], 0,
-                            Dict{Tuple{Symbol,Float64},Float64}(), Tuple{MeasurementRecord,Int}[], 0)
+                            Dict{Tuple{Symbol,Float64},Float64}(), Tuple{MeasurementRecord,Int}[], 0, slice_g_refresh)
 end
 
 "Append one diagnostic to the bounded in-memory ring."
@@ -661,14 +676,21 @@ function _rebuild_slice!(sm::FixedLagSmoother, ka::VarKey)
     closed = i < length(sm.nodes)
     kb, tb = closed ? (sm.nodes[i + 1][2], sm.nodes[i + 1][1]) : (nothing, NaN)
     readings = [_slice_reading(sm, r) for r in recs]
-    need = [r for r in readings if !haskey(sm.slice_G, (r.spec.id, r.t))]
+    # A sensitivity is recomputed when the belief has left the point it was taken at by the same
+    # tolerances that retake a slice's Jacobian (`_slice_eval!`): a G frozen at the prior's first
+    # prediction misstates the slice's Σ for the whole window once the latents move.
+    zka, _ = _latents_at(sm, ka)
+    y0ka = variable_value(sm.graph, ka)
+    stale(e) = sm.slice_g_refresh &&
+               (norm(zka .- e.z, Inf) > sm.relin_tol || norm(y0ka .- e.y0, Inf) > sm.relin_tol_state)
+    need = [r for r in readings if !haskey(sm.slice_G, (r.spec.id, r.t)) || stale(sm.slice_G[(r.spec.id, r.t)])]
     if !isempty(need)
         Y, z = _carried(sm, ka, ta, unique([r.t for r in need]))
         for r in need
-            sm.slice_G[(r.spec.id, r.t)] = slice_sensitivity(sm.model, r, Y[r.t], z)
+            sm.slice_G[(r.spec.id, r.t)] = (g=slice_sensitivity(sm.model, r, Y[r.t], z), z=copy(zka), y0=copy(y0ka))
         end
     end
-    G = reduce(vcat, [permutedims(sm.slice_G[(r.spec.id, r.t)]) for r in readings])
+    G = reduce(vcat, [permutedims(sm.slice_G[(r.spec.id, r.t)].g) for r in readings])
     kd0 = Union{Nothing,VarKey}[_disc_at!(sm, r.spec, ta) for r in readings]
     kd1 = Union{Nothing,VarKey}[closed ? _disc_at!(sm, r.spec, tb) : nothing for r in readings]
     f = SliceObservationFactor(sm.model, readings, sm.key_z, ka, ta, ka.k == 1; key_y1=kb, t1=tb, kd0, kd1,
@@ -1033,6 +1055,16 @@ function marginalize_old!(sm::FixedLagSmoother)
         delete!(sm.z_snap, ko)
         sm.committed_t = to
         append!(removed, out)
+    end
+    # The per-reading compiled forms and sensitivities leave with their window: a reading older than the
+    # oldest node cannot rejoin a slice, so memory stays bounded by the lag as the header promises.
+    if !isempty(removed)
+        t_old = sm.nodes[1][1]
+        for cache in (sm.slice_G, sm.slice_rd)
+            for k in collect(keys(cache))
+                k[2] < t_old - 1e-9 && delete!(cache, k)
+            end
+        end
     end
     return removed
 end
