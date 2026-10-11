@@ -39,6 +39,24 @@ diagnosis (truth residuals, per-latent sensitivities, `prior_relin`/`lag_max`)
 must answer before any calibration round. Figures:
 `figures/estimator/stream_lighting_ws1_41002*.png`.
 
+**Quadrature escalation probes, 2026-10-11 (seed 43001, a0 + k_spread, causal, nx 40).**
+The conditional backend now runs under slice attachment (`b414ab7`), and the adaptive one
+learns then freezes (`ffae168`). Two shipped-scale probes:
+
+- *Fixed chart* (`ConditionalSmoother`, rules 3/5): the prior-scaled nodes lose resolution
+  within ~90 s of lighting (coarse-vs-fine mean error 0.24 vs tolerance 0.05) as the
+  ignition posterior contracts; every later update was rejected.
+- *Adaptive chart* (`DeterministicSmoother`, learn-then-freeze): on the first 5-reading
+  batch the chart re-centred twice and refined to the order-9 rule, giving 115 component
+  smoothers at full history. Updates then took 19 min (5 readings) and 52 min (48
+  readings); the second was rejected because one tail component (k_spread 4.6 chart-sd
+  out) missed its convergence budget, and the layer drops no failed component. The
+  process held 11.7 GB private. Stopped after 2 h with the belief still at t = 0.
+
+The mechanism is sound (the chart follows the contracting posterior), but at this
+physics resolution and on this machine the faithful full-history quadrature is about two
+orders of magnitude from live pace.
+
 **LR2 mitigation bench, stopped 2026-10-11 (runs 1-3 of 6 banked).** Causal
 18 h replays on fresh seeds, `locked` (lag_max 3, prior_relin Inf, no
 sensitivity refresh) against `refresh` (lag_max 6, prior_relin 0.2,
