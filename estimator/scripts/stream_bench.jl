@@ -94,6 +94,12 @@ const CHECKPOINT_PATH = get(ENV, "STREAM_CHECKPOINT_PATH", "")
 # mixture predictive is not Gaussian): use this mode for the latents, temperatures and cost, not NIS.
 const CONDITIONAL_AXES = [Symbol(strip(a)) for a in split(get(ENV, "STREAM_CONDITIONAL", ""), ",") if !isempty(strip(a))]
 const CONDITIONAL_ORDERS = Tuple(parse.(Int, split(get(ENV, "STREAM_CONDITIONAL_ORDERS", "3,5"), ",")))
+# STREAM_CONDITIONAL_MODE: "fixed" (ConditionalSmoother: chart fixed at the prior) or "adaptive"
+# (DeterministicSmoother, learn-then-freeze: full history while the chart re-centres, then the lag after
+# STREAM_FREEZE_STABLE consecutive arrivals needing no adaptation).
+const CONDITIONAL_MODE = Symbol(get(ENV, "STREAM_CONDITIONAL_MODE", "fixed"))
+CONDITIONAL_MODE in (:fixed, :adaptive) || throw(ArgumentError("STREAM_CONDITIONAL_MODE is fixed or adaptive"))
+const FREEZE_STABLE = parse(Int, get(ENV, "STREAM_FREEZE_STABLE", "20"))
 # The JSON-safe part of a conditional update's diagnostics: the coarse-vs-fine rule resolution, or for a failed
 # component solve which node (its quadrature coordinates) failed and how far its solve got.
 function conditional_diagnostics(d)
@@ -224,6 +230,8 @@ save() = open(dst, "w") do io
         "initial_mode" => string(INITIAL_MODE), "batch_s" => BATCH_S, "max_slice_s" => MAX_SLICE_S, "lag_max" => LAG_MAX, "prior_relin" => PRIOR_RELIN,
         "slice_g_refresh" => SLICE_G_REFRESH,
         "conditional_axes" => string.(CONDITIONAL_AXES), "conditional_orders" => collect(CONDITIONAL_ORDERS),
+        "conditional_mode" => isempty(CONDITIONAL_AXES) ? "" : string(CONDITIONAL_MODE),
+        "freeze_stable" => CONDITIONAL_MODE === :adaptive ? FREEZE_STABLE : nothing,
         "abstol" => BENCH_ABSTOL, "reltol" => BENCH_RELTOL,
         "floor_abstol" => BENCH_FLOOR_ABSTOL, "floor_reltol" => BENCH_FLOOR_RELTOL,
         "process_rate_scale" => SN_SCALE, "node_ratio" => NODE_RATIO, "load_h" => events.t_load / 3600, "fail_fast" => FAIL_FAST,
@@ -277,11 +285,15 @@ for c in 1:n_cooks
     sm = if isempty(CONDITIONAL_AXES)
         online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN,
                     max_slice_s=MAX_SLICE_S, slice_g_refresh=SLICE_G_REFRESH)
-    else
+    elseif CONDITIONAL_MODE === :fixed
         E.conditional_init(model; axes=CONDITIONAL_AXES, orders=CONDITIONAL_ORDERS, lag=LAG, attach=ATTACH,
                            node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN, max_slice_s=MAX_SLICE_S)
+    else
+        E.deterministic_init(model; axes=CONDITIONAL_AXES, orders=CONDITIONAL_ORDERS, freeze_stable=FREEZE_STABLE,
+                             hold_lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, max_slice_s=MAX_SLICE_S)
     end
-    base = sm isa E.ConditionalSmoother ? sm.anchor : sm          # the smoother that owns the graph structure
+    # the smoother that owns the graph structure
+    base = sm isa E.ConditionalSmoother ? sm.anchor : sm isa E.DeterministicSmoother ? sm.bank.anchor : sm
     temps = Any[]; out = NamedTuple[]; failed = nothing
     input_records = [Dict("sensor"=>string(r.sensor), "t_s"=>r.t, "value"=>r.value) for r in recs]
     input_fingerprint = bytes2hex(E.SHA.sha1(json_document([(string(r.sensor),r.t,r.value) for r in recs])))
@@ -356,7 +368,10 @@ for c in 1:n_cooks
             "newton_joint_sd" => r.newton_joint_sd, "joint_tol" => r.joint_tol,
             "converged" => r.converged, "n_nodes" => r.n_nodes,
             # why an update did not commit, and the quadrature's own resolution when the backend is conditional
-            "reason" => string(get(r, :reason, "")), "diagnostics" => conditional_diagnostics(get(r, :diagnostics, nothing))))
+            "reason" => string(get(r, :reason, "")), "diagnostics" => conditional_diagnostics(get(r, :diagnostics, nothing)),
+            # the adaptive quadrature's phase and chart adaptations (empty for the Gaussian smoother)
+            "phase" => string(get(r, :phase, "")), "recentres" => get(r, :recentres, 0), "refines" => get(r, :refines, 0),
+            "froze" => get(r, :froze, false), "bank_nodes" => get(r, :bank_nodes, Int[])))
         push!(out, (t=r.t, z=copy(r.z), z_cov=copy(r.z_cov), committed=r.committed))
         active_cook[]["n_updates"] = length(out)
         active_cook[]["wall_filter_s"] = time() - t0w

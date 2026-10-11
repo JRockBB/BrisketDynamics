@@ -12,6 +12,14 @@ mutable struct DeterministicSmoother
     adaptive_axes::Bool
     max_axes::Int
     diagnostics::NamedTuple
+    # learn-then-freeze: full history while the chart adapts; after `freeze_stable` consecutive
+    # committed arrivals that needed no re-centre/refine, every smoother's lag drops to `hold_lag`
+    freeze_stable::Union{Nothing,Int}
+    hold_lag::Int
+    frozen::Bool
+    stable::Int
+    n_recentres::Int
+    n_refines::Int
 end
 
 function _density_from_bank(sm,bank,center,scale)
@@ -40,10 +48,23 @@ the nonlinear dependence being retained. A finite `lag` is an explicit experimen
 tradeoff. With `axes=:auto`, parameter directions are selected from posterior shape
 defects, without sensor-name rules or truth; at most `max_axes` are integrated.
 Finite shape probes and quadrature convergence are NOT held-out consistency proof.
+
+LEARN-THEN-FREEZE (`freeze_stable`): the chart can only be re-centred against full
+history, so the smoother keeps every factor while the integrated latents are still
+being learned (the ignition pair: during lighting). After `freeze_stable` consecutive
+committed arrivals that needed no re-centre or refinement, the chart freezes: every
+smoother's lag drops to `hold_lag` and compaction proceeds. Each component remains a
+Gaussian smoother CONDITIONED on its fixed chart point, so the nonlinear dependence on
+the integrated latents is kept for the rest of the cook. After freezing an unresolved
+arrival is rejected (re-centring would need the discarded history), never degraded.
+`freeze_stable=nothing` keeps full history for the whole cook.
 """
 function deterministic_init(model::SystemModel;axes=:auto,orders=(5,9),max_order=17,max_nodes=729,
-                            density_tol=0.025,shape_tol=0.25,max_axes=3,lag=typemax(Int),kwargs...)
+                            density_tol=0.025,shape_tol=0.25,max_axes=3,lag=typemax(Int),
+                            freeze_stable=nothing,hold_lag=3,kwargs...)
     0<density_tol<1 && shape_tol>0 || throw(ArgumentError("invalid density/shape tolerances"))
+    freeze_stable===nothing || (freeze_stable>=1 && hold_lag>=0) ||
+        throw(ArgumentError("freeze_stable must be positive and hold_lag non-negative"))
     max_order>=last(orders) || throw(ArgumentError("max_order precedes the initial rules"))
     1<=max_axes<=3 || throw(ArgumentError("continuous reconstruction supports one to three axes"))
     auto=axes===:auto
@@ -60,7 +81,18 @@ function deterministic_init(model::SystemModel;axes=:auto,orders=(5,9),max_order
     r.tv_bound_estimate<=density_tol && r.integration_change<=density_tol/4 &&
         r.normalization_error<=density_tol/10 || error("initial conditional density is unresolved")
     diagnostic=merge(r,(resolved=true,conditional_gaussian_validated=false,inference=:conditional_transport))
-    return DeterministicSmoother(bank,b,center,scale,Float64(density_tol),Float64(shape_tol),max_order,max_nodes,auto,max_axes,diagnostic)
+    return DeterministicSmoother(bank,b,center,scale,Float64(density_tol),Float64(shape_tol),max_order,max_nodes,auto,max_axes,diagnostic,
+                                 freeze_stable===nothing ? nothing : Int(freeze_stable),Int(hold_lag),false,0,0,0)
+end
+
+# Freeze the chart: every smoother (anchor and each component) compacts to `hold_lag` from now on.
+function _freeze_chart!(sm::DeterministicSmoother)
+    for s in vcat([sm.bank.anchor],[inner for b in sm.bank.banks for inner in b.smoothers])
+        s.lag=sm.hold_lag;s.lag_max=sm.hold_lag
+    end
+    sm.frozen=true
+    _compact_conditional_banks!(sm.bank)
+    return sm
 end
 
 # New nodes can be fitted without substituting a Gaussian history ONLY while the
@@ -147,7 +179,7 @@ function _deterministic_advance!(sm::DeterministicSmoother,recs;verbose=false)
     solved=_solve_conditional_banks!(sm.bank,recs;verbose)
     solved.ok || return solved
     attempted=Set{Tuple}([Tuple(i for (_,i) in sm.bank.axes)])
-    restarted_axes=false;recenters=0
+    restarted_axes=false;recenters=0;refines=0;rebuilt=false
     while true
         banks=sm.bank.banks
         a=_density_from_bank(sm.bank,banks[end-1],sm.center,sm.scale)
@@ -176,7 +208,7 @@ function _deterministic_advance!(sm::DeterministicSmoother,recs;verbose=false)
                 proposed=isempty(remaining) ? selected : vcat(selected,remaining[argmax(shape.scores[remaining])])
             end
             if !(Tuple(proposed) in attempted) && _rebuild_density_axes!(sm,proposed)
-                push!(attempted,Tuple(proposed));recenters=0;continue
+                push!(attempted,Tuple(proposed));recenters=0;rebuilt=true;continue
             end
             return (ok=false,reason=:conditional_shape,diagnostics=d,candidate=b)
         end
@@ -186,7 +218,7 @@ function _deterministic_advance!(sm::DeterministicSmoother,recs;verbose=false)
             end
             order=min(sm.max_order,banks[end].order+4)
             if order>banks[end].order && _refine_density_bank!(sm,order)
-                continue
+                refines+=1;continue
             end
             return (ok=false,reason=:density_resolution,diagnostics=d,candidate=b)
         end
@@ -195,7 +227,8 @@ function _deterministic_advance!(sm::DeterministicSmoother,recs;verbose=false)
         sm.posterior=b;sm.diagnostics=d
         sm.bank.posterior=b.transported.source
         _compact_conditional_banks!(sm.bank)
-        return (ok=true,diagnostics=d)
+        return (ok=true,diagnostics=merge(d,(recentres=recenters,refines=refines)),
+                adapted=recenters>0 || refines>0 || rebuilt,recenters=recenters,refines=refines)
     end
 end
 
@@ -211,26 +244,64 @@ function assimilate!(sm::DeterministicSmoother,recs::AbstractVector{MeasurementR
         for i in 1:fieldcount(DeterministicSmoother);setfield!(sm,i,getfield(saved,i));end
     end
     try
-        sorted=sort(collect(recs);by=r->r.t,alg=MergeSort);first=1;result=nothing
-        while first<=length(sorted)
-            finish=first
-            while finish<length(sorted) && sorted[finish+1].t==sorted[first].t;finish+=1;end
-            result=_deterministic_advance!(sm,sorted[first:finish];verbose)
+        anchor=sm.bank.anchor
+        sorted=sort(collect(recs);by=r->r.t,alg=MergeSort)
+        # Under :slice the anchor splits the batch at the nodes it will make; otherwise per timestamp.
+        groups=if anchor.attach===:slice
+            _slice_chunks(anchor,sorted)
+        else
+            gs=Vector{MeasurementRecord}[];first=1
+            while first<=length(sorted)
+                finish=first
+                while finish<length(sorted) && sorted[finish+1].t==sorted[first].t;finish+=1;end
+                push!(gs,sorted[first:finish]);first=finish+1
+            end
+            gs
+        end
+        result=nothing;recentres=0;refines=0;froze=false
+        for g in groups
+            result=_deterministic_advance!(sm,g;verbose)
             if !result.ok
                 restore!()
-                return merge(result,(t=maximum(r.t for r in recs),committed=false,converged=false,wall=time()-start))
+                return _deterministic_record(sm,start,length(groups),false,
+                    (reason=result.reason,diagnostics=result.diagnostics))
             end
-            first=finish+1
+            recentres+=result.recenters;refines+=result.refines
+            if !sm.frozen
+                sm.stable=result.adapted ? 0 : sm.stable+1
+                if sm.freeze_stable!==nothing && sm.stable>=sm.freeze_stable
+                    _freeze_chart!(sm);froze=true
+                end
+            end
         end
-        record=(t=last(sm.bank.anchor.nodes)[1],committed=true,converged=true,inference=:conditional_transport,
-                diagnostics=result.diagnostics,wall=time()-start)
-        _push_record!(sm.bank.anchor,record)
+        sm.n_recentres+=recentres;sm.n_refines+=refines
+        record=_deterministic_record(sm,start,length(groups),true,
+            (diagnostics=result.diagnostics,recentres=recentres,refines=refines,froze=froze))
+        _push_record!(anchor,record)
         return merge(record,(posterior=sm.posterior,))
     catch
         restore!();rethrow()
     end
 end
 assimilate!(sm::DeterministicSmoother,rec::MeasurementRecord;kwargs...)=assimilate!(sm,[rec];kwargs...)
+
+# The record a consumer (bench, planner) reads: the quadrature mixture's moments at the newest node
+# (on rejection the standing belief, after rollback), the phase, and the chart's adaptation counts.
+# Innovation statistics are deliberately empty: a mixture predictive is not Gaussian (a PIT is the
+# consistency statistic still to build).
+function _deterministic_record(sm::DeterministicSmoother,start,nchunks,ok,extra)
+    anchor=sm.bank.anchor;t,ky=last(anchor.nodes)
+    belief=_conditional_belief(sm.bank.posterior,anchor.model,anchor.key_z,ky,t)
+    merge(belief,(t_belief=belief.t,n_nodes=length(anchor.nodes),chunks=nchunks,
+                  phase=sm.frozen ? :hold : :learn,stable=sm.stable,
+                  recentres_total=sm.n_recentres,refines_total=sm.n_refines,
+                  bank_nodes=[length(b.nodes) for b in sm.bank.banks],
+                  nis=NaN,dof=0,innov_std=Dict{Symbol,Float64}(),innov_rows=NamedTuple[],
+                  innovation_whitened=NamedTuple[],iters=0,attempts=1,gradient=NaN,
+                  newton_sd=NaN,newton_tol=ONLINE_NEWTON_TOL,newton_joint_sd=NaN,joint_tol=NaN,
+                  inference=:conditional_transport),
+          extra,(committed=ok,converged=ok,wall=time()-start))
+end
 belief_at(sm::DeterministicSmoother)=sm.posterior
 window_nodes(sm::DeterministicSmoother)=window_nodes(sm.bank)
 conditional_density(sm::DeterministicSmoother)=sm.posterior
