@@ -94,6 +94,23 @@ const CHECKPOINT_PATH = get(ENV, "STREAM_CHECKPOINT_PATH", "")
 # mixture predictive is not Gaussian): use this mode for the latents, temperatures and cost, not NIS.
 const CONDITIONAL_AXES = [Symbol(strip(a)) for a in split(get(ENV, "STREAM_CONDITIONAL", ""), ",") if !isempty(strip(a))]
 const CONDITIONAL_ORDERS = Tuple(parse.(Int, split(get(ENV, "STREAM_CONDITIONAL_ORDERS", "3,5"), ",")))
+# The JSON-safe part of a conditional update's diagnostics: the coarse-vs-fine rule resolution, or for a failed
+# component solve which node (its quadrature coordinates) failed and how far its solve got.
+function conditional_diagnostics(d)
+    d isa NamedTuple || return nothing
+    out = Dict{String,Any}()
+    for k in (:mean_error, :covariance_error, :resolved, :order, :node, :coordinates)
+        haskey(d, k) && (out[string(k)] = getfield(d, k))
+    end
+    if haskey(d, :solve)
+        s = d.solve
+        for k in (:converged, :gradient, :newton_sd, :F)
+            haskey(s, k) && (out["solve_" * string(k)] = getfield(s, k))
+        end
+        out["solve_iters"] = length(get(s, :hist, []))
+    end
+    return out
+end
 isfinite(BATCH_S) && BATCH_S > 0 || throw(ArgumentError("STREAM_BATCH_S must be positive and finite"))
 sn = let d = StateNoise()
     rates = (:T, :W, :C, :F, :S, :bark, :T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
@@ -337,7 +354,9 @@ for c in 1:n_cooks
             "chunks" => get(r, :chunks, 1), "solver_metrics_scope" => "last internal chunk",
             "newton_sd" => r.newton_sd, "newton_tol" => r.newton_tol,
             "newton_joint_sd" => r.newton_joint_sd, "joint_tol" => r.joint_tol,
-            "converged" => r.converged, "n_nodes" => r.n_nodes))
+            "converged" => r.converged, "n_nodes" => r.n_nodes,
+            # why an update did not commit, and the quadrature's own resolution when the backend is conditional
+            "reason" => string(get(r, :reason, "")), "diagnostics" => conditional_diagnostics(get(r, :diagnostics, nothing))))
         push!(out, (t=r.t, z=copy(r.z), z_cov=copy(r.z_cov), committed=r.committed))
         active_cook[]["n_updates"] = length(out)
         active_cook[]["wall_filter_s"] = time() - t0w
@@ -390,7 +409,7 @@ for c in 1:n_cooks
         return a[p][searchsortedfirst(cw, cw[end] / 2)]
     end
     zs(key) = [(x[key][1] - x[key][3]) / x[key][2] for x in temps]
-    nis_r = [x["nis"] / x["dof"] for x in temps if x["dof"] > 0 && isfinite(x["nis"])]
+    nis_r = Float64[x["nis"] / x["dof"] for x in temps if x["dof"] > 0 && isfinite(x["nis"])]
     @printf("cook %d (seed %d): %d readings in %d updates (%d not committed), %.0f s; time-weighted |err|/sd median pit %.2f centre %.2f surface %.2f; NIS/dof mean %.2f; time-weighted NEES/16 %.2f, NEES_T/3 %.2f\n",
             c, seed, length(recs), length(out), count(x -> !x.committed, out), time() - t0w,
             wmed(zs("pit"), hold), wmed(zs("centre"), hold), wmed(zs("surface"), hold), sum(nis_r) / max(length(nis_r), 1),
