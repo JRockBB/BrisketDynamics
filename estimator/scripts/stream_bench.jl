@@ -89,6 +89,11 @@ const MAX_SLICE_S = parse(Float64, get(ENV, "STREAM_MAX_SLICE_S", string(SHIPPED
 const FAIL_FAST = parse(Bool, get(ENV, "STREAM_FAIL_FAST", START_MODE === :lighting ? "true" : "false"))
 const VERBOSE_UPDATE = parse(Int, get(ENV, "STREAM_VERBOSE_UPDATE", "0")) # negative: every update
 const CHECKPOINT_PATH = get(ENV, "STREAM_CHECKPOINT_PATH", "")
+# STREAM_CONDITIONAL="a0,k_spread" runs the conditional (quadrature) backend over those latents instead of the
+# Gaussian smoother; STREAM_CONDITIONAL_ORDERS its two nested rules. Its innovation statistics are empty (a
+# mixture predictive is not Gaussian): use this mode for the latents, temperatures and cost, not NIS.
+const CONDITIONAL_AXES = [Symbol(strip(a)) for a in split(get(ENV, "STREAM_CONDITIONAL", ""), ",") if !isempty(strip(a))]
+const CONDITIONAL_ORDERS = Tuple(parse.(Int, split(get(ENV, "STREAM_CONDITIONAL_ORDERS", "3,5"), ",")))
 isfinite(BATCH_S) && BATCH_S > 0 || throw(ArgumentError("STREAM_BATCH_S must be positive and finite"))
 sn = let d = StateNoise()
     rates = (:T, :W, :C, :F, :S, :bark, :T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
@@ -201,6 +206,7 @@ save() = open(dst, "w") do io
         "bench_fingerprint" => BENCH_SOURCE, "start_mode" => string(START_MODE), "noise_mode" => string(NOISE_MODE),
         "initial_mode" => string(INITIAL_MODE), "batch_s" => BATCH_S, "max_slice_s" => MAX_SLICE_S, "lag_max" => LAG_MAX, "prior_relin" => PRIOR_RELIN,
         "slice_g_refresh" => SLICE_G_REFRESH,
+        "conditional_axes" => string.(CONDITIONAL_AXES), "conditional_orders" => collect(CONDITIONAL_ORDERS),
         "abstol" => BENCH_ABSTOL, "reltol" => BENCH_RELTOL,
         "floor_abstol" => BENCH_FLOOR_ABSTOL, "floor_reltol" => BENCH_FLOOR_RELTOL,
         "process_rate_scale" => SN_SCALE, "node_ratio" => NODE_RATIO, "load_h" => events.t_load / 3600, "fail_fast" => FAIL_FAST,
@@ -251,8 +257,14 @@ for c in 1:n_cooks
     clog = CookLog(t, u; events=cook_events, sensors, measurements=recs)
     model = SystemModel(sys, clog, blk; sn, abstol=BENCH_ABSTOL, reltol=BENCH_RELTOL,
                         floor_abstol=BENCH_FLOOR_ABSTOL, floor_reltol=BENCH_FLOOR_RELTOL)
-    sm = online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN,
-                     max_slice_s=MAX_SLICE_S, slice_g_refresh=SLICE_G_REFRESH)
+    sm = if isempty(CONDITIONAL_AXES)
+        online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN,
+                    max_slice_s=MAX_SLICE_S, slice_g_refresh=SLICE_G_REFRESH)
+    else
+        E.conditional_init(model; axes=CONDITIONAL_AXES, orders=CONDITIONAL_ORDERS, lag=LAG, attach=ATTACH,
+                           node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN, max_slice_s=MAX_SLICE_S)
+    end
+    base = sm isa E.ConditionalSmoother ? sm.anchor : sm          # the smoother that owns the graph structure
     temps = Any[]; out = NamedTuple[]; failed = nothing
     input_records = [Dict("sensor"=>string(r.sensor), "t_s"=>r.t, "value"=>r.value) for r in recs]
     input_fingerprint = bytes2hex(E.SHA.sha1(json_document([(string(r.sensor),r.t,r.value) for r in recs])))
@@ -270,7 +282,7 @@ for c in 1:n_cooks
             next_edge = edges[something(findfirst(>=(recs[i].t), edges), length(edges))]
             horizon = min(recs[i].t + BATCH_S, next_edge)
             while k < length(recs) && recs[k + 1].t <= horizon; k += 1; end
-            j = i + length(first(E._slice_chunks(sm, recs[i:k]))) - 1
+            j = i + length(first(E._slice_chunks(base, recs[i:k]))) - 1
         else
             j, horizon = stream_arrival_batch(recs, i, clock; paced=PACE > 0)
         end
@@ -279,7 +291,7 @@ for c in 1:n_cooks
         # Optional diagnostic restart before the arrival, including the exact
         # readings. This does not enter the measured assimilation wall time.
         isempty(CHECKPOINT_PATH) || serialize(CHECKPOINT_PATH, (sm=sm, recs=batch, seed=seed))
-        empty!(E.SLICE_TIMERS); nodes_before = sm.node_count
+        empty!(E.SLICE_TIMERS); nodes_before = base.node_count
         assimilation_start = time()
         r = try
             assimilate!(sm, batch; verbose=(VERBOSE_UPDATE < 0 || length(out) + 1 == VERBOSE_UPDATE))
@@ -311,9 +323,9 @@ for c in 1:n_cooks
             "processing_start_s" => processing_start, "processing_finish_s" => processing_finish,
             "oldest_reading_latency_s" => processing_finish - first(batch).t,
             "newest_reading_latency_s" => processing_finish - last(batch).t,
-            "nodes_added" => sm.node_count - nodes_before,
+            "nodes_added" => base.node_count - nodes_before,
             "n_censored" => count(rec -> E.censored_at(sensor(model.log, rec.sensor), rec), batch),
-            "n_retry_queued" => length(sm.retry), "n_dropped_total" => sm.n_dropped,
+            "n_retry_queued" => length(base.retry), "n_dropped_total" => base.n_dropped,
             "z" => copy(r.z), "z_sd" => sqrt.(max.(diag(r.z_cov), 0.0)), "z_true" => zt,
             "nees_g" => group_nees(r.y .- y_true, r.y_cov),
             "pit" => [r.T_pit[1], r.T_pit[2], o.Tpit[k]], "centre" => [r.pieces[PIECE].T_centre[1], r.pieces[PIECE].T_centre[2], o.Tcore[k]],
@@ -334,8 +346,8 @@ for c in 1:n_cooks
         if true
             zs_ = ez ./ sqrt.(max.(diag(r.z_cov), 1e-300)); iw = argmax(abs.(zs_))
             @printf("  seed %d t %.2f h: %d updates, %d nodes in window (+%d), last update %.1f s (%d readings, %d chunks; last chunk %d iters, %d attempts, committed %s), NIS/dof %.2f, worst latent %s %+.2f sd, k_spread %+.2f, a0 %+.2f, prior rebuilt %d | %s\n",
-                    seed, r.t / 3600, length(out), r.n_nodes, sm.node_count - nodes_before, assimilation_wall, length(batch), get(r, :chunks, 1), r.iters, get(r, :attempts, 0), string(r.committed), r.nis / max(r.dof, 1),
-                    allnames[iw], zs_[iw], zs_[idx["k_spread"]], zs_[ia0], sm.n_prior_relin,
+                    seed, r.t / 3600, length(out), r.n_nodes, base.node_count - nodes_before, assimilation_wall, length(batch), get(r, :chunks, 1), r.iters, get(r, :attempts, 0), string(r.committed), r.nis / max(r.dof, 1),
+                    allnames[iw], zs_[iw], zs_[idx["k_spread"]], zs_[ia0], base.n_prior_relin,
                     join(["$k $(round(v; digits=1))" for (k, v) in sort(collect(E.SLICE_TIMERS); by=last, rev=true)], ", ")); flush(stdout)
         end
         if FAIL_FAST && !r.committed

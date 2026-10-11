@@ -40,7 +40,11 @@ function conditional_init(model::SystemModel;axes,orders=(5,9),max_nodes=729,
     mean_tol>0 && covariance_tol>0 || throw(ArgumentError("resolution tolerances must be positive"))
     any(k->haskey(kwargs,k),(:als,:drift,:graph,:hierarchy)) &&
         throw(ArgumentError("online conditional inference currently requires static single-cook latents; calibrate noise/hierarchies offline"))
-    anchor=online_init(model;kwargs...)
+    # Components share the anchor's slice sensitivities (one noise model for comparable
+    # evidences); a sensitivity retaken at one smoother's estimate would split them.
+    get(kwargs,:slice_g_refresh,false) &&
+        throw(ArgumentError("the conditional backend shares its anchor's slice sensitivities; slice_g_refresh must be false"))
+    anchor=online_init(model;kwargs...,slice_g_refresh=false)
     indices=[a isa Integer ? Int(a) : latent_index(model.blk,Symbol(a)) for a in axes]
     selected=[(anchor.key_z,i) for i in indices]
     off,_=_offsets(anchor.graph);ia=[off[k][i] for (k,i) in selected]
@@ -103,9 +107,37 @@ function _retry_conditional_nodes!(smoothers,nodes,axes)
     return nodes
 end
 
+# The anchor DECIDES the arrival's graph structure and every component MIRRORS it.
+# Under attach=:slice the node rule reads a smoother's own estimate, so components left
+# to their own rule would place nodes apart and their graphs (and factor keys) would
+# diverge. Components also take the anchor's slice sensitivities: a slice's noise Σ is
+# built from them, and component evidences compare only under ONE noise model (the
+# same reason the dynamics whiteners are copied below). Returns the mirror step.
+function _conditional_attach!(anchor::FixedLagSmoother,recs)
+    if anchor.attach!==:slice
+        for rec in recs;add_measurement!(anchor,rec);end
+        return inner->(for rec in recs;add_measurement!(inner,rec);end)
+    end
+    cens=[r for r in recs if censored_at(sensor(anchor.model.log,r.sensor),r)]
+    unc=[r for r in recs if !censored_at(sensor(anchor.model.log,r.sensor),r)]
+    for r in cens;add_measurement!(anchor,r);end
+    before=Set(first.(anchor.nodes))
+    isempty(unc) || _add_slice_readings!(anchor,unc)
+    new_times=[t for (t,_) in anchor.nodes if !(t in before)]
+    times=first.(anchor.nodes)
+    return function(inner)
+        for r in cens;add_measurement!(inner,r);end
+        merge!(inner.slice_G,anchor.slice_G)
+        isempty(unc) || _add_slice_readings!(inner,unc;node_times=new_times)
+        first.(inner.nodes)==times ||
+            error("a conditional component's graph diverged from its anchor's structure")
+        return nothing
+    end
+end
+
 function _solve_conditional_banks!(sm::ConditionalSmoother,recs;verbose=false)
     anchor=sm.anchor
-    for rec in recs;add_measurement!(anchor,rec);end
+    mirror = _conditional_attach!(anchor,recs)
     proposal=solve_window!(anchor;verbose)
     proposal.converged || return (ok=false,reason=:anchor_solve,diagnostics=proposal)
     for bank in sm.banks
@@ -114,7 +146,7 @@ function _solve_conditional_banks!(sm::ConditionalSmoother,recs;verbose=false)
         # reduction of weights remains ordered and deterministic after the join.
         Threads.@threads for j in eachindex(bank.nodes)
           let inner=bank.smoothers[j],old=bank.nodes[j],c=nothing
-            for rec in recs;add_measurement!(inner,rec);end
+            mirror(inner)
             # A single predictable process model for every component and rule.
             # Per-component re-anchoring would compare different likelihoods and
             # introduce component-dependent normalizing constants.
@@ -197,20 +229,41 @@ function assimilate!(sm::ConditionalSmoother,recs::AbstractVector{MeasurementRec
     end
     try
         sorted=sort(collect(recs);by=r->r.t,alg=MergeSort)
-        first=1;result=nothing
-        while first<=length(sorted)
-            finish=first
-            while finish<length(sorted) && sorted[finish+1].t==sorted[first].t;finish+=1;end
-            result=_conditional_advance!(sm,sorted[first:finish];verbose)
+        # Under :slice the anchor splits the batch at the nodes it will make (one new node
+        # per advance, as the Gaussian smoother does); otherwise one advance per timestamp.
+        groups=if sm.anchor.attach===:slice
+            _slice_chunks(sm.anchor,sorted)
+        else
+            gs=Vector{MeasurementRecord}[];first=1
+            while first<=length(sorted)
+                finish=first
+                while finish<length(sorted) && sorted[finish+1].t==sorted[first].t;finish+=1;end
+                push!(gs,sorted[first:finish]);first=finish+1
+            end
+            gs
+        end
+        # The record carries the belief (on failure the standing one, after rollback). Its
+        # innovation statistics are deliberately EMPTY: the predictive of a quadrature mixture
+        # is not Gaussian, so the Gaussian smoother's NIS/whitening would misstate it (a
+        # mixture-predictive PIT is the consistency statistic still to build).
+        function record_of(ok,extra)
+            belief=belief_at(sm)
+            merge(belief,(t_belief=belief.t,n_nodes=length(sm.anchor.nodes),chunks=length(groups),
+                          nis=NaN,dof=0,innov_std=Dict{Symbol,Float64}(),innov_rows=NamedTuple[],
+                          innovation_whitened=NamedTuple[],iters=0,attempts=1,gradient=NaN,
+                          newton_sd=NaN,newton_tol=ONLINE_NEWTON_TOL,newton_joint_sd=NaN,joint_tol=NaN,
+                          inference=:conditional_laplace),
+                  extra,(committed=ok,converged=ok,wall=time()-start))
+        end
+        result=nothing
+        for g in groups
+            result=_conditional_advance!(sm,g;verbose)
             if !result.ok
                 restore!()
-                return merge(result,(committed=false,converged=false,wall=time()-start))
+                return record_of(false,result)
             end
-            first=finish+1
         end
-        belief=belief_at(sm)
-        record=merge(belief,(committed=true,converged=true,inference=:conditional_laplace,
-                            diagnostics=result.diagnostics,wall=time()-start))
+        record=record_of(true,(diagnostics=result.diagnostics,))
         _push_record!(sm.anchor,record)
         return merge(record,(posterior=sm.posterior,))
     catch

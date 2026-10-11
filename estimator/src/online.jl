@@ -720,17 +720,26 @@ the state's process covariance over the gap) exceeds `node_ratio` times its own 
 the OU discrepancy's), or its age reaches `max_slice_s`; otherwise it joins the newest node's open slice. A delayed reading joins the closed slice it falls
 in. Every slice the batch touched is rebuilt once at the end. The node rule's sensitivities come from ONE solve from the
 newest node over the batch's times.
+
+`node_times` MIRRORS a structure decided elsewhere instead: exactly those nodes are made (each once) and the rule is not
+consulted. The conditional backend passes its anchor's new node times so every quadrature component holds the same
+nodes, slices and factor keys; the rule reads the smoother's own estimate and would place each component's nodes apart.
 """
-function _add_slice_readings!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord})
+function _add_slice_readings!(sm::FixedLagSmoother, recs::AbstractVector{MeasurementRecord}; node_times=nothing)
     touched = Set{VarKey}()
     recs = sort(collect(recs); by=r -> r.t)
-    tn0, kn0 = sm.nodes[end]
-    ahead = unique([r.t for r in recs if r.t > tn0 + 1e-9])
-    Y, z = isempty(ahead) ? (Dict{Float64,Vector{Float64}}(), nothing) : _carried(sm, kn0, tn0, ahead)
-    for rec in recs
-        spec = sensor(sm.model.log, rec.sensor)
-        tn, _ = sm.nodes[end]
-        if rec.t > tn + 1e-9
+    if node_times !== nothing
+        for te in sort(collect(Float64, node_times))
+            any(x -> abs(x[1] - te) <= 1e-9, sm.nodes) || _slice_new_node!(sm, te, touched)
+        end
+    else
+        tn0, kn0 = sm.nodes[end]
+        ahead = unique([r.t for r in recs if r.t > tn0 + 1e-9])
+        Y, z = isempty(ahead) ? (Dict{Float64,Vector{Float64}}(), nothing) : _carried(sm, kn0, tn0, ahead)
+        for rec in recs
+            spec = sensor(sm.model.log, rec.sensor)
+            tn, _ = sm.nodes[end]
+            rec.t > tn + 1e-9 || continue
             for te in _event_times(sm.model.log, tn, rec.t)
                 _slice_new_node!(sm, te, touched)
             end
@@ -742,6 +751,8 @@ function _add_slice_readings!(sm::FixedLagSmoother, recs::AbstractVector{Measure
                 (rec.t - tn >= sm.max_slice_s || dot(g, Q * g) > sm.node_ratio * v_meas) && _slice_new_node!(sm, rec.t, touched)
             end
         end
+    end
+    for rec in recs
         ka = sm.nodes[findlast(x -> x[1] <= rec.t + 1e-9, sm.nodes)][2]
         push!(get!(sm.slice_recs, ka, MeasurementRecord[]), rec)
         push!(touched, ka)
