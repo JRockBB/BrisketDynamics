@@ -363,14 +363,28 @@ for c in 1:n_cooks
                       "n_readings" => length(recs), "n_uncommitted" => count(x -> !x.committed, out),
                       "input_records" => input_records, "input_fingerprint" => input_fingerprint,
                       "unavailable_edges_h" => [te/3600 for (te,j) in available_edges if j === nothing]))
+    # The belief statistics are HOLD-TIME weighted: each update's belief counts for the cook time it stood
+    # before the next one. A per-update average compares runs whose batching differs on different
+    # stretches of the cook (LR2 2026-10-11: a backlogged arm's 354 updates were 60% pre-load and its
+    # per-update means looked 4x better than the matched-time truth). NIS stays per update: it scores
+    # the innovations each update consumed, not a belief held over time.
+    tb = [get(x, "t_belief_h", x["t_h"]) for x in temps]
+    hold = length(tb) > 1 ? vcat(max.(diff(tb), 0.0), [0.0]) : [1.0]
+    sum(hold) > 0 || (hold = ones(length(tb)))
+    wmean(v, w) = (k = isfinite.(v) .& (w .> 0); any(k) ? sum(v[k] .* w[k]) / sum(w[k]) : NaN)
+    function wmed(v, w)
+        k = isfinite.(v) .& (w .> 0); any(k) || return NaN
+        a = abs.(v[k]); p = sortperm(a); cw = cumsum(w[k][p])
+        return a[p][searchsortedfirst(cw, cw[end] / 2)]
+    end
     zs(key) = [(x[key][1] - x[key][3]) / x[key][2] for x in temps]
-    med(v) = sort(abs.(v))[div(end + 1, 2)]
     nis_r = [x["nis"] / x["dof"] for x in temps if x["dof"] > 0 && isfinite(x["nis"])]
-    @printf("cook %d (seed %d): %d readings in %d updates (%d not committed), %.0f s; |err|/sd median pit %.2f centre %.2f surface %.2f; NIS/dof mean %.2f; NEES/16 mean %.2f; NEES_T/3 mean %.2f\n",
-            c, seed, length(recs), length(out), count(x -> !x.committed, out), time() - t0w, med(zs("pit")), med(zs("centre")), med(zs("surface")),
-            sum(nis_r) / max(length(nis_r), 1), sum(x["nees_z16"] for x in temps) / 16 / length(temps), sum(x["nees_T"] for x in temps) / 3 / length(temps))
-    gm(g) = (v = [x["nees_g"][g] for x in temps if isfinite(x["nees_g"][g])]; isempty(v) ? NaN : sum(v) / length(v))
-    println("    the state by group, NEES/dof mean: ", join([@sprintf("%s %.2f", g, gm(g)) for g in group_names], ", "))
+    @printf("cook %d (seed %d): %d readings in %d updates (%d not committed), %.0f s; time-weighted |err|/sd median pit %.2f centre %.2f surface %.2f; NIS/dof mean %.2f; time-weighted NEES/16 %.2f, NEES_T/3 %.2f\n",
+            c, seed, length(recs), length(out), count(x -> !x.committed, out), time() - t0w,
+            wmed(zs("pit"), hold), wmed(zs("centre"), hold), wmed(zs("surface"), hold), sum(nis_r) / max(length(nis_r), 1),
+            wmean([x["nees_z16"] for x in temps], hold) / 16, wmean([x["nees_T"] for x in temps], hold) / 3)
+    gm(g) = wmean([Float64(x["nees_g"][g]) for x in temps], hold)
+    println("    the state by group, time-weighted NEES/dof: ", join([@sprintf("%s %.2f", g, gm(g)) for g in group_names], ", "))
     println("    the latents at the edges, err/sd: ", join([@sprintf("%.0fh max %.2f (%s)", b["t_h"], maximum(abs.(b["err_sd"])), allnames[argmax(abs.(b["err_sd"]))]) for b in batches], "; "))
     active_cook[] = nothing
     flush(stdout); save()

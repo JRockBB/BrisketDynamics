@@ -39,6 +39,33 @@ diagnosis (truth residuals, per-latent sensitivities, `prior_relin`/`lag_max`)
 must answer before any calibration round. Figures:
 `figures/estimator/stream_lighting_ws1_41002*.png`.
 
+**LR2 mitigation bench, stopped 2026-10-11 (runs 1-3 of 6 banked).** Causal
+18 h replays on fresh seeds, `locked` (lag_max 3, prior_relin Inf, no
+sensitivity refresh) against `refresh` (lag_max 6, prior_relin 0.2,
+slice_g_refresh). Run 4 (refresh/43002) was stopped by the user at 5.68 h
+simulated after 9 h wall: `rebuild_prior!` re-linearizes the whole departed
+history, and its backlog grew faster than it drained (one update took 2.2 h).
+Scored on HOLD-TIME weights (each belief counts for the cook time it stood):
+
+| | locked/43001 | refresh/43001 | locked/43002 |
+|---|---|---|---|
+| ignited-group NEES | 238 | 296 | 0.6 |
+| post-load centre z | -0.92 | -0.99 | -0.26 |
+| a0 / k_spread at 18 h | +2.0 / -2.1 | +2.7 / -2.8 | +1.9 / -1.3 |
+
+The mitigations did not move the ignition pair toward band; on the paired seed
+they moved it away, at the cost of the backlog spiral. An earlier reading
+(ignited 248 -> 55, centre |z| 0.86 -> 0.13) was a per-update averaging
+artifact: the backlogged arm's 354 updates were 60% pre-load. `stream_bench.jl`
+and `scripts/plot_estimator_preheat.py` now report hold-time-weighted
+statistics. The meat-temperature bias changes sign across seeds (positive on
+41002, negative on 43001/43002), so it is not a one-signed linearization
+(Jensen) bias. The ignition blowup is seed-dependent: seed 43001 reaches
+ignited NEES in the hundreds from ~3 h in both arms, seed 43002 stays
+consistent. Per the plan's pre-agreed trigger the ignition lock escalates to
+the conditional (quadrature over a0, k_spread) backend; the Gaussian-path
+mitigations and the planned 4 h relinearization horizon are shelved.
+
 **Verification 2026-10-06: the first full cook.** The 18 h causal replay
 `data/mock/stream_lighting_ws1_full_41002.json` (same seed and configuration,
 backend `95f5c04f2599`) completed lighting → loading → spritz → wrap → fuel

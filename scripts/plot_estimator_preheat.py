@@ -24,14 +24,27 @@ def rows_of(d):
     return [(r.get("seed"), r.get("temps", []), status) for r, status in runs if r.get("temps")]
 
 
+def hold_weights(rows):
+    """Each belief weighted by the cook time it stood before the next update. Per-update means compare
+    runs whose batching differs on different stretches of the cook (a backlogged run's few updates
+    over-sample the quiet phases), so every summary statistic here is time-weighted."""
+    t = np.array([r.get("t_belief_h", r["t_h"]) for r in rows], dtype=float)
+    if len(t) < 2:
+        return np.ones(len(t))
+    w = np.append(np.maximum(np.diff(t), 0.0), 0.0)
+    return w if w.sum() > 0 else np.ones(len(t))
+
+
 def temperature_errors(rows):
     result = {}
+    w = hold_weights(rows)
     for key in ("pit", "centre", "surface"):
         a = np.array([r[key] for r in rows], dtype=float).reshape(-1, 3)
         if len(a):
             error = a[:, 0] - a[:, 2]
             result[key] = {
-                "rmse_K": float(np.sqrt(np.mean(error**2))),
+                "rmse_K": float(np.sqrt(np.average(error**2, weights=w))),
+                "mean_standardized": float(np.average(error / a[:, 1], weights=w)),
                 "max_abs_K": float(np.max(np.abs(error))),
                 "max_abs_standardized": float(np.max(np.abs(error / a[:, 1]))),
             }
