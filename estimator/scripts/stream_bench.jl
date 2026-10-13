@@ -118,10 +118,29 @@ function conditional_diagnostics(d)
     return out
 end
 isfinite(BATCH_S) && BATCH_S > 0 || throw(ArgumentError("STREAM_BATCH_S must be positive and finite"))
-sn = let d = StateNoise()
-    rates = (:T, :W, :C, :F, :S, :bark, :T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
-    StateNoise(; (f => (f in rates ? SN_SCALE * getfield(d, f) : getfield(d, f)) for f in fieldnames(StateNoise))...)
+# STREAM_CALIBRATION: a calibration file (path, or a name under data/calibration) whose state rates and sensor
+# noise the ESTIMATOR runs with; the plant's readings keep the true noise (WHITE, OU). STREAM_CALIBRATION_STALE_OK=1
+# accepts a file earned on another backend (a tuning round may start from one). Unset: the StateNoise defaults.
+const CALIBRATION = get(ENV, "STREAM_CALIBRATION", "")
+const CAL_STALE_OK = get(ENV, "STREAM_CALIBRATION_STALE_OK", "0") == "1"
+sn, cal_sensors = if isempty(CALIBRATION)
+    let d = StateNoise()
+        rates = (:T, :W, :C, :F, :S, :bark, :T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
+        (StateNoise(; (f => (f in rates ? SN_SCALE * getfield(d, f) : getfield(d, f)) for f in fieldnames(StateNoise))...), nothing)
+    end
+else
+    SN_SCALE == 1.0 || throw(ArgumentError("STREAM_SN_SCALE scales the defaults; it does not apply to a calibration file"))
+    E.load_system_calibration(isabspath(CALIBRATION) ? CALIBRATION : joinpath(REPO, "data", "calibration", CALIBRATION); strict=!CAL_STALE_OK)
 end
+if cal_sensors !== nothing
+    sensors = [SensorSpec(s.id, s.observable, haskey(cal_sensors, s.id) ?
+                   NoiseModel(; white_sd=cal_sensors[s.id].white_sd, ar_sd=cal_sensors[s.id].ar_sd, tau=cal_sensors[s.id].tau,
+                              cap=(s.id === :humidity ? nc.hum_cap : Inf)) : s.noise) for s in sensors]
+end
+# STREAM_ALS_LAG_H > 0: feed the innovation-autocovariance accumulator (the calibration's statistics) over that window.
+# The feed is node-mode only (inside a slice the process noise is correlated across arrivals, which the accumulator's
+# Markov frame does not represent), so it needs attach=node; batches are then one timestamp each.
+const ALS_LAG_H = parse(Float64, get(ENV, "STREAM_ALS_LAG_H", "0"))
 bl = belief_layout(sys)
 group_names = [E._als_group_name(bl, g) for (g, _) in bl.groups]
 group_ranges = [rg for (_, rg) in bl.groups]
@@ -226,6 +245,10 @@ save() = open(dst, "w") do io
         "julia_threads" => Threads.nthreads(), "blas_threads" => BLAS.get_num_threads(),
         "timing_basis" => "Complete assimilate! wall time, including any compilation in that call; fixture generation, scoring and checkpoint I/O excluded",
         "groups" => group_names, "lag" => LAG, "backend_fingerprint" => BENCH_BACKEND,
+        # the noise the estimator ran with, for the calibration fit (stream_calibrate.jl) and for provenance
+        "state_noise" => E.state_noise_record(bl, sn), "calibration" => CALIBRATION, "als_lag_h" => ALS_LAG_H,
+        "sensors" => Dict(string(s.id) => Dict("white_sd" => s.noise.white_sd, "ar_sd" => s.noise.ar_sd, "tau" => s.noise.tau) for s in sensors),
+        "channels" => Dict(string(i) => string(id) for (i, id) in enumerate(SENSOR_IDS)),
         "bench_fingerprint" => BENCH_SOURCE, "start_mode" => string(START_MODE), "noise_mode" => string(NOISE_MODE),
         "initial_mode" => string(INITIAL_MODE), "batch_s" => BATCH_S, "max_slice_s" => MAX_SLICE_S, "lag_max" => LAG_MAX, "prior_relin" => PRIOR_RELIN,
         "slice_g_refresh" => SLICE_G_REFRESH,
@@ -282,9 +305,16 @@ for c in 1:n_cooks
     clog = CookLog(t, u; events=cook_events, sensors, measurements=recs)
     model = SystemModel(sys, clog, blk; sn, abstol=BENCH_ABSTOL, reltol=BENCH_RELTOL,
                         floor_abstol=BENCH_FLOOR_ABSTOL, floor_reltol=BENCH_FLOOR_RELTOL)
+    feed = if ALS_LAG_H > 0
+        ATTACH === :node && isempty(CONDITIONAL_AXES) && PACE == 0 ||
+            throw(ArgumentError("the accumulator feed needs attach=node, the Gaussian smoother and pace 0 (one timestamp per batch)"))
+        ALSFeed(model; lag_s=ALS_LAG_H * 3600, bin_s=60.0)
+    else
+        nothing
+    end
     sm = if isempty(CONDITIONAL_AXES)
         online_init(model; lag=LAG, attach=ATTACH, node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN,
-                    max_slice_s=MAX_SLICE_S, slice_g_refresh=SLICE_G_REFRESH)
+                    max_slice_s=MAX_SLICE_S, slice_g_refresh=SLICE_G_REFRESH, als=feed)
     elseif CONDITIONAL_MODE === :fixed
         E.conditional_init(model; axes=CONDITIONAL_AXES, orders=CONDITIONAL_ORDERS, lag=LAG, attach=ATTACH,
                            node_ratio=NODE_RATIO, lag_max=LAG_MAX, prior_relin=PRIOR_RELIN, max_slice_s=MAX_SLICE_S)
@@ -314,6 +344,11 @@ for c in 1:n_cooks
             j = i + length(first(E._slice_chunks(base, recs[i:k]))) - 1
         else
             j, horizon = stream_arrival_batch(recs, i, clock; paced=PACE > 0)
+        end
+        if feed !== nothing
+            # the accumulator reads one timestamp per arrival: the readings sharing this one's time
+            j = i
+            while j < length(recs) && recs[j + 1].t == recs[i].t; j += 1; end
         end
         batch = recs[i:j]
         processing_start = PACE > 0 ? horizon : recs[j].t
@@ -406,6 +441,7 @@ for c in 1:n_cooks
                      "z" => x.z, "sd" => sd, "err_sd" => (x.z .- zt) ./ sd, "z_true" => zt,
                      "err_sd_graphfilter" => (x.z .- zt) ./ sd, "err_sd_system" => (x.z .- zt) ./ sd)) for (te,j) in available_edges if j !== nothing]
     push!(cooks, Dict("seed" => seed, "batches" => batches, "temps" => temps, "wall_filter_s" => time() - t0w, "n_updates" => length(out),
+                      "als" => feed === nothing ? nothing : E.als_summary(feed.acc),
                       "n_readings" => length(recs), "n_uncommitted" => count(x -> !x.committed, out),
                       "input_records" => input_records, "input_fingerprint" => input_fingerprint,
                       "unavailable_edges_h" => [te/3600 for (te,j) in available_edges if j === nothing]))
