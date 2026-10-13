@@ -155,7 +155,7 @@ struct CookSystem{P<:PieceModel}
     layout::SystemLayout
 end
 function CookSystem(pieces::AbstractVector{<:PieceModel}; pit::PitConfig=PitConfig(), hum::Humidity=Humidity())
-    isempty(pieces) && throw(ArgumentError("a cook system needs at least one piece"))
+    # Zero pieces is the pit alone: the cooker before the meat goes on (the estimator learns the fire there).
     any(pc -> piece_id(pc) === :pit, pieces) &&
         throw(ArgumentError(":pit is reserved for the shared cooker and cannot be a piece id"))
     any(pc -> isempty(String(piece_id(pc))), pieces) &&
@@ -346,7 +346,7 @@ function pack_params(sys::CookSystem, θs::AbstractVector, As::AbstractVector, �
     end
     validate_events(sys, events)
     play = ParamLayout(sys, length(u_knots))
-    Tel = promote_type(eltype(reduce(vcat, θs)), eltype(As), eltype(φ), eltype(u_knots), Float64)
+    Tel = promote_type(isempty(θs) ? Float64 : eltype(reduce(vcat, θs)), eltype(As), eltype(φ), eltype(u_knots), Float64)
     p = zeros(Tel, play.n)
     for (i, pc) in enumerate(sys.pieces)
         ev = piece_events(events, pc.id; cfg=pc.cfg)
@@ -651,7 +651,8 @@ function system_solve_raw(sys::CookSystem, p::AbstractVector, x0::AbstractVector
     # restarts on short slices; its trajectory must resolve the same smooth
     # loading interval as a full cook, including during an otherwise idle preheat.
     load_stops = sort!(unique!(reduce(vcat,
-        [_load_tstops(p[first(play[(pc.id, :t_load)])], float(tsave[1]), float(tsave[end]), pc.cfg) for pc in sys.pieces])))
+        [_load_tstops(p[first(play[(pc.id, :t_load)])], float(tsave[1]), float(tsave[end]), pc.cfg) for pc in sys.pieces];
+        init=Float64[])))
     solve_kw = (; saveat=tsave, abstol, reltol, tstops=load_stops, isoutofdomain=_system_pan_oob(sys))
     sol = solve(prob, FBDF(); solve_kw...)
     if !(SciMLBase.successful_retcode(sol) && length(sol.u) == length(tsave))
@@ -769,7 +770,9 @@ function system_outputs(sys::CookSystem, A::AbstractMatrix, p::AbstractVector, u
                    evap_w_cum, spritz_w_cum, bitterness_cum,
                    drip_w=(pc.cfg.W0 - po.w_retained * pc.cfg.W0) + spritz_w_cum[end] - evap_w_cum[end]))
     end
-    raw_q = sum(po.q_meat for po in raw_pieces)
+    # with no pieces (the pit alone) every meat flux and mass is the zero series
+    nopiece = zero(Tpit)
+    raw_q = isempty(raw_pieces) ? nopiece : sum(po.q_meat for po in raw_pieces)
     pieces = map(enumerate(raw_pieces)) do (i, po)
         q_correction = map(eachindex(corr)) do k
             c = corr[k]
@@ -786,10 +789,10 @@ function system_outputs(sys::CookSystem, A::AbstractMatrix, p::AbstractVector, u
         merge(po, (q_meat=po.q_meat .- q_correction,))
     end
     pv_pit = pv_star
-    q_meat = sum(po.q_meat for po in pieces)
-    mass = sum(sys.pieces[i].cfg.n_meat .* pieces[i].mass for i in eachindex(pieces))
+    q_meat = isempty(pieces) ? nopiece : sum(po.q_meat for po in pieces)
+    mass = isempty(pieces) ? nopiece : sum(sys.pieces[i].cfg.n_meat .* pieces[i].mass for i in eachindex(pieces))
     vapor_correction = getproperty.(inst, :vapor_correction)
-    vapor_load = sum(po.vapor_load for po in pieces) .+ vapor_correction
+    vapor_load = (isempty(pieces) ? zero(vapor_correction) : sum(po.vapor_load for po in pieces)) .+ vapor_correction
     return (; Tpit, m_fuel, ignited, mdot, m_pan, T_pan, T_firebox, pan_evap=getproperty.(inst, :mdot_pan), pv_base, pv_pit,
             q_meat, vapor_load, vapor_correction, smoke_clean, airflow,
             pieces=collect(pieces), piece=Dict(po.id => po for po in pieces), mass,

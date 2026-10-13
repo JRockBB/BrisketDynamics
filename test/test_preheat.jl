@@ -144,3 +144,26 @@ end
                       events=[CookEvent(:load, :a, P_HR)])
     @test maximum(abs.(om.Tcore .- os.piece[:a].Tcore)) < 0.01 && maximum(abs.(om.Tpit .- os.Tpit)) < 0.01
 end
+
+@testset "preheat: the pit alone is the pit before the load" begin
+    # Before the load the meat holds its raw state and the pit draws nothing from it (up to the load
+    # blend's logistic tail), so a system with NO pieces must reproduce the full system's pit there.
+    # The estimator learns the fire on this pit-only system while the meat is not yet on.
+    ts = collect(0.0:60.0:(2P_HR)); u = fill(0.5, 3); utk = collect(range(0.0, 2P_HR; length=3))
+    tload = 1.5P_HR
+    sys0 = CookSystem(PieceModel[]; pit=P_PIT)
+    @test isempty(sys0.pieces) && sys0.layout.n == 6
+    # At tight tolerances: the two systems take different step sequences, and at the solver's default
+    # 1e-6 their pit temperatures differ by ~1e-3 K from integration alone (falling ~100x per 100x
+    # tolerance: 1.2e-3, 3.7e-5, 3.8e-7 K at 1e-6, 1e-8, 1e-10).
+    o0 = system_solve(sys0, Vector{Float64}[], Float64[], P_φ, u, utk, ts; abstol=1e-10, reltol=1e-10)
+    os = system_solve(CookSystem(Slab1D(:a); pit=P_PIT), [P_θ], [MeatConfig().A_meat], P_φ, u, utk, ts;
+                      events=[CookEvent(:load, :a, tload)], abstol=1e-10, reltol=1e-10)
+    before = ts .<= tload - 1800                       # the logistic tail is ~3e-7 here
+    @test maximum(abs.(o0.Tpit[before] .- os.Tpit[before])) < 1e-5
+    @test maximum(abs.(o0.m_fuel[before] .- os.m_fuel[before])) < 1e-6
+    @test maximum(abs.(o0.ignited[before] .- os.ignited[before])) < 1e-6
+    @test all(iszero, o0.q_meat) && all(iszero, o0.mass) && isempty(o0.pieces)
+    # after the load the meat draws heat, so the two must part
+    @test maximum(abs.(o0.Tpit[ts .>= tload + 1800] .- os.Tpit[ts .>= tload + 1800])) > 1.0
+end

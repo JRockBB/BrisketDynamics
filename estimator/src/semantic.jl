@@ -479,8 +479,9 @@ function compile_observable(obs::PieceMass, sys::CookSystem, bl::BeliefLayout, b
     return (x, z, p, tk, t) -> _piece_mass(pc, x, p, sys) * piece_multiplicity(pc)
 end
 function compile_observable(::TotalMass, sys::CookSystem, bl::BeliefLayout, blk::LatentBlock, log::CookLog)
-    all(pc -> :mass in piece_observable_schema(pc), sys.pieces) ||
-        throw(ObservableUnavailable("not every piece in the system exposes a mass observable"))
+    # the scale weighs meat: a pit-only system has nothing for it to read
+    !isempty(sys.pieces) && all(pc -> :mass in piece_observable_schema(pc), sys.pieces) ||
+        throw(ObservableUnavailable("the system has no piece, or a piece without a mass observable"))
     return (x, z, p, tk, t) -> sum(_piece_mass(pc, x, p, sys) * piece_multiplicity(pc) for pc in sys.pieces)
 end
 function _piece_mass(pc::Slab1D, x, p, sys::CookSystem)

@@ -115,4 +115,4 @@ end
 # whether a solve takes the sparse path: `:auto` for a Float64 solve of grid pieces only past `nmin` nodes in all
 _use_sparse(sys::CookSystem, Tel, jacobian::Symbol; nmin=800) =
     jacobian === :sparse ? true : jacobian === :dense ? false :
-    (Tel === Float64 && all(pc -> pc isa GridPiece, sys.pieces) && sum(pc -> pc.mesh.N, sys.pieces) >= nmin)
+    (Tel === Float64 && all(pc -> pc isa GridPiece, sys.pieces) && sum(pc -> pc.mesh.N, sys.pieces; init=0) >= nmin)

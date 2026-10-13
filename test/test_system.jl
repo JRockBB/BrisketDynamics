@@ -51,7 +51,8 @@ end
     @test_throws ArgumentError CookSystem([a, Slab1D(:flat)])
     @test_throws ArgumentError CookSystem(Slab1D(:pit))
     @test_throws ArgumentError CookSystem(Slab1D(Symbol("")))
-    @test_throws ArgumentError CookSystem(Slab1D[])
+    # zero pieces is the pit alone (the cooker before the meat goes on), not an error
+    @test CookSystem(Slab1D[]).layout.n == 6
     play = ParamLayout(sys, 7)
     @test n_params(play) == 2 * (8 + 7) + 7 + 7 + 2                        # per piece: θ and seven scalars (t_load the seventh)
     @test play[(:flat, :theta)] == 1:8 && play[(:butt, :theta)] == 16:23 && play[(:pit, :phi)] == 31:37 && play[(:pit, :u_knots)] == 38:44

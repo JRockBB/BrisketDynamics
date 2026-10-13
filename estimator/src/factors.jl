@@ -201,7 +201,7 @@ export SystemModel
 "The system's parameter vector over the slice's damper knots with the latents applied."
 function _slice_params(m::SystemModel, z, t0, t1)
     tk, uk = damper_knots(m.log, t0, t1)
-    θs = [zeros(length(piece_parameter_schema(pc))) for pc in m.sys.pieces]; As = [pc.cfg.A_meat for pc in m.sys.pieces]
+    θs = Vector{Float64}[zeros(length(piece_parameter_schema(pc))) for pc in m.sys.pieces]; As = Float64[pc.cfg.A_meat for pc in m.sys.pieces]
     p0, play = pack_params(m.sys, θs, As, vcat(zeros(6), 0.5), uk; events=m.log.events)
     return apply_latents(m.blk, z, p0, play), play, tk
 end
@@ -221,7 +221,7 @@ function _point_params(m::SystemModel, z, t)
     t0 = max(tg[1], t - 1.0); t1 = min(tg[end], t + 1.0)
     t1 > t0 || throw(ArgumentError("an observation at $t s falls outside the log's grid"))
     ud = _damper_at(m.log, t)
-    θs = [zeros(length(piece_parameter_schema(pc))) for pc in m.sys.pieces]; As = [pc.cfg.A_meat for pc in m.sys.pieces]
+    θs = Vector{Float64}[zeros(length(piece_parameter_schema(pc))) for pc in m.sys.pieces]; As = Float64[pc.cfg.A_meat for pc in m.sys.pieces]
     p0, play = pack_params(m.sys, θs, As, vcat(zeros(6), 0.5), [ud, ud]; events=m.log.events)
     return apply_latents(m.blk, z, p0, play), play, [Float64(t0), Float64(t1)]
 end

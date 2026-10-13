@@ -175,6 +175,7 @@ mutable struct FixedLagSmoother
     retry::Vector{Tuple{MeasurementRecord,Int}}             # readings whose solve did not commit, with the attempts spent: re-attempted on the next arrival
     n_dropped::Int                                          # readings given up on: a conflicting duplicate, retries exhausted, or fallen behind the window
     slice_g_refresh::Bool                                   # recompute a slice reading's sensitivity (and so its slice's Σ) when the belief left its reference by the relin tolerances
+    ignite_first::Bool                                      # the slice out of node 1 sets the ignited fraction from a0 (false: node 1 carries a learned ignited state, e.g. after a hand-off)
 end
 key_params(sm::FixedLagSmoother) = sm.key_z
 key_node(sm::FixedLagSmoother, k::Int) = VarKey(:state, sm.cook, k)
@@ -245,7 +246,7 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                      cook::Symbol=:cook, hierarchy=nothing, record_limit::Int=256, als::Union{Nothing,ALSFeed}=nothing,
                      relin_tol::Float64=1e-3, relin_tol_state::Float64=relin_tol, drift=nothing, attach::Symbol=:node, node_ratio::Float64=1.0,
                      lag_max::Int=lag, settle_tol::Float64=0.1, prior_relin::Float64=Inf, max_slice_s::Float64=Inf,
-                     slice_g_refresh::Bool=true)
+                     slice_g_refresh::Bool=true, ignite_first::Bool=true)
     attach in (:node, :slice) || throw(ArgumentError("attach must be :node or :slice, not $attach"))
     attach === :slice && als !== nothing && throw(ArgumentError("the ALS accumulator reads one node per arrival; it is not built for :slice"))
     lag >= 0 || throw(ArgumentError("the lag counts nodes kept behind the newest; it cannot be negative"))
@@ -326,7 +327,7 @@ function online_init(model::SystemModel; t0::Real=model.log.t_grid[1], lag::Int=
                             node_ratio, max_slice_s, Dict{Tuple{Symbol,Float64},SliceReading}(),
                             max(lag_max, lag), settle_tol, Float64[], Dict{VarKey,Vector{Float64}}(),
                             prior_relin, Factor[], Dict{VarKey,Vector{Float64}}(), Float64[], 0,
-                            Dict{Tuple{Symbol,Float64},Float64}(), Tuple{MeasurementRecord,Int}[], 0, slice_g_refresh)
+                            Dict{Tuple{Symbol,Float64},Float64}(), Tuple{MeasurementRecord,Int}[], 0, slice_g_refresh, ignite_first)
 end
 
 "Append one diagnostic to the bounded in-memory ring."
@@ -471,6 +472,8 @@ end
 restore_checkpoint!(sm::FixedLagSmoother, cp::SmootherCheckpoint) = _restore_smoother!(sm, restore_checkpoint(cp))
 
 # the dynamics factor between two nodes, added to the graph and the table
+"Whether the slice out of node `k` sets the ignited fraction from a0: node 1, unless it was handed a learned state."
+_first_slice(sm::FixedLagSmoother, k::VarKey) = sm.ignite_first && k.k == 1
 function _add_dyn!(sm::FixedLagSmoother, ka::VarKey, ta::Float64, kb::VarKey, tb::Float64; first::Bool)
     f = DynamicsFactor(sm.model, sm.key_z, ka, kb, ta, tb; first, events=sensor_events(sm.model.log, ta, tb),
                        relin_tol=sm.relin_tol, relin_tol_state=sm.relin_tol_state, key_m=_key_m(sm, ka), split=sm.split)   # the copy in force from the slice's start
@@ -532,7 +535,7 @@ function _node_at!(sm::FixedLagSmoother, t::Float64)
         _add_dyn!(sm, kn, t, kn_next, tn; first=false)
         _add_drift!(sm, kp, tp, kn, t); _add_drift!(sm, kn, t, kn_next, tn)
     else
-        fs = kp.k == 1                                               # the slice from the initial node reads a0
+        fs = _first_slice(sm, kp)                                    # the slice from the initial node reads a0
         y, _ = propagate(sm.model, variable_value(sm.graph, kp), z_prev, tp, t; first_slice=fs)
         add_variable!(sm.graph, kn, y)
         _add_dyn!(sm, kp, tp, kn, t; first=fs)
@@ -654,7 +657,7 @@ function _carried(sm::FixedLagSmoother, ka::VarKey, ta::Float64, times::Abstract
     z, _ = _latents_at(sm, ka)
     y0 = variable_value(sm.graph, ka)
     ts = sort(unique([t for t in times if t > ta + 1e-9]))
-    S = propagate_states(sm.model, y0, z, ta, ts; first_slice=ka.k == 1)
+    S = propagate_states(sm.model, y0, z, ta, ts; first_slice=_first_slice(sm, ka))
     return Dict(t => (t > ta + 1e-9 ? S[:, findfirst(==(t), ts)] : copy(y0)) for t in times), z
 end
 
@@ -693,7 +696,7 @@ function _rebuild_slice!(sm::FixedLagSmoother, ka::VarKey)
     G = reduce(vcat, [permutedims(sm.slice_G[(r.spec.id, r.t)].g) for r in readings])
     kd0 = Union{Nothing,VarKey}[_disc_at!(sm, r.spec, ta) for r in readings]
     kd1 = Union{Nothing,VarKey}[closed ? _disc_at!(sm, r.spec, tb) : nothing for r in readings]
-    f = SliceObservationFactor(sm.model, readings, sm.key_z, ka, ta, ka.k == 1; key_y1=kb, t1=tb, kd0, kd1,
+    f = SliceObservationFactor(sm.model, readings, sm.key_z, ka, ta, _first_slice(sm, ka); key_y1=kb, t1=tb, kd0, kd1,
                                key_m=_key_m(sm, ka), split=sm.split, G, relin_tol=sm.relin_tol, relin_tol_state=sm.relin_tol_state)
     add_factor!(sm.graph, f); sm.slices[ka] = f
     _link_peer!(sm, ka)
@@ -887,7 +890,7 @@ function belief_now(sm::FixedLagSmoother, t::Float64)
         c = f.cache
         Φ = c.S[:, j]; Jy = c.Jy[((j - 1) * ny + 1):(j * ny), :]; Jz = c.Jz[((j - 1) * ny + 1):(j * ny), :]
     else
-        gfun(v) = propagate_states(sm.model, v[1:ny], v[(ny + 1):end], tn, [t]; first_slice=kn.k == 1)[:, 1]
+        gfun(v) = propagate_states(sm.model, v[1:ny], v[(ny + 1):end], tn, [t]; first_slice=_first_slice(sm, kn))[:, 1]
         Φ = gfun(vcat(y0, z))
         J = _chunked_jacobian(gfun, vcat(y0, z), ny, 12)
         Jy = J[:, 1:ny]; Jz = J[:, (ny + 1):end]
