@@ -325,6 +325,9 @@ for c in 1:n_cooks
     # the smoother that owns the graph structure
     base = sm isa E.ConditionalSmoother ? sm.anchor : sm isa E.DeterministicSmoother ? sm.bank.anchor : sm
     temps = Any[]; out = NamedTuple[]; failed = nothing
+    # the estimator's FULL belief on the hour (belief time): latents, state coordinates and their joint covariance,
+    # for forecasting from the estimator's own state (predictive_check.jl); hourly keeps a cook's record ~20 MB
+    snapshots = Any[]; next_snap_h = 1.0
     input_records = [Dict("sensor"=>string(r.sensor), "t_s"=>r.t, "value"=>r.value) for r in recs]
     input_fingerprint = bytes2hex(E.SHA.sha1(json_document([(string(r.sensor),r.t,r.value) for r in recs])))
     active_cook[] = Dict("seed" => seed, "temps" => temps, "n_readings" => length(recs), "n_updates" => 0,
@@ -408,6 +411,12 @@ for c in 1:n_cooks
             "phase" => string(get(r, :phase, "")), "recentres" => get(r, :recentres, 0), "refines" => get(r, :refines, 0),
             "froze" => get(r, :froze, false), "bank_nodes" => get(r, :bank_nodes, Int[])))
         push!(out, (t=r.t, z=copy(r.z), z_cov=copy(r.z_cov), committed=r.committed))
+        if r.committed && haskey(r, :y) && haskey(r, :zy_cov) && tb / 3600 >= next_snap_h
+            push!(snapshots, Dict("t_belief_s" => tb, "z" => copy(r.z), "y" => copy(r.y),
+                                  "zy_cov" => [collect(row) for row in eachrow(r.zy_cov)]))
+            next_snap_h = floor(tb / 3600) + 1.0
+            active_cook[]["snapshots"] = snapshots
+        end
         active_cook[]["n_updates"] = length(out)
         active_cook[]["wall_filter_s"] = time() - t0w
         active_cook[]["last_z_error_sd"] = ez ./ sqrt.(max.(diag(r.z_cov), 1e-300))
@@ -441,7 +450,7 @@ for c in 1:n_cooks
                      "z" => x.z, "sd" => sd, "err_sd" => (x.z .- zt) ./ sd, "z_true" => zt,
                      "err_sd_graphfilter" => (x.z .- zt) ./ sd, "err_sd_system" => (x.z .- zt) ./ sd)) for (te,j) in available_edges if j !== nothing]
     push!(cooks, Dict("seed" => seed, "batches" => batches, "temps" => temps, "wall_filter_s" => time() - t0w, "n_updates" => length(out),
-                      "als" => feed === nothing ? nothing : E.als_summary(feed.acc),
+                      "als" => feed === nothing ? nothing : E.als_summary(feed.acc), "snapshots" => snapshots,
                       "n_readings" => length(recs), "n_uncommitted" => count(x -> !x.committed, out),
                       "input_records" => input_records, "input_fingerprint" => input_fingerprint,
                       "unavailable_edges_h" => [te/3600 for (te,j) in available_edges if j === nothing]))

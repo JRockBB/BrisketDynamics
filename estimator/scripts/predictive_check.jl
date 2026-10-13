@@ -37,7 +37,8 @@ end
 results = Any[]
 for f in record_files
     d = parse_json_file(f)
-    for c in d["cooks"]
+    # completed cooks, and an in-progress one (its snapshots so far), so a long run can be checked early
+    for c in vcat(d["cooks"], get(d, "active_cook", nothing) === nothing ? Any[] : Any[d["active_cook"]])
         seed = Int(c["seed"])
         rng = MersenneTwister(2000 + seed)
         z0 = draw_stream_truth(rng)
@@ -49,6 +50,58 @@ for f in record_files
         dense = collect(0.0:30.0:t_end)
         o = plant(xs, seg_edges, dense, Am; initial_ics=draw_initial_ics(MersenneTwister(19000 + seed)))
         Tcore = o.Tcore .- 273.15
+        snaps = get(c, "snapshots", nothing)
+        if snaps !== nothing && !isempty(snaps)
+            # The estimator's FULL belief: roll forward from its own state, and draw jointly from its covariance.
+            @printf("seed %d (%s): %d full-belief snapshots\n", seed, basename(f), length(snaps)); flush(stdout)
+            nz = length(sites)
+            for s in snaps
+                t0 = Float64(s["t_belief_s"]); t0 / 3600 < 2.0 && continue
+                times = collect((t0 + DT_ROLL):DT_ROLL:min(t0 + 6 * 3600, t_end))
+                length(times) < 2 && continue
+                zy = vcat(Float64.(s["z"]), Float64.(s["y"]))
+                C = E._stable_cov(reduce(vcat, permutedims.([Float64.(row) for row in s["zy_cov"]])))
+                L = cholesky(Symmetric(C)).L
+                k = argmin(abs.(o.t .- t0)); _, y_true = truth_belief(o, k)
+                ztrue = truth_at(z0, dd, o.t[k], events.t_add)
+                rollfrom(y, z, ts0) = try
+                    S = E.propagate_states(model, y, z, ts0, times; first_slice=false)
+                    [E.belief_decode(S[:, m], bl)[ic] - 273.15 for m in axes(S, 2)]
+                catch err
+                    err isa InterruptException && rethrow(); fill(NaN, length(times))
+                end
+                draws = [zy .+ L * randn(MersenneTwister(97 * seed + round(Int, t0 / 60) + q), length(zy)) for q in 1:N_DRAWS]
+                cases = vcat([(zy[(nz + 1):end], zy[1:nz], t0), (y_true, zy[1:nz], o.t[k]), (y_true, ztrue, o.t[k])],
+                             [(v[(nz + 1):end], v[1:nz], t0) for v in draws])
+                runs = Vector{Vector{Float64}}(undef, length(cases))
+                Threads.@threads for q in eachindex(cases); runs[q] = rollfrom(cases[q]...); end
+                truth = [Tcore[argmin(abs.(o.t .- τ))] for τ in times]
+                ens = reduce(hcat, runs[4:end])
+                row = Dict{String,Any}("seed" => seed, "t_h" => t0 / 3600, "record" => basename(f), "mode" => "full_belief",
+                                       "core_now_true" => Tcore[k], "core_now_est" => E.belief_decode(zy[(nz + 1):end], bl)[ic] - 273.15)
+                for h in HORIZONS_H
+                    m = findfirst(>=(t0 + h * 3600 - 1e-6), times); m === nothing && continue
+                    v = filter(isfinite, ens[m, :]); length(v) < 3 && continue
+                    lo, hi = quantile(v, [0.025, 0.975])
+                    row["h$(Int(h))"] = Dict("truth" => truth[m], "est" => runs[1][m], "truestate_estlat" => runs[2][m],
+                                              "truelat" => runs[3][m], "ens_lo" => lo, "ens_hi" => hi, "ens_sd" => std(v),
+                                              "covered" => lo <= truth[m] <= hi)
+                end
+                for thr in THRESHOLDS_C
+                    tt = crossing(times, truth, thr); isfinite(tt) || continue
+                    row["cross$(Int(thr))"] = Dict("truth_min" => (tt - t0) / 60,
+                        "est_err_min" => (crossing(times, runs[1], thr) - tt) / 60,
+                        "truestate_estlat_err_min" => (crossing(times, runs[2], thr) - tt) / 60)
+                end
+                push!(results, row)
+                e = get(row, "h4", nothing)
+                e === nothing || @printf("  t %4.1f h  core now %5.1f C (est %+5.2f)  4 h ahead: truth %5.1f, full belief %+5.2f, true state + est latents %+5.2f K; joint 95%% band +-%4.2f %s\n",
+                                         t0 / 3600, Tcore[k], row["core_now_est"] - Tcore[k], e["truth"], e["est"] - e["truth"],
+                                         e["truestate_estlat"] - e["truth"], (e["ens_hi"] - e["ens_lo"]) / 2, e["covered"] ? "covers" : "MISSES")
+                flush(stdout)
+            end
+            continue
+        end
         rows = [r for r in c["temps"] if r["committed"]]
         tb = [get(r, "t_belief_h", r["t_h"]) for r in rows]
         @printf("seed %d (%s): %d committed beliefs\n", seed, basename(f), length(rows)); flush(stdout)
@@ -101,20 +154,28 @@ open(out_path, "w") do io; write(io, json_document(Dict("results" => results, "h
     "thresholds_c" => THRESHOLDS_C, "n_draws" => N_DRAWS,
     "note" => "rollouts start from the plant's true state; estimator draws are diagonal in the latents"))); end
 
-# the summary: forecast error by horizon and source, coverage, time-to-threshold error
-println("\nforecast error of the core temperature (K): mean |err| (bias) by horizon")
-for h in HORIZONS_H
-    key = "h$(Int(h))"; rs = [r[key] for r in results if haskey(r, key)]
-    isempty(rs) && continue
-    s(f) = (v = [x[f] - x["truth"] for x in rs if isfinite(x[f])]; @sprintf("%5.2f (%+5.2f)", mean(abs.(v)), mean(v)))
-    @printf("  %d h  n %3d  estimator %s  prior %s  true latents %s  | estimator's 95%% band covers %d%%\n", Int(h), length(rs),
-            s("est"), s("prior"), s("truelat"), round(Int, 100 * mean(x["covered"] for x in rs)))
+# the summary, per mode: forecast error by horizon and source, coverage, time-to-threshold error
+function summarize(results, label, sources)
+    isempty(results) && return
+    println("\n== $label: forecast error of the core temperature (K), mean |err| (bias) by horizon")
+    for h in HORIZONS_H
+        key = "h$(Int(h))"; rs = [r[key] for r in results if haskey(r, key)]
+        isempty(rs) && continue
+        s(f) = (v = [x[f] - x["truth"] for x in rs if isfinite(x[f])]; @sprintf("%5.2f (%+5.2f)", mean(abs.(v)), mean(v)))
+        extra = haskey(rs[1], "ens_sd") ? @sprintf("; band half-width mean %.2f K", mean((x["ens_hi"] - x["ens_lo"]) / 2 for x in rs)) : ""
+        @printf("  %d h  n %3d  %s | 95%% band covers %d%%%s\n", Int(h), length(rs),
+                join(["$(nm) $(s(f))" for (nm, f) in sources], "  "), round(Int, 100 * mean(x["covered"] for x in rs)), extra)
+    end
+    println("  time-to-threshold error (min): median |err| (median signed) [found/crossings]")
+    for thr in THRESHOLDS_C
+        key = "cross$(Int(thr))"; rs = [r[key] for r in results if haskey(r, key)]
+        isempty(rs) && continue
+        s(f) = (v = filter(isfinite, [x[f] for x in rs if haskey(x, f)]); isempty(v) ? "  n/a" : @sprintf("%5.1f (%+5.1f) [%d/%d]", median(abs.(v)), median(v), length(v), length(rs)))
+        @printf("  %2d C  n %2d  %s\n", Int(thr), length(rs), join(["$(nm) $(s(f * "_err_min"))" for (nm, f) in sources if f != "truth"], "  "))
+    end
 end
-println("time-to-threshold error (min): median |err| (median signed)")
-for thr in THRESHOLDS_C
-    key = "cross$(Int(thr))"; rs = [r[key] for r in results if haskey(r, key)]
-    isempty(rs) && continue
-    s(f) = (v = filter(isfinite, [x[f] for x in rs]); isempty(v) ? "  n/a" : @sprintf("%5.1f (%+5.1f) [%d/%d]", median(abs.(v)), median(v), length(v), length(rs)))
-    @printf("  %2d C  n %2d  estimator %s  prior %s  true latents %s\n", Int(thr), length(rs), s("est_err_min"), s("prior_err_min"), s("truelat_err_min"))
-end
+summarize([r for r in results if get(r, "mode", "") == "full_belief"], "from the estimator's full belief",
+          [("full belief", "est"), ("true state + est latents", "truestate_estlat"), ("true latents", "truelat")])
+summarize([r for r in results if get(r, "mode", "") != "full_belief"], "from the true state (latents only)",
+          [("estimator", "est"), ("prior", "prior"), ("true latents", "truelat")])
 println("wrote $out_path")
