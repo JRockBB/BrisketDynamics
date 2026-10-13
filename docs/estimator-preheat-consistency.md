@@ -39,6 +39,29 @@ diagnosis (truth residuals, per-latent sensitivities, `prior_relin`/`lag_max`)
 must answer before any calibration round. Figures:
 `figures/estimator/stream_lighting_ws1_41002*.png`.
 
+**Pit-only quadrature during lighting, 2026-10-13 (stopped; infrastructure kept, `b43b451`).**
+Since the meat is not on during lighting, the ignition quadrature was moved onto a pit-only
+system (6 states, which matches the full system's pit to 3.8e-7 K before loading), with an
+exact hand-off to the full cook at t_load − 600 s. At that size the cost is fine: a full
+phased run took about 15 min. On model-generated lighting data the method still does not
+commit:
+
+- With a0 and k_spread integrated, the other five fire latents go non-Gaussian (shape
+  defect 0.6–0.9 against the 0.25 guard).
+- Refining toward resolution puts rule nodes 4–10 chart-sd out. Their components fail to
+  converge, and the layer rejects the whole update for any failed component.
+
+Two further attempts made it worse, and both were reverted:
+- accepting failed tail components whose weight share was below 1e-6;
+- growing the axis block from the shape defect.
+
+The fire posterior during lighting is non-Gaussian in more directions than feasible tensor
+rules can resolve. Kept: the zero-piece `CookSystem`, `pit_only_model`, `handoff_smoother`
+(exact posterior carry-over, tested) and the `PhasedSmoother` hand-off mechanism. The
+estimator steps back to the calibration round on the locked Gaussian configuration, and
+will measure how much the fire's non-Gaussianity moves the planner's predictions before
+any further method work.
+
 **Quadrature escalation probes, 2026-10-11 (seed 43001, a0 + k_spread, causal, nx 40).**
 The conditional backend now runs under slice attachment (`b414ab7`), and the adaptive one
 learns then freezes (`ffae168`). Two shipped-scale probes:
