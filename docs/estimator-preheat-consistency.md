@@ -39,6 +39,38 @@ diagnosis (truth residuals, per-latent sensitivities, `prior_relin`/`lag_max`)
 must answer before any calibration round. Figures:
 `figures/estimator/stream_lighting_ws1_41002*.png`.
 
+**Does the latent inconsistency cost the planner? 2026-10-13: mostly not.**
+`estimator/scripts/predictive_check.jl` was run on four banked 18 h cooks (seeds 41002,
+43001 ×2 arms, 43002; 60 checkpoints from 2 to 16 h). At each checkpoint the core
+temperature was rolled forward from the plant's true state under the estimator's latents,
+the prior's, and the true latents. The true-latent rollouts reproduce the plant to
+0.00 K, so the errors below come from the latents alone.
+
+| | 1 h ahead | 2 h ahead | 4 h ahead | 6 h ahead |
+|---|---|---|---|---|
+| Estimator, mean abs error (bias) | 0.48 K (+0.13) | 0.61 K (+0.30) | 0.66 K (+0.42) | 0.66 K (+0.47) |
+| Prior, mean abs error (bias) | 1.91 K | 3.64 K | 5.08 K | 5.63 K |
+
+Median error in the time the core first reaches each temperature:
+
+| | 65 °C | 75 °C | 85 °C |
+|---|---|---|---|
+| Estimator | 3.7 min | 6.4 min | 10.7 min |
+| Prior | 34.1 min | 18.4 min | 27.1 min |
+
+Seed 43001, where the ignited-group NEES reached ~240, forecasts within 1.2 K at 4 h.
+Once the fire saturates, the ignition latents stop shaping the trajectory, which is also
+why they cannot be learned. Their miscalibration is therefore mainly a reporting problem,
+not a planning one.
+
+Not yet established:
+- **State-estimation error** is excluded, because the rollouts start from the truth.
+- **Model error** is absent: the plant is matched.
+- **The predictive bands are too wide.** They cover 100% at 95%, likely because the records
+  keep only latent SDs, so the draws ignore correlations.
+- **The 65 °C crossing is fragile.** The stall plateaus at that temperature, and the
+  estimator's rollout missed the crossing in 8 of 25 cases.
+
 **Pit-only quadrature during lighting, 2026-10-13 (stopped; infrastructure kept, `b43b451`).**
 Since the meat is not on during lighting, the ignition quadrature was moved onto a pit-only
 system (6 states, which matches the full system's pit to 3.8e-7 K before loading), with an
