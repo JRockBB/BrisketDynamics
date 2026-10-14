@@ -71,6 +71,32 @@ Not yet established:
 - **The 65 °C crossing is fragile.** The stall plateaus at that temperature, and the
   estimator's rollout missed the crossing in 8 of 25 cases.
 
+**With state error, 2026-10-14: the mean forecast holds; the reported uncertainty does not.**
+`data/mock/stream_snap_43001.json` holds 15 hourly full-belief snapshots, 1–15 h, from a
+seed 43001 replay that ran unattended (see below). Rolling forward from the estimator's own
+full belief gives these core-temperature errors (mean absolute error, then bias):
+
+| | 1 h ahead | 2 h ahead | 4 h ahead | 6 h ahead |
+|---|---|---|---|---|
+| Full belief | 0.57 K (−0.56) | 0.30 K | 0.45 K | 0.43 K |
+| True state, estimator's latents | 0.21 K | 0.36 K | 0.49 K | 0.45 K |
+
+The state estimate starts 0.6–1.4 K low, so state error matters only in the first hour;
+after that the forecast relaxes onto the pit-driven trajectory. Time to 65 °C is within
+2.8 min. Time to 75 °C is 12 min early, with all six cases early.
+
+The joint-covariance draws are the weak point. Their 95% bands average ±5 K (up to ±11 K)
+against actual errors of 0.3–0.5 K, yet they cover only 75–80% at 4–6 h. That means the
+bands are about ten times too wide and also off-centre. Drawing independently across
+correlated field nodes, through a nonlinear map, makes skewed, implausible fields. If the
+planner hedges on forecast spread, it would be badly over-conservative. Calibrating the
+forecast uncertainty is the planner-relevant gap.
+
+The replay's provenance, for the record: it was paused at 5.4 h on 2026-10-13. Its one-shot
+scheduled task, created with a 23:59 start, relaunched it at 23:59, and it ran to 15.2 h
+before stopping. The adaptive probe had relaunched the same way at 23:59 on 2026-10-11.
+All the tasks are deleted.
+
 **Pit-only quadrature during lighting, 2026-10-13 (stopped; infrastructure kept, `b43b451`).**
 Since the meat is not on during lighting, the ignition quadrature was moved onto a pit-only
 system (6 states, which matches the full system's pit to 3.8e-7 K before loading), with an
