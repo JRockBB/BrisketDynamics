@@ -114,7 +114,10 @@ end
     sensors = Dict(:pit => (white_sd=0.1, ar_sd=1.4, tau=3000.0), :core => (white_sd=0.1, ar_sd=1.1, tau=12000.0))
     bl_one = belief_layout(CookSystem(Slab1D(:x; cfg=MeatConfig(; nx=4)); pit=PitConfig()))
     noise = state_noise_record(bl_one, sn)
-    @test Set(keys(noise)) == Set(vcat([string(k) for k in fieldnames(StateNoise)], ["field_modes"])) && noise["T"] == 0.3 && noise["T0"] == 1.0 && noise["fields"] == "offset" && noise["field_modes"] == E.FIELD_MODES
+    @test Set(keys(noise)) == Set(vcat([string(k) for k in fieldnames(StateNoise)], ["field_modes", "inert"])) && noise["T"] == 0.3 && noise["T0"] == 1.0 && noise["fields"] == "offset" && noise["field_modes"] == E.FIELD_MODES
+    # the record carries the configuration's rates (another cooker's duct or pan would use them) and names the groups this
+    # one's physics does not move (system_state.jl `_inert_groups`: the default PitConfig has no duct and no pan, the piece no brine)
+    @test noise["T_fb"] == sn.T_fb && noise["m_pan"] == sn.m_pan && Set(noise["inert"]) == Set(["T_fb", "m_pan", "T_pan", "S"])
     rec = system_calibration_record(noise, sensors; method="a test")
     @test rec["backend"] == "system" && rec["physics"]["fingerprint"] == backend_fingerprint() && rec["rates"]["T"] == 0.3 && rec["units"]["T"] == "K"
     # two pieces: the groups carry the piece's name, the record gives a StateNoise per piece with the pit's shared
@@ -222,7 +225,12 @@ model = SystemModel(sys, clog, blk; sn=StateNoise())
     sd = sqrt.(diag(Qphys) .* d .^ 2)
     free = findall(sd .< 0.05 * 3.0)
     @test length(free) > 10
-    @test maximum(abs.(Qsum[free, free] .- (Qc .- Qc0)[free, free])) <= 1e-8 * maximum(abs.(Qc))
+    # the whitener's boundary damping (factors.jl `_process_cov_coord`): w_i = 1/(1 + v_i/δ_i²) with v_i linear in the rates,
+    # so Euler's identity on the damped entries reads Σθ ∂(w_i w_j Q_ij)/∂θ = w_i w_j Q_ij (w_i + w_j − 1); the floor cancels
+    w = E._boundary_damping(diag(Qphys), c.f, model.bl; kinds=E.WHITENER_DAMPED_KINDS)
+    @test all(0 .< w .<= 1) && minimum(w[free]) < 1 - 1e-6                 # some free entry sits near enough a boundary to be damped
+    expected = (Qc .- Qc0) .* (w .+ w' .- 1)
+    @test maximum(abs.(Qsum[free, free] .- expected[free, free])) <= 1e-8 * maximum(abs.(Qc))
     @test all(size(D) == (model.bl.n, model.bl.n) && issymmetric(D) for D in dQ)
 end
 @testset "drifting latents: a copy per node tied by the random walk; tied tightly it is the static smoother" begin

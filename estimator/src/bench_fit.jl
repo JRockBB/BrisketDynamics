@@ -292,8 +292,9 @@ function state_noise_record(bl::BeliefLayout, sn)
     d = Dict{String,Any}()
     for (g, _) in bl.groups
         nm = _als_group_name(bl, g)
-        d[nm] = _group_rate(bl, sn, g, false); d[nm * "0"] = _group_rate(bl, sn, g, true)
+        d[nm] = _configured_rate(bl, sn, g, false); d[nm * "0"] = _configured_rate(bl, sn, g, true)
     end
+    d["inert"] = [_als_group_name(bl, g) for g in bl.inert]                # the groups this configuration's physics does not move: their rates unused (system_state.jl)
     ps = _pit_sn(sn)
     d["fields"] = string(ps.fields); d["node_jitter"] = ps.node_jitter
     d["field_modes"] = FIELD_MODES                                          # the slab fields' smooth modes beyond the bulk (system_state.jl)

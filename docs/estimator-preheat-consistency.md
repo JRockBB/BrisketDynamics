@@ -97,6 +97,78 @@ scheduled task, created with a 23:59 start, relaunched it at 23:59, and it ran t
 before stopping. The adaptive probe had relaunched the same way at 23:59 on 2026-10-11.
 All the tasks are deleted.
 
+**Why the bands are wide, 2026-10-15: four state groups random-walk without bound.** The
+snapshots' per-group coordinate widths from 1 h to 15 h: the salt S 8.5 → 26 nats, the
+firebox T_fb 4.5 → 9.7 K, the pan T_pan 3.5 → 8.0 K, the pan water m_pan held at the
+3-nat cap every slice. Nothing measures these four, and the physics does not move them
+under the shipped cooker: the default `PitConfig` has no duct (`c_duct = 0`, so the
+firebox state is a constant), no pan (`m_pan0 = 0`, so the pan water and its temperature
+are constants), and the default `MeatConfig` is unsalted (`t_salt = 0`, the salt field
+exactly zero with zero flux). A random-walk process noise on a state the model does not
+evolve is pure growth: √(2² + 4·t) K for the firebox matches 9.7 K at 15 h to the
+decimal. The salt's and the pan's absolute rates (0.001 and 0.02 per √h) on a state at
+1e-8 are 1e4 coordinate sd per slice in the log-type coordinate, capped at 3 nats, and
+off the encode floor's guard that cap accumulates; a two-sd salt draw then decodes to
+kilograms per kilogram, and the forecast draws carried it. The calibration fit leaves
+exactly these groups "unidentified", so a calibration round could not have fixed them.
+
+Two changes to the noise model, neither a tuning (`estimator/src/system_state.jl`,
+`factors.jl`, `online.jl`):
+
+1. **A state the physics does not move carries no process noise.** `belief_layout` reads
+   the configuration and lists the inert groups (`inert_groups`: the firebox without a
+   duct, the pan water and temperature without a pan, the salt of an unsalted piece);
+   `_group_rate` returns zero for them, so the dynamics whitener, the slice noise,
+   `belief_now`'s gap noise and the calibration's rate sensitivity all carry nothing
+   there. Their initial widths stay: an inert state's belief is its prior. With a duct,
+   a pan or a brine the same groups keep their rates, and a damped state (a firebox at
+   τ ≈ 8 min through the duct) saturates through its own physics. The frozen RxInfer
+   filter still random-walks every state; `test_online.jl`'s parity check now excludes
+   the inert entries and asserts them zero.
+2. **The estimator's whitener boundary-damps the positive kinds.** `_boundary_damping`,
+   until now applied only when drawing the process, is applied in `_process_cov_coord`
+   to the process noise and to the integrator's floor, each by its own physical width,
+   for `:positive` kinds only (`WHITENER_DAMPED_KINDS`); the unit kinds stay undamped
+   because the damped whitener stalled the 2026-09-30 window solve in the ignited
+   fraction's curved coordinate while it was lighting. At a floor the per-slice
+   coordinate variance is at most a quarter of a nat (the floor's term at one half), not
+   ten; a fuel nearly spent takes noise of its own order, δ/s, not the cap's. Far from a
+   boundary the whitener changes by (s/δ)², a few 1e-6 for a temperature. The slice
+   factor's physical Σ is left undamped (conservative by a sensor's sensitivity to a
+   floored state, which is nil).
+
+Not done, and why: the mean-reverting (Ornstein–Uhlenbeck) step variance
+σ²(1 − e^(−2Δ/τ)) proposed on 2026-10-15 was not implemented. It bounds the noise injected
+per slice, but a smoother's marginal variance on an undamped state is the sum of the
+injections, so it still grows with the number of slices — now by the discretization
+rather than by time. Reversion needs a transition that decays, and that is the physics'
+to supply, which it does wherever the state is damped. Where it is not, the honest
+process noise is zero.
+
+`estimator/test/test_process_noise.jl` (new) fails on the previous code and passes on
+this one: on the coarse real-cook fixture (nx 6, the shipped cooker, pit, core and scale
+sensors, 2 h of slices at 120 s) the firebox and pan temperatures' coordinate sd ran
+2.00 → 3.46 K and now hold at 1.99 K; the floored salt and pan hold at 0.5 nats per node
+(a two-sd draw decodes to 4e-8); the whitener's algebra at the floor, at a nearly spent
+fuel and far from any boundary; the Dual-valued rate sensitivity finite (negative next to
+the floor, where the damped width falls with the rate). A pre-existing fault in
+`_belief_process_var` (a Float matrix when the first group's variance was not a Dual) is
+fixed on the way. Nineteen test files were run one process at a time after the change
+(process noise, online, consistency, bench system, factors, slice observations, censored
+slices, window policies, arrival policy, dynamics retraction, ALS, multi-piece, rates,
+noise, conditional slice, deterministic freeze, pit hand-off, preheat, stream validate):
+all pass. Four assertions were restated for the new model, none weakened in intent: the
+filter-parity check excludes the inert entries (the frozen filter random-walks them);
+the integrator-floor scaling with the tolerances holds away from any floor and is only
+"never larger" at one; the rate sensitivity's Euler identity reads
+Σθ ∂Q/∂θ = (Qc − Qc0)(w_i + w_j − 1) on damped entries; the event-saturated cap's
+derivative is bounded at a thousandth of the raw one rather than at zero. Then one
+replay (seed 43001, the LR2 locked configuration, snapshots on), on a
+go, scored by `predictive_check.jl`'s band coverage and the per-group NEES: the inert
+groups should sit at their priors, the salt and pan at their floors, and the forecast
+bands should come down toward the 0.3–0.5 K errors. The ignition pair's overconfidence
+is judged on that run, not before.
+
 **Pit-only quadrature during lighting, 2026-10-13 (stopped; infrastructure kept, `b43b451`).**
 Since the meat is not on during lighting, the ignition quadrature was moved onto a pit-only
 system (6 states, which matches the full system's pit to 3.8e-7 K before loading), with an

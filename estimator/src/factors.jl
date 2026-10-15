@@ -367,13 +367,23 @@ const INTEGRATOR_FLOOR = 100.0
 # a physical process covariance of the slice mapped into the belief's coordinates at `y1` with the integrator's floor
 # on the diagonal: what the whitener inverts (`to_coord` the coordinate map: the filter's own form for the whitener,
 # the variance form for the rates' sensitivity below, Dual-capable in `Q`)
+#
+# Next to a physical boundary the positive kinds are boundary-damped (system_state.jl `_boundary_damping`, the map that
+# draws the process), the process noise and the integrator's floor each by its own physical width: a salt or a pan at
+# its floor otherwise took the coordinate cap of noise every slice (nine nats of variance, plus one of floor), and off
+# the floor's guard that random walk accumulated without bound. The unit kinds stay undamped (the 2026-09-30 stall).
+const WHITENER_DAMPED_KINDS = (:positive,)
 function _process_cov_coord(f::DynamicsFactor, y1, Q::AbstractMatrix; to_coord=belief_cov_to_coord)
-    m = f.model
-    Qc = to_coord(Q, y1, m.bl)
-    x = belief_decode(y1, m.bl)
-    d = inv.(max.(belief_decode_jacobian(y1, m.bl), eps(Float64)))
-    err = INTEGRATOR_FLOOR .* (m.floor_abstol .+ m.floor_reltol .* abs.(x)) .* d
-    for i in eachindex(err); Qc[i, i] += err[i]^2; end
+    m = f.model; bl = m.bl
+    Qc = to_coord(Q, y1, bl)
+    w = _boundary_damping(diag(Q), y1, bl; kinds=WHITENER_DAMPED_KINDS)
+    Qc = (w .* Qc) .* w'
+    x = belief_decode(y1, bl)
+    d = inv.(max.(belief_decode_jacobian(y1, bl), eps(Float64)))
+    err = INTEGRATOR_FLOOR .* (m.floor_abstol .+ m.floor_reltol .* abs.(x))              # physical
+    wf = _boundary_damping(err .^ 2, y1, bl; kinds=WHITENER_DAMPED_KINDS)
+    errc = err .* d .* wf
+    for i in eachindex(errc); Qc[i, i] += errc[i]^2; end
     return Qc
 end
 function _whitener(f::DynamicsFactor, y1)
@@ -400,7 +410,11 @@ function _process_cov_sens(f::DynamicsFactor, y1, names::AbstractVector{<:Abstra
     idx = Dict(String(nm) => i for (i, nm) in enumerate(names))
     θ0 = [(_group_rate(bl, m.sn, g, false))^2 for (g, _) in bl.groups]           # the model's own variance rates by belief group
     function cov_of(θ)
-        var_of(g) = (i = get(idx, _als_group_name(bl, g), 0); (i == 0 ? θ0[findfirst(x -> first(x) == g, bl.groups)] : θ[i]) * Δh)
+        function var_of(g)
+            g in bl.inert && return zero(eltype(θ))                                      # no rate moves a state the physics does not
+            i = get(idx, _als_group_name(bl, g), 0)
+            return (i == 0 ? θ0[findfirst(x -> first(x) == g, bl.groups)] : θ[i]) * Δh
+        end
         Q = _belief_process_var(bl, m.sn, var_of)
         # The coordinate cap is nonlinear in total variance: fixed event disturbances must be present
         # when differentiating, even though their own derivative with respect to a rate is zero.

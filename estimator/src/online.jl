@@ -900,7 +900,7 @@ function belief_now(sm::FixedLagSmoother, t::Float64)
     # the filter's own coordinate map (`belief_cov_to_coord`'s capped factors): the raw decode Jacobian
     # inverts to ~1e8 next to a physical boundary (ignited ≈ 1, an empty pan), and an uncapped D·Q1·D'
     # swamped the reported covariance there (group NEES near zero)
-    D = belief_coord_factors(Q1 .* max(τt, 0.0), Φ, bl)
+    D = belief_coord_factors(Q1 .* max(τt, 0.0), Φ, bl) .* _boundary_damping(diag(Q1) .* max(τt, 0.0), Φ, bl; kinds=WHITENER_DAMPED_KINDS)
     kτ = [min(τt, (r.t - tn) / 3600) for r in f.readings]
     Cwε = (D .* (Q1 * f.G')) .* kτ'                                          # Cov(w_t in coordinates, ε)
     K = Cwε / Symmetric(f.Σ)

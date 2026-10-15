@@ -11,7 +11,7 @@
 using BrisketDynamics: MEAT_NP, PIT_NP, PIECE_PARAM_SCALARS, _primal, fv_mean, l_star_bark, piece
 
 export BeliefLayout, belief_layout, belief_from_system, system_from_belief, belief_encode, belief_decode, belief_decode_jacobian,
-       belief_groups, belief_process_cov, belief_init_cov, belief_cov_to_coord, belief_physical_moments, belief_handoff
+       belief_groups, inert_groups, belief_process_cov, belief_init_cov, belief_cov_to_coord, belief_physical_moments, belief_handoff
 
 """
     BeliefLayout
@@ -30,6 +30,7 @@ struct BeliefLayout
     groups::Vector{Pair{String,UnitRange{Int}}}
     modes::Dict{Symbol,Int}                # per piece, the smooth spatial modes its fields' noise carries beyond the bulk (`field_mode_count`)
     grid::Dict{Symbol,Bool}                # per piece, whether it is a grid piece (its surface states per exposed node, the vector restart contract)
+    inert::Vector{String}                  # the groups the physics does not move under this system's configuration (`inert_groups`): no process noise
 end
 const PIECE_BELIEF_FIELDS = (:T, :W, :C, :F, :S, :bark_b, :bark_s, :ring)
 const PIT_BELIEF_FIELDS = (:T_pit, :m_fuel, :m_pan, :T_pan, :T_fb, :ignited)
@@ -68,9 +69,28 @@ function belief_layout(sys::CookSystem)
         push!(groups, g => length(idx):length(idx))
     end
     return BeliefLayout(lay, length(idx), kinds, idx, pr, p0:length(idx), groups, Dict(pc.id => field_mode_count(pc) for pc in sys.pieces),
-                        Dict(pc.id => pc isa GridPiece for pc in sys.pieces))
+                        Dict(pc.id => pc isa GridPiece for pc in sys.pieces), _inert_groups(sys))
 end
 belief_groups(bl::BeliefLayout) = bl.groups
+# A state the physics does not move under the system's configuration has no model error to accumulate: a random walk
+# there only widens the belief without bound (the firebox and the pan temperatures 2 → 10 K and the salt's coordinate
+# 8 → 26 nats over the fifteen hours of the snapshot replay of 2026-10-14, nothing measuring them and nothing to pull
+# them back), and the planner's forecast draws then carry those widths. The firebox without a duct (`c_duct = 0`: the
+# single-zone cooker, its state held constant), the pan water and its temperature when there is no pan (`m_pan0 = 0`),
+# and the salt of an unsalted piece (`t_salt = 0`: exactly zero, zero flux) keep their initial widths and take no
+# process noise. A damped state (a firebox with a duct, a pan at the boil) saturates through its own physics.
+function _inert_groups(sys::CookSystem)
+    out = String[]
+    sys.pit.c_duct > 0 || push!(out, "T_fb")
+    sys.pit.m_pan0 > 0 || append!(out, ["m_pan", "T_pan"])
+    for pc in sys.pieces
+        cfgs = hasproperty(pc, :mats) ? pc.mats : [pc.cfg]
+        all(c -> c.t_salt <= 0, cfgs) && push!(out, "$(pc.id).S")
+    end
+    return out
+end
+"The belief groups the physics does not move under the system's configuration: they carry no process noise (`_inert_groups`)."
+inert_groups(bl::BeliefLayout) = bl.inert
 "The belief's range of `field` of piece `id` (or of the pit)."
 function belief_index(bl::BeliefLayout, id::Symbol, field::Symbol)
     r = state_index(bl.sys, id, field)
@@ -175,14 +195,17 @@ end
 #
 # `belief_cov_to_coord(...; damp=true)` is the map for DRAWING the physical process (a simulated truth, a forecast's
 # future disturbances): undamped, the matched control grew an absent water pan to 2.4 kg and bark from nothing, and
-# its solves turned stiff two hours out. The estimator's own whitener stays undamped: its looser noise next to a
-# boundary can only widen the belief there, and the damped whitener stalled the window solve short of its certificate
-# (seed 3010 of the control at 18 min, 2026-09-30) in those strongly curved coordinates.
-function _boundary_damping(v::AbstractVector, y::AbstractVector, bl::BeliefLayout)
+# its solves turned stiff two hours out. The estimator's own whitener (factors.jl `_process_cov_coord`) damps the
+# POSITIVE kinds only (`kinds`): a salt or a pan at its floor took the coordinate cap of noise every slice, and off
+# the floor's guard that random walk accumulated (the salt 8 → 26 nats over the snapshot replay of 2026-10-14, its
+# forecast draws decoding to kilograms of salt per kilogram). The unit kinds stay undamped there: the damped whitener
+# stalled the window solve short of its certificate (seed 3010 of the control at 18 min, 2026-09-30) in those strongly
+# curved coordinates (the ignited fraction lighting), where the state is moving fast and the solver's error is real.
+function _boundary_damping(v::AbstractVector, y::AbstractVector, bl::BeliefLayout; kinds=(:positive, :unit, :ignited))
     x = belief_decode(y, bl)
     return map(eachindex(v)) do i
         k = bl.kinds[i]
-        k === :free && return one(float(eltype(v)))
+        (k === :free || !(k in kinds)) && return one(float(eltype(v)))
         δ = if k === :positive
             max(x[i] - STATE_POSITIVE_FLOOR, eps(Float64))
         else
@@ -217,6 +240,12 @@ function _pit_sn(sn::AbstractDict)
     throw(ArgumentError("a per-piece StateNoise dictionary needs an explicit :pit or :default entry"))
 end
 function _group_rate(bl::BeliefLayout, sn, g::String, init::Bool)
+    !init && g in bl.inert && return 0.0            # no process noise on a state the physics does not move (its initial width stays)
+    return _configured_rate(bl, sn, g, init)
+end
+# the StateNoise's own number for the group, inert or not (what a calibration record carries: the configuration's
+# rate, which another cooker's duct or pan would use)
+function _configured_rate(bl::BeliefLayout, sn, g::String, init::Bool)
     if occursin('.', g)
         id, f = rsplit(g, '.'; limit=2); s = _sn_of(sn, Symbol(id))
         return init ? getfield(s, Symbol(f * "0")) : getfield(s, Symbol(f))
@@ -303,10 +332,10 @@ end
 # the same from per-group VARIANCES (a variance rate's derivative passes through here as a Dual; a square root of it
 # would not at zero); the whitener takes the form above, this one serves the derivative
 function _belief_process_var(bl::BeliefLayout, sn, var_of_group)
-    T = typeof(float(var_of_group(first(first(bl.groups)))))
+    vars = [var_of_group(g) for (g, _) in bl.groups]
+    T = promote_type(Float64, (typeof(float(v)) for v in vars)...)      # a Dual in any group makes the matrix Dual
     Q = zeros(T, bl.n, bl.n)
-    for (g, rg) in bl.groups
-        s2 = var_of_group(g)
+    for ((g, rg), s2) in zip(bl.groups, vars)
         sng = occursin('.', g) ? _sn_of(sn, Symbol(first(rsplit(g, '.'; limit=2)))) : _pit_sn(sn)
         Q[rg, rg] .= s2 .* _group_structure(bl, g, rg, sng)
     end
@@ -326,7 +355,7 @@ function _add_event_disturbances!(Q::AbstractMatrix, bl::BeliefLayout, sn, event
     end
     return Q
 end
-"The physical process covariance over `Δh` hours (the rates times √Δh) with the events' disturbances (`kinds` the lid-open events crossed: :add, :wrap, :pull, :spritz)."
+"The physical process covariance over `Δh` hours (the rates times √Δh; zero on the groups the physics does not move, `inert_groups`) with the events' disturbances (`kinds` the lid-open events crossed: :add, :wrap, :pull, :spritz)."
 function belief_process_cov(bl::BeliefLayout, sn, Δh::Real; events::AbstractVector{Symbol}=Symbol[])
     Q = belief_process_cov(bl, sn, g -> _group_rate(bl, sn, g, false) * sqrt(max(Δh, 0.0)))
     return _add_event_disturbances!(Q, bl, sn, events)

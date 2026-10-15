@@ -26,7 +26,14 @@ model = SystemModel(sys, CookLog([0.0, 120.0], [0.5, 0.5]; sensors), blk)
     Q = zeros(model.bl.n, model.bl.n) # isolate the numerical allowance
     reference = E._process_cov_coord(factor(model), y, Q)
     @test E._process_cov_coord(factor(accurate), y, Q) == reference
-    @test E._process_cov_coord(factor(coupled), y, Q) ≈ 1e-8 .* reference
+    # the allowance scales with the tolerances away from any floor; at a floored positive state it is boundary-damped
+    # (factors.jl `_process_cov_coord`), so the tighter solver's allowance is smaller there but not by the tolerances' ratio
+    x = belief_decode(y, model.bl)
+    open = [i for i in 1:model.bl.n if model.bl.kinds[i] !== :positive || x[i] > 1e-3]
+    @test length(open) < model.bl.n                                          # the salt and the pan sit at their floors here
+    cpl = E._process_cov_coord(factor(coupled), y, Q)
+    @test cpl[open, open] ≈ 1e-8 .* reference[open, open]
+    @test all(cpl[i, i] < reference[i, i] for i in 1:model.bl.n)
     @test accurate.abstol == 1e-14 && accurate.reltol == 1e-12
     update_execution!(sm; u=[0.4, 0.4])
     @test sm.model.floor_abstol == model.abstol && sm.model.floor_reltol == model.reltol
@@ -178,6 +185,8 @@ end
     h = theta * 0.01
     fd = (at_variance(theta + h) - at_variance(theta - h)) / (2h)
     @test isapprox(D, fd; rtol=1e-3, atol=1e-8)
-    @test abs(D[im, im]) < 1e-4 # the event saturates this coordinate's variance cap
+    # the event saturates this coordinate's variance cap, and the whitener's boundary damping (the fuel 0.01 kg from its
+    # floor) leaves a small, finite-difference-verified dependence on the rate: under a thousandth of the raw Δh·d² derivative
+    @test abs(D[im, im]) < 1e-3 * (120 / 3600) / 0.01^2
 end
 end

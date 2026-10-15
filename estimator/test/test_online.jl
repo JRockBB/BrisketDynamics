@@ -125,7 +125,13 @@ run_set("layout") && @testset "the belief layout of one slab is the filter's; th
         return D
     end
     @test E.FIELD_MODES == 0 && size(E.field_mode_basis(bl, "brisket.T"), 2) == 1       # the bulk alone ships (system_state.jl); the modes' part below is then zero
-    @test maximum(abs.(Qb .- Qf .- modes_part(g -> E._group_rate(bl, sn, g, false) * sqrt(0.5)))) < 1e-12
+    # ... and, unlike the filter, nothing on a state the physics does not move here (system_state.jl `_inert_groups`: the
+    # firebox without a duct, the pan when there is none, the salt of an unsalted piece hold their initial widths)
+    @test Set(bl.inert) == Set(["T_fb", "m_pan", "T_pan", "brisket.S"])
+    dead = reduce(vcat, [collect(last(g)) for g in bl.groups if first(g) in bl.inert])
+    live = setdiff(1:bl.n, dead)
+    @test all(iszero, Qb[dead, :])
+    @test maximum(abs.((Qb .- Qf .- modes_part(g -> E._group_rate(bl, sn, g, false) * sqrt(0.5)))[live, live])) < 1e-12
     @test maximum(abs.(belief_init_cov(bl, sn) .- state_noise_cov(lay, sn, E.state_init_sd(sn, lay)) .- modes_part(g -> E._group_rate(bl, sn, g, true)))) < 1e-12
     Qe = belief_process_cov(bl, sn, 0.5; events=[:add])
     ip = first(E.belief_index(bl, :pit, :T_pit)); ifu = first(E.belief_index(bl, :pit, :m_fuel))
@@ -136,6 +142,7 @@ run_set("layout") && @testset "the belief layout of one slab is the filter's; th
     sd_f = sqrt.(max.(diag(Qf) .* d_f .^ 2, 0.0))
     e_f = (1 .+ (sd_f ./ 3.0) .^ 8) .^ (-1 / 8) .* d_f
     Qc_b = belief_cov_to_coord(Qb, y_sys, bl)
+    big = [i for i in big if i in live]                                     # the inert entries carry nothing here (above)
     @test maximum(abs.(Qc_b[big, big] .- Matrix(Symmetric((e_f .* Qf) .* e_f'))[big, big])) < 1e-12
     far = [i for i in big if sd_f[i] < 0.05 * 3.0]
     @test length(far) > 10 && maximum(abs.(Qc_b[far, far] .- E._state_cov_to_coord(Qf, y_fil, lay)[far, far])) < 1e-9
