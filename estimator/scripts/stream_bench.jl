@@ -475,7 +475,11 @@ for c in 1:n_cooks
             wmed(zs("pit"), hold), wmed(zs("centre"), hold), wmed(zs("surface"), hold), sum(nis_r) / max(length(nis_r), 1),
             wmean([x["nees_z16"] for x in temps], hold) / 16, wmean([x["nees_T"] for x in temps], hold) / 3)
     gm(g) = wmean([Float64(x["nees_g"][g]) for x in temps], hold)
-    println("    the state by group, time-weighted NEES/dof: ", join([@sprintf("%s %.2f", g, gm(g)) for g in group_names], ", "))
+    # a group the physics does not move (system_state.jl `inert_groups`) is held at its prior, a floored one at a structural
+    # zero: its NEES against the truth is a 0/0, not a consistency read, so it is named and not scored
+    inert_names = [E._als_group_name(bl, g) for g in bl.inert]
+    println("    the state by group, time-weighted NEES/dof: ",
+            join([g in inert_names ? @sprintf("%s inert", g) : @sprintf("%s %.2f", g, gm(g)) for g in group_names], ", "))
     println("    the latents at the edges, err/sd: ", join([@sprintf("%.0fh max %.2f (%s)", b["t_h"], maximum(abs.(b["err_sd"])), allnames[argmax(abs.(b["err_sd"]))]) for b in batches], "; "))
     active_cook[] = nothing
     flush(stdout); save()

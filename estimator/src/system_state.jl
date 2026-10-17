@@ -348,9 +348,10 @@ function _add_event_disturbances!(Q::AbstractMatrix, bl::BeliefLayout, sn, event
     ip = first(bl.groups[findfirst(x -> first(x) == "T_pit", bl.groups)][2])
     ifb = first(bl.groups[findfirst(x -> first(x) == "T_fb", bl.groups)][2])
     ifuel = first(bl.groups[findfirst(x -> first(x) == "m_fuel", bl.groups)][2])
+    fb_live = !("T_fb" in bl.inert)              # a firebox without a duct is a constant: no event disturbs it either
     for kind in events
         σ = kind === :spritz ? ps.T_spritz : ps.T_event
-        Q[ip, ip] += σ^2; Q[ifb, ifb] += σ^2
+        Q[ip, ip] += σ^2; fb_live && (Q[ifb, ifb] += σ^2)
         kind === :add && (Q[ifuel, ifuel] += ps.m_add^2)
     end
     return Q

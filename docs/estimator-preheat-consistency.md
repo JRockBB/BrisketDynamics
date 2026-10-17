@@ -162,12 +162,50 @@ filter-parity check excludes the inert entries (the frozen filter random-walks t
 the integrator-floor scaling with the tolerances holds away from any floor and is only
 "never larger" at one; the rate sensitivity's Euler identity reads
 Σθ ∂Q/∂θ = (Qc − Qc0)(w_i + w_j − 1) on damped entries; the event-saturated cap's
-derivative is bounded at a thousandth of the raw one rather than at zero. Then one
-replay (seed 43001, the LR2 locked configuration, snapshots on), on a
-go, scored by `predictive_check.jl`'s band coverage and the per-group NEES: the inert
-groups should sit at their priors, the salt and pan at their floors, and the forecast
-bands should come down toward the 0.3–0.5 K errors. The ignition pair's overconfidence
-is judged on that run, not before.
+derivative is bounded at a thousandth of the raw one rather than at zero.
+
+**The replay on the fixed noise model, 2026-10-16/17 (seed 43001, the LR2 locked
+configuration, 18 h causal, hourly snapshots; `data/mock/stream_snap_43001_inert.json`,
+run 18.0 h wall, 5023 readings in 932 updates, one update retried and nothing lost).**
+The widths that grew now hold: the pan temperature at its 1.99 K prior all cook (was
+2.8 → 8.0 K), the salt and the pan water pinned at their floors with half a nat of
+width at a node (was 8.5 → 26 nats and 3 nats per slice). The firebox still widened,
+in 3 K steps at each lid-open event (1.99 → 6.65 K over the cook): the events'
+disturbance `T_event` was added to the firebox as well as the chamber, inert or not, and
+the coordinate cap turned each 5 K into 3 nats. `_add_event_disturbances!` now leaves
+an inert firebox alone (a duct keeps it). The live groups are unchanged to the third
+digit (the centre 1.12 → 0.74 K, the pit 1.47 → 1.1 K, the fuel 0.12 → 0.34 kg), as the
+change intended. The per-group time-weighted NEES: T 1.03, W 0.36, C 0.57, F 0.05, bark
+0.34, T_pit 0.70, m_fuel 0.72, ignited 236; the salt's and the pan water's are a 0/0 (a
+structural zero against a floored belief, NaN on most updates) and the bench now names
+an inert group instead of scoring it. The latents' NEES/16 1.35, the temperatures' 0.71,
+NIS/dof 0.94, the centre's time-weighted |err|/sd median 0.95.
+
+`predictive_check.jl` on the 17 snapshots, the estimator's own full belief rolled
+forward, against the 2026-10-14 record:
+
+| | 1 h | 2 h | 4 h | 6 h |
+|---|---|---|---|---|
+| mean abs error, before | 0.57 K | 0.30 K | 0.45 K | 0.43 K |
+| mean abs error, after | 0.57 K | 0.28 K | 0.35 K | 0.34 K |
+| 95 % band half-width, before | ±5 K mean, up to ±11 K | | | |
+| 95 % band half-width, after | 1.47 K | 1.51 K | 1.47 K | 1.65 K |
+| coverage, before | | | 75–80 % | 75–80 % |
+| coverage, after | 100 % | 100 % | 83 % | 90 % |
+
+Time to 65 °C within 1.5 min (was 2.8); time to 75 °C 10.5 min early, all six cases
+early (was 12 min, all early). So the bands came down by three and a half times and
+the coverage rose, with the errors untouched: the state widths that made the ±5 K bands
+were the four inert groups' draws, as diagnosed. What remains is the other half. The
+bands are still three to four times the errors, and the two 4 h misses (the 10.2 h and
+13.0 h snapshots, bands ±0.63 and ±0.88 K around errors of +0.45 and +0.97 K) are
+late-cook forecasts that run hot by up to 1 K with a tight band: the forecast error's
+bias turns positive from 6 h on and grows, and every 75 °C crossing is predicted early.
+That is the overconfident, mis-centred latent half (the ignition pair ends the cook at
+k_spread −2.8 sd and a0 beyond +2, the lock seen on every seed), together with the
+centre estimate running 0.6–1.4 K low all cook (the bias the original report found
+invisible to NIS). Neither is a width the noise model can supply honestly; the next work
+is on the latents and the centre bias, not on rates.
 
 **Pit-only quadrature during lighting, 2026-10-13 (stopped; infrastructure kept, `b43b451`).**
 Since the meat is not on during lighting, the ignition quadrature was moved onto a pit-only

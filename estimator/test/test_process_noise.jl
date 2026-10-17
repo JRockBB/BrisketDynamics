@@ -61,6 +61,13 @@ const INERT = ("T_fb", "m_pan", "T_pan", "brisket.S")
     Q2 = belief_process_cov(bl2, sn, 1.0)
     for (g, r) in (("T_fb", sn.T_fb), ("m_pan", sn.m_pan), ("T_pan", sn.T_pan)); @test d1(Q2, bl2, g) ≈ r^2; end
     @test d1(Q2, bl2, "brisket.S") > 0
+    # a lid-open event disturbs the chamber, not a firebox that is a constant (the 2026-10-16 replay: 3 K of width per
+    # event on the inert firebox); with a duct the firebox takes the event's disturbance as before
+    Qe = belief_process_cov(bl, sn, 1.0; events=[:add, :spritz])
+    @test d1(Qe, bl, "T_pit") ≈ d1(Q, bl, "T_pit") + sn.T_event^2 + sn.T_spritz^2
+    @test d1(Qe, bl, "T_fb") == 0.0 && d1(Qe, bl, "m_fuel") ≈ d1(Q, bl, "m_fuel") + sn.m_add^2
+    Qe2 = belief_process_cov(bl2, sn, 1.0; events=[:add])
+    @test d1(Qe2, bl2, "T_fb") ≈ sn.T_fb^2 + sn.T_event^2
     # the rates' sensitivity (the bench accumulator's dQ) is zero for an inert group
     @test E._group_rate(bl, sn, "T_fb", false) == 0.0
     @test E._group_rate(bl, sn, "T_fb", true) == sn.T_fb0
