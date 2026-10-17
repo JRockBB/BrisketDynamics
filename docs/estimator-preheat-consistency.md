@@ -205,7 +205,13 @@ That is the overconfident, mis-centred latent half (the ignition pair ends the c
 k_spread −2.8 sd and a0 beyond +2, the lock seen on every seed), together with the
 centre estimate running 0.6–1.4 K low all cook (the bias the original report found
 invisible to NIS). Neither is a width the noise model can supply honestly; the next work
-is on the latents and the centre bias, not on rates.
+is on the latents and the centre bias, not on rates. The figures:
+`figures/estimator/stream_snap_43001_inert.png` (the run: the centre and surface error
+over marginal SD sit at −1 to −1.5 from 2.5 h to 15 h and never cross zero) and
+`stream_snap_43001_inert_parameters.png` (the latents: k_spread to −2.9 SD and a0 to
++2.6 SD, A_meat at −2, k_m, k_e and L one-sided at +1.5 to +1.8), beside the same pair
+for the 2026-10-14 record (`stream_snap_43001.png`, `stream_snap_43001_parameters.png`),
+which they match: the fix touched only what those panels do not plot.
 
 **Pit-only quadrature during lighting, 2026-10-13 (stopped; infrastructure kept, `b43b451`).**
 Since the meat is not on during lighting, the ignition quadrature was moved onto a pit-only
