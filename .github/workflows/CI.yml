@@ -86,7 +86,7 @@ jobs:
       - uses: julia-actions/cache@v2
       - name: Instantiate Julia project
         run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - name: Run the app suite (boundary, composed-gradient gate, MPC, planner, 2-D)
         working-directory: app
         run: uv run pytest tests -q --durations=15
